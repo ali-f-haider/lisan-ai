@@ -1595,3 +1595,248 @@ function renderTimeline() {
         wrap.appendChild(lane);
     });
 }
+
+// ===== FIXED: Progress text (no double bar) =====
+const _origCheckTranscribe2 = checkTranscribeProgress;
+checkTranscribeProgress = async function() {
+    if (!currentJobId) return;
+    const res = await fetch(`/api/progress/${currentJobId}`);
+    const data = await res.json();
+    const fill = document.getElementById("progressFill");
+    const txt = document.getElementById("progressText");
+    if (fill) fill.style.width = (data.percent || 0) + "%";
+    if (txt) txt.textContent = (data.percent || 0) + "%" + (data.status_text ? " — " + data.status_text : "") + "... please wait";
+    if (data.is_video !== undefined) isVideoUpload = data.is_video;
+    if (data.status === "done") {
+        clearInterval(transcribePollTimer);
+        segmentsData = data.segments;
+        segmentsData.forEach(s => { s.start = Number(Number(s.start).toFixed(2)); s.end = Number(Number(s.end).toFixed(2)); s.locked = false; });
+        originalSegments = JSON.parse(JSON.stringify(segmentsData));
+        totalDuration = data.full_duration || 0;
+        let message = "Transcription complete.";
+        if (data.detected_speakers > 0) message += ` Detected speakers: ${data.detected_speakers}.`;
+        if (data.warning) notify("error", "⚠️ " + data.warning);
+        notify("success", message + " Use 🔒 to protect lines from Auto-Fix, Translate and Tashkeel.");
+        renderTable(); renderSpeakerVoices();
+        ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(id => document.getElementById(id).classList.remove("hidden"));
+        updateBadges(); fetchUsage();
+    }
+    if (data.status === "error") { clearInterval(transcribePollTimer); notify("error", data.error); }
+};
+
+const _origCheckGen2 = checkGenerateProgress;
+checkGenerateProgress = async function() {
+    const res = await fetch("/api/progress/generate");
+    const data = await res.json();
+    if (!data || data.status === "not_found") return;
+    const fill = document.getElementById("genProgressFill");
+    const txt = document.getElementById("genProgressText");
+    if (fill && typeof data.percent === "number") fill.style.width = data.percent + "%";
+    if (txt && typeof data.percent === "number") txt.textContent = data.percent + "% — generating audio... please wait";
+    if (data.status === "done") {
+        clearInterval(generatePollTimer);
+        document.getElementById("generateButton").disabled = false;
+        const r = data.result || {};
+        notify("success", "Arabic audio generated and merged.");
+        document.getElementById("resultSection").classList.remove("hidden");
+        document.getElementById("audioResults").innerHTML = `
+            <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
+            <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
+            <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
+            <div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
+        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+        fetchUsage(); updateBadges();
+    }
+    if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
+};
+
+// ===== FIXED: Table row creation (no duplicate # column, aligned fields) =====
+function createRow(seg, i) {
+    const row = document.createElement("tr");
+    if (seg.locked) row.className = "locked";
+    // Alternating background by speaker group
+    let groupIdx = 0;
+    for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
+    row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+
+    const mk = (tag) => document.createElement(tag);
+
+    // # column
+    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
+
+    // Start
+    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
+
+    // End
+    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
+
+    // Speaker
+    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
+
+    // Gender
+    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
+
+    // Style / Emotion (dropdown + textbox)
+    const eCell = mk("td");
+    const eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
+    const eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
+    const blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
+    EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    eS.title = "Pick a style tag to add it";
+    eS.onchange = () => {
+        if (!eS.value) return;
+        const merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
+        const clean = sanitizeStyle(merged) || "neutral";
+        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
+    };
+    const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.title = "Speaking style — multiple tags, comma separated"; eI.style.flex = "1"; eI.style.minWidth = "80px";
+    eI.onchange = () => {
+        const clean = sanitizeStyle(eI.value) || "neutral";
+        if (clean !== eI.value.trim()) notify("info", "Words not in the official list were removed. Style: '" + clean + "'.");
+        eI.value = clean; seg.emotion = clean; updateBadges();
+    };
+    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
+
+    // English
+    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
+
+    // Arabic
+    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
+
+    // Actions
+    const aCell = mk("td");
+    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = () => previewRow(i, pb);
+    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = () => regenerateLine(i, rb);
+    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
+    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
+    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = () => toggleLock(i);
+    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
+    row.appendChild(aCell);
+
+    return row;
+}
+
+// ===== FIXED: Remove duplicate # column injection =====
+(function removeDuplicateNumCol() {
+    const tr = document.querySelector("#segmentsTable thead tr");
+    if (!tr) return;
+    const ths = tr.querySelectorAll("th");
+    // If first two THs both say "#", remove the second one (injected by old code)
+    if (ths.length >= 2 && ths[0].textContent.trim() === "#" && ths[1].textContent.trim() === "#") {
+        ths[1].remove();
+    }
+})();
+
+// ===== FIXED: Clone analysis table (frontend-computed, always populates) =====
+async function analyzeSpeakers() {
+    if (!segmentsData.length) { notify("error", "No segments found."); return; }
+    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))].sort();
+    const analysis = names.map(name => {
+        const segs = segmentsData.filter(s => (s.speaker || "Speaker 1") === name && (s.text || "").trim());
+        const total = segs.reduce((a, s) => a + Math.max(0, s.end - s.start), 0);
+        const total_time = Math.round(total * 10) / 10;
+        const n = segs.length;
+        let status, message;
+        if (total_time < 1.0) { status = "bad"; message = `❌ Cannot clone — only ${total_time}s across ${n} line(s). Need ≥1s. Use a library voice in Step 4.`; }
+        else if (total_time < 3.0) { status = "warning"; message = `⚠️ Barely enough (${total_time}s, ${n} line(s)). Clone may sound robotic.`; }
+        else if (total_time < 10.0) { status = "warning"; message = `🟡 Acceptable (${total_time}s, ${n} line(s)). Decent clone.`; }
+        else if (total_time < 20.0) { status = "good"; message = `✅ Good (${total_time}s, ${n} line(s)). Natural clone expected.`; }
+        else { status = "good"; message = `🌟 Excellent (${total_time}s, ${n} line(s)). Best quality clone.`; }
+        return { speaker: name, total_time, num_segments: n, status, message };
+    });
+    const tbody = document.querySelector("#cloneAnalysisTable tbody");
+    tbody.innerHTML = "";
+    analysis.forEach(item => {
+        const row = document.createElement("tr");
+        const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = item.status !== "bad"; cb.dataset.speaker = item.speaker;
+        const c0 = document.createElement("td"); c0.style.textAlign = "center"; c0.appendChild(cb); row.appendChild(c0);
+        const c1 = document.createElement("td"); c1.textContent = item.speaker; row.appendChild(c1);
+        const c2 = document.createElement("td"); c2.textContent = `${item.total_time}s (${item.num_segments} line${item.num_segments > 1 ? "s" : ""})`; row.appendChild(c2);
+        const c3 = document.createElement("td"); c3.textContent = item.message; c3.style.color = item.status === "good" ? "#059669" : (item.status === "warning" ? "#d97706" : "#dc2626"); c3.style.fontSize = "0.9em"; row.appendChild(c3);
+        tbody.appendChild(row);
+    });
+    document.getElementById("cloneAnalysisSection").classList.remove("hidden");
+    notify("success", "Review the guidance below. Speakers marked ❌ are unchecked automatically.");
+}
+
+// ===== FIXED: Timeline with ruler + overlap prevention =====
+function renderTimeline() {
+    const wrap = document.getElementById("timelineWrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!segmentsData.length) return;
+    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
+    const W = wrap.clientWidth || 900;
+    const scale = W / total;
+
+    // Time ruler
+    const ruler = document.createElement("div");
+    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
+    const step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
+    for (let t = 0; t <= total; t += step) {
+        const mark = document.createElement("div");
+        mark.style.cssText = `position:absolute;left:${t * scale}px;top:0;height:100%;border-left:1px solid #475569;`;
+        const label = document.createElement("span");
+        label.textContent = t + "s";
+        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
+        mark.appendChild(label);
+        ruler.appendChild(mark);
+    }
+    wrap.appendChild(ruler);
+
+    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
+    speakers.forEach((spk, li) => {
+        const lane = document.createElement("div");
+        lane.style.cssText = `position:relative;height:34px;border-bottom:1px solid #334155;background:${li % 2 === 0 ? "#1e293b" : "#1a2332"};`;
+        const lab = document.createElement("span");
+        lab.textContent = spk;
+        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
+        lane.appendChild(lab);
+        segmentsData.forEach((seg, i) => {
+            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
+            const off = segmentOffsets[seg.segment_id] || 0;
+            const box = document.createElement("div");
+            const left = Math.max(0, (seg.start + off) * scale);
+            const width = Math.max(8, (seg.end - seg.start) * scale);
+            box.style.cssText = `position:absolute;left:${left}px;top:4px;width:${width}px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;`;
+            box.title = "Line " + (i + 1) + ": drag to shift";
+            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
+            box.onmousedown = function (ev) {
+                ev.preventDefault();
+                const startX = ev.clientX;
+                const startOff = off;
+                const sameLane = segmentsData.filter((s, idx) => idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim());
+                const move = function (e2) {
+                    let no = startOff + (e2.clientX - startX) / scale;
+                    no = Math.max(-2, Math.min(2, no));
+                    if (seg.start + no < 0) no = -seg.start;
+                    if (seg.end + no > total) no = total - seg.end;
+                    for (const nb of sameLane) {
+                        const nbOff = segmentOffsets[nb.segment_id] || 0;
+                        const nbStart = nb.start + nbOff;
+                        const nbEnd = nb.end + nbOff;
+                        const testStart = seg.start + no;
+                        const testEnd = seg.end + no;
+                        if (testStart < nbEnd && testEnd > nbStart) {
+                            if (no > startOff) { no = nbStart - seg.end; }
+                            else { no = nbEnd - seg.start; }
+                        }
+                    }
+                    segmentOffsets[seg.segment_id] = no;
+                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
+                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
+                };
+                const up = function () {
+                    document.removeEventListener("mousemove", move);
+                    document.removeEventListener("mouseup", up);
+                    renderTimeline();
+                };
+                document.addEventListener("mousemove", move);
+                document.addEventListener("mouseup", up);
+            };
+            lane.appendChild(box);
+        });
+        wrap.appendChild(lane);
+    });
+}

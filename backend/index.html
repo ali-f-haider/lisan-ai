@@ -12,7 +12,7 @@
 <h1>Lisan AI</h1>
 <p class="subtitle"><strong>English to Arabic AI Dubbing</strong></p>
 <p class="subtitle" dir="rtl"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
-<p style="text-align:center;margin:8px 0 20px;"><a href="/help" style="color:var(--accent);font-size:14px;font-weight:600;text-decoration:none;">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a></p>
+<p style="text-align:center;margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></p>
 
 <div class="card">
     <h3>Step 1: Upload Audio or Video</h3>
@@ -29,7 +29,7 @@
     <button onclick="startTranscribe()">Transcribe<span class="badge" id="badgeTranscribe"></span></button>
     <div id="progressSection" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-        <p id="progressText" class="note" style="text-align:center;margin-top:6px;">0%</p>
+        <p id="progressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
     </div>
     <div style="clear:both;"></div>
 </div>
@@ -50,16 +50,16 @@
     <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
     <div id="emotionProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%"></div></div>
-        <p id="emotionProgressText" class="note" style="text-align:center;margin-top:6px;">0%</p>
+        <p id="emotionProgressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
     </div>
     <div style="overflow-x:auto;">
         <table id="segmentsTable">
             <thead><tr>
                 <th style="width:36px">#</th>
-                <th style="width:75px">Start</th>
-                <th style="width:75px">End</th>
-                <th style="width:110px">Speaker</th>
-                <th style="width:80px">Gender</th>
+                <th style="width:72px">Start</th>
+                <th style="width:72px">End</th>
+                <th style="width:100px">Speaker</th>
+                <th style="width:78px">Gender</th>
                 <th style="width:170px">Style / Emotion</th>
                 <th style="min-width:150px">English</th>
                 <th style="min-width:150px">Arabic</th>
@@ -125,7 +125,7 @@
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
     <div id="genProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div>
-        <p id="genProgressText" class="note" style="text-align:center;margin-top:6px;">0%</p>
+        <p id="genProgressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
     </div>
 </div>
 
