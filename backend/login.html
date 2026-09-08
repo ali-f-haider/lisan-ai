@@ -3,18 +3,41 @@
 <head>
 <meta charset="utf-8">
 <title>Lisan AI — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .login-card { background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); padding: 40px 36px; width: 380px; text-align: center; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .login-card { background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); padding: 40px 36px; width: 400px; text-align: center; }
     .login-card h1 { font-size: 28px; color: #1a237e; margin-bottom: 4px; }
-    .login-card .sub { font-size: 14px; color: #666; margin-bottom: 6px; }
+    .login-card .sub { font-size: 14px; color: #666; margin-bottom: 4px; }
     .login-card .sub-ar { font-size: 14px; color: #666; margin-bottom: 24px; direction: rtl; }
-    .login-card input { width: 100%; padding: 12px 14px; border: 2px solid #ddd; border-radius: 8px; font-size: 16px; margin-bottom: 16px; outline: none; transition: border 0.2s; }
+    .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #9ca3af; font-size: 13px; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; }
+    .login-card input[type="email"], .login-card input[type="password"] {
+        width: 100%; padding: 12px 14px; border: 2px solid #e5e7eb; border-radius: 10px;
+        font-size: 15px; margin-bottom: 12px; outline: none; transition: border 0.2s; font-family: inherit;
+    }
     .login-card input:focus { border-color: #42a5f5; }
-    .login-card button { width: 100%; padding: 12px; background: #1a237e; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
-    .login-card button:hover { background: #283593; }
-    .error { color: #c62828; font-size: 13px; margin-bottom: 12px; display: none; }
+    .btn-primary {
+        width: 100%; padding: 12px; background: #1a237e; color: #fff; border: none;
+        border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;
+    }
+    .btn-primary:hover { background: #283593; }
+    .btn-google {
+        width: 100%; padding: 12px; background: #fff; color: #333; border: 2px solid #e5e7eb;
+        border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        display: flex; align-items: center; justify-content: center; gap: 10px; font-family: inherit; margin-bottom: 10px;
+    }
+    .btn-google:hover { background: #f9fafb; border-color: #d1d5db; }
+    .btn-google img { width: 20px; height: 20px; }
+    .toggle-link { font-size: 13px; color: #42a5f5; cursor: pointer; margin-top: 16px; display: inline-block; }
+    .toggle-link:hover { text-decoration: underline; }
+    .error { color: #dc2626; font-size: 13px; margin-bottom: 12px; display: none; background: #fef2f2; padding: 8px 12px; border-radius: 8px; }
+    .success { color: #059669; font-size: 13px; margin-bottom: 12px; display: none; background: #ecfdf5; padding: 8px 12px; border-radius: 8px; }
+    .hidden { display: none !important; }
+    .help-link { margin-top: 20px; }
+    .help-link a { color: #42a5f5; font-size: 13px; text-decoration: none; }
 </style>
 </head>
 <body>
@@ -22,36 +45,126 @@
     <h1>Lisan AI</h1>
     <p class="sub"><strong>English to Arabic AI Dubbing</strong></p>
     <p class="sub-ar"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
-    <div class="error" id="loginError">Incorrect password. Please try again.</div>
-    <input type="password" id="loginPass" placeholder="Enter password" autofocus
-           onkeydown="if(event.key==='Enter')doLogin()">
-    <button onclick="doLogin()">Log In</button>
-    <p style="margin-top:16px;"><a href="/help" style="color:#42a5f5;font-size:13px;text-decoration:none;">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a></p>
+
+    <div class="error" id="authError"></div>
+    <div class="success" id="authSuccess"></div>
+
+    <!-- Sign Up Form -->
+    <div id="signupForm">
+        <h3 style="font-size:18px;color:#1a237e;margin-bottom:16px;">Create Account</h3>
+        <input type="email" id="signupEmail" placeholder="Email address" autocomplete="email">
+        <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" autocomplete="new-password"
+               onkeydown="if(event.key==='Enter')doSignup()">
+        <button class="btn-primary" onclick="doSignup()">Sign Up</button>
+        <div class="divider">or</div>
+        <button class="btn-google" onclick="doGoogleLogin()">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G">
+            Continue with Google
+        </button>
+        <span class="toggle-link" onclick="showLogin()">Already have an account? Log In</span>
+    </div>
+
+    <!-- Login Form -->
+    <div id="loginForm" class="hidden">
+        <h3 style="font-size:18px;color:#1a237e;margin-bottom:16px;">Log In</h3>
+        <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
+        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doLogin()">
+        <button class="btn-primary" onclick="doLogin()">Log In</button>
+        <div class="divider">or</div>
+        <button class="btn-google" onclick="doGoogleLogin()">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G">
+            Continue with Google
+        </button>
+        <span class="toggle-link" onclick="showSignup()">Don't have an account? Sign Up</span>
+    </div>
+
+    <div class="help-link">
+        <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
+    </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-async function doLogin() {
-    const pw = document.getElementById("loginPass").value;
-    const err = document.getElementById("loginError");
-    err.style.display = "none";
+const SUPABASE_URL = "{{SUPABASE_URL}}";
+const SUPABASE_KEY = "{{SUPABASE_ANON_KEY}}";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+function showErr(msg) {
+    const el = document.getElementById("authError");
+    el.textContent = msg; el.style.display = "block";
+    document.getElementById("authSuccess").style.display = "none";
+}
+function showOk(msg) {
+    const el = document.getElementById("authSuccess");
+    el.textContent = msg; el.style.display = "block";
+    document.getElementById("authError").style.display = "none";
+}
+function hideMsgs() {
+    document.getElementById("authError").style.display = "none";
+    document.getElementById("authSuccess").style.display = "none";
+}
+function showLogin() { hideMsgs(); document.getElementById("signupForm").classList.add("hidden"); document.getElementById("loginForm").classList.remove("hidden"); }
+function showSignup() { hideMsgs(); document.getElementById("loginForm").classList.add("hidden"); document.getElementById("signupForm").classList.remove("hidden"); }
+
+async function doSignup() {
+    hideMsgs();
+    const email = document.getElementById("signupEmail").value.trim();
+    const password = document.getElementById("signupPassword").value;
+    if (!email || !password) { showErr("Please enter email and password."); return; }
+    if (password.length < 6) { showErr("Password must be at least 6 characters."); return; }
     try {
-        const res = await fetch("/api/login", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({password: pw})
-        });
-        const data = await res.json();
-        if (data.ok) {
+        const { data, error } = await supabase.auth.signUp({ email, password });
+        if (error) { showErr(error.message); return; }
+        if (data.session) {
+            await sendSession(data.session);
             window.location.href = "/";
         } else {
-            err.style.display = "block";
-            document.getElementById("loginPass").value = "";
-            document.getElementById("loginPass").focus();
+            showOk("Check your email for a confirmation link, then log in.");
+            showLogin();
         }
-    } catch(e) {
-        err.textContent = "Connection error. Please try again.";
-        err.style.display = "block";
-    }
+    } catch (e) { showErr(e.message); }
 }
+
+async function doLogin() {
+    hideMsgs();
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    if (!email || !password) { showErr("Please enter email and password."); return; }
+    try {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) { showErr(error.message); return; }
+        await sendSession(data.session);
+        window.location.href = "/";
+    } catch (e) { showErr(e.message); }
+}
+
+async function doGoogleLogin() {
+    hideMsgs();
+    try {
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: { redirectTo: window.location.origin + "/auth/callback" }
+        });
+        if (error) showErr(error.message);
+    } catch (e) { showErr(e.message); }
+}
+
+async function sendSession(session) {
+    await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token })
+    });
+}
+
+// Check if already logged in
+(async () => {
+    try {
+        const res = await fetch("/api/auth/check");
+        if (res.ok) { window.location.href = "/"; }
+    } catch (e) {}
+})();
 </script>
 </body>
 </html>

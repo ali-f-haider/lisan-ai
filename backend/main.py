@@ -4,6 +4,7 @@ import shutil
 import threading
 import urllib.request
 import uuid
+import os
 from pathlib import Path
 from typing import Dict, List
 
@@ -27,52 +28,109 @@ app = FastAPI()
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
 GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
 
-# ---------- Session ----------
-_sessions = set()
+# ---------- Supabase Auth ----------
+import urllib.request as _urllib_req
 
-def _new_session(resp: Response):
-    tok = secrets.token_hex(32)
-    _sessions.add(tok)
-    resp.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
-def _is_logged_in(req: Request) -> bool:
-    if not APP_PASSWORD:
+# Store valid sessions: access_token -> True
+_valid_tokens = {}
+
+def _verify_supabase_token(access_token: str) -> bool:
+    """Verify a Supabase JWT by calling their API."""
+    if not SUPABASE_URL or not access_token:
+        return False
+    # Check cache first
+    if access_token in _valid_tokens:
         return True
-    return req.cookies.get("session", "") in _sessions
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/user"
+        req = _urllib_req.Request(url, headers={
+            "Authorization": f"Bearer {access_token}",
+            "apikey": SUPABASE_ANON_KEY
+        })
+        with _urllib_req.urlopen(req, timeout=10) as r:
+            if r.status == 200:
+                _valid_tokens[access_token] = True
+                return True
+    except Exception:
+        pass
+    return False
 
+class AuthRequest(BaseModel):
+    access_token: str = ""
+    refresh_token: str = ""
 
-class LoginRequest(BaseModel):
-    password: str = ""
+@app.post("/api/auth/session")
+def auth_session(req: AuthRequest, response: Response):
+    if _verify_supabase_token(req.access_token):
+        tok = secrets.token_hex(32)
+        _sessions.add(tok)
+        _valid_tokens[tok] = req.access_token  # Map our cookie to their token
+        response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
+        return {"ok": True}
+    return JSONResponse({"error": "Invalid session"}, status_code=401)
+
+@app.get("/api/auth/check")
+def auth_check(request: Request):
+    cookie = request.cookies.get("session", "")
+    if cookie in _sessions:
+        sb_token = _valid_tokens.get(cookie, "")
+        if sb_token and _verify_supabase_token(sb_token):
+            return {"ok": True}
+    # Fallback: old APP_PASSWORD mode
+    if APP_PASSWORD and cookie in _sessions:
+        return {"ok": True}
+    return JSONResponse({"error": "Not logged in"}, status_code=401)
 
 @app.post("/api/login")
-def login(req: LoginRequest, response: Response):
-    if not APP_PASSWORD or req.password == APP_PASSWORD:
-        _new_session(response)
+def login_legacy(req: LoginRequest, response: Response):
+    """Legacy password login — kept as fallback."""
+    if APP_PASSWORD and req.password == APP_PASSWORD:
+        tok = secrets.token_hex(32)
+        _sessions.add(tok)
+        response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
         return {"ok": True}
     return {"ok": False}
 
 @app.get("/login")
 def login_page():
-    return FileResponse(BASE_DIR / "login.html", media_type="text/html")
+    html = (BASE_DIR / "login.html").read_text(encoding="utf-8")
+    html = html.replace("{{SUPABASE_URL}}", SUPABASE_URL)
+    html = html.replace("{{SUPABASE_ANON_KEY}}", SUPABASE_ANON_KEY)
+    return HTMLResponse(html)
 
+@app.get("/auth/callback")
+def auth_callback():
+    html = (BASE_DIR / "auth_callback.html").read_text(encoding="utf-8")
+    html = html.replace("{{SUPABASE_URL}}", SUPABASE_URL)
+    html = html.replace("{{SUPABASE_ANON_KEY}}", SUPABASE_ANON_KEY)
+    return HTMLResponse(html)
 
-# ---------- Auth middleware ----------
 from starlette.middleware.base import BaseHTTPMiddleware
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path in ("/login", "/api/login", "/help") or path.startswith("/api/login"):
+        # Public paths
+        if path in ("/login", "/auth/callback", "/help", "/api/login", "/api/auth/session", "/api/auth/check"):
             return await call_next(request)
-        if path.endswith(".css") or path.endswith(".js"):
+        if path.endswith(".css") or path.endswith(".js") or path.endswith(".svg"):
             return await call_next(request)
-        if not _is_logged_in(request):
+        # Check session
+        cookie = request.cookies.get("session", "")
+        logged_in = False
+        if cookie in _sessions:
+            sb_token = _valid_tokens.get(cookie, "")
+            if sb_token and _verify_supabase_token(sb_token):
+                logged_in = True
+            elif APP_PASSWORD:
+                logged_in = True  # Legacy password mode
+        if not logged_in:
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
-            return HTMLResponse(
-                '<script>window.location.href="/login";</script>',
-                status_code=200
-            )
+            return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200)
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
