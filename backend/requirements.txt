@@ -11,3 +11,5 @@ torch==2.5.1+cpu
 torchaudio==2.5.1+cpu
 --extra-index-url https://download.pytorch.org/whl/cpu
 demucs==4.0.1
+pyannote.audio==3.3.2
+soundfile==0.12.1
