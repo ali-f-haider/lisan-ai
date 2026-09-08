@@ -9,7 +9,20 @@
 </head>
 <body>
 <div id="notifyPanel"></div>
-<h1>Lisan AI</h1>
+
+<!-- User Header Bar -->
+<div id="userBar" style="background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:50;">
+    <div style="font-size:20px;font-weight:800;color:#1a237e;">Lisan AI</div>
+    <div style="display:flex;align-items:center;gap:16px;">
+        <div id="creditsDisplay" style="background:#ecfdf5;border:1px solid #bbf7d0;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;color:#059669;display:none;">
+            💰 <span id="creditsNum">0</span> credits
+        </div>
+        <div id="userName" style="font-size:14px;font-weight:600;color:#374151;"></div>
+        <button onclick="doLogout()" style="padding:6px 16px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;font-weight:500;color:#6b7280;cursor:pointer;font-family:inherit;">Log Out</button>
+    </div>
+</div>
+
+<h1 style="margin-top:20px;">Lisan AI</h1>
 <p class="subtitle"><strong>English to Arabic AI Dubbing</strong></p>
 <p class="subtitle" dir="rtl"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
 <p style="text-align:center;margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></p>

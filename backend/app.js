@@ -1928,3 +1928,39 @@ async function autoAssignVoices() {
     renderSpeakerVoices();
     notify("success", "Voices auto-assigned. You can change any speaker's voice in the Step 4 table.");
 }
+
+// ===== USER HEADER =====
+(function loadUserInfo() {
+    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+        var nameEl = document.getElementById("userName");
+        var credEl = document.getElementById("creditsDisplay");
+        var credNum = document.getElementById("creditsNum");
+        if (nameEl) nameEl.textContent = data.name || "";
+        if (!data.is_guest && credEl && credNum) {
+            credNum.textContent = data.credits;
+            credEl.style.display = "inline-block";
+        }
+    }).catch(function() {});
+})();
+
+function doLogout() {
+    fetch("/api/logout", { method: "POST" }).then(function() {
+        // Also clear Supabase session if available
+        if (typeof window.supabase !== "undefined" && window.__SUPABASE_URL) {
+            try {
+                var sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || "");
+                sb.auth.signOut();
+            } catch(e) {}
+        }
+        window.location.href = "/login";
+    }).catch(function() {
+        window.location.href = "/login";
+    });
+}
+
+function refreshCredits() {
+    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+        var credNum = document.getElementById("creditsNum");
+        if (credNum && !data.is_guest) credNum.textContent = data.credits;
+    }).catch(function() {});
+}

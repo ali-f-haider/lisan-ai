@@ -164,7 +164,51 @@ class AuthMiddleware(BaseHTTPMiddleware):
 app.add_middleware(AuthMiddleware)
 
 # ==================== DEBUG ====================
+@app.get("/api/user/info")
+def user_info(request: Request):
+    cookie = request.cookies.get("session", "")
+    sb_token = _valid_tokens.get(cookie, "")
+    if not sb_token or not SUPABASE_URL:
+        # Legacy password mode — no user profile
+        return {"name": "Guest", "credits": -1, "is_guest": True}
+    try:
+        url = f"{SUPABASE_URL}/auth/v1/user"
+        req = urllib.request.Request(url, headers={
+            "Authorization": f"Bearer {sb_token}",
+            "apikey": SUPABASE_ANON_KEY
+        })
+        with urllib.request.urlopen(req, timeout=10) as r:
+            user_data = json.load(r)
+        user_id = user_data.get("id", "")
+        email = user_data.get("email", "User")
+        display_name = email.split("@")[0] if email else "User"
+        # Fetch credits from profiles table
+        credits = 100
+        try:
+            prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=credits,display_name"
+            prof_req = urllib.request.Request(prof_url, headers={
+                "Authorization": f"Bearer {sb_token}",
+                "apikey": SUPABASE_ANON_KEY
+            })
+            with urllib.request.urlopen(prof_req, timeout=10) as pr:
+                prof_data = json.load(pr)
+            if prof_data:
+                credits = prof_data[0].get("credits", 100)
+                display_name = prof_data[0].get("display_name", display_name)
+        except Exception:
+            pass
+        return {"name": display_name, "credits": credits, "is_guest": False}
+    except Exception:
+        return {"name": "Guest", "credits": -1, "is_guest": True}
 
+
+@app.post("/api/logout")
+def logout(response: Response):
+    cookie = response.headers.get("set-cookie", "")
+    tok = ""
+    # Clear session
+    response.delete_cookie("session")
+    return {"ok": True}
 @app.get("/debug-keys")
 def debug_keys():
     return {
