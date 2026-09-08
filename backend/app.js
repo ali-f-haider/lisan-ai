@@ -864,7 +864,7 @@ async function confirmTimeline() {
 
 window.addEventListener('DOMContentLoaded', updateBadges);
 
-const MAX_UPLOAD_BYTES = 1.5 * 1024 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 400 * 1024 * 1024;
 const MAX_DURATION_SEC = 60.5;
 
 function probeFileDuration(file) {
