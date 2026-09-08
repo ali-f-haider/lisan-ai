@@ -25,21 +25,11 @@ import lipsync_service
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 app = FastAPI()
-@app.get("/debug-keys")
-def debug_keys():
-    from config import GEMINI_API_KEY as _g, ELEVENLABS_API_KEY as _e, HF_TOKEN as _h, APP_PASSWORD as _p
-    return {
-        "SUPABASE_URL": os.environ.get("SUPABASE_URL", "NOT_IN_ENV")[:25],
-        "SUPABASE_ANON_KEY": os.environ.get("SUPABASE_ANON_KEY", "NOT_IN_ENV")[:25],
-        "APP_PASSWORD": "SET" if _p else "EMPTY",
-        "GEMINI_API_KEY": "SET" if _g else "EMPTY",
-        "ELEVENLABS_API_KEY": "SET" if _e else "EMPTY",
-        "HF_TOKEN": "SET" if _h else "EMPTY",
-    }
+
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
 GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
 
-# ==================== ALL MODEL DEFINITIONS FIRST ====================
+# ==================== ALL MODELS ====================
 
 class LoginRequest(BaseModel):
     password: str = ""
@@ -112,11 +102,10 @@ class TashkeelItem(BaseModel):
 class TashkeelRequest(BaseModel):
     items: List[TashkeelItem]
 
-# ==================== SESSION & AUTH ====================
+# ==================== AUTH ====================
 
 _sessions = set()
 _valid_tokens = {}
-
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 
@@ -153,14 +142,18 @@ def _is_logged_in(request: Request) -> bool:
     return False
 
 
+PUBLIC_PATHS = frozenset([
+    "/", "/login", "/auth/callback", "/help", "/debug-keys",
+    "/api/login", "/api/auth/session", "/api/auth/check"
+])
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        public = ("/", "/login", "/auth/callback", "/help", "/debug-keys", "/api/login",
-                  "/api/auth/session", "/api/auth/check")
-        if path in public or path.startswith("/api/login") or path.startswith("/api/auth/"):
+        if path in PUBLIC_PATHS or path.startswith("/api/auth/"):
             return await call_next(request)
-        if path.endswith(".css") or path.endswith(".js") or path.endswith(".svg"):
+        if path.endswith(".css") or path.endswith(".js") or path.endswith(".svg") or path.endswith(".woff2"):
             return await call_next(request)
         if not _is_logged_in(request):
             if path.startswith("/api/"):
@@ -169,6 +162,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
+
+# ==================== DEBUG ====================
+
+@app.get("/debug-keys")
+def debug_keys():
+    return {
+        "SUPABASE_URL": SUPABASE_URL[:25] + "..." if SUPABASE_URL else "EMPTY",
+        "SUPABASE_ANON_KEY": SUPABASE_ANON_KEY[:25] + "..." if SUPABASE_ANON_KEY else "EMPTY",
+        "APP_PASSWORD": "SET" if APP_PASSWORD else "EMPTY",
+        "GEMINI_API_KEY": "SET" if GEMINI_API_KEY else "EMPTY",
+        "ELEVENLABS_API_KEY": "SET" if ELEVENLABS_API_KEY else "EMPTY",
+        "HF_TOKEN": "SET" if HF_TOKEN else "EMPTY",
+    }
 
 # ==================== AUTH ROUTES ====================
 
@@ -211,8 +217,8 @@ def login_page():
 @app.get("/auth/callback")
 def auth_callback():
     html = (BASE_DIR / "auth_callback.html").read_text(encoding="utf-8")
-    html = html.replace("{{SUPABASE_URL}}", SUPABASE_URL)
-    html = html.replace("{{SUPABASE_ANON_KEY}}", SUPABASE_ANON_KEY)
+    inject = f'<script>window.__SUPABASE_URL="{SUPABASE_URL}";window.__SUPABASE_KEY="{SUPABASE_ANON_KEY}";</script>'
+    html = html.replace("</head>", inject + "</head>")
     return HTMLResponse(html)
 
 # ==================== GEMINI HELPER ====================
@@ -412,16 +418,3 @@ def download(filename: str):
     if not p.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p, filename=filename)
-    
-@app.get("/debug-keys")
-def debug_keys():
-    return {
-        "SUPABASE_URL": SUPABASE_URL[:20] + "..." if SUPABASE_URL else "EMPTY",
-        "SUPABASE_ANON_KEY": SUPABASE_ANON_KEY[:20] + "..." if SUPABASE_ANON_KEY else "EMPTY",
-        "APP_PASSWORD": "SET" if APP_PASSWORD else "EMPTY",
-        "GEMINI_API_KEY": "SET" if GEMINI_API_KEY else "EMPTY",
-    }
-    
-    
-@app.get("/help")
-def help_page():
