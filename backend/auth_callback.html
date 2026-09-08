@@ -11,46 +11,45 @@
     <p style="color:#6b7280;margin-top:8px;">Please wait a moment.</p>
     <div id="err" style="color:#dc2626;margin-top:12px;display:none;"></div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const SUPABASE_URL = window.__SUPABASE_URL || "";
-const SUPABASE_KEY = window.__SUPABASE_KEY || "";
-const supabase = (SUPABASE_URL && SUPABASE_KEY) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-(async () => {
-    try {
-        if (!supabase) throw new Error("Auth not configured");
-        // Try hash-based tokens first (Supabase OAuth redirect)
-        const hash = window.location.hash.substring(1);
-        const params = new URLSearchParams(hash);
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token");
-        if (accessToken) {
-            await fetch("/api/auth/session", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken })
-            });
-            window.location.href = "/app";
-            return;
-        }
-        // Try session
-        const { data, error } = await supabase.auth.getSession();
-        if (error || !data.session) {
-            document.getElementById("err").textContent = "Login failed. Please try again.";
-            document.getElementById("err").style.display = "block";
-            return;
-        }
-        await fetch("/api/auth/session", {
+function _done() {
+    var hash = window.location.hash.substring(1);
+    var params = new URLSearchParams(hash);
+    var accessToken = params.get("access_token");
+    var refreshToken = params.get("refresh_token");
+    if (accessToken) {
+        fetch("/api/auth/session", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ access_token: data.session.access_token, refresh_token: data.session.refresh_token })
+            body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken })
+        }).then(function() { window.location.href = "/app"; })
+          .catch(function() { window.location.href = "/app"; });
+        return;
+    }
+    // Try supabase session
+    if (typeof window.supabase !== "undefined" && window.__SUPABASE_URL && window.__SUPABASE_KEY) {
+        var sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY);
+        sb.auth.getSession().then(function(result) {
+            if (result.data && result.data.session) {
+                fetch("/api/auth/session", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({ access_token: result.data.session.access_token, refresh_token: result.data.session.refresh_token })
+                }).then(function() { window.location.href = "/app"; });
+            } else {
+                document.getElementById("err").textContent = "Login failed. Please try again.";
+                document.getElementById("err").style.display = "block";
+            }
         });
-        window.location.href = "/app";
-    } catch (e) {
-        document.getElementById("err").textContent = e.message;
+    } else {
+        document.getElementById("err").textContent = "Login failed. Please try again.";
         document.getElementById("err").style.display = "block";
     }
-})();
+}
+// Wait for supabase to load
+if (document.readyState === "complete") { setTimeout(_done, 500); }
+else { window.addEventListener("load", function() { setTimeout(_done, 500); }); }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 </body>
 </html>

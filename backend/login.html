@@ -90,22 +90,16 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const SUPABASE_URL = window.__SUPABASE_URL || "";
-const SUPABASE_KEY = window.__SUPABASE_KEY || "";
-let supabase = null;
-if (SUPABASE_URL && SUPABASE_KEY) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-}
+// ===== ALL FUNCTIONS DEFINED FIRST (no dependencies) =====
 
 function showErr(msg) {
-    const el = document.getElementById("authError");
+    var el = document.getElementById("authError");
     el.textContent = msg; el.style.display = "block";
     document.getElementById("authSuccess").style.display = "none";
 }
 function showOk(msg) {
-    const el = document.getElementById("authSuccess");
+    var el = document.getElementById("authSuccess");
     el.textContent = msg; el.style.display = "block";
     document.getElementById("authError").style.display = "none";
 }
@@ -116,83 +110,93 @@ function hideMsgs() {
 function showLogin() { hideMsgs(); document.getElementById("signupForm").classList.add("hidden"); document.getElementById("loginForm").classList.remove("hidden"); }
 function showSignup() { hideMsgs(); document.getElementById("loginForm").classList.add("hidden"); document.getElementById("signupForm").classList.remove("hidden"); }
 
-async function doSignup() {
+var _supabase = null;
+
+function _getSupabase() {
+    if (_supabase) return _supabase;
+    var url = window.__SUPABASE_URL || "";
+    var key = window.__SUPABASE_KEY || "";
+    if (!url || !key) return null;
+    if (typeof window.supabase === "undefined") return null;
+    try {
+        _supabase = window.supabase.createClient(url, key);
+        return _supabase;
+    } catch(e) { console.error("Supabase init error:", e); return null; }
+}
+
+function doSignup() {
     hideMsgs();
-    if (!supabase) { showErr("Authentication not configured. Use the access code below."); return; }
-    const email = document.getElementById("signupEmail").value.trim();
-    const password = document.getElementById("signupPassword").value;
+    var sb = _getSupabase();
+    if (!sb) { showErr("Authentication service not loaded. Please refresh the page or use the access code below."); return; }
+    var email = document.getElementById("signupEmail").value.trim();
+    var password = document.getElementById("signupPassword").value;
     if (!email || !password) { showErr("Please enter email and password."); return; }
     if (password.length < 6) { showErr("Password must be at least 6 characters."); return; }
-    try {
-        const { data, error } = await supabase.auth.signUp({ email, password });
-        if (error) { showErr(error.message); return; }
-        if (data.session) {
-            await sendSession(data.session);
+    sb.auth.signUp({ email: email, password: password }).then(function(result) {
+        if (result.error) { showErr(result.error.message); return; }
+        if (result.data && result.data.session) {
+            _sendSession(result.data.session);
             window.location.href = "/app";
         } else {
             showOk("Check your email for a confirmation link, then log in.");
             setTimeout(showLogin, 1500);
         }
-    } catch (e) { showErr(e.message); }
+    }).catch(function(e) { showErr(e.message); });
 }
 
-async function doLogin() {
+function doLogin() {
     hideMsgs();
-    if (!supabase) { showErr("Authentication not configured. Use the access code below."); return; }
-    const email = document.getElementById("loginEmail").value.trim();
-    const password = document.getElementById("loginPassword").value;
+    var sb = _getSupabase();
+    if (!sb) { showErr("Authentication service not loaded. Please refresh the page or use the access code below."); return; }
+    var email = document.getElementById("loginEmail").value.trim();
+    var password = document.getElementById("loginPassword").value;
     if (!email || !password) { showErr("Please enter email and password."); return; }
-    try {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) { showErr(error.message); return; }
-        await sendSession(data.session);
+    sb.auth.signInWithPassword({ email: email, password: password }).then(function(result) {
+        if (result.error) { showErr(result.error.message); return; }
+        _sendSession(result.data.session);
         window.location.href = "/app";
-    } catch (e) { showErr(e.message); }
+    }).catch(function(e) { showErr(e.message); });
 }
 
-async function doGoogleLogin() {
+function doGoogleLogin() {
     hideMsgs();
-    if (!supabase) { showErr("Google login not configured yet. Use email or access code."); return; }
-    try {
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: "google",
-            options: { redirectTo: window.location.origin + "/auth/callback" }
-        });
-        if (error) showErr(error.message);
-    } catch (e) { showErr(e.message); }
+    var sb = _getSupabase();
+    if (!sb) { showErr("Google login not available yet. Use email or access code."); return; }
+    sb.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin + "/auth/callback" }
+    }).then(function(result) {
+        if (result.error) showErr(result.error.message);
+    }).catch(function(e) { showErr(e.message); });
 }
 
-async function sendSession(session) {
-    await fetch("/api/auth/session", {
+function _sendSession(session) {
+    fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token })
-    });
+    }).catch(function(e) { console.error("Session send error:", e); });
 }
 
-async function doLegacyLogin() {
+function doLegacyLogin() {
     hideMsgs();
-    const pw = document.getElementById("legacyPassword").value;
+    var pw = document.getElementById("legacyPassword").value;
     if (!pw) { showErr("Please enter the access code."); return; }
-    try {
-        const res = await fetch("/api/login", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({password: pw})
-        });
-        const data = await res.json();
+    fetch("/api/login", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({password: pw})
+    }).then(function(res) { return res.json(); }).then(function(data) {
         if (data.ok) { window.location.href = "/app"; }
         else { showErr("Invalid access code."); }
-    } catch (e) { showErr(e.message); }
+    }).catch(function(e) { showErr(e.message); });
 }
 
 // Check if already logged in
-(async () => {
-    try {
-        const res = await fetch("/api/auth/check");
-        if (res.ok) { window.location.href = "/app"; }
-    } catch (e) {}
-})();
+fetch("/api/auth/check").then(function(res) {
+    if (res.ok) window.location.href = "/app";
+}).catch(function() {});
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 </body>
 </html>
