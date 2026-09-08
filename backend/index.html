@@ -16,22 +16,25 @@
 
 <div class="card">
     <h3>Step 1: Upload Audio or Video</h3>
-    <div style="float:right;width:300px;margin:0 0 12px 20px;padding:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
-        <div id="usageBox" class="hidden" style="font-size:13px;"></div>
-        <p class="note" style="margin:6px 0 0 0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
+        <div style="flex:1;min-width:280px;">
+            <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
+            <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm">
+            <br><br>
+            <label>Number of speakers</label>
+            <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
+            <br>
+            <button onclick="startTranscribe()">Transcribe<span class="badge" id="badgeTranscribe"></span></button>
+            <div id="progressSection" class="hidden">
+                <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+                <p id="progressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
+            </div>
+        </div>
+        <div style="width:300px;flex-shrink:0;padding:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
+            <div id="usageBox" class="hidden" style="font-size:13px;"></div>
+            <p class="note" style="margin:6px 0 0 0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+        </div>
     </div>
-    <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
-    <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm">
-    <br><br>
-    <label>Number of speakers</label>
-    <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
-    <br>
-    <button onclick="startTranscribe()">Transcribe<span class="badge" id="badgeTranscribe"></span></button>
-    <div id="progressSection" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-        <p id="progressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
-    </div>
-    <div style="clear:both;"></div>
 </div>
 
 <div id="editorSection" class="card hidden">
