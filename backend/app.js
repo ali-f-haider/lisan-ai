@@ -1840,3 +1840,89 @@ function renderTimeline() {
         wrap.appendChild(lane);
     });
 }
+
+// ===== FIX: Step 4 speaker voices table population =====
+async function renderSpeakerVoices() {
+    const tbody = document.querySelector("#speakerVoicesTable tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
+    if (!names.length) return;
+    const hasPools = voicePools.male.length > 0 || voicePools.female.length > 0;
+    if (!hasPools) await ensureVoicePools();
+    names.forEach(name => {
+        const row = document.createElement("tr");
+        const c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
+        const c2 = document.createElement("td");
+        const sel = document.createElement("select");
+        sel.style.width = "100%";
+        // Cloned voice option
+        if (clonedBySpeaker[name]) {
+            const o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o);
+        }
+        // Male voices
+        const addGroup = (g, label) => {
+            (voicePools[g] || []).slice(0, 8).forEach((p, i) => {
+                const o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
+            });
+        };
+        addGroup("male", "🎲 Male voice");
+        addGroup("female", "🎲 Female voice");
+        // Fallback if no pools loaded
+        if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
+            const o = document.createElement("option"); o.value = ""; o.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(o);
+        }
+        sel.value = speakerChoices[name] || "";
+        sel.onchange = () => { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
+        c2.appendChild(sel);
+        // Show current assignment
+        const info = document.createElement("div");
+        info.style.cssText = "font-size:12px;color:#6b7280;margin-top:4px;";
+        info.textContent = speakerVoiceNames[name] || "";
+        c2.appendChild(info);
+        row.appendChild(c2);
+        tbody.appendChild(row);
+    });
+}
+
+// ===== FIX: Ensure voice pools load properly =====
+async function ensureVoicePools() {
+    if (voicePools.male.length || voicePools.female.length) return true;
+    try {
+        const res = await fetch("/api/voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+        const data = await res.json();
+        if (data.error || !data.voices) return false;
+        availableVoices = data.voices;
+        buildVoicePools(availableVoices);
+        return true;
+    } catch (e) { return false; }
+}
+
+async function loadVoiceOptions() {
+    const ok = await ensureVoicePools();
+    if (ok) { notify("success", "Voice options loaded. Pick a voice per speaker below."); renderSpeakerVoices(); }
+    else notify("error", "Could not load the voice library. Check the server configuration.");
+}
+
+async function autoAssignVoices() {
+    const ok = await ensureVoicePools();
+    if (!ok) { notify("error", "Voice library unavailable. Check the server configuration."); return; }
+    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
+    names.forEach(name => {
+        if (speakerChoices[name]) { applyChoice(name); return; }
+        if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
+        let male = 0, female = 0;
+        segmentsData.forEach(s => { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
+        let g = female > male ? "female" : "male";
+        let pool = voicePools[g];
+        if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
+        if (!pool.length) return;
+        const usedIds = new Set(Object.values(speakerVoices));
+        const freeIdx = pool.map((p, i) => i).filter(i => !usedIds.has(pool[i].voice_id));
+        const pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
+        speakerChoices[name] = g + ":" + (pick + 1);
+        applyChoice(name);
+    });
+    renderSpeakerVoices();
+    notify("success", "Voices auto-assigned. You can change any speaker's voice in the Step 4 table.");
+}
