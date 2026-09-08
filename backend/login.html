@@ -80,7 +80,8 @@
     </div>
 
     <div class="divider">or</div>
-    <input type="password" id="legacyPassword" placeholder="Access code (if provided)" style="width:100%;padding:12px 14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;margin-bottom:12px;outline:none;font-family:inherit;"
+    <input type="password" id="legacyPassword" placeholder="Access code (if provided)"
+           style="width:100%;padding:12px 14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;margin-bottom:12px;outline:none;font-family:inherit;"
            onkeydown="if(event.key==='Enter')doLegacyLogin()">
     <button class="btn-primary" style="background:#6b7280;" onclick="doLegacyLogin()">Enter with Access Code</button>
 
@@ -91,9 +92,12 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const SUPABASE_URL = "{{SUPABASE_URL}}";
-const SUPABASE_KEY = "{{SUPABASE_ANON_KEY}}";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_URL = window.__SUPABASE_URL || "";
+const SUPABASE_KEY = window.__SUPABASE_KEY || "";
+let supabase = null;
+if (SUPABASE_URL && SUPABASE_KEY) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+}
 
 function showErr(msg) {
     const el = document.getElementById("authError");
@@ -114,6 +118,7 @@ function showSignup() { hideMsgs(); document.getElementById("loginForm").classLi
 
 async function doSignup() {
     hideMsgs();
+    if (!supabase) { showErr("Authentication not configured. Use the access code below."); return; }
     const email = document.getElementById("signupEmail").value.trim();
     const password = document.getElementById("signupPassword").value;
     if (!email || !password) { showErr("Please enter email and password."); return; }
@@ -123,16 +128,17 @@ async function doSignup() {
         if (error) { showErr(error.message); return; }
         if (data.session) {
             await sendSession(data.session);
-            window.location.href = "/";
+            window.location.href = "/app";
         } else {
             showOk("Check your email for a confirmation link, then log in.");
-            showLogin();
+            setTimeout(showLogin, 1500);
         }
     } catch (e) { showErr(e.message); }
 }
 
 async function doLogin() {
     hideMsgs();
+    if (!supabase) { showErr("Authentication not configured. Use the access code below."); return; }
     const email = document.getElementById("loginEmail").value.trim();
     const password = document.getElementById("loginPassword").value;
     if (!email || !password) { showErr("Please enter email and password."); return; }
@@ -140,12 +146,13 @@ async function doLogin() {
         const { data, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) { showErr(error.message); return; }
         await sendSession(data.session);
-        window.location.href = "/";
+        window.location.href = "/app";
     } catch (e) { showErr(e.message); }
 }
 
 async function doGoogleLogin() {
     hideMsgs();
+    if (!supabase) { showErr("Google login not configured yet. Use email or access code."); return; }
     try {
         const { error } = await supabase.auth.signInWithOAuth({
             provider: "google",
@@ -174,7 +181,7 @@ async function doLegacyLogin() {
             body: JSON.stringify({password: pw})
         });
         const data = await res.json();
-        if (data.ok) { window.location.href = "/"; }
+        if (data.ok) { window.location.href = "/app"; }
         else { showErr("Invalid access code."); }
     } catch (e) { showErr(e.message); }
 }
@@ -183,7 +190,7 @@ async function doLegacyLogin() {
 (async () => {
     try {
         const res = await fetch("/api/auth/check");
-        if (res.ok) { window.location.href = "/"; }
+        if (res.ok) { window.location.href = "/app"; }
     } catch (e) {}
 })();
 </script>

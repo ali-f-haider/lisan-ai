@@ -146,7 +146,7 @@ def _is_logged_in(request: Request) -> bool:
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        public = ("/login", "/auth/callback", "/help", "/api/login",
+        public = ("/", "/login", "/auth/callback", "/help", "/api/login",
                   "/api/auth/session", "/api/auth/check")
         if path in public or path.startswith("/api/login") or path.startswith("/api/auth/"):
             return await call_next(request)
@@ -193,8 +193,8 @@ def login_legacy(req: LoginRequest, response: Response):
 @app.get("/login")
 def login_page():
     html = (BASE_DIR / "login.html").read_text(encoding="utf-8")
-    html = html.replace("{{SUPABASE_URL}}", SUPABASE_URL)
-    html = html.replace("{{SUPABASE_ANON_KEY}}", SUPABASE_ANON_KEY)
+    inject = f'<script>window.__SUPABASE_URL="{SUPABASE_URL}";window.__SUPABASE_KEY="{SUPABASE_ANON_KEY}";</script>'
+    html = html.replace("</head>", inject + "</head>")
     return HTMLResponse(html)
 
 
@@ -230,6 +230,10 @@ def _gemini_text(prompt: str):
 # ==================== STATIC FILES ====================
 
 @app.get("/")
+def landing():
+    return FileResponse(BASE_DIR / "landing.html")
+
+@app.get("/app")
 def home():
     return FileResponse(BASE_DIR / "index.html")
 

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><title>Logging in...</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
 <style>body{font-family:Inter,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f0f2f5;}
 .card{background:#fff;padding:40px;border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,0.1);text-align:center;}
 </style></head>
@@ -12,25 +13,29 @@
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-const supabase = window.supabase.createClient("{{SUPABASE_URL}}", "{{SUPABASE_ANON_KEY}}");
+const SUPABASE_URL = window.__SUPABASE_URL || "";
+const SUPABASE_KEY = window.__SUPABASE_KEY || "";
+const supabase = (SUPABASE_URL && SUPABASE_KEY) ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
 (async () => {
     try {
+        if (!supabase) throw new Error("Auth not configured");
+        // Try hash-based tokens first (Supabase OAuth redirect)
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const accessToken = params.get("access_token");
+        const refreshToken = params.get("refresh_token");
+        if (accessToken) {
+            await fetch("/api/auth/session", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken })
+            });
+            window.location.href = "/app";
+            return;
+        }
+        // Try session
         const { data, error } = await supabase.auth.getSession();
         if (error || !data.session) {
-            // Try extracting from hash (Supabase redirects with tokens in hash)
-            const hash = window.location.hash.substring(1);
-            const params = new URLSearchParams(hash);
-            const accessToken = params.get("access_token");
-            const refreshToken = params.get("refresh_token");
-            if (accessToken) {
-                await fetch("/api/auth/session", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({ access_token: accessToken, refresh_token: refreshToken })
-                });
-                window.location.href = "/";
-                return;
-            }
             document.getElementById("err").textContent = "Login failed. Please try again.";
             document.getElementById("err").style.display = "block";
             return;
@@ -40,7 +45,7 @@ const supabase = window.supabase.createClient("{{SUPABASE_URL}}", "{{SUPABASE_AN
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({ access_token: data.session.access_token, refresh_token: data.session.refresh_token })
         });
-        window.location.href = "/";
+        window.location.href = "/app";
     } catch (e) {
         document.getElementById("err").textContent = e.message;
         document.getElementById("err").style.display = "block";
