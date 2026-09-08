@@ -62,7 +62,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path in ("/login", "/api/login") or path.startswith("/api/login"):
+        if path in ("/login", "/api/login", "/help") or path.startswith("/api/login"):
             return await call_next(request)
         if path.endswith(".css") or path.endswith(".js"):
             return await call_next(request)
@@ -174,6 +174,10 @@ def home():
 @app.get("/app.js")
 def app_js():
     return FileResponse(BASE_DIR / "app.js", media_type="application/javascript")
+
+@app.get("/help")
+def help_page():
+    return FileResponse(BASE_DIR / "help.html", media_type="text/html")
 
 @app.get("/styles.css")
 def styles():
