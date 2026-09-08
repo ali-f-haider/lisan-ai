@@ -146,7 +146,7 @@ def _is_logged_in(request: Request) -> bool:
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        public = ("/", "/login", "/auth/callback", "/help", "/api/login",
+        public = ("/", "/login", "/auth/callback", "/help", "/debug-keys", "/api/login",
                   "/api/auth/session", "/api/auth/check")
         if path in public or path.startswith("/api/login") or path.startswith("/api/auth/"):
             return await call_next(request)
@@ -402,3 +402,16 @@ def download(filename: str):
     if not p.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p, filename=filename)
+    
+@app.get("/debug-keys")
+def debug_keys():
+    return {
+        "SUPABASE_URL": SUPABASE_URL[:20] + "..." if SUPABASE_URL else "EMPTY",
+        "SUPABASE_ANON_KEY": SUPABASE_ANON_KEY[:20] + "..." if SUPABASE_ANON_KEY else "EMPTY",
+        "APP_PASSWORD": "SET" if APP_PASSWORD else "EMPTY",
+        "GEMINI_API_KEY": "SET" if GEMINI_API_KEY else "EMPTY",
+    }
+    
+    
+@app.get("/help")
+def help_page():
