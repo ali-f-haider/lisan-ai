@@ -1,0 +1,38 @@
+* { box-sizing: border-box; }
+body { font-family: Arial, sans-serif; padding: 20px; padding-top: 70px; background: #f5f5f5; }
+h1, h3 { color: #333; }
+h1 { text-align: center; margin-bottom: 4px; }
+.subtitle { text-align: center; color: #555; margin: 0 0 22px 0; font-size: 17px; font-weight: bold; }
+.card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+input, textarea, button, select { padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+button { cursor: pointer; background: #007bff; color: white; border: none; font-size: 14px; }
+button.green { background: #28a745; } button.red { background: #dc3545; }
+button.purple { background: #9c27b0; } button.orange { background: #ff9800; }
+button.pink { background: #e91e63; }
+table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
+th { background: #007bff; color: white; }
+input[type="text"], input[type="number"], input[type="password"], select, textarea { width: 100%; padding: 6px; }
+textarea { resize: vertical; min-height: 45px; }
+.progress-bar { width: 100%; height: 30px; background: #eee; border-radius: 15px; overflow: hidden; margin: 10px 0; }
+.progress-fill { height: 100%; background: #007bff; color: white; text-align: center; line-height: 30px; font-size: 13px; transition: width 0.5s; white-space: nowrap; }
+.progress-fill.green { background: #28a745; }
+.hidden { display: none; }
+.note { color: #666; font-size: 13px; }
+audio, video { width: 100%; margin-top: 10px; }
+.action-btn { padding: 5px 10px; font-size: 13px; margin: 2px; }
+tr.locked { background: #fff3cd !important; }
+#usageBox { margin-top: 10px; padding: 10px; background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 4px; font-size: 13px; }
+.download-buttons { margin-top: 15px; }
+.download-buttons a { display: inline-block; padding: 12px 24px; margin: 5px 10px 5px 0; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; }
+.download-buttons a.blue { background: #007bff; }
+.badge { background: rgba(255,255,255,0.35); border-radius: 10px; padding: 2px 8px; font-size: 12px; margin-left: 8px; display: inline-flex; align-items: center; gap: 4px; color: #fff; vertical-align: middle; }
+.badge svg { width: 13px; height: 13px; }
+.badge strong { font-weight: bold; font-size: 13px; }
+#notifyPanel { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); width: min(760px, 96vw); z-index: 9999; display: flex; flex-direction: column; gap: 6px; max-height: 55vh; overflow-y: auto; }
+.notify { padding: 10px 12px; border-radius: 6px; font-size: 14px; display: flex; align-items: center; gap: 10px; box-shadow: 0 3px 8px rgba(0,0,0,0.25); }
+.notify .msg { flex: 1; }
+.notify button { padding: 4px 12px; font-size: 12px; background: #333; }
+.notify.info { background: #d1ecf1; color: #0c5460; }
+.notify.success { background: #d4edda; color: #155724; }
+.notify.error { background: #f8d7da; color: #721c24; }

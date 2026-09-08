@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lisan AI — English to Arabic AI Dubbing</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="notifyPanel"></div>
+<h1>Lisan AI</h1>
+<p class="subtitle"><strong>English to Arabic AI Dubbing</strong></p>
+<p class="subtitle" dir="rtl"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
+
+<div class="card">
+    <h3>Step 1: Upload Audio or Video</h3>
+    <div style="float:right;width:300px;margin:0 0 12px 20px;padding:10px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:4px;">
+        <div id="usageBox" class="hidden" style="font-size:13px;"></div>
+        <p class="note" style="margin:6px 0 0 0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+    </div>
+    <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>1.5 GB</strong> max size (a 4K 1-min clip ≈ 0.5–0.8 GB).</p>
+    <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm">
+    <br><br>
+    <label>Number of speakers</label>
+    <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
+    <br>
+    <button onclick="startTranscribe()">Transcribe<span class="badge" id="badgeTranscribe"></span></button>
+    <div id="progressSection" class="hidden">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%">0%</div></div>
+    </div>
+    <div style="clear:both;"></div>
+</div>
+
+<div id="editorSection" class="card hidden">
+    <h3>Step 2: Edit Segments</h3>
+    <button class="blue" onclick="document.getElementById('subsFile').click()">📥 Import SRT/SBV<span class="badge" id="badgeImport"></span></button>
+    <input type="file" id="subsFile" accept=".srt,.sbv" class="hidden" onchange="importSubs(event)">
+    <button class="blue" onclick="exportSRT()">📤 SRT<span class="badge" id="badgeSRT"></span></button>
+    <button class="blue" onclick="exportSBV()">📤 SBV<span class="badge" id="badgeSBV"></span></button>
+    <button class="green" onclick="saveProject()">💾 Save Project<span class="badge" id="badgeSave"></span></button>
+    <button class="green" onclick="document.getElementById('projectFile').click()">📂 Load Project<span class="badge" id="badgeLoad"></span></button>
+    <input type="file" id="projectFile" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
+    <br><br>
+    <button class="purple" onclick="autoTranslate()">Auto Translate to Arabic<span class="badge" id="badgeTranslate"></span></button>
+    <button class="purple" onclick="addTashkeel()">🔤 Add Tashkeel Only<span class="badge" id="badgeTashkeel"></span></button>
+    <button class="pink" onclick="detectEmotions()">Detect Emotions from Voice<span class="badge" id="badgeEmotions"></span></button>
+    <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
+    <div id="emotionProgress" class="hidden">
+        <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%">0%</div></div>
+    </div>
+    <table id="segmentsTable">
+        <thead><tr>
+            <th style="width:80px">Start</th><th style="width:80px">End</th><th style="width:120px">Speaker</th>
+            <th style="width:85px">Gender</th><th style="width:170px">Style / Emotion</th>
+            <th style="width:20%">English</th><th style="width:20%">Arabic</th><th style="width:190px">Actions</th>
+        </tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div id="voicesSection" class="card hidden">
+    <h3>Step 3: Voice Cloning Setup</h3>
+    <button class="orange" onclick="analyzeSpeakers()">Prepare Voice Cloning<span class="badge" id="badgePrepareClone"></span></button>
+    <p class="note">Cloning copies each speaker's own voice from the video. Optional — you can also pick studio library voices in Step 4.</p>
+</div>
+
+<div id="cloneAnalysisSection" class="card hidden">
+    <h3>Step 3.5: Choose Which Speakers to Clone</h3>
+    <p class="note">Review the available audio for each speaker. Uncheck any speaker you want to skip.</p>
+    <table id="cloneAnalysisTable">
+        <thead><tr><th style="width:50px">Clone?</th><th style="width:150px">Speaker</th><th style="width:140px">Speech Found</th><th>Quality Guidance</th></tr></thead>
+        <tbody></tbody>
+    </table>
+    <br>
+    <button class="orange" onclick="confirmCloning()">Clone Selected Voices<span class="badge" id="badgeClone"></span></button>
+</div>
+
+<div id="speakerVoicesSection" class="card hidden">
+    <h3>Step 4: Speaker Voices</h3>
+    <p class="note">Pick a voice for each speaker. Cloned voices come from your video; numbered voices are high-quality studio library voices (names hidden on purpose). Two speakers never share the same numbered voice.</p>
+    <button class="blue" onclick="loadVoiceOptions()">🔄 Load Voice Options</button>
+    <button onclick="autoAssignVoices()">🎲 Auto-Assign All<span class="badge" id="badgeAutoAssign"></span></button>
+    <table id="speakerVoicesTable">
+        <thead><tr><th style="width:30%">Speaker</th><th>Voice</th></tr></thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div id="generateSection" class="card hidden">
+    <h3>Step 5: Generate Arabic Audio</h3>
+    <p class="note">💡 Voice generation supports emotions and cloned voices. Costs are charged by the character and shown in credits (100 credits = $1).</p>
+    <div class="hidden">
+        <select id="ttsProvider"><option value="elevenlabs" selected>Studio voices</option></select>
+        <div id="geminiOptions"><select id="geminiVoice"><option value="Kore">Kore</option></select></div>
+    </div>
+    <label>Timing Stretch Limit</label>
+    <select id="tempoMode">
+        <option value="excellent" selected>Excellent (Recommended)</option>
+        <option value="good">Good</option>
+        <option value="maximum">Maximum</option>
+    </select>
+    <br><br>
+    <label>Final Duration Mode</label>
+    <select id="durationMode">
+        <option value="exact" selected>Exact input duration</option>
+        <option value="extend">Extend duration</option>
+    </select>
+    <br><br>
+    <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
+    <div id="genProgress" class="hidden">
+        <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%">0%</div></div>
+    </div>
+</div>
+
+<div id="resultSection" class="card hidden">
+    <h3>Step 6: Final Result</h3>
+    <div id="audioResults"></div>
+    <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
+    <div id="timelineSection" class="hidden">
+        <p class="note">Drag each block left/right to align it with the lip movement (offset shown in milliseconds, max ±2s). Then confirm to rebuild the MP3.</p>
+        <div id="timelineWrap" style="position:relative;background:#263238;border-radius:6px;overflow:hidden;margin:10px 0;"></div>
+        <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>
+        <button class="blue" onclick="resetTimeline()">↩️ Reset Offsets</button>
+    </div>
+    <div id="mergeSection" class="hidden">
+        <br>
+        <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video<span class="badge" id="badgeMerge"></span></button>
+        <p class="note">Combines the dubbed Arabic audio with the original background music and video.</p>
+    </div>
+    <div id="videoResults" class="hidden"></div>
+</div>
+
+<div id="lipsyncSection" class="card hidden">
+    <h3>Step 7: Lip-Sync (currently disabled)</h3>
+    <p class="note">Lip-sync is not available in this build. It will return as a local or premium provider option in a future update.</p>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

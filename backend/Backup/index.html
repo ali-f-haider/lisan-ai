@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>AI Dubbing MVP</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        h1, h3 { color: #333; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        input, textarea, button, select { padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px; }
+        button { cursor: pointer; background: #007bff; color: white; border: none; font-size: 14px; }
+        button:hover { background: #0056b3; }
+        button.green { background: #28a745; }
+        button.green:hover { background: #218838; }
+        button.red { background: #dc3545; }
+        button.red:hover { background: #c82333; }
+        button.purple { background: #9c27b0; }
+        button.purple:hover { background: #7b1fa2; }
+        button.orange { background: #ff9800; }
+        button.orange:hover { background: #f57c00; }
+        button.pink { background: #e91e63; }
+        button.pink:hover { background: #c2185b; }
+        table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 13px; vertical-align: top; }
+        th { background: #007bff; color: white; }
+        input[type="text"], input[type="number"], input[type="password"], select, textarea { width: 100%; padding: 6px; }
+        textarea { resize: vertical; min-height: 45px; }
+        .progress-bar { width: 100%; height: 30px; background: #eee; border-radius: 15px; overflow: hidden; margin: 10px 0; }
+        .progress-fill { height: 100%; background: #007bff; color: white; text-align: center; line-height: 30px; transition: width 0.5s; }
+        .progress-fill.green { background: #28a745; }
+        .hidden { display: none; }
+        .status { padding: 10px; border-radius: 4px; margin: 10px 0; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .note { color: #666; font-size: 13px; }
+        audio, video { width: 100%; margin-top: 10px; }
+        .action-btn { padding: 5px 10px; font-size: 13px; margin: 2px; }
+        tr.locked { background: #fff3cd !important; }
+        #costBox { margin-top: 10px; padding: 10px; background: #fff8e1; border: 1px solid #ffe082; border-radius: 4px; }
+        .download-buttons { margin-top: 15px; }
+        .download-buttons a { display: inline-block; padding: 12px 24px; margin: 5px 10px 5px 0; background: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; }
+        .download-buttons a:hover { background: #218838; }
+        .download-buttons a.blue { background: #007bff; }
+        .download-buttons a.blue:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>AI Dubbing MVP</h1>
+
+    <div class="card">
+        <h3>Step 1: Upload Audio or Video</h3>
+        <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. Video files are processed automatically (audio extraction → vocal isolation → transcription).</p>
+        <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm">
+        <br><br>
+        <label>Number of speakers (recommended if you know it)</label>
+        <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
+        <br><br>
+        <label>Hugging Face token (for automatic speaker detection)</label>
+        <input type="password" id="hfToken" placeholder="Paste your Hugging Face token">
+        <p class="note">Speaker detection requires pyannote.audio installed. If left blank, all speakers will be Speaker 1.</p>
+        <br>
+        <button onclick="startTranscribe()">Transcribe</button>
+        <div id="progressSection" class="hidden">
+            <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%">0%</div></div>
+            <p id="transcribeStatusText" class="note"></p>
+        </div>
+    </div>
+
+    <div id="editorSection" class="card hidden">
+        <h3>Step 2: Edit Segments</h3>
+        <button onclick="addManualSegment()">Add Manual Line at End</button>
+        <button class="blue" onclick="document.getElementById('subsFile').click()">📥 Import SRT/SBV</button>
+        <input type="file" id="subsFile" accept=".srt,.sbv" class="hidden" onchange="importSubs(event)">
+        <button class="blue" onclick="exportSRT()">📤 SRT</button>
+        <button class="blue" onclick="exportSBV()">📤 SBV</button>
+        <button class="green" onclick="saveProject()">💾 Save Project</button>
+        <button class="green" onclick="document.getElementById('projectFile').click()">📂 Load Project</button>
+        <input type="file" id="projectFile" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
+        <br><br>
+        <label>Gemini API Key (for automatic translation)</label>
+        <input type="password" id="geminiApiKey" placeholder="Paste your Gemini API key" style="width:100%">
+        <br>
+        <button class="purple" onclick="autoTranslate()">Auto Translate to Arabic</button>
+        <button class="pink" onclick="detectEmotions()">Detect Emotions from Voice</button>
+        <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing</button>
+        <div id="emotionProgress" class="hidden">
+            <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%">0%</div></div>
+            <p id="emotionProgressText" class="note"></p>
+        </div>
+
+        <table id="segmentsTable">
+            <thead>
+                <tr>
+                    <th style="width:80px">Start</th>
+                    <th style="width:80px">End</th>
+                    <th style="width:120px">Speaker</th>
+                    <th style="width:85px">Gender</th>
+                    <th style="width:110px">Emotion</th>
+                    <th style="width:20%">English</th>
+                    <th style="width:20%">Arabic</th>
+                    <th style="width:190px">Actions</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="voicesSection" class="card hidden">
+        <h3>Step 3: ElevenLabs Voices</h3>
+        <label>ElevenLabs API Key</label><br>
+        <input type="password" id="apiKey" placeholder="Paste your ElevenLabs API key" style="width:100%">
+        <br><br>
+        <button onclick="loadVoices()">Load Voices</button>
+        <button onclick="autoAssignVoices()">Auto-Assign Voices</button>
+        <button class="orange" onclick="analyzeSpeakers()">Prepare Voice Cloning</button>
+        <br><br>
+        <label>Default Voice</label>
+        <select id="defaultVoiceSelect"></select>
+    </div>
+
+    <div id="cloneAnalysisSection" class="card hidden">
+        <h3>Step 3.5: Choose Which Speakers to Clone</h3>
+        <p class="note">Review the available audio for each speaker. Speakers with less than 10 seconds may produce lower quality clones. Uncheck any speaker you want to skip (they will use the default voice instead).</p>
+        <table id="cloneAnalysisTable">
+            <thead>
+                <tr>
+                    <th style="width:50px">Clone?</th>
+                    <th style="width:150px">Speaker</th>
+                    <th>Audio Available</th>
+                    <th>Quality Estimate</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <br>
+        <button class="orange" onclick="confirmCloning()">Clone Selected Voices</button>
+    </div>
+
+    <div id="speakerVoicesSection" class="card hidden">
+        <h3>Step 4: Speaker Voices</h3>
+        <table id="speakerVoicesTable">
+            <thead><tr><th style="width:30%">Speaker</th><th>Voice</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div id="generateSection" class="card hidden">
+        <h3>Step 5: Generate Arabic Audio</h3>
+        <label>Timing Stretch Limit</label>
+        <select id="tempoMode">
+            <option value="excellent" selected>Excellent (Recommended) - safest voice quality</option>
+            <option value="good">Good - slightly more stretch</option>
+            <option value="maximum">Maximum - may distort voice</option>
+        </select>
+        <br><br>
+        <label>Final Duration Mode</label>
+        <select id="durationMode">
+            <option value="exact" selected>Exact input duration - may cut the last line</option>
+            <option value="extend">Extend duration - avoids cutting, output may be longer</option>
+        </select>
+        <br><br>
+        <button class="orange" onclick="estimateCost()">💰 Estimate Cost</button>
+        <div id="costBox" class="note hidden"></div>
+        <br>
+        <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio</button>
+        <div id="genProgress" class="hidden">
+            <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%">0%</div></div>
+        </div>
+    </div>
+
+    <div id="resultSection" class="card hidden">
+        <h3>Step 6: Final Result</h3>
+        <div id="audioResults"></div>
+        <div id="mergeSection" class="hidden">
+            <br>
+            <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video</button>
+            <p class="note">This will combine the dubbed Arabic audio with the original background music and video.</p>
+        </div>
+        <div id="videoResults" class="hidden"></div>
+    </div>
+
+    <div id="statusMsg"></div>
+
+    <script>
+        const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding"];
+
+        let segmentsData = [];
+        let originalSegments = [];
+        let speakerVoices = {};
+        let availableVoices = [];
+        let currentJobId = null;
+        let transcribePollTimer = null;
+        let generatePollTimer = null;
+        let emotionPollTimer = null;
+        let totalDuration = 0;
+        let isVideoUpload = false;
+        let previewAudio = null;
+        let previewBtnCurrent = null;
+        window.clonedVoiceIds = [];
+
+        function showStatus(msg, type) {
+            document.getElementById("statusMsg").innerHTML = `<div class="status ${type}">${msg}</div>`;
+        }
+
+        /* ---------- ORIGINAL AUDIO PREVIEW ---------- */
+        function stopPreview() {
+            if (previewAudio) { try { previewAudio.pause(); } catch (e) {} previewAudio = null; }
+            if (previewBtnCurrent) { previewBtnCurrent.textContent = "▶"; previewBtnCurrent = null; }
+        }
+
+        function previewRow(i, btn) {
+            if (!currentJobId) { alert("Transcribe or load a project first."); return; }
+            if (previewAudio && previewBtnCurrent === btn) { stopPreview(); return; }
+            stopPreview();
+
+            const seg = segmentsData[i];
+            let playStart = seg.start;
+            let playEnd = seg.end;
+
+            // Recompute the real spoken range from the original word timeline
+            // (unless the row is locked, in which case we respect the user's times)
+            if (!seg.locked && originalSegments.length > 0) {
+                const toks = normalizeTokens(seg.text);
+                if (toks.length > 0) {
+                    const timeline = buildTokenTimeline();
+                    const cands = findCandidates(toks, timeline, seg.start);
+                    if (cands.length > 0) {
+                        playStart = cands[0].start;
+                        playEnd = cands[0].end;
+                        if (Math.abs(playStart - seg.start) > 0.3 || Math.abs(playEnd - seg.end) > 0.3) {
+                            showStatus(`Preview: playing matched audio ${playStart.toFixed(2)}–${playEnd.toFixed(2)} (row currently shows ${seg.start}–${seg.end}). Run ✨ Auto-Fix to correct the row.`, "info");
+                        }
+                    }
+                }
+            }
+
+            const a = new Audio(`/api/source/${currentJobId}`);
+            previewAudio = a;
+            previewBtnCurrent = btn;
+            btn.textContent = "⏸";
+
+            const startPlaying = () => {
+                try { a.currentTime = Math.max(0, playStart); } catch (e) {}
+                a.play().catch(err => { showStatus("Preview playback failed: " + err.message, "error"); stopPreview(); });
+            };
+            if (a.readyState >= 1) startPlaying();
+            else a.addEventListener("loadedmetadata", startPlaying, { once: true });
+
+            a.addEventListener("timeupdate", () => { if (a.currentTime >= playEnd) stopPreview(); });
+            a.addEventListener("error", () => {
+                showStatus("Preview unavailable: source audio endpoint missing (update main.py) or file not found.", "error");
+                stopPreview();
+            }, { once: true });
+        }
+
+        /* ---------- SUBTITLE IMPORT / EXPORT ---------- */
+        function secFromStamp(t) {
+            const m = String(t).trim().match(/(\d+):(\d+):(\d+)[,.](\d+)/);
+            if (!m) return 0;
+            return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]) + parseInt(m[4]) / 1000;
+        }
+
+        function parseSRT(text) {
+            const cues = [];
+            const blocks = text.replace(/\r/g, "").split(/\n\s*\n/);
+            blocks.forEach(b => {
+                const lines = b.split("\n").filter(l => l.trim() !== "");
+                if (lines.length < 2) return;
+                const ti = lines.findIndex(l => l.includes("-->"));
+                if (ti < 0) return;
+                const parts = lines[ti].split("-->");
+                if (parts.length < 2) return;
+                cues.push({ start: secFromStamp(parts[0]), end: secFromStamp(parts[1]), text: lines.slice(ti + 1).join(" ") });
+            });
+            return cues;
+        }
+
+        function parseSBV(text) {
+            const cues = [];
+            const blocks = text.replace(/\r/g, "").split(/\n\s*\n/);
+            blocks.forEach(b => {
+                const lines = b.split("\n").filter(l => l.trim() !== "");
+                if (lines.length < 2) return;
+                const m = lines[0].match(/^([^,]+),([^,]+)$/);
+                if (!m) return;
+                cues.push({ start: secFromStamp(m[1]), end: secFromStamp(m[2]), text: lines.slice(1).join(" ") });
+            });
+            return cues;
+        }
+
+        function importSubs(evt) {
+            const f = evt.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                const text = String(reader.result);
+                const name = f.name.toLowerCase();
+                let cues = name.endsWith(".sbv") ? parseSBV(text) : parseSRT(text);
+                if (!cues.length) { showStatus("No cues found in subtitle file.", "error"); return; }
+
+                let matched = 0, added = 0;
+                cues.forEach((cue, ci) => {
+                    const isAr = /[\u0600-\u06FF]/.test(cue.text);
+                    let best = null, bestOv = 0;
+                    segmentsData.forEach(s => {
+                        const ov = Math.min(s.end, cue.end) - Math.max(s.start, cue.start);
+                        if (ov > bestOv) { bestOv = ov; best = s; }
+                    });
+                    if (best && bestOv > 0.3 * (cue.end - cue.start)) {
+                        if (isAr) best.arabic_text = cue.text; else best.text = cue.text;
+                        matched++;
+                    } else {
+                        segmentsData.push({
+                            segment_id: "imp_" + Date.now() + "_" + ci,
+                            start: Number(cue.start.toFixed(2)), end: Number(cue.end.toFixed(2)),
+                            speaker: "Speaker 1", gender: "male", emotion: "neutral",
+                            text: isAr ? "" : cue.text, arabic_text: isAr ? cue.text : "", locked: false
+                        });
+                        added++;
+                    }
+                });
+                segmentsData.sort((a, b) => a.start - b.start);
+                renderTable(); renderSpeakerVoices();
+                showStatus(`Subtitle import: ${matched} line(s) updated, ${added} line(s) added.`, "success");
+            };
+            reader.readAsText(f);
+            evt.target.value = "";
+        }
+
+        function fmtSRT(sec) {
+            sec = Math.max(0, sec);
+            const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
+            const ms = Math.round((sec - Math.floor(sec)) * 1000);
+            return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`;
+        }
+
+        function fmtSBV(sec) {
+            sec = Math.max(0, sec);
+            const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60);
+            const ms = Math.round((sec - Math.floor(sec)) * 1000);
+            return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`;
+        }
+
+        function downloadText(filename, text) {
+            const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+        }
+
+        function exportSRT() {
+            const rows = segmentsData.slice().sort((a, b) => a.start - b.start);
+            let out = "", n = 0;
+            rows.forEach(s => {
+                const txt = (s.arabic_text && s.arabic_text.trim()) ? s.arabic_text.trim() : (s.text || "").trim();
+                if (!txt) return;
+                n++;
+                out += `${n}\n${fmtSRT(s.start)} --> ${fmtSRT(s.end)}\n${txt}\n\n`;
+            });
+            if (!n) { showStatus("Nothing to export.", "error"); return; }
+            downloadText("dubbed_subtitles.srt", out);
+            showStatus("SRT exported.", "success");
+        }
+
+        function exportSBV() {
+            const rows = segmentsData.slice().sort((a, b) => a.start - b.start);
+            let out = "";
+            let n = 0;
+            rows.forEach(s => {
+                const txt = (s.arabic_text && s.arabic_text.trim()) ? s.arabic_text.trim() : (s.text || "").trim();
+                if (!txt) return;
+                n++;
+                out += `${fmtSBV(s.start)},${fmtSBV(s.end)}\n${txt}\n\n`;
+            });
+            if (!n) { showStatus("Nothing to export.", "error"); return; }
+            downloadText("dubbed_subtitles.sbv", out);
+            showStatus("SBV exported.", "success");
+        }
+
+        /* ---------- PROJECT SAVE / LOAD ---------- */
+        function saveProject() {
+            const payload = {
+                app: "ai-dubbing-mvp", version: 1,
+                job_id: currentJobId,
+                total_duration: totalDuration,
+                is_video: isVideoUpload,
+                segments: segmentsData,
+                original_segments: originalSegments,
+                speaker_voices: speakerVoices
+            };
+            downloadText("dubbing_project.json", JSON.stringify(payload, null, 2));
+            showStatus("Project saved to JSON.", "success");
+        }
+
+        function loadProjectFile(evt) {
+            const f = evt.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const p = JSON.parse(String(reader.result));
+                    if (!p || !Array.isArray(p.segments)) throw new Error("Bad project file");
+                    segmentsData = p.segments.map(s => ({
+                        segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)),
+                        start: Number(s.start) || 0, end: Number(s.end) || 0,
+                        speaker: s.speaker || "Speaker 1", gender: s.gender || "male",
+                        emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "",
+                        locked: !!s.locked, words: Array.isArray(s.words) ? s.words : []
+                    }));
+                    originalSegments = Array.isArray(p.original_segments) ? p.original_segments : [];
+                    speakerVoices = p.speaker_voices || {};
+                    if (p.job_id) currentJobId = p.job_id;
+                    if (Number(p.total_duration) > 0) totalDuration = Number(p.total_duration);
+                    isVideoUpload = !!p.is_video;
+
+                    renderTable(); renderDefaultVoiceSelect(); renderSpeakerVoices();
+                    document.getElementById("editorSection").classList.remove("hidden");
+                    document.getElementById("voicesSection").classList.remove("hidden");
+                    document.getElementById("speakerVoicesSection").classList.remove("hidden");
+                    document.getElementById("generateSection").classList.remove("hidden");
+                    showStatus("Project loaded.", "success");
+                } catch (e) {
+                    showStatus("Load failed: " + e.message, "error");
+                }
+            };
+            reader.readAsText(f);
+            evt.target.value = "";
+        }
+
+        /* ---------- COST ESTIMATE ---------- */
+        function estimateCost() {
+            const rows = segmentsData.filter(s => s.arabic_text && s.arabic_text.trim());
+            if (rows.length === 0) { showStatus("Nothing to estimate: translate first.", "error"); return; }
+
+            let chars = 0;
+            rows.forEach(s => { chars += s.arabic_text.length + s.emotion.length + 3; });
+
+            const payloadChars = JSON.stringify(segmentsData.map(s => ({ t: s.text, d: Number((s.end - s.start).toFixed(2)) }))).length + 700;
+            const tokIn = Math.ceil(payloadChars / 4);
+            const arabicChars = rows.reduce((a, s) => a + s.arabic_text.length, 0);
+            const tokOut = Math.ceil(arabicChars / 3);
+            const translateCost = tokIn / 1e6 * 0.075 + tokOut / 1e6 * 0.30;
+
+            const audioSec = segmentsData.reduce((a, s) => a + Math.max(0, s.end - s.start), 0);
+            const emoTokens = Math.ceil(audioSec * 32);
+            const emoCost = emoTokens / 1e6 * 0.075;
+
+            const total = translateCost + emoCost;
+            const box = document.getElementById("costBox");
+            box.classList.remove("hidden");
+            box.innerHTML =
+                `<strong>Estimate:</strong> ElevenLabs ≈ <strong>${chars.toLocaleString()}</strong> characters ≈ <strong>${chars.toLocaleString()}</strong> credits. ` +
+                `Gemini translation ≈ ${tokIn.toLocaleString()} in / ${tokOut.toLocaleString()} out tokens (≈ $${translateCost.toFixed(4)}). ` +
+                `Emotion detection ≈ ${Math.round(audioSec)}s of audio (≈ $${emoCost.toFixed(4)}). ` +
+                `<strong>Total ≈ $${total.toFixed(4)}</strong> <span class="note">(estimates only; real billing depends on your plan)</span>`;
+        }
+
+        /* ---------- TRANSCRIBE ---------- */
+        async function startTranscribe() {
+            const file = document.getElementById("audioFile").files[0];
+            if (!file) { alert("Choose an audio or video file."); return; }
+
+            const form = new FormData();
+            form.append("file", file);
+            form.append("speaker_count", document.getElementById("speakerCount").value);
+            form.append("hf_token", document.getElementById("hfToken").value.trim());
+
+            document.getElementById("progressSection").classList.remove("hidden");
+            showStatus("Uploading and starting transcription...", "info");
+
+            const res = await fetch("/api/transcribe", { method: "POST", body: form });
+            const data = await res.json();
+            currentJobId = data.job_id;
+            originalSegments = [];
+
+            if (transcribePollTimer) clearInterval(transcribePollTimer);
+            transcribePollTimer = setInterval(checkTranscribeProgress, 1000);
+        }
+
+        async function checkTranscribeProgress() {
+            if (!currentJobId) return;
+            const res = await fetch(`/api/progress/${currentJobId}`);
+            const data = await res.json();
+
+            const fill = document.getElementById("progressFill");
+            fill.style.width = data.percent + "%";
+            fill.textContent = data.percent + "%";
+            document.getElementById("transcribeStatusText").textContent = data.status_text || "";
+
+            if (data.is_video !== undefined) isVideoUpload = data.is_video;
+
+            if (data.status === "done") {
+                clearInterval(transcribePollTimer);
+                segmentsData = data.segments;
+                segmentsData.forEach(s => {
+                    s.start = Number(Number(s.start).toFixed(2));
+                    s.end = Number(Number(s.end).toFixed(2));
+                    s.locked = false;
+                });
+                originalSegments = JSON.parse(JSON.stringify(segmentsData));
+                speakerVoices = {};
+                totalDuration = data.full_duration || 0;
+
+                let message = "Transcription complete.";
+                if (data.detected_speakers > 0) message += ` Detected speakers: ${data.detected_speakers}.`;
+                message += " Edit the segments below. Use 🔒 to protect manually-timed lines from Auto-Fix.";
+                if (data.warning) { showStatus(message, "success"); showStatus("⚠️ " + data.warning, "error"); }
+                else showStatus(message, "success");
+
+                renderTable();
+                renderDefaultVoiceSelect();
+                renderSpeakerVoices();
+
+                document.getElementById("editorSection").classList.remove("hidden");
+                document.getElementById("voicesSection").classList.remove("hidden");
+                document.getElementById("speakerVoicesSection").classList.remove("hidden");
+                document.getElementById("generateSection").classList.remove("hidden");
+                if (availableVoices.length > 0) autoAssignVoices();
+            }
+            if (data.status === "error") { clearInterval(transcribePollTimer); showStatus("Error: " + data.error, "error"); }
+        }
+
+        /* ---------- TABLE ---------- */
+        function renderTable() {
+            const tbody = document.querySelector("#segmentsTable tbody");
+            tbody.innerHTML = "";
+            segmentsData.forEach((seg, i) => tbody.appendChild(createRow(seg, i)));
+        }
+
+        function createRow(seg, i) {
+            const row = document.createElement("tr");
+            if (seg.locked) row.className = "locked";
+
+            const startCell = document.createElement("td");
+            const startInput = document.createElement("input");
+            startInput.type = "number"; startInput.step = "0.01"; startInput.value = seg.start;
+            startInput.onchange = () => { segmentsData[i].start = parseFloat(startInput.value) || 0; };
+            startCell.appendChild(startInput); row.appendChild(startCell);
+
+            const endCell = document.createElement("td");
+            const endInput = document.createElement("input");
+            endInput.type = "number"; endInput.step = "0.01"; endInput.value = seg.end;
+            endInput.onchange = () => { segmentsData[i].end = parseFloat(endInput.value) || 0; };
+            endCell.appendChild(endInput); row.appendChild(endCell);
+
+            const speakerCell = document.createElement("td");
+            const speakerInput = document.createElement("input");
+            speakerInput.type = "text"; speakerInput.value = seg.speaker;
+            speakerInput.onchange = () => updateSpeakerName(i, speakerInput.value);
+            speakerCell.appendChild(speakerInput); row.appendChild(speakerCell);
+
+            const genderCell = document.createElement("td");
+            const genderSelect = document.createElement("select");
+            ["male", "female"].forEach(v => {
+                const o = document.createElement("option");
+                o.value = v; o.textContent = v; o.selected = (seg.gender === v);
+                genderSelect.appendChild(o);
+            });
+            genderSelect.onchange = () => { segmentsData[i].gender = genderSelect.value; };
+            genderCell.appendChild(genderSelect); row.appendChild(genderCell);
+
+            const emotionCell = document.createElement("td");
+            const emotionSelect = document.createElement("select");
+            EMOTIONS.forEach(v => {
+                const o = document.createElement("option");
+                o.value = v; o.textContent = v; o.selected = (seg.emotion === v);
+                emotionSelect.appendChild(o);
+            });
+            emotionSelect.onchange = () => { segmentsData[i].emotion = emotionSelect.value; };
+            emotionCell.appendChild(emotionSelect); row.appendChild(emotionCell);
+
+            const englishCell = document.createElement("td");
+            const englishTextarea = document.createElement("textarea");
+            englishTextarea.value = seg.text;
+            englishTextarea.onchange = () => { segmentsData[i].text = englishTextarea.value; };
+            englishCell.appendChild(englishTextarea); row.appendChild(englishCell);
+
+            const arabicCell = document.createElement("td");
+            const arabicTextarea = document.createElement("textarea");
+            arabicTextarea.dir = "rtl"; arabicTextarea.value = seg.arabic_text;
+            arabicTextarea.onchange = () => { segmentsData[i].arabic_text = arabicTextarea.value; };
+            arabicCell.appendChild(arabicTextarea); row.appendChild(arabicCell);
+
+            const actionsCell = document.createElement("td");
+            const playButton = document.createElement("button");
+            playButton.className = "action-btn green"; playButton.textContent = "▶";
+            playButton.title = "Play the original audio for this line (auto-locates the spoken words)";
+            playButton.onclick = () => previewRow(i, playButton);
+            const insertButton = document.createElement("button");
+            insertButton.className = "action-btn"; insertButton.textContent = "Insert";
+            insertButton.onclick = () => insertSegmentAfter(i);
+            const deleteButton = document.createElement("button");
+            deleteButton.className = "action-btn red"; deleteButton.textContent = "Delete";
+            deleteButton.onclick = () => deleteSegment(i);
+            const lockButton = document.createElement("button");
+            lockButton.className = "action-btn";
+            lockButton.textContent = seg.locked ? "🔒" : "🔓";
+            lockButton.title = seg.locked ? "Protected from Auto-Fix (click to unlock)" : "Not protected (click to lock from Auto-Fix)";
+            lockButton.onclick = () => toggleLock(i);
+            actionsCell.appendChild(playButton);
+            actionsCell.appendChild(insertButton);
+            actionsCell.appendChild(deleteButton);
+            actionsCell.appendChild(lockButton);
+            row.appendChild(actionsCell);
+
+            return row;
+        }
+
+        function toggleLock(index) {
+            segmentsData[index].locked = !segmentsData[index].locked;
+            renderTable();
+            showStatus(segmentsData[index].locked ? "Line locked: Auto-Fix will not move it." : "Line unlocked: Auto-Fix may re-time it.", "info");
+        }
+
+        function addManualSegment() {
+            const lastEnd = segmentsData.length ? Math.max(...segmentsData.map(s => s.end)) : 0;
+            segmentsData.push({ segment_id: "manual_" + Date.now(), start: Number(lastEnd.toFixed(2)), end: Number((lastEnd + 3).toFixed(2)), speaker: "Speaker 1", gender: "male", emotion: "neutral", text: "", arabic_text: "", locked: false });
+            renderTable(); renderSpeakerVoices();
+            showStatus("Manual line added at the end.", "info");
+        }
+
+        function insertSegmentAfter(index) {
+            const currentSegment = segmentsData[index];
+            if (!currentSegment) return;
+            const nextSegment = segmentsData[index + 1];
+            let start = currentSegment.end;
+            let end = start + 3;
+            if (nextSegment && nextSegment.start > start + 0.5) end = nextSegment.start;
+            segmentsData.splice(index + 1, 0, { segment_id: "manual_" + Date.now(), start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), speaker: currentSegment.speaker, gender: currentSegment.gender, emotion: currentSegment.emotion, text: "", arabic_text: "", locked: false });
+            renderTable(); renderSpeakerVoices();
+            showStatus("Manual line inserted. Use ✨ Auto-Fix Timing to sync its time to the audio.", "info");
+        }
+
+        function deleteSegment(index) {
+            if (!confirm("Delete this segment?")) return;
+            segmentsData.splice(index, 1);
+            cleanUnusedSpeakerVoices();
+            renderTable(); renderSpeakerVoices();
+        }
+
+        function cleanUnusedSpeakerVoices() {
+            const active = new Set(segmentsData.map(s => s.speaker));
+            Object.keys(speakerVoices).forEach(n => { if (!active.has(n)) delete speakerVoices[n]; });
+        }
+
+        function updateSpeakerName(index, newName) {
+            newName = newName.trim() || `Speaker ${index + 1}`;
+            const oldName = segmentsData[index].speaker;
+            segmentsData[index].speaker = newName;
+            if (oldName !== newName && speakerVoices[oldName] && !speakerVoices[newName]) speakerVoices[newName] = speakerVoices[oldName];
+            cleanUnusedSpeakerVoices();
+            renderSpeakerVoices();
+        }
+
+        /* ---------- AUTO-FIX TIMING ---------- */
+        function normalizeTokens(t) {
+            return (t || "").toLowerCase().replace(/[^\w\s']/g, "").split(/\s+/).filter(w => w.length > 0);
+        }
+
+        function dice(a, b) {
+            if (a === b) return 1;
+            if (a.length < 2 || b.length < 2) return 0;
+            const mapA = {};
+            let nA = 0;
+            for (let i = 0; i < a.length - 1; i++) { const g = a.substr(i, 2); mapA[g] = (mapA[g] || 0) + 1; nA++; }
+            let nB = 0, hit = 0;
+            for (let i = 0; i < b.length - 1; i++) { const g = b.substr(i, 2); if (mapA[g]) { mapA[g]--; hit++; } nB++; }
+            return (2 * hit) / (nA + nB);
+        }
+
+        function tokenMatch(a, b) {
+            if (a === b) return true;
+            if (a.length < 4 || b.length < 4) return false;
+            return dice(a, b) >= 0.6;
+        }
+
+        function buildTokenTimeline() {
+            const timeline = [];
+            const sorted = originalSegments.slice().sort((a, b) => a.start - b.start);
+            sorted.forEach(o => {
+                if (o.words && o.words.length > 0) {
+                    o.words.slice().sort((a, b) => a.start - b.start).forEach(w => {
+                        normalizeTokens(w.word).forEach(tok => {
+                            timeline.push({ word: tok, tStart: w.start, tEnd: w.end });
+                        });
+                    });
+                } else {
+                    const toks = normalizeTokens(o.text);
+                    const n = toks.length;
+                    if (!n) return;
+                    const span = o.end - o.start;
+                    toks.forEach((w, i) => {
+                        timeline.push({
+                            word: w,
+                            tStart: o.start + (i / n) * span,
+                            tEnd: o.start + ((i + 1) / n) * span
+                        });
+                    });
+                }
+            });
+            return timeline;
+        }
+
+        function findCandidates(toks, timeline, currentStart) {
+            const cands = [];
+            const maxAnchor = Math.min(3, toks.length);
+            for (let anchor = 0; anchor < maxAnchor; anchor++) {
+                for (let p = 0; p < timeline.length; p++) {
+                    if (!tokenMatch(timeline[p].word, toks[anchor])) continue;
+                    let ti = anchor, q = p, drops = 0;
+                    while (q < timeline.length && ti < toks.length) {
+                        if (tokenMatch(timeline[q].word, toks[ti])) {
+                            ti++; q++;
+                        } else if (drops < 1 && ti + 1 < toks.length && tokenMatch(timeline[q].word, toks[ti + 1])) {
+                            // Tolerate ONE mis-heard / missing word in the line
+                            ti += 2; drops++; q++;
+                        } else {
+                            q++;
+                        }
+                    }
+                    const matched = ti - anchor - drops;
+                    const score = matched / toks.length;
+                    if (score < 0.6) continue;
+                    cands.push({ start: timeline[p].tStart, end: timeline[q - 1].tEnd, score: score });
+                }
+            }
+            cands.sort((a, b) => (b.score - a.score) || (Math.abs(a.start - currentStart) - Math.abs(b.start - currentStart)));
+            return cands;
+        }
+
+        function spansOverlap(aStart, aEnd, bStart, bEnd) {
+            const ov = Math.min(aEnd, bEnd) - Math.max(aStart, bStart);
+            if (ov <= 0) return false;
+            return ov > 0.2 * Math.min(aEnd - aStart, bEnd - bStart);
+        }
+
+        function autoFixTiming() {
+            if (segmentsData.length === 0) { alert("No segments to fix."); return; }
+            if (originalSegments.length === 0) { alert("No original transcription available. Please transcribe again."); return; }
+
+            const timeline = buildTokenTimeline();
+            if (timeline.length === 0) { alert("Original transcription has no words to match."); return; }
+
+            const maxTime = totalDuration > 0 ? totalDuration : timeline[timeline.length - 1].tEnd;
+
+            const pairs = [];
+            segmentsData.forEach((seg, idx) => {
+                if (seg.locked) return;
+                const toks = normalizeTokens(seg.text);
+                if (toks.length === 0) return;
+                findCandidates(toks, timeline, seg.start).forEach(c => {
+                    const cs = Math.max(0, Math.min(c.start, maxTime));
+                    const ce = Math.max(cs + 0.3, Math.min(c.end, maxTime));
+                    pairs.push({ idx: idx, start: cs, end: ce, score: c.score, dist: Math.abs(c.start - seg.start) });
+                });
+            });
+
+            pairs.sort((a, b) => (b.score - a.score) || (a.dist - b.dist));
+            const claimed = [];
+            segmentsData.forEach(seg => { if (seg.locked) claimed.push({ start: seg.start, end: seg.end }); });
+
+            const newTimes = {};
+            let fixedCount = 0;
+            pairs.forEach(p => {
+                if (newTimes[p.idx] !== undefined) return;
+                if (claimed.some(c => spansOverlap(p.start, p.end, c.start, c.end))) return;
+                newTimes[p.idx] = { start: p.start, end: p.end };
+                claimed.push({ start: p.start, end: p.end });
+                fixedCount++;
+            });
+
+            let lockedCount = 0, keptCount = 0;
+            segmentsData.forEach((seg, idx) => {
+                if (seg.locked) { lockedCount++; return; }
+                if (newTimes[idx]) {
+                    seg.start = Number(newTimes[idx].start.toFixed(2));
+                    seg.end = Number(newTimes[idx].end.toFixed(2));
+                } else {
+                    keptCount++;
+                }
+            });
+
+            segmentsData.sort((a, b) => a.start - b.start);
+            const pre = segmentsData.map(s => ({ start: s.start, end: s.end }));
+            for (let i = 0; i < segmentsData.length - 1; i++) {
+                const a = segmentsData[i], b = segmentsData[i + 1];
+                if (a.end > b.start + 0.001) {
+                    if (a.locked && b.locked) continue;
+                    if (a.locked) {
+                        b.start = Number(a.end.toFixed(2));
+                        if (b.end <= b.start) b.end = Number((b.start + 0.3).toFixed(2));
+                    } else {
+                        const room = i > 0 ? segmentsData[i - 1].end : 0;
+                        if (b.start - 0.3 >= room) {
+                            a.end = Number(b.start.toFixed(2));
+                            a.start = Number(Math.max(0, b.start - 0.3).toFixed(2));
+                        } else {
+                            a.start = pre[i].start;
+                            a.end = pre[i].end;
+                        }
+                    }
+                }
+            }
+
+            segmentsData.forEach(seg => {
+                seg.start = Number(Math.max(0, Math.min(seg.start, maxTime)).toFixed(2));
+                seg.end = Number(Math.max(seg.start + 0.3, Math.min(seg.end, maxTime)).toFixed(2));
+            });
+
+            renderTable();
+            showStatus(`Auto-Fix: ${fixedCount} line(s) re-synced, ${keptCount} kept their times (no safe unique match), ${lockedCount} locked.`, "success");
+        }
+
+        /* ---------- VOICES / CLONE ---------- */
+        async function loadVoices() {
+            const apiKey = document.getElementById("apiKey").value.trim();
+            if (!apiKey) { alert("Enter your ElevenLabs API key first."); return; }
+            showStatus("Loading voices from ElevenLabs...", "info");
+            const res = await fetch("/api/voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ api_key: apiKey }) });
+            const data = await res.json();
+            if (data.error) { showStatus("Error loading voices: " + data.error, "error"); return; }
+            availableVoices = data.voices || [];
+            if (availableVoices.length === 0) { showStatus("No voices found.", "error"); return; }
+            renderDefaultVoiceSelect(); renderSpeakerVoices(); autoAssignVoices();
+            showStatus("Voices loaded and auto-assigned.", "success");
+        }
+
+        function renderDefaultVoiceSelect() {
+            const select = document.getElementById("defaultVoiceSelect");
+            select.innerHTML = "";
+            if (availableVoices.length === 0) { const o = document.createElement("option"); o.textContent = "Load voices first"; select.appendChild(o); return; }
+            availableVoices.forEach(v => { const o = document.createElement("option"); o.value = v.voice_id; o.textContent = v.name + (v.gender ? ` (${v.gender})` : ""); select.appendChild(o); });
+        }
+
+        function renderSpeakerVoices() {
+            const tbody = document.querySelector("#speakerVoicesTable tbody");
+            tbody.innerHTML = "";
+            const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
+            names.forEach(name => {
+                const row = document.createElement("tr");
+                const nameCell = document.createElement("td"); nameCell.textContent = name; row.appendChild(nameCell);
+                const voiceCell = document.createElement("td");
+                const select = document.createElement("select");
+                if (availableVoices.length === 0) {
+                    const o = document.createElement("option"); o.textContent = "Load voices first"; select.disabled = true; select.appendChild(o);
+                } else {
+                    availableVoices.forEach(v => { const o = document.createElement("option"); o.value = v.voice_id; o.textContent = v.name + (v.gender ? ` (${v.gender})` : ""); select.appendChild(o); });
+                    const selected = speakerVoices[name] || document.getElementById("defaultVoiceSelect").value;
+                    if (selected) select.value = selected;
+                    select.onchange = () => { speakerVoices[name] = select.value; };
+                }
+                voiceCell.appendChild(select); row.appendChild(voiceCell); tbody.appendChild(row);
+            });
+        }
+
+        function getSpeakerGender(name) {
+            let male = 0, female = 0;
+            segmentsData.forEach(s => { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
+            return female > male ? "female" : "male";
+        }
+
+        function autoAssignVoices() {
+            if (availableVoices.length === 0) { alert("Load voices first."); return; }
+            const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
+            const used = new Set(Object.values(speakerVoices).filter(v => v));
+            names.forEach(name => {
+                if (speakerVoices[name]) { used.add(speakerVoices[name]); return; }
+                const gender = getSpeakerGender(name);
+                let candidates = availableVoices.filter(v => !used.has(v.voice_id));
+                if (candidates.length === 0) candidates = availableVoices;
+                let voice = candidates.find(v => (v.gender || "").toLowerCase() === gender) || candidates.find(v => !v.gender) || candidates[0];
+                if (voice) { speakerVoices[name] = voice.voice_id; used.add(voice.voice_id); }
+            });
+            renderSpeakerVoices();
+        }
+
+        async function analyzeSpeakers() {
+            if (!currentJobId) { alert("Transcribe first."); return; }
+            if (segmentsData.length === 0) { alert("No segments found. Transcribe first."); return; }
+            showStatus("Analyzing speaker audio durations...", "info");
+            try {
+                const res = await fetch("/api/analyze_speakers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, segments: segmentsData }) });
+                const data = await res.json();
+                if (data.error) { showStatus("Analysis error: " + data.error, "error"); return; }
+                const tbody = document.querySelector("#cloneAnalysisTable tbody");
+                tbody.innerHTML = "";
+                (data.analysis || []).forEach(item => {
+                    const row = document.createElement("tr");
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox"; checkbox.checked = true; checkbox.dataset.speaker = item.speaker;
+                    const checkCell = document.createElement("td"); checkCell.appendChild(checkbox); row.appendChild(checkCell);
+                    const speakerCell = document.createElement("td"); speakerCell.textContent = item.speaker; row.appendChild(speakerCell);
+                    const timeCell = document.createElement("td"); timeCell.textContent = item.total_time + " seconds"; row.appendChild(timeCell);
+                    const qualityCell = document.createElement("td"); qualityCell.textContent = item.message;
+                    qualityCell.style.color = item.status === "good" ? "green" : (item.status === "warning" ? "orange" : "red");
+                    row.appendChild(qualityCell);
+                    tbody.appendChild(row);
+                });
+                document.getElementById("cloneAnalysisSection").classList.remove("hidden");
+                showStatus("Review the table below and uncheck any speaker you want to skip.", "success");
+            } catch (e) { showStatus("Analysis failed: " + e.message, "error"); }
+        }
+
+        async function confirmCloning() {
+            const apiKey = document.getElementById("apiKey").value.trim();
+            if (!apiKey) { alert("Enter ElevenLabs API key."); return; }
+            if (!currentJobId) { alert("Transcribe first."); return; }
+
+            const checkboxes = document.querySelectorAll("#cloneAnalysisTable input[type=checkbox]");
+            const selectedSpeakers = [];
+            checkboxes.forEach(cb => { if (cb.checked) selectedSpeakers.push(cb.dataset.speaker); });
+            if (selectedSpeakers.length === 0) { alert("You must select at least one speaker to clone."); return; }
+
+            showStatus(`Cloning ${selectedSpeakers.length} voice(s)... this may take a minute.`, "info");
+
+            try {
+                const res = await fetch("/api/clone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, elevenlabs_api_key: apiKey, segments: segmentsData, speakers_to_clone: selectedSpeakers }) });
+                const data = await res.json();
+                if (data.error) { showStatus("Clone error: " + data.error, "error"); return; }
+
+                const cloned = data.cloned_voices || {};
+                const warnings = data.warnings || [];
+                window.clonedVoiceIds = [];
+                let successCount = 0;
+                const errorMessages = [];
+
+                Object.keys(cloned).forEach(speaker => {
+                    const vid = cloned[speaker];
+                    if (!vid.startsWith("ERROR")) {
+                        speakerVoices[speaker] = vid;
+                        window.clonedVoiceIds.push(vid);
+                        successCount++;
+                        if (!availableVoices.find(v => v.voice_id === vid)) {
+                            availableVoices.push({ voice_id: vid, name: `Cloned_${speaker}`, gender: "", category: "cloned" });
+                        }
+                    } else {
+                        errorMessages.push(`${speaker}: ${vid}`);
+                    }
+                });
+
+                renderDefaultVoiceSelect();
+                renderSpeakerVoices();
+                document.getElementById("cloneAnalysisSection").classList.add("hidden");
+                showStatus(`Voices cloned successfully! ${successCount} speaker(s) assigned to their cloned voices.`, "success");
+                warnings.forEach(w => showStatus("⚠️ " + w, "info"));
+                errorMessages.forEach(e => showStatus("❌ " + e, "error"));
+            } catch (e) { showStatus("Clone failed: " + e.message, "error"); }
+        }
+
+        /* ---------- TRANSLATE / EMOTIONS ---------- */
+        async function autoTranslate() {
+            const geminiKey = document.getElementById("geminiApiKey").value.trim();
+            if (!geminiKey) { alert("Enter your Gemini API key first."); return; }
+            if (segmentsData.length === 0) { alert("No segments to translate. Transcribe first."); return; }
+            showStatus("Translating to Arabic with Tashkeel...", "info");
+            try {
+                const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segments: segmentsData, gemini_api_key: geminiKey }) });
+                const data = await res.json();
+                if (data.error) { showStatus("Translation error: " + data.error, "error"); return; }
+                let matched = 0;
+                (data.translated_segments || []).forEach(item => {
+                    const seg = segmentsData.find(s => s.segment_id === item.segment_id);
+                    if (seg) {
+                        seg.arabic_text = item.arabic_text || "";
+                        if (item.emotion && EMOTIONS.includes(item.emotion)) seg.emotion = item.emotion;
+                        matched++;
+                    }
+                });
+                renderTable();
+                showStatus(`Translation complete. ${matched} segments translated.`, "success");
+            } catch (e) { showStatus("Translation failed: " + e.message, "error"); }
+        }
+
+        async function detectEmotions() {
+            const geminiKey = document.getElementById("geminiApiKey").value.trim();
+            if (!geminiKey) { alert("Enter your Gemini API key first."); return; }
+            if (!currentJobId) { alert("Transcribe first."); return; }
+            if (segmentsData.length === 0) { alert("No segments found. Transcribe first."); return; }
+
+            document.getElementById("emotionProgress").classList.remove("hidden");
+            showStatus("Starting emotion detection...", "info");
+
+            try {
+                const res = await fetch("/api/detect_emotions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, gemini_api_key: geminiKey }) });
+                const data = await res.json();
+                if (data.error) { showStatus("Error: " + data.error, "error"); return; }
+                if (emotionPollTimer) clearInterval(emotionPollTimer);
+                emotionPollTimer = setInterval(checkEmotionProgress, 2000);
+            } catch (e) {
+                showStatus("Emotion detection failed: " + e.message, "error");
+                document.getElementById("emotionProgress").classList.add("hidden");
+            }
+        }
+
+        async function checkEmotionProgress() {
+            if (!currentJobId) return;
+            const res = await fetch(`/api/progress/emotions/${currentJobId}`);
+            const data = await res.json();
+            if (!data || data.status === "not_found") return;
+
+            const fill = document.getElementById("emotionProgressFill");
+            const text = document.getElementById("emotionProgressText");
+            if (typeof data.percent === "number") {
+                fill.style.width = data.percent + "%";
+                fill.textContent = data.percent + "%";
+                text.textContent = `Processing segment ${data.current} of ${data.total}...`;
+            }
+
+            if (data.status === "done") {
+                clearInterval(emotionPollTimer);
+                const emotions = data.emotions || {};
+                let updated = 0;
+                segmentsData.forEach(seg => {
+                    if (emotions[seg.segment_id] && EMOTIONS.includes(emotions[seg.segment_id])) {
+                        seg.emotion = emotions[seg.segment_id];
+                        updated++;
+                    }
+                });
+                renderTable();
+                showStatus(`Emotion detection complete. ${updated} segments updated.`, "success");
+                if (data.errors && data.errors.length > 0) data.errors.forEach(e => showStatus("⚠️ " + e, "info"));
+                document.getElementById("emotionProgress").classList.add("hidden");
+            }
+            if (data.status === "error") {
+                clearInterval(emotionPollTimer);
+                showStatus("Error: " + data.error, "error");
+                document.getElementById("emotionProgress").classList.add("hidden");
+            }
+        }
+
+        /* ---------- GENERATE / MERGE ---------- */
+        async function generateAudio() {
+            const apiKey = document.getElementById("apiKey").value.trim();
+            if (!apiKey) { alert("Enter your ElevenLabs API key."); return; }
+            if (availableVoices.length === 0 && window.clonedVoiceIds.length === 0) { alert("Load voices or clone voices first."); return; }
+            if (!segmentsData.some(s => s.arabic_text.trim().length > 0)) { alert("Fill at least one Arabic translation."); return; }
+            const defaultVoiceId = document.getElementById("defaultVoiceSelect").value;
+
+            document.getElementById("generateButton").disabled = true;
+            document.getElementById("genProgress").classList.remove("hidden");
+            showStatus("Starting Arabic audio generation...", "info");
+
+            const payload = {
+                segments: segmentsData,
+                elevenlabs_api_key: apiKey,
+                default_voice_id: defaultVoiceId,
+                speaker_voices: speakerVoices,
+                tempo_mode: document.getElementById("tempoMode").value,
+                duration_mode: document.getElementById("durationMode").value,
+                total_duration: totalDuration,
+                cloned_voice_ids: window.clonedVoiceIds || []
+            };
+
+            const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if (data.error) { showStatus("Error: " + data.error, "error"); document.getElementById("generateButton").disabled = false; return; }
+
+            if (generatePollTimer) clearInterval(generatePollTimer);
+            generatePollTimer = setInterval(checkGenerateProgress, 1000);
+        }
+
+        async function checkGenerateProgress() {
+            const res = await fetch("/api/progress/generate");
+            const data = await res.json();
+            if (!data || data.status === "not_found") return;
+
+            const fill = document.getElementById("genProgressFill");
+            if (typeof data.percent === "number") { fill.style.width = data.percent + "%"; fill.textContent = data.percent + "%"; }
+
+            if (data.status === "done") {
+                clearInterval(generatePollTimer);
+                document.getElementById("generateButton").disabled = false;
+                const result = data.result || {};
+                showStatus("Arabic audio generated and merged.", "success");
+                document.getElementById("resultSection").classList.remove("hidden");
+                document.getElementById("audioResults").innerHTML = `
+                    <p>Segments generated: <strong>${result.segments_generated || 0}</strong></p>
+                    <p>Timing warnings: <strong>${result.tempo_warnings || 0}</strong></p>
+                    <p>Segments trimmed to avoid overlap: <strong>${result.duration_cuts || 0}</strong></p>
+                    <p>Final duration: <strong>${result.final_duration || 0} seconds</strong></p>
+                    <p>Final merged audio:</p>
+                    <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
+                    <div class="download-buttons">
+                        <a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a>
+                    </div>
+                `;
+                if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+            }
+            if (data.status === "error") {
+                clearInterval(generatePollTimer);
+                document.getElementById("generateButton").disabled = false;
+                showStatus("Error: " + data.error, "error");
+            }
+        }
+
+        async function mergeVideo() {
+            if (!currentJobId) { alert("No job found."); return; }
+            document.getElementById("mergeButton").disabled = true;
+            showStatus("Merging dubbed audio with video and background music... Please wait.", "info");
+            try {
+                const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId }) });
+                const data = await res.json();
+                document.getElementById("mergeButton").disabled = false;
+                if (data.error) { showStatus("Merge error: " + data.error, "error"); return; }
+
+                const bgNote = data.has_background
+                    ? "✅ Background music/sounds have been mixed with the dubbed vocals."
+                    : "⚠️ No background separation was available. Video contains dubbed vocals only.";
+
+                document.getElementById("videoResults").classList.remove("hidden");
+                document.getElementById("videoResults").innerHTML = `
+                    <h4>🎬 Final Dubbed Video:</h4>
+                    <p class="note">${bgNote}</p>
+                    <video controls src="/api/download/final_dubbed_video.mp4?cache=${Date.now()}"></video>
+                    <div class="download-buttons">
+                        <a href="/api/download/final_dubbed_video.mp4?cache=${Date.now()}" download="final_dubbed_video.mp4">⬇️ Download Dubbed Video (MP4)</a>
+                        <a class="blue" href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download Pure Vocals (MP3)</a>
+                    </div>
+                `;
+                showStatus("Video merged successfully! You can now download both files.", "success");
+            } catch (e) {
+                document.getElementById("mergeButton").disabled = false;
+                showStatus("Merge failed: " + e.message, "error");
+            }
+        }
+    </script>
+</body>
+</html>
