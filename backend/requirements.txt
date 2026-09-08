@@ -9,6 +9,7 @@ faster-whisper==1.1.1
 httpx==0.28.1
 urllib3==2.3.0
 numpy==1.26.4
+scipy>=1.12.0
 torch==2.5.1+cpu
 torchaudio==2.5.1+cpu
 --extra-index-url https://download.pytorch.org/whl/cpu
@@ -17,4 +18,3 @@ soundfile==0.12.1
 pyannote.audio==3.1.1
 transformers==4.38.2
 huggingface-hub==0.21.4
-audiosr==0.0.7

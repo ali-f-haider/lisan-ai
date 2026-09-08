@@ -153,12 +153,12 @@
     </select>
     <br><br>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
-        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
-            <input type="checkbox" id="enhanceBackground" checked style="width:18px;height:18px;accent-color:#059669;">
-            ✨ Enhance Background Audio (AudioSR)
-        </label>
-        <span style="font-size:12px;color:#6b7280;">Upscales separated background to crisp 48kHz. Adds ~30–60s processing time. Uncheck if the result sounds distorted.</span>
-    </div>
+    <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
+        <input type="checkbox" id="enhanceBackground" checked style="width:18px;height:18px;accent-color:#059669;">
+        ✨ Enhance Background Audio
+    </label>
+    <span style="font-size:12px;color:#6b7280;">Applies DSP filters: removes rumble + adds crispness with high-shelf boost. Instant processing, no ML artifacts.</span>
+	</div>
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
     <div id="genProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div>
