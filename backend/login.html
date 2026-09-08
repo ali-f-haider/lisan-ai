@@ -12,9 +12,12 @@
     .login-card h1 { font-size: 28px; color: #1a237e; margin-bottom: 4px; }
     .login-card .sub { font-size: 14px; color: #666; margin-bottom: 4px; }
     .login-card .sub-ar { font-size: 14px; color: #666; margin-bottom: 24px; direction: rtl; }
-    .divider { display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #9ca3af; font-size: 13px; }
-    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: #e5e7eb; }
-    .login-card input[type="email"], .login-card input[type="password"] {
+    .tabs { display: flex; margin-bottom: 24px; border-bottom: 2px solid #e5e7eb; }
+    .tab { flex: 1; padding: 10px; font-size: 15px; font-weight: 600; color: #9ca3af; background: none; border: none;
+           cursor: pointer; font-family: inherit; transition: all 0.2s; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+    .tab.active { color: #1a237e; border-bottom-color: #1a237e; }
+    .tab:hover:not(.active) { color: #6b7280; }
+    .login-card input[type="email"], .login-card input[type="password"], .login-card input[type="text"] {
         width: 100%; padding: 12px 14px; border: 2px solid #e5e7eb; border-radius: 10px;
         font-size: 15px; margin-bottom: 12px; outline: none; transition: border 0.2s; font-family: inherit;
     }
@@ -22,22 +25,18 @@
     .btn-primary {
         width: 100%; padding: 12px; background: #1a237e; color: #fff; border: none;
         border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;
+        margin-bottom: 8px;
     }
     .btn-primary:hover { background: #283593; }
-    .btn-google {
-        width: 100%; padding: 12px; background: #fff; color: #333; border: 2px solid #e5e7eb;
-        border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
-        display: flex; align-items: center; justify-content: center; gap: 10px; font-family: inherit; margin-bottom: 10px;
-    }
-    .btn-google:hover { background: #f9fafb; border-color: #d1d5db; }
-    .btn-google img { width: 20px; height: 20px; }
-    .toggle-link { font-size: 13px; color: #42a5f5; cursor: pointer; margin-top: 16px; display: inline-block; }
-    .toggle-link:hover { text-decoration: underline; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .error { color: #dc2626; font-size: 13px; margin-bottom: 12px; display: none; background: #fef2f2; padding: 8px 12px; border-radius: 8px; }
     .success { color: #059669; font-size: 13px; margin-bottom: 12px; display: none; background: #ecfdf5; padding: 8px 12px; border-radius: 8px; }
     .hidden { display: none !important; }
-    .help-link { margin-top: 20px; }
+    .help-link { margin-top: 16px; }
     .help-link a { color: #42a5f5; font-size: 13px; text-decoration: none; }
+    .access-toggle { font-size: 12px; color: #9ca3af; cursor: pointer; margin-top: 12px; display: inline-block; }
+    .access-toggle:hover { color: #6b7280; text-decoration: underline; }
+    .access-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
 </style>
 </head>
 <body>
@@ -49,41 +48,35 @@
     <div class="error" id="authError"></div>
     <div class="success" id="authSuccess"></div>
 
-    <!-- Sign Up Form -->
-    <div id="signupForm">
-        <h3 style="font-size:18px;color:#1a237e;margin-bottom:16px;">Create Account</h3>
-        <input type="email" id="signupEmail" placeholder="Email address" autocomplete="email">
-        <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" autocomplete="new-password"
-               onkeydown="if(event.key==='Enter')doSignup()">
-        <button class="btn-primary" onclick="doSignup()">Sign Up</button>
-        <div class="divider">or</div>
-        <button class="btn-google" onclick="doGoogleLogin()">
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G">
-            Continue with Google
-        </button>
-        <span class="toggle-link" onclick="showLogin()">Already have an account? Log In</span>
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab active" id="tabLogin" onclick="showLogin()">Log In</button>
+        <button class="tab" id="tabSignup" onclick="showSignup()">Sign Up</button>
     </div>
 
     <!-- Login Form -->
-    <div id="loginForm" class="hidden">
-        <h3 style="font-size:18px;color:#1a237e;margin-bottom:16px;">Log In</h3>
+    <div id="loginForm">
         <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
         <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password"
                onkeydown="if(event.key==='Enter')doLogin()">
-        <button class="btn-primary" onclick="doLogin()">Log In</button>
-        <div class="divider">or</div>
-        <button class="btn-google" onclick="doGoogleLogin()">
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="G">
-            Continue with Google
-        </button>
-        <span class="toggle-link" onclick="showSignup()">Don't have an account? Sign Up</span>
+        <button class="btn-primary" id="btnLogin" onclick="doLogin()">Log In</button>
     </div>
 
-    <div class="divider">or</div>
-    <input type="password" id="legacyPassword" placeholder="Access code (if provided)"
-           style="width:100%;padding:12px 14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;margin-bottom:12px;outline:none;font-family:inherit;"
-           onkeydown="if(event.key==='Enter')doLegacyLogin()">
-    <button class="btn-primary" style="background:#6b7280;" onclick="doLegacyLogin()">Enter with Access Code</button>
+    <!-- Sign Up Form -->
+    <div id="signupForm" class="hidden">
+        <input type="email" id="signupEmail" placeholder="Email address" autocomplete="email">
+        <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" autocomplete="new-password"
+               onkeydown="if(event.key==='Enter')doSignup()">
+        <button class="btn-primary" id="btnSignup" onclick="doSignup()">Sign Up</button>
+    </div>
+
+    <!-- Access code (discrete) -->
+    <span class="access-toggle" onclick="toggleAccess()">Have an access code?</span>
+    <div id="accessSection" class="access-section hidden">
+        <input type="text" id="legacyPassword" placeholder="Enter access code"
+               onkeydown="if(event.key==='Enter')doLegacyLogin()">
+        <button class="btn-primary" style="background:#6b7280;" onclick="doLegacyLogin()">Enter</button>
+    </div>
 
     <div class="help-link">
         <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
@@ -91,7 +84,7 @@
 </div>
 
 <script>
-// ===== ALL FUNCTIONS DEFINED FIRST (no dependencies) =====
+// ===== ALL FUNCTIONS =====
 
 function showErr(msg) {
     var el = document.getElementById("authError");
@@ -107,8 +100,23 @@ function hideMsgs() {
     document.getElementById("authError").style.display = "none";
     document.getElementById("authSuccess").style.display = "none";
 }
-function showLogin() { hideMsgs(); document.getElementById("signupForm").classList.add("hidden"); document.getElementById("loginForm").classList.remove("hidden"); }
-function showSignup() { hideMsgs(); document.getElementById("loginForm").classList.add("hidden"); document.getElementById("signupForm").classList.remove("hidden"); }
+function showLogin() {
+    hideMsgs();
+    document.getElementById("loginForm").classList.remove("hidden");
+    document.getElementById("signupForm").classList.add("hidden");
+    document.getElementById("tabLogin").classList.add("active");
+    document.getElementById("tabSignup").classList.remove("active");
+}
+function showSignup() {
+    hideMsgs();
+    document.getElementById("signupForm").classList.remove("hidden");
+    document.getElementById("loginForm").classList.add("hidden");
+    document.getElementById("tabSignup").classList.add("active");
+    document.getElementById("tabLogin").classList.remove("active");
+}
+function toggleAccess() {
+    document.getElementById("accessSection").classList.toggle("hidden");
+}
 
 var _supabase = null;
 
@@ -117,7 +125,7 @@ function _getSupabase() {
     var url = window.__SUPABASE_URL || "";
     var key = window.__SUPABASE_KEY || "";
     if (!url || !key) return null;
-    if (typeof window.supabase === "undefined") return null;
+    if (typeof window.supabase === "undefined" || typeof window.supabase.createClient !== "function") return null;
     try {
         _supabase = window.supabase.createClient(url, key);
         return _supabase;
@@ -127,51 +135,45 @@ function _getSupabase() {
 function doSignup() {
     hideMsgs();
     var sb = _getSupabase();
-    if (!sb) { showErr("Authentication service not loaded. Please refresh the page or use the access code below."); return; }
+    if (!sb) { showErr("Authentication service is still loading. Please wait a moment and try again."); return; }
     var email = document.getElementById("signupEmail").value.trim();
     var password = document.getElementById("signupPassword").value;
     if (!email || !password) { showErr("Please enter email and password."); return; }
     if (password.length < 6) { showErr("Password must be at least 6 characters."); return; }
+    document.getElementById("btnSignup").disabled = true;
     sb.auth.signUp({ email: email, password: password }).then(function(result) {
+        document.getElementById("btnSignup").disabled = false;
         if (result.error) { showErr(result.error.message); return; }
         if (result.data && result.data.session) {
-            _sendSession(result.data.session);
-            window.location.href = "/app";
+            _sendSession(result.data.session).then(function() {
+                window.location.href = "/app";
+            });
         } else {
-            showOk("Check your email for a confirmation link, then log in.");
-            setTimeout(showLogin, 1500);
+            showOk("✅ Account created! Check your email for a confirmation link, then come back here and log in.");
+            setTimeout(showLogin, 2000);
         }
-    }).catch(function(e) { showErr(e.message); });
+    }).catch(function(e) { document.getElementById("btnSignup").disabled = false; showErr(e.message); });
 }
 
 function doLogin() {
     hideMsgs();
     var sb = _getSupabase();
-    if (!sb) { showErr("Authentication service not loaded. Please refresh the page or use the access code below."); return; }
+    if (!sb) { showErr("Authentication service is still loading. Please wait a moment and try again."); return; }
     var email = document.getElementById("loginEmail").value.trim();
     var password = document.getElementById("loginPassword").value;
     if (!email || !password) { showErr("Please enter email and password."); return; }
+    document.getElementById("btnLogin").disabled = true;
     sb.auth.signInWithPassword({ email: email, password: password }).then(function(result) {
+        document.getElementById("btnLogin").disabled = false;
         if (result.error) { showErr(result.error.message); return; }
-        _sendSession(result.data.session);
-        window.location.href = "/app";
-    }).catch(function(e) { showErr(e.message); });
-}
-
-function doGoogleLogin() {
-    hideMsgs();
-    var sb = _getSupabase();
-    if (!sb) { showErr("Google login not available yet. Use email or access code."); return; }
-    sb.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: window.location.origin + "/auth/callback" }
-    }).then(function(result) {
-        if (result.error) showErr(result.error.message);
-    }).catch(function(e) { showErr(e.message); });
+        _sendSession(result.data.session).then(function() {
+            window.location.href = "/app";
+        });
+    }).catch(function(e) { document.getElementById("btnLogin").disabled = false; showErr(e.message); });
 }
 
 function _sendSession(session) {
-    fetch("/api/auth/session", {
+    return fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token })
@@ -190,6 +192,12 @@ function doLegacyLogin() {
         if (data.ok) { window.location.href = "/app"; }
         else { showErr("Invalid access code."); }
     }).catch(function(e) { showErr(e.message); });
+}
+
+// Auto-detect: if coming from email confirmation, show login tab with success message
+if (window.location.hash.indexOf("type=signup") > -1 || window.location.hash.indexOf("type=email") > -1) {
+    showLogin();
+    showOk("✅ Email confirmed! You can now log in.");
 }
 
 // Check if already logged in
