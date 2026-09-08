@@ -338,3 +338,42 @@ audio, video {
     h1 { font-size: 24px; }
     table { font-size: 12px; }
 }
+
+/* User bar */
+#userBar {
+    background: #fff; border-bottom: 1px solid #e5e7eb; padding: 10px 24px;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 50;
+}
+.credits-badge {
+    background: #ecfdf5; border: 1px solid #bbf7d0; padding: 6px 14px;
+    border-radius: 20px; font-size: 13px; font-weight: 600; color: #059669; display: none;
+}
+.btn-logout {
+    padding: 6px 16px; background: #f3f4f6; border: 1px solid #e5e7eb;
+    border-radius: 8px; font-size: 13px; font-weight: 500; color: #6b7280;
+    cursor: pointer; font-family: inherit; transition: all 0.2s;
+}
+.btn-logout:hover { background: #e5e7eb; }
+
+/* File upload button styled like Start */
+.file-upload-area {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; background: var(--primary); color: #fff;
+    border-radius: 8px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; margin-top: 8px;
+}
+.file-upload-area:hover { background: var(--primary-light); transform: translateY(-1px); }
+#fileUploadLabel { display: flex; align-items: center; gap: 8px; }
+
+/* Credits info box */
+.credits-info-box {
+    width: 300px; flex-shrink: 0; padding: 14px;
+    background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;
+}
+
+/* Progress status text */
+.progress-status {
+    text-align: center; font-size: 13px; color: #6b7280;
+    margin-top: 8px; min-height: 20px; transition: opacity 0.3s;
+}

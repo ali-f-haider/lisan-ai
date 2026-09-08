@@ -1964,3 +1964,399 @@ function refreshCredits() {
         if (credNum && !data.is_guest) credNum.textContent = data.credits;
     }).catch(function() {});
 }
+
+// ===== ROTATING STATUS MESSAGES =====
+var _statusMessages = [
+    "️ Transcribing speech... this may take a minute",
+    "🧠 AI is analyzing the audio carefully...",
+    "🔍 Detecting speakers and their voices...",
+    "⏳ Processing takes longer for higher quality — please be patient",
+    "🎵 Separating vocals from background audio...",
+    "💡 Tip: You can edit the transcription while waiting for other steps",
+    "🌍 Preparing translation engine...",
+    "🔊 This step requires significant processing — hang tight!",
+    "✨ Almost there — finalizing results...",
+    "📊 Analyzing audio patterns and speaker characteristics..."
+];
+var _statusIdx = 0;
+var _statusTimer = null;
+
+function startRotatingStatus(elementId) {
+    stopRotatingStatus();
+    _statusIdx = 0;
+    var el = document.getElementById(elementId);
+    if (!el) return;
+    el.textContent = _statusMessages[0];
+    _statusTimer = setInterval(function() {
+        _statusIdx = (_statusIdx + 1) % _statusMessages.length;
+        el.style.opacity = "0";
+        setTimeout(function() {
+            el.textContent = _statusMessages[_statusIdx];
+            el.style.opacity = "1";
+        }, 300);
+    }, 8000);
+}
+
+function stopRotatingStatus() {
+    if (_statusTimer) { clearInterval(_statusTimer); _statusTimer = null; }
+}
+
+// Override transcribe progress to use rotating messages
+var _prevCheckTranscribe = checkTranscribeProgress;
+checkTranscribeProgress = async function() {
+    if (!currentJobId) return;
+    var res = await fetch("/api/progress/" + currentJobId);
+    var data = await res.json();
+    var fill = document.getElementById("progressFill");
+    var txt = document.getElementById("progressText");
+    if (fill) fill.style.width = (data.percent || 0) + "%";
+    if (txt && data.status === "processing") {
+        // Show percentage + current status_text from server, or rotating message
+        var serverMsg = data.status_text || "";
+        if (serverMsg) {
+            txt.textContent = (data.percent || 0) + "% — " + serverMsg;
+        }
+        // Start rotating messages if not already running
+        if (!_statusTimer) startRotatingStatus("progressText");
+    }
+    if (data.is_video !== undefined) isVideoUpload = data.is_video;
+    if (data.status === "done") {
+        stopRotatingStatus();
+        clearInterval(transcribePollTimer);
+        if (txt) txt.textContent = "100% — Complete!";
+        segmentsData = data.segments;
+        segmentsData.forEach(function(s) { s.start = Number(Number(s.start).toFixed(2)); s.end = Number(Number(s.end).toFixed(2)); s.locked = false; });
+        originalSegments = JSON.parse(JSON.stringify(segmentsData));
+        totalDuration = data.full_duration || 0;
+        var message = "Transcription complete.";
+        if (data.detected_speakers > 0) message += " Detected speakers: " + data.detected_speakers + ".";
+        if (data.warning) notify("error", "⚠️ " + data.warning);
+        notify("success", message + " Use 🔒 to protect lines from Auto-Fix, Translate and Tashkeel.");
+        renderTable(); renderSpeakerVoices();
+        ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(function(id) { document.getElementById(id).classList.remove("hidden"); });
+        updateBadges(); fetchUsage();
+    }
+    if (data.status === "error") { stopRotatingStatus(); clearInterval(transcribePollTimer); notify("error", data.error); }
+};
+
+// Override generate progress with rotating messages
+var _prevCheckGen = checkGenerateProgress;
+checkGenerateProgress = async function() {
+    var res = await fetch("/api/progress/generate");
+    var data = await res.json();
+    if (!data || data.status === "not_found") return;
+    var fill = document.getElementById("genProgressFill");
+    var txt = document.getElementById("genProgressText");
+    if (fill && typeof data.percent === "number") fill.style.width = data.percent + "%";
+    if (txt && data.status === "processing") {
+        var serverMsg = data.status_text || "";
+        if (serverMsg) {
+            txt.textContent = (data.percent || 0) + "% — " + serverMsg;
+        } else if (!_statusTimer) {
+            startRotatingStatus("genProgressText");
+        }
+    }
+    if (data.status === "done") {
+        stopRotatingStatus();
+        clearInterval(generatePollTimer);
+        if (txt) txt.textContent = "100% — Complete!";
+        document.getElementById("generateButton").disabled = false;
+        var r = data.result || {};
+        notify("success", "Arabic audio generated and merged.");
+        document.getElementById("resultSection").classList.remove("hidden");
+        document.getElementById("audioResults").innerHTML =
+            '<p>Segments generated: <strong>' + (r.segments_generated || 0) + '</strong> | Timing warnings: <strong>' + (r.tempo_warnings || 0) + '</strong> | Trimmed: <strong>' + (r.duration_cuts || 0) + '</strong></p>' +
+            '<p>Final duration: <strong>' + (r.final_duration || 0) + 's</strong> | Voice characters used: <strong>' + ((r.eleven_credits_used || 0).toLocaleString()) + '</strong></p>' +
+            '<audio controls src="/api/download/final_dubbed.mp3?cache=' + Date.now() + '"></audio>' +
+            '<div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=' + Date.now() + '" download="final_dubbed.mp3">⬇️ Download MP3</a></div>';
+        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+        fetchUsage(); updateBadges(); refreshCredits();
+    }
+    if (data.status === "error") { stopRotatingStatus(); clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
+};
+
+// ===== FILE UPLOAD LABEL =====
+function onFileSelected(input) {
+    var label = document.getElementById("fileUploadText");
+    if (input.files && input.files[0]) {
+        var f = input.files[0];
+        var sizeMB = (f.size / (1024 * 1024)).toFixed(1);
+        label.textContent = f.name + " (" + sizeMB + " MB)";
+    } else {
+        label.textContent = "Choose File";
+    }
+}
+
+// ===== USER HEADER =====
+(function loadUserInfo() {
+    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+        var nameEl = document.getElementById("userName");
+        var credEl = document.getElementById("creditsDisplay");
+        var credNum = document.getElementById("creditsNum");
+        if (nameEl) nameEl.textContent = data.name || "";
+        if (!data.is_guest && credEl && credNum) {
+            credNum.textContent = data.credits;
+            credEl.style.display = "inline-block";
+        }
+    }).catch(function() {});
+})();
+
+function doLogout() {
+    fetch("/api/logout", { method: "POST" }).then(function() {
+        window.location.href = "/login";
+    }).catch(function() { window.location.href = "/login"; });
+}
+
+function refreshCredits() {
+    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+        var credNum = document.getElementById("creditsNum");
+        if (credNum && !data.is_guest) credNum.textContent = data.credits;
+    }).catch(function() {});
+}
+
+// ===== AUDIOSR TOGGLE — send preference with generate =====
+var _origGenerateAudio = generateAudio;
+generateAudio = function() {
+    var enhance = document.getElementById("enhanceBackground");
+    window._enhanceBackground = enhance ? enhance.checked : false;
+    _origGenerateAudio();
+};
+
+// ===== FIXED TABLE ROW (locked = yellow, alternating) =====
+function createRow(seg, i) {
+    var row = document.createElement("tr");
+    if (seg.locked) row.className = "locked";
+    if (!seg.locked) {
+        var groupIdx = 0;
+        for (var j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
+        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+    }
+    var mk = function(tag) { return document.createElement(tag); };
+    var numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
+    var startCell = mk("td"); var si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = function() { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
+    var endCell = mk("td"); var ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = function() { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
+    var spCell = mk("td"); var spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = function() { updateSpeakerName(i, spI.value); }; spCell.appendChild(spI); row.appendChild(spCell);
+    var gCell = mk("td"); var gS = mk("select"); ["male", "female"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = function() { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
+    var eCell = mk("td");
+    var eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
+    var eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
+    var blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
+    EMOTIONS.slice().sort().forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    eS.onchange = function() {
+        if (!eS.value) return;
+        var merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
+        var clean = sanitizeStyle(merged) || "neutral";
+        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
+    };
+    var eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.style.flex = "1"; eI.style.minWidth = "80px";
+    eI.onchange = function() {
+        var clean = sanitizeStyle(eI.value) || "neutral";
+        if (clean !== eI.value.trim()) notify("info", "Words not in the official list were removed. Style: '" + clean + "'.");
+        eI.value = clean; seg.emotion = clean; updateBadges();
+    };
+    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
+    var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function() { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
+    var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function() { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
+    var aCell = mk("td");
+    var pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = function() { previewRow(i, pb); };
+    var rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = function() { regenerateLine(i, rb); };
+    var ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = function() { insertSegmentAfter(i); };
+    var db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = function() { deleteSegment(i); };
+    var lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = function() { toggleLock(i); };
+    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
+    row.appendChild(aCell);
+    return row;
+}
+
+// ===== CLONE ANALYSIS (frontend-computed) =====
+async function analyzeSpeakers() {
+    if (!segmentsData.length) { notify("error", "No segments found."); return; }
+    var names = [];
+    var seen = {};
+    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    names.sort();
+    var analysis = names.map(function(name) {
+        var segs = segmentsData.filter(function(s) { return (s.speaker || "Speaker 1") === name && (s.text || "").trim(); });
+        var total = segs.reduce(function(a, s) { return a + Math.max(0, s.end - s.start); }, 0);
+        var total_time = Math.round(total * 10) / 10;
+        var n = segs.length;
+        var status, message;
+        if (total_time < 1.0) { status = "bad"; message = "❌ Cannot clone — only " + total_time + "s across " + n + " line(s). Need ≥1s."; }
+        else if (total_time < 3.0) { status = "warning"; message = "⚠️ Barely enough (" + total_time + "s, " + n + " line(s)). Clone may sound robotic."; }
+        else if (total_time < 10.0) { status = "warning"; message = "🟡 Acceptable (" + total_time + "s, " + n + " line(s)). Decent clone."; }
+        else if (total_time < 20.0) { status = "good"; message = "✅ Good (" + total_time + "s, " + n + " line(s)). Natural clone expected."; }
+        else { status = "good"; message = "🌟 Excellent (" + total_time + "s, " + n + " line(s)). Best quality clone."; }
+        return { speaker: name, total_time: total_time, num_segments: n, status: status, message: message };
+    });
+    var tbody = document.querySelector("#cloneAnalysisTable tbody");
+    tbody.innerHTML = "";
+    analysis.forEach(function(item) {
+        var row = document.createElement("tr");
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = item.status !== "bad"; cb.dataset.speaker = item.speaker;
+        var c0 = document.createElement("td"); c0.style.textAlign = "center"; c0.appendChild(cb); row.appendChild(c0);
+        var c1 = document.createElement("td"); c1.textContent = item.speaker; row.appendChild(c1);
+        var c2 = document.createElement("td"); c2.textContent = item.total_time + "s (" + item.num_segments + " line" + (item.num_segments > 1 ? "s" : "") + ")"; row.appendChild(c2);
+        var c3 = document.createElement("td"); c3.textContent = item.message; c3.style.color = item.status === "good" ? "#059669" : (item.status === "warning" ? "#d97706" : "#dc2626"); c3.style.fontSize = "0.9em"; row.appendChild(c3);
+        tbody.appendChild(row);
+    });
+    document.getElementById("cloneAnalysisSection").classList.remove("hidden");
+    notify("success", "Review the guidance below. Speakers marked ❌ are unchecked automatically.");
+}
+
+// ===== SPEAKER VOICES TABLE =====
+async function renderSpeakerVoices() {
+    var tbody = document.querySelector("#speakerVoicesTable tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    var names = [];
+    var seen = {};
+    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    if (!names.length) return;
+    var hasPools = voicePools.male.length > 0 || voicePools.female.length > 0;
+    if (!hasPools) await ensureVoicePools();
+    names.forEach(function(name) {
+        var row = document.createElement("tr");
+        var c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
+        var c2 = document.createElement("td");
+        var sel = document.createElement("select"); sel.style.width = "100%";
+        if (clonedBySpeaker[name]) { var o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o); }
+        var addGroup = function(g, label) {
+            (voicePools[g] || []).slice(0, 8).forEach(function(p, i) {
+                var o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
+            });
+        };
+        addGroup("male", "🎲 Male voice");
+        addGroup("female", "🎲 Female voice");
+        if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
+            var o = document.createElement("option"); o.value = ""; o.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(o);
+        }
+        sel.value = speakerChoices[name] || "";
+        sel.onchange = function() { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
+        c2.appendChild(sel);
+        var info = document.createElement("div");
+        info.style.cssText = "font-size:12px;color:#6b7280;margin-top:4px;";
+        info.textContent = speakerVoiceNames[name] || "";
+        c2.appendChild(info);
+        row.appendChild(c2);
+        tbody.appendChild(row);
+    });
+}
+
+async function ensureVoicePools() {
+    if (voicePools.male.length || voicePools.female.length) return true;
+    try {
+        var res = await fetch("/api/voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+        var data = await res.json();
+        if (data.error || !data.voices) return false;
+        availableVoices = data.voices;
+        buildVoicePools(availableVoices);
+        return true;
+    } catch (e) { return false; }
+}
+
+async function loadVoiceOptions() {
+    var ok = await ensureVoicePools();
+    if (ok) { notify("success", "Voice options loaded. Pick a voice per speaker below."); renderSpeakerVoices(); }
+    else notify("error", "Could not load the voice library.");
+}
+
+async function autoAssignVoices() {
+    var ok = await ensureVoicePools();
+    if (!ok) { notify("error", "Voice library unavailable."); return; }
+    var names = [];
+    var seen = {};
+    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    names.forEach(function(name) {
+        if (speakerChoices[name]) { applyChoice(name); return; }
+        if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
+        var male = 0, female = 0;
+        segmentsData.forEach(function(s) { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
+        var g = female > male ? "female" : "male";
+        var pool = voicePools[g];
+        if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
+        if (!pool.length) return;
+        var usedIds = {};
+        Object.values(speakerVoices).forEach(function(v) { usedIds[v] = true; });
+        var freeIdx = pool.map(function(p, i) { return i; }).filter(function(i) { return !usedIds[pool[i].voice_id]; });
+        var pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
+        speakerChoices[name] = g + ":" + (pick + 1);
+        applyChoice(name);
+    });
+    renderSpeakerVoices();
+    notify("success", "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
+}
+
+// ===== TIMELINE WITH RULER + OVERLAP PREVENTION =====
+function renderTimeline() {
+    var wrap = document.getElementById("timelineWrap");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!segmentsData.length) return;
+    var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function(s) { return s.end; }).concat([1]));
+    var W = wrap.clientWidth || 900;
+    var scale = W / total;
+    var ruler = document.createElement("div");
+    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
+    var step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
+    for (var t = 0; t <= total; t += step) {
+        var mark = document.createElement("div");
+        mark.style.cssText = "position:absolute;left:" + (t * scale) + "px;top:0;height:100%;border-left:1px solid #475569;";
+        var label = document.createElement("span");
+        label.textContent = t + "s";
+        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
+        mark.appendChild(label);
+        ruler.appendChild(mark);
+    }
+    wrap.appendChild(ruler);
+    var speakers = [];
+    var sSeen = {};
+    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!sSeen[n]) { sSeen[n] = true; speakers.push(n); } });
+    speakers.forEach(function(spk, li) {
+        var lane = document.createElement("div");
+        lane.style.cssText = "position:relative;height:34px;border-bottom:1px solid #334155;background:" + (li % 2 === 0 ? "#1e293b" : "#1a2332") + ";";
+        var lab = document.createElement("span");
+        lab.textContent = spk;
+        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
+        lane.appendChild(lab);
+        segmentsData.forEach(function(seg, i) {
+            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
+            var off = segmentOffsets[seg.segment_id] || 0;
+            var box = document.createElement("div");
+            var left = Math.max(0, (seg.start + off) * scale);
+            var width = Math.max(8, (seg.end - seg.start) * scale);
+            box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;";
+            box.title = "Line " + (i + 1) + ": drag to shift";
+            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
+            box.onmousedown = function(ev) {
+                ev.preventDefault();
+                var startX = ev.clientX;
+                var startOff = off;
+                var sameLane = segmentsData.filter(function(s, idx) { return idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
+                var move = function(e2) {
+                    var no = startOff + (e2.clientX - startX) / scale;
+                    no = Math.max(-2, Math.min(2, no));
+                    if (seg.start + no < 0) no = -seg.start;
+                    if (seg.end + no > total) no = total - seg.end;
+                    for (var k = 0; k < sameLane.length; k++) {
+                        var nb = sameLane[k];
+                        var nbOff = segmentOffsets[nb.segment_id] || 0;
+                        var nbStart = nb.start + nbOff;
+                        var nbEnd = nb.end + nbOff;
+                        if (seg.start + no < nbEnd && seg.end + no > nbStart) {
+                            if (no > startOff) { no = nbStart - seg.end; } else { no = nbEnd - seg.start; }
+                        }
+                    }
+                    segmentOffsets[seg.segment_id] = no;
+                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
+                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
+                };
+                var up = function() { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); renderTimeline(); };
+                document.addEventListener("mousemove", move);
+                document.addEventListener("mouseup", up);
+            };
+            lane.appendChild(box);
+        });
+        wrap.appendChild(lane);
+    });
+}

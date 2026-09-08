@@ -11,41 +11,55 @@
 <div id="notifyPanel"></div>
 
 <!-- User Header Bar -->
-<div id="userBar" style="background:#fff;border-bottom:1px solid #e5e7eb;padding:10px 24px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:50;">
-    <div style="font-size:20px;font-weight:800;color:#1a237e;">Lisan AI</div>
+<div id="userBar">
+    <div style="display:flex;align-items:center;gap:10px;">
+        <img src="/logo.png" alt="Lisan AI" style="height:36px;">
+        <span style="font-size:18px;font-weight:800;color:#1a237e;">Lisan AI</span>
+    </div>
     <div style="display:flex;align-items:center;gap:16px;">
-        <div id="creditsDisplay" style="background:#ecfdf5;border:1px solid #bbf7d0;padding:6px 14px;border-radius:20px;font-size:13px;font-weight:600;color:#059669;display:none;">
+        <div id="creditsDisplay" class="credits-badge">
             💰 <span id="creditsNum">0</span> credits
         </div>
         <div id="userName" style="font-size:14px;font-weight:600;color:#374151;"></div>
-        <button onclick="doLogout()" style="padding:6px 16px;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;font-weight:500;color:#6b7280;cursor:pointer;font-family:inherit;">Log Out</button>
+        <button onclick="doLogout()" class="btn-logout">Log Out</button>
     </div>
 </div>
 
-<h1 style="margin-top:20px;">Lisan AI</h1>
-<p class="subtitle"><strong>English to Arabic AI Dubbing</strong></p>
-<p class="subtitle" dir="rtl"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
-<p style="text-align:center;margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></p>
+<div style="text-align:center;padding:20px 20px 0;">
+    <img src="/logo.png" alt="Lisan AI" style="height:80px;margin-bottom:8px;">
+    <p class="subtitle"><strong>English to Arabic AI Dubbing</strong></p>
+    <p class="subtitle" dir="rtl"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
+    <p style="margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></p>
+</div>
 
 <div class="card">
     <h3>Step 1: Upload Audio or Video</h3>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
             <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
-            <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm">
-            <br><br>
+            <div class="file-upload-area" onclick="document.getElementById('audioFile').click()">
+                <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
+                <div id="fileUploadLabel">
+                    <span style="font-size:24px;">📁</span>
+                    <span id="fileUploadText">Choose File</span>
+                </div>
+            </div>
+            <br>
             <label>Number of speakers</label>
             <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
             <br>
-            <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>         
+            <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>
             <div id="progressSection" class="hidden">
                 <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-                <p id="progressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
+                <p id="progressText" class="progress-status">Starting...</p>
             </div>
         </div>
-        <div style="width:300px;flex-shrink:0;padding:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
+        <div class="credits-info-box">
             <div id="usageBox" class="hidden" style="font-size:13px;"></div>
-            <p class="note" style="margin:6px 0 0 0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+            <p class="note" style="margin:0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+            <p style="margin-top:10px;padding:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e;line-height:1.5;">
+                ⚠️ <strong>Important:</strong> Your generated audio and video files are temporary. <strong>Download them immediately</strong> after processing — they will be lost when the session ends or the server restarts.
+            </p>
         </div>
     </div>
 </div>
@@ -66,7 +80,7 @@
     <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
     <div id="emotionProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%"></div></div>
-        <p id="emotionProgressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
+        <p id="emotionProgressText" class="progress-status">Starting...</p>
     </div>
     <div style="overflow-x:auto;">
         <table id="segmentsTable">
@@ -138,15 +152,25 @@
         <option value="extend">Extend duration</option>
     </select>
     <br><br>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
+        <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
+            <input type="checkbox" id="enhanceBackground" checked style="width:18px;height:18px;accent-color:#059669;">
+            ✨ Enhance Background Audio (AudioSR)
+        </label>
+        <span style="font-size:12px;color:#6b7280;">Upscales separated background to crisp 48kHz. Adds ~30–60s processing time. Uncheck if the result sounds distorted.</span>
+    </div>
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
     <div id="genProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div>
-        <p id="genProgressText" style="text-align:center;font-size:13px;color:#6b7280;margin-top:8px;">Starting...</p>
+        <p id="genProgressText" class="progress-status">Starting...</p>
     </div>
 </div>
 
 <div id="resultSection" class="card hidden">
     <h3>Step 6: Final Result</h3>
+    <div style="padding:12px 16px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;margin-bottom:16px;font-size:13px;color:#92400e;">
+        ⚠️ <strong>Download your files now!</strong> Generated audio and video are temporary and will be lost when the session ends.
+    </div>
     <div id="audioResults"></div>
     <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
     <div id="timelineSection" class="hidden">

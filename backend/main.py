@@ -5,6 +5,7 @@ import shutil
 import threading
 import urllib.request
 import uuid
+import audio_enhance
 from pathlib import Path
 from typing import Dict, List
 
@@ -68,6 +69,7 @@ class GenerateRequest(BaseModel):
     duration_mode: str = "exact"
     total_duration: float = 0.0
     cloned_voice_ids: List[str] = []
+    enhance_background: bool = True
 
 class RegenerateLineRequest(BaseModel):
     job_id: str = ""
@@ -305,9 +307,17 @@ def app_js():
 def styles():
     return FileResponse(BASE_DIR / "styles.css", media_type="text/css")
 
+@app.get("/logo.png")
+def logo():
+    return FileResponse(BASE_DIR / "logo.png", media_type="image/png")
+
 @app.get("/help")
 def help_page():
     return FileResponse(BASE_DIR / "help.html", media_type="text/html")
+
+@app.get("/api/progress/enhance/{job_id}")
+def enhance_progress(job_id: str):
+    return audio_enhance.get_progress(job_id)
 
 # ==================== API ROUTES ====================
 
