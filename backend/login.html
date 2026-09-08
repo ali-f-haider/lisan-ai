@@ -79,6 +79,11 @@
         <span class="toggle-link" onclick="showSignup()">Don't have an account? Sign Up</span>
     </div>
 
+    <div class="divider">or</div>
+    <input type="password" id="legacyPassword" placeholder="Access code (if provided)" style="width:100%;padding:12px 14px;border:2px solid #e5e7eb;border-radius:10px;font-size:15px;margin-bottom:12px;outline:none;font-family:inherit;"
+           onkeydown="if(event.key==='Enter')doLegacyLogin()">
+    <button class="btn-primary" style="background:#6b7280;" onclick="doLegacyLogin()">Enter with Access Code</button>
+
     <div class="help-link">
         <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
     </div>
@@ -156,6 +161,22 @@ async function sendSession(session) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token })
     });
+}
+
+async function doLegacyLogin() {
+    hideMsgs();
+    const pw = document.getElementById("legacyPassword").value;
+    if (!pw) { showErr("Please enter the access code."); return; }
+    try {
+        const res = await fetch("/api/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({password: pw})
+        });
+        const data = await res.json();
+        if (data.ok) { window.location.href = "/"; }
+        else { showErr("Invalid access code."); }
+    } catch (e) { showErr(e.message); }
 }
 
 // Check if already logged in
