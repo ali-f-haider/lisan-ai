@@ -58,7 +58,7 @@ def get_speaker_turns(input_path: str, hf_token: str, speaker_count):
 
     pipeline = diarization_pipelines.get(hf_token)
     if pipeline is None:
-        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=hf_token)
+        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_token)
         diarization_pipelines[hf_token] = pipeline
 
     normalized_path = normalize_audio_for_diarization(input_path)
