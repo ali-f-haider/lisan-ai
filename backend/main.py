@@ -25,7 +25,17 @@ import lipsync_service
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 app = FastAPI()
-
+@app.get("/debug-keys")
+def debug_keys():
+    from config import GEMINI_API_KEY as _g, ELEVENLABS_API_KEY as _e, HF_TOKEN as _h, APP_PASSWORD as _p
+    return {
+        "SUPABASE_URL": os.environ.get("SUPABASE_URL", "NOT_IN_ENV")[:25],
+        "SUPABASE_ANON_KEY": os.environ.get("SUPABASE_ANON_KEY", "NOT_IN_ENV")[:25],
+        "APP_PASSWORD": "SET" if _p else "EMPTY",
+        "GEMINI_API_KEY": "SET" if _g else "EMPTY",
+        "ELEVENLABS_API_KEY": "SET" if _e else "EMPTY",
+        "HF_TOKEN": "SET" if _h else "EMPTY",
+    }
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
 GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
 
