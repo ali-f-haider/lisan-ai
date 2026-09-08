@@ -27,7 +27,8 @@
     <br>
     <button onclick="startTranscribe()">Transcribe<span class="badge" id="badgeTranscribe"></span></button>
     <div id="progressSection" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%">0%</div></div>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <p id="progressText" class="note" style="text-align:center;margin-top:6px;">0%</p>
     </div>
     <div style="clear:both;"></div>
 </div>
@@ -47,15 +48,21 @@
     <button class="pink" onclick="detectEmotions()">Detect Emotions from Voice<span class="badge" id="badgeEmotions"></span></button>
     <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
     <div id="emotionProgress" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%">0%</div></div>
+        <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%"></div></div>
+        <p id="emotionProgressText" class="note" style="text-align:center;margin-top:6px;">0%</p>
     </div>
     <div style="overflow-x:auto;">
         <table id="segmentsTable">
             <thead><tr>
                 <th style="width:36px">#</th>
-                <th style="width:80px">Start</th><th style="width:80px">End</th><th style="width:120px">Speaker</th>
-                <th style="width:85px">Gender</th><th style="width:170px">Style / Emotion</th>
-                <th style="min-width:160px">English</th><th style="min-width:160px">Arabic</th><th style="width:190px">Actions</th>
+                <th style="width:75px">Start</th>
+                <th style="width:75px">End</th>
+                <th style="width:110px">Speaker</th>
+                <th style="width:80px">Gender</th>
+                <th style="width:170px">Style / Emotion</th>
+                <th style="min-width:150px">English</th>
+                <th style="min-width:150px">Arabic</th>
+                <th style="width:180px">Actions</th>
             </tr></thead>
             <tbody></tbody>
         </table>
@@ -116,7 +123,8 @@
     <br><br>
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
     <div id="genProgress" class="hidden">
-        <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%">0%</div></div>
+        <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div>
+        <p id="genProgressText" class="note" style="text-align:center;margin-top:6px;">0%</p>
     </div>
 </div>
 
@@ -125,7 +133,7 @@
     <div id="audioResults"></div>
     <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
     <div id="timelineSection" class="hidden">
-        <p class="note">Drag each block left/right to align it with the lip movement (offset shown in milliseconds, max ±2s). Then confirm to rebuild the MP3.</p>
+        <p class="note">Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.</p>
         <div id="timelineWrap" style="position:relative;background:#1e293b;border-radius:8px;overflow:hidden;margin:10px 0;"></div>
         <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>
         <button class="blue" onclick="resetTimeline()">↩️ Reset Offsets</button>
