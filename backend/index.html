@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Lisan AI — English to Arabic AI Dubbing</title>
 <link rel="stylesheet" href="/styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
 <div id="notifyPanel"></div>
@@ -13,9 +15,9 @@
 
 <div class="card">
     <h3>Step 1: Upload Audio or Video</h3>
-    <div style="float:right;width:300px;margin:0 0 12px 20px;padding:10px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:4px;">
+    <div style="float:right;width:300px;margin:0 0 12px 20px;padding:14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
         <div id="usageBox" class="hidden" style="font-size:13px;"></div>
-        <p class="note" style="margin:6px 0 0 0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+        <p class="note" style="margin:6px 0 0 0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
     </div>
     <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
     <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm">
@@ -47,14 +49,17 @@
     <div id="emotionProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%">0%</div></div>
     </div>
-    <table id="segmentsTable">
-        <thead><tr>
-            <th style="width:80px">Start</th><th style="width:80px">End</th><th style="width:120px">Speaker</th>
-            <th style="width:85px">Gender</th><th style="width:170px">Style / Emotion</th>
-            <th style="width:20%">English</th><th style="width:20%">Arabic</th><th style="width:190px">Actions</th>
-        </tr></thead>
-        <tbody></tbody>
-    </table>
+    <div style="overflow-x:auto;">
+        <table id="segmentsTable">
+            <thead><tr>
+                <th style="width:36px">#</th>
+                <th style="width:80px">Start</th><th style="width:80px">End</th><th style="width:120px">Speaker</th>
+                <th style="width:85px">Gender</th><th style="width:170px">Style / Emotion</th>
+                <th style="min-width:160px">English</th><th style="min-width:160px">Arabic</th><th style="width:190px">Actions</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
 </div>
 
 <div id="voicesSection" class="card hidden">
@@ -66,10 +71,12 @@
 <div id="cloneAnalysisSection" class="card hidden">
     <h3>Step 3.5: Choose Which Speakers to Clone</h3>
     <p class="note">Review the available audio for each speaker. Uncheck any speaker you want to skip.</p>
-    <table id="cloneAnalysisTable">
-        <thead><tr><th style="width:50px">Clone?</th><th style="width:150px">Speaker</th><th style="width:140px">Speech Found</th><th>Quality Guidance</th></tr></thead>
-        <tbody></tbody>
-    </table>
+    <div style="overflow-x:auto;">
+        <table id="cloneAnalysisTable">
+            <thead><tr><th style="width:50px">Clone?</th><th style="width:150px">Speaker</th><th style="width:140px">Speech Found</th><th>Quality Guidance</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
     <br>
     <button class="orange" onclick="confirmCloning()">Clone Selected Voices<span class="badge" id="badgeClone"></span></button>
 </div>
@@ -79,10 +86,12 @@
     <p class="note">Pick a voice for each speaker. Cloned voices come from your video; numbered voices are high-quality studio library voices (names hidden on purpose). Two speakers never share the same numbered voice.</p>
     <button class="blue" onclick="loadVoiceOptions()">🔄 Load Voice Options</button>
     <button onclick="autoAssignVoices()">🎲 Auto-Assign All<span class="badge" id="badgeAutoAssign"></span></button>
-    <table id="speakerVoicesTable">
-        <thead><tr><th style="width:30%">Speaker</th><th>Voice</th></tr></thead>
-        <tbody></tbody>
-    </table>
+    <div style="overflow-x:auto;">
+        <table id="speakerVoicesTable">
+            <thead><tr><th style="width:30%">Speaker</th><th>Voice</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
 </div>
 
 <div id="generateSection" class="card hidden">
@@ -117,7 +126,7 @@
     <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
     <div id="timelineSection" class="hidden">
         <p class="note">Drag each block left/right to align it with the lip movement (offset shown in milliseconds, max ±2s). Then confirm to rebuild the MP3.</p>
-        <div id="timelineWrap" style="position:relative;background:#263238;border-radius:6px;overflow:hidden;margin:10px 0;"></div>
+        <div id="timelineWrap" style="position:relative;background:#1e293b;border-radius:8px;overflow:hidden;margin:10px 0;"></div>
         <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>
         <button class="blue" onclick="resetTimeline()">↩️ Reset Offsets</button>
     </div>
