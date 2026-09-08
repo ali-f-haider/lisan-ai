@@ -1655,9 +1655,11 @@ function createRow(seg, i) {
     const row = document.createElement("tr");
     if (seg.locked) row.className = "locked";
     // Alternating background by speaker group
-    let groupIdx = 0;
-    for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
-    row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+    if (!seg.locked) {
+        let groupIdx = 0;
+        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
+        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+    }
 
     const mk = (tag) => document.createElement(tag);
 
