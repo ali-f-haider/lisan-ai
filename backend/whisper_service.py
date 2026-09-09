@@ -275,7 +275,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         diar_thread = None
         if hf_token:
-            torch.set_num_threads(2)  # diarization gets core #2...
+            torch.set_num_threads(4)  # diarization gets core #4...
             jobs_progress[job_id]["status_text"] = "Detecting speakers + transcribing in parallel..."
             jobs_progress[job_id]["percent"] = 15
             diar_thread = threading.Thread(target=diarize, daemon=True)

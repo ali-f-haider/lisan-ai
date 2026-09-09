@@ -183,12 +183,11 @@ def user_info(request: Request):
         email = user_data.get("email", "User")
         display_name = email.split("@")[0] if email else "User"
         
-        # Read credits securely via service key
+        # Read credits securely via service key (bypasses RLS issues)
         credits = get_credits(user_id)
         if credits is None:
             credits = 100
             
-        # Try to get display name from profile if available
         try:
             prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name"
             prof_req = urllib.request.Request(prof_url, headers={
