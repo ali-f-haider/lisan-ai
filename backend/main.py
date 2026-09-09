@@ -186,7 +186,19 @@ def user_info(request: Request):
         # Read credits securely via service key (bypasses RLS issues)
         credits = get_credits(user_id)
         if credits is None:
-            credits = 100
+            # Fallback: read own row with the user's own token (RLS own-row policy)
+            try:
+                fb_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=credits"
+                fb_req = urllib.request.Request(fb_url, headers={
+                    "Authorization": f"Bearer {sb_token}",
+                    "apikey": SUPABASE_ANON_KEY
+                })
+                with urllib.request.urlopen(fb_req, timeout=10) as fr:
+                    fb = json.load(fr)
+                if fb:
+                    credits = fb[0].get("credits", 100)
+            except Exception:
+                credits = 100
             
         try:
             prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name"
@@ -359,7 +371,14 @@ def get_credits(uid: str):
         print(f"[credits] SUCCESS for {uid}: {rows}")
         return rows[0]["credits"] if rows else None
     except Exception as e:
-        print(f"[credits] ERROR for {uid}: {e}")
+        body = ""
+        try:
+            if hasattr(e, "read"):
+                body = e.read().decode("utf-8", "ignore")
+        except Exception:
+            pass
+        print(f"[credits] ERROR for {uid}: {e} | BODY: {body[:300]}")
+        print(f"[credits] KEY PREFIX: {SUPABASE_SERVICE_KEY[:13]}...")
         return None
 
 
