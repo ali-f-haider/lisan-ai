@@ -184,20 +184,9 @@ def user_info(request: Request):
         email = user_data.get("email", "User")
         display_name = email.split("@")[0] if email else "User"
         # Fetch credits from profiles table
-        credits = 100
-        try:
-            prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=credits,display_name"
-            prof_req = urllib.request.Request(prof_url, headers={
-                "Authorization": f"Bearer {sb_token}",
-                "apikey": SUPABASE_ANON_KEY
-            })
-            with urllib.request.urlopen(prof_req, timeout=10) as pr:
-                prof_data = json.load(pr)
-            if prof_data:
-                credits = prof_data[0].get("credits", 100)
-                display_name = prof_data[0].get("display_name", display_name)
-        except Exception:
-            pass
+                credits = get_credits(user_id)
+        if credits is None:
+            credits = 100
         return {"name": display_name, "credits": credits, "is_guest": False}
     except Exception:
         return {"name": "Guest", "credits": -1, "is_guest": True}
