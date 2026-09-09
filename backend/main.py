@@ -170,7 +170,6 @@ def user_info(request: Request):
     cookie = request.cookies.get("session", "")
     sb_token = _valid_tokens.get(cookie, "")
     if not sb_token or not SUPABASE_URL:
-        # Legacy password mode — no user profile
         return {"name": "Guest", "credits": -1, "is_guest": True}
     try:
         url = f"{SUPABASE_URL}/auth/v1/user"
@@ -183,14 +182,29 @@ def user_info(request: Request):
         user_id = user_data.get("id", "")
         email = user_data.get("email", "User")
         display_name = email.split("@")[0] if email else "User"
-        # Fetch credits from profiles table
-                credits = get_credits(user_id)
+        
+        # Read credits securely via service key
+        credits = get_credits(user_id)
         if credits is None:
             credits = 100
+            
+        # Try to get display name from profile if available
+        try:
+            prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name"
+            prof_req = urllib.request.Request(prof_url, headers={
+                "Authorization": f"Bearer {sb_token}",
+                "apikey": SUPABASE_ANON_KEY
+            })
+            with urllib.request.urlopen(prof_req, timeout=10) as pr:
+                prof_data = json.load(pr)
+            if prof_data:
+                display_name = prof_data[0].get("display_name", display_name)
+        except Exception:
+            pass
+            
         return {"name": display_name, "credits": credits, "is_guest": False}
     except Exception:
         return {"name": "Guest", "credits": -1, "is_guest": True}
-
 
 @app.post("/api/logout")
 def logout(response: Response):
@@ -738,15 +752,18 @@ def merge_video(req: MergeRequest, request: Request):
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     if bal is not None and bal < 1:
-        Use ➕ Buy."}, status_code=402)
+        return JSONResponse({"error": "Insufficient credits (merge costs 1 credit). Use ➕ Buy."}, status_code=402)
     if uid:
         deduct_credits(uid, 1)
+    
     video = find_job_video(req.job_id)
     dub = OUTPUT_DIR / "final_dubbed.mp3"
     if video is None or not dub.exists():
         return {"error": "Missing video or dubbed audio. Run Generate first."}
+    
     bg = job_background_audio(req.job_id)
     final = OUTPUT_DIR / "final_dubbed_video.mp4"
+    
     if bg is not None:
         # Optionally enhance the separated background
         bg_to_use = bg
@@ -758,10 +775,13 @@ def merge_video(req: MergeRequest, request: Request):
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
         ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed)
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
-        try: mixed.unlink()
-        except Exception: pass
+        try:
+            mixed.unlink()
+        except Exception:
+            pass
     else:
         ffmpeg_utils.mux_audio_into_video(video, dub, final)
+    
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background}
 
 @app.post("/api/lipsync")
