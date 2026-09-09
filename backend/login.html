@@ -1,247 +1,161 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lisan AI — Login</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/styles.css">
 <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', -apple-system, sans-serif; background: #f0f2f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .login-card { background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.1); padding: 40px 36px; width: 400px; text-align: center; }
-    .login-card h1 { font-size: 28px; color: #1a237e; margin-bottom: 4px; }
-    .login-card .sub { font-size: 14px; color: #666; margin-bottom: 4px; }
-    .login-card .sub-ar { font-size: 14px; color: #666; margin-bottom: 24px; direction: rtl; }
-    .tabs { display: flex; margin-bottom: 24px; border-bottom: 2px solid #e5e7eb; }
-    .tab { flex: 1; padding: 10px; font-size: 15px; font-weight: 600; color: #9ca3af; background: none; border: none;
-           cursor: pointer; font-family: inherit; transition: all 0.2s; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-    .tab.active { color: #1a237e; border-bottom-color: #1a237e; }
-    .tab:hover:not(.active) { color: #6b7280; }
-    .login-card input[type="email"], .login-card input[type="password"], .login-card input[type="text"] {
-        width: 100%; padding: 12px 14px; border: 2px solid #e5e7eb; border-radius: 10px;
-        font-size: 15px; margin-bottom: 12px; outline: none; transition: border 0.2s; font-family: inherit;
-    }
-    .login-card input:focus { border-color: #42a5f5; }
-    .btn-primary {
-        width: 100%; padding: 12px; background: #1a237e; color: #fff; border: none;
-        border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s; font-family: inherit;
-        margin-bottom: 8px;
-    }
-    .btn-primary:hover { background: #283593; }
-    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-    .error { color: #dc2626; font-size: 13px; margin-bottom: 12px; display: none; background: #fef2f2; padding: 8px 12px; border-radius: 8px; }
-    .success { color: #059669; font-size: 13px; margin-bottom: 12px; display: none; background: #ecfdf5; padding: 8px 12px; border-radius: 8px; }
-    .hidden { display: none !important; }
-    .help-link { margin-top: 16px; }
-    .help-link a { color: #42a5f5; font-size: 13px; text-decoration: none; }
-    .access-toggle { font-size: 12px; color: #9ca3af; cursor: pointer; margin-top: 12px; display: inline-block; }
-    .access-toggle:hover { color: #6b7280; text-decoration: underline; }
-    .access-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid #f1f5f9; }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #f0f2f5; }
+    .login-card { background: #fff; padding: 40px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
+    .login-card img { height: 60px; margin-bottom: 16px; }
+    .login-card h1 { font-size: 28px; margin-bottom: 8px; color: #1a237e; }
+    .login-card p { color: #6b7280; margin-bottom: 24px; }
+    .login-card input { width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
+    .login-card input:focus { outline: none; border-color: #42a5f5; }
+    .login-card button { width: 100%; padding: 12px; margin-bottom: 8px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn-primary { background: #1a237e; color: #fff; }
+    .btn-primary:hover { background: #3949ab; }
+    .btn-secondary { background: #f3f4f6; color: #1a237e; border: 1px solid #e5e7eb; }
+    .btn-secondary:hover { background: #e5e7eb; }
+    .msg { margin-top: 12px; font-size: 13px; min-height: 20px; }
+    .msg.err { color: #dc2626; }
+    .msg.ok { color: #059669; }
+    .help-link { margin-top: 24px; font-size: 13px; color: #6b7280; }
+    .help-link a { color: #42a5f5; text-decoration: none; font-weight: 600; }
 </style>
 </head>
 <body>
-<div class="login-card">
-    <h1>Lisan AI</h1>
-    <p class="sub"><strong>English to Arabic AI Dubbing</strong></p>
-    <p class="sub-ar"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
-
-    <div class="error" id="authError"></div>
-    <div class="success" id="authSuccess"></div>
-
-    <!-- Tabs -->
-    <div class="tabs">
-        <button class="tab active" id="tabLogin" onclick="showLogin()">Log In</button>
-        <button class="tab" id="tabSignup" onclick="showSignup()">Sign Up</button>
-    </div>
-
-    <!-- Login Form -->
-    <div id="loginForm">
+    <div class="login-card">
+        <img src="/logo.png" alt="Lisan AI">
+        <h1>Welcome Back</h1>
+        <p>Log in to continue your dubbing projects.</p>
+        
         <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
-		<input type="password" id="loginPassword" placeholder="Password or access code" autocomplete="current-password"
-               onkeydown="if(event.key==='Enter')doSmartLogin()">
+        <input type="password" id="loginPassword" placeholder="Password (or access code)" autocomplete="current-password" onkeydown="if(event.key==='Enter')doSmartLogin()">
+        
         <button class="btn-primary" id="btnLogin" onclick="doSmartLogin()">Log In</button>
+        <button class="btn-secondary" onclick="doSignUp()">Create Account</button>
+        
+        <div id="loginMsg" class="msg"></div>
+        
+        <div class="help-link">
+            <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
+        </div>
     </div>
 
-    <!-- Sign Up Form -->
-    <div id="signupForm" class="hidden">
-        <input type="email" id="signupEmail" placeholder="Email address" autocomplete="email">
-        <input type="password" id="signupPassword" placeholder="Password (min 6 characters)" autocomplete="new-password"
-               onkeydown="if(event.key==='Enter')doSignup()">
-        <button class="btn-primary" id="btnSignup" onclick="doSignup()">Sign Up</button>
-    </div>
-
-
-    <div class="help-link">
-        <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
-    </div>
-</div>
-
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-// ===== ALL FUNCTIONS =====
+var SUPABASE_URL = window.__SUPABASE_URL || "";
+var SUPABASE_KEY = window.__SUPABASE_KEY || "";
+var sb = null;
 
-function showErr(msg) {
-    var el = document.getElementById("authError");
-    el.textContent = msg; el.style.display = "block";
-    document.getElementById("authSuccess").style.display = "none";
-}
-function showOk(msg) {
-    var el = document.getElementById("authSuccess");
-    el.textContent = msg; el.style.display = "block";
-    document.getElementById("authError").style.display = "none";
-}
-function hideMsgs() {
-    document.getElementById("authError").style.display = "none";
-    document.getElementById("authSuccess").style.display = "none";
-}
-function showLogin() {
-    hideMsgs();
-    document.getElementById("loginForm").classList.remove("hidden");
-    document.getElementById("signupForm").classList.add("hidden");
-    document.getElementById("tabLogin").classList.add("active");
-    document.getElementById("tabSignup").classList.remove("active");
-}
-function showSignup() {
-    hideMsgs();
-    document.getElementById("signupForm").classList.remove("hidden");
-    document.getElementById("loginForm").classList.add("hidden");
-    document.getElementById("tabSignup").classList.add("active");
-    document.getElementById("tabLogin").classList.remove("active");
-}
-function toggleAccess() {
-    document.getElementById("accessSection").classList.toggle("hidden");
+if (SUPABASE_URL && SUPABASE_KEY) {
+    try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch(e) { console.error(e); }
 }
 
-var _supabase = null;
+function showMsg(text, isErr) {
+    var el = document.getElementById("loginMsg");
+    el.textContent = text;
+    el.className = "msg " + (isErr ? "err" : "ok");
+}
 
-function _getSupabase() {
-    if (_supabase) return _supabase;
-    var url = window.__SUPABASE_URL || "";
-    var key = window.__SUPABASE_KEY || "";
-    if (!url || !key) return null;
-    if (typeof window.supabase === "undefined" || typeof window.supabase.createClient !== "function") return null;
+function hideMsg() { document.getElementById("loginMsg").textContent = ""; }
+
+async function sendSession(session) {
+    if (!session || !session.access_token) return;
     try {
-        _supabase = window.supabase.createClient(url, key);
-        return _supabase;
-    } catch(e) { console.error("Supabase init error:", e); return null; }
-}
-
-function doSignup() {
-    hideMsgs();
-    var sb = _getSupabase();
-    if (!sb) { showErr("Authentication service is still loading. Please wait a moment and try again."); return; }
-    var email = document.getElementById("signupEmail").value.trim();
-    var password = document.getElementById("signupPassword").value;
-    if (!email || !password) { showErr("Please enter email and password."); return; }
-    if (password.length < 6) { showErr("Password must be at least 6 characters."); return; }
-    document.getElementById("btnSignup").disabled = true;
-    sb.auth.signUp({ email: email, password: password }).then(function(result) {
-        document.getElementById("btnSignup").disabled = false;
-        if (result.error) { showErr(result.error.message); return; }
-        if (result.data && result.data.session) {
-            _sendSession(result.data.session).then(function() {
-                window.location.href = "/app";
-            });
-        } else {
-            showOk("✅ Account created! Check your email for a confirmation link, then come back here and log in.");
-            setTimeout(showLogin, 2000);
-        }
-    }).catch(function(e) { document.getElementById("btnSignup").disabled = false; showErr(e.message); });
-}
-
-function doLogin() {
-    hideMsgs();
-    var sb = _getSupabase();
-    if (!sb) { showErr("Authentication service is still loading. Please wait a moment and try again."); return; }
-    var email = document.getElementById("loginEmail").value.trim();
-    var password = document.getElementById("loginPassword").value;
-    if (!email || !password) { showErr("Please enter email and password."); return; }
-    document.getElementById("btnLogin").disabled = true;
-    sb.auth.signInWithPassword({ email: email, password: password }).then(function(result) {
-        document.getElementById("btnLogin").disabled = false;
-        if (result.error) { showErr(result.error.message); return; }
-        _sendSession(result.data.session).then(function() {
-            window.location.href = "/app";
+        await fetch("/api/auth/session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                access_token: session.access_token,
+                refresh_token: session.refresh_token || ""
+            })
         });
-    }).catch(function(e) { document.getElementById("btnLogin").disabled = false; showErr(e.message); });
+        window.location.href = "/app";
+    } catch (e) {
+        showMsg("Session error: " + e.message, true);
+    }
 }
 
-function doSmartLogin() {
-    hideMsgs();
-    var password = document.getElementById("loginPassword").value;
+async function doSmartLogin() {
+    hideMsg();
     var email = document.getElementById("loginEmail").value.trim();
-    
-    if (!password) { 
-        showErr("Please enter password or access code."); 
-        return; 
-    }
-    
-    // If no email provided, go straight to access code
+    var password = document.getElementById("loginPassword").value;
+    if (!password) { showMsg("Please enter a password or access code.", true); return; }
+
+    // If no email, try legacy access code
     if (!email) {
-        doLegacyLogin();
+        doLegacyLogin(password);
         return;
     }
-    
-    // Try Supabase login first
-    var sb = _getSupabase();
-    if (sb) {
-        document.getElementById("btnLogin").disabled = true;
-        sb.auth.signInWithPassword({ email: email, password: password })
-            .then(function(result) {
-                document.getElementById("btnLogin").disabled = false;
-                if (result.error) { 
-                    // Supabase failed, try access code as fallback
-                    doLegacyLogin();
-                    return; 
-                }
-                _sendSession(result.data.session).then(function() {
-                    window.location.href = "/app";
-                });
-            })
-            .catch(function(e) { 
-                document.getElementById("btnLogin").disabled = false;
-                // Supabase threw error, try access code
-                doLegacyLogin();
-            });
-    } else {
-        // Supabase not available, use access code
-        doLegacyLogin();
+
+    if (!sb) { showMsg("Login system unavailable.", true); return; }
+
+    document.getElementById("btnLogin").disabled = true;
+    try {
+        var res = await sb.auth.signInWithPassword({ email: email, password: password });
+        document.getElementById("btnLogin").disabled = false;
+        if (res.error) {
+            // Supabase failed, fallback to legacy access code just in case
+            doLegacyLogin(password);
+            return;
+        }
+        await sendSession(res.data.session);
+    } catch (e) {
+        document.getElementById("btnLogin").disabled = false;
+        doLegacyLogin(password);
     }
 }
 
-
-function _sendSession(session) {
-    return fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: session.access_token, refresh_token: session.refresh_token })
-    }).catch(function(e) { console.error("Session send error:", e); });
+async function doLegacyLogin(pw) {
+    try {
+        var res = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password: pw || document.getElementById("loginPassword").value })
+        });
+        var data = await res.json();
+        if (data.ok) {
+            window.location.href = "/app";
+        } else {
+            showMsg("Invalid email, password, or access code.", true);
+        }
+    } catch (e) {
+        showMsg("Login failed: " + e.message, true);
+    }
 }
 
-function doLegacyLogin() {
-    hideMsgs();
-    var pw = document.getElementById("legacyPassword").value;
-    if (!pw) { showErr("Please enter the access code."); return; }
-    fetch("/api/login", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({password: pw})
-    }).then(function(res) { return res.json(); }).then(function(data) {
-        if (data.ok) { window.location.href = "/app"; }
-        else { showErr("Invalid access code."); }
-    }).catch(function(e) { showErr(e.message); });
+async function doSignUp() {
+    hideMsg();
+    var email = document.getElementById("loginEmail").value.trim();
+    var password = document.getElementById("loginPassword").value;
+    if (!email || !password) { showMsg("Enter email and password to sign up.", true); return; }
+    if (!sb) { showMsg("Sign up unavailable.", true); return; }
+    
+    try {
+        var res = await sb.auth.signUp({ email: email, password: password });
+        if (res.error) { showMsg(res.error.message, true); return; }
+        if (res.data.session) {
+            await sendSession(res.data.session);
+        } else {
+            showMsg("Account created! Check your email to confirm, then log in.", false);
+        }
+    } catch (e) {
+        showMsg("Sign up failed: " + e.message, true);
+    }
 }
 
-// Auto-detect: if coming from email confirmation, show login tab with success message
-if (window.location.hash.indexOf("type=signup") > -1 || window.location.hash.indexOf("type=email") > -1) {
-    showLogin();
-    showOk("✅ Email confirmed! You can now log in.");
+// Handle OAuth callbacks
+if (sb) {
+    sb.auth.onAuthStateChange(function(event, session) {
+        if (event === "SIGNED_IN" && session && window.location.pathname === "/login") {
+            sendSession(session);
+        }
+    });
 }
-
-// Check if already logged in
-fetch("/api/auth/check").then(function(res) {
-    if (res.ok) window.location.href = "/app";
-}).catch(function() {});
 </script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
 </body>
 </html>
