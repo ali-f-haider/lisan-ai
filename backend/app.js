@@ -37,11 +37,11 @@ function notify(type, msg) {
     m.textContent = (type === "error") ? friendly(msg) : msg;
     const ok = document.createElement("button");
     ok.textContent = "OK";
-    ok.onclick = () => div.remove();
+	ok.onclick = () => { div.remove(); if (!panel.children.length) panel.style.display = "none"; };
     div.appendChild(m); div.appendChild(ok);
-    panel.appendChild(div);
+	panel.appendChild(div); panel.style.display = "flex";
     while (panel.children.length > 6) panel.removeChild(panel.firstChild);
-    setTimeout(() => { if (div.parentNode) div.remove(); }, NOTIFY_AUTO_CLOSE_MS);
+	setTimeout(() => { if (div.parentNode) { div.remove(); if (!panel.children.length) panel.style.display = "none"; } }, NOTIFY_AUTO_CLOSE_MS);
 }
 
 function usdToCredits(usd) { return Math.max(0, Math.ceil(usd / CREDIT_USD)); }

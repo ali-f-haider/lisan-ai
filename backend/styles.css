@@ -265,18 +265,14 @@ table textarea {
     top: 80px;
     right: 20px;
     z-index: 9999;
-    background: #fff;
-    padding: 12px 20px;
-    border-radius: 10px;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-    font-size: 14px;
-    max-width: 320px;
     display: none;
-    border-left: 4px solid #42a5f5;
+    flex-direction: column;
+    gap: 10px;
+    width: 340px;
+    max-width: calc(100vw - 40px);
+    pointer-events: none;
 }
-#notifyPanel.error { border-left-color: #dc2626; background: #fef2f2; color: #991b1b; }
-#notifyPanel.success { border-left-color: #059669; background: #ecfdf5; color: #065f46; }
-#notifyPanel.info { border-left-color: #42a5f5; background: #eff6ff; color: #1e40af; }
+#notifyPanel .notify { pointer-events: auto; }
 
 .notify {
     padding: 14px 18px;
