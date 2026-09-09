@@ -503,7 +503,7 @@ def billing_checkout(payload: dict, request: Request):
                 },
                 "quantity": 1,
             }],
-            success_url=origin + "/app#credits-purchased",
+            success_url=origin + "/app?sid={CHECKOUT_SESSION_ID}#credits-purchased",
             cancel_url=origin + "/app",
         )
     except Exception as e:
@@ -539,6 +539,32 @@ def billing_sync(request: Request):
         return JSONResponse({"error": str(e)}, status_code=502)
     print(f"[sync] uid={uid} seen={seen} added={added}")
     return {"added_sessions_credits": added, "sessions_seen": seen}
+
+
+@app.post("/api/billing/fulfill")
+def billing_fulfill(payload: dict, request: Request):
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "not configured"}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    sid = (payload or {}).get("sid", "")
+    if not sid:
+        return JSONResponse({"error": "missing sid"}, status_code=400)
+    stripe.api_key = STRIPE_SECRET_KEY
+    try:
+        s = stripe.checkout.Session.retrieve(sid)
+    except Exception as e:
+        return JSONResponse({"error": f"retrieve failed: {e}"}, status_code=502)
+    suid = s.get("client_reference_id") or (s.get("metadata") or {}).get("uid")
+    if suid != uid:
+        return JSONResponse({"error": "session belongs to another user"}, status_code=403)
+    if s.get("payment_status") != "paid":
+        return {"fulfilled": False, "reason": "not paid yet"}
+    credits = int((s.get("metadata") or {}).get("credits", 0))
+    res = _fulfill_order(uid, sid, credits)
+    print(f"[fulfill] sid={sid} credits={credits} result={res}")
+    return {"fulfilled": isinstance(res, int), "added": credits if isinstance(res, int) else 0, "detail": str(res)}
 
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):
