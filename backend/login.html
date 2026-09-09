@@ -168,34 +168,44 @@ function doLogin() {
 function doSmartLogin() {
     hideMsgs();
     var password = document.getElementById("loginPassword").value;
-    if (!password) { showErr("Please enter password or access code."); return; }
+    var email = document.getElementById("loginEmail").value.trim();
+    
+    if (!password) { 
+        showErr("Please enter password or access code."); 
+        return; 
+    }
+    
+    // If no email provided, go straight to access code
+    if (!email) {
+        doLegacyLogin();
+        return;
+    }
     
     // Try Supabase login first
     var sb = _getSupabase();
     if (sb) {
-        var email = document.getElementById("loginEmail").value.trim();
-        if (email) {
-            document.getElementById("btnLogin").disabled = true;
-            sb.auth.signInWithPassword({ email: email, password: password }).then(function(result) {
+        document.getElementById("btnLogin").disabled = true;
+        sb.auth.signInWithPassword({ email: email, password: password })
+            .then(function(result) {
                 document.getElementById("btnLogin").disabled = false;
                 if (result.error) { 
-                    // If Supabase fails, try legacy access code
+                    // Supabase failed, try access code as fallback
                     doLegacyLogin();
                     return; 
                 }
                 _sendSession(result.data.session).then(function() {
                     window.location.href = "/app";
                 });
-            }).catch(function(e) { 
+            })
+            .catch(function(e) { 
                 document.getElementById("btnLogin").disabled = false;
+                // Supabase threw error, try access code
                 doLegacyLogin();
             });
-            return;
-        }
+    } else {
+        // Supabase not available, use access code
+        doLegacyLogin();
     }
-    
-    // Fallback to legacy access code
-    doLegacyLogin();
 }
 
 
