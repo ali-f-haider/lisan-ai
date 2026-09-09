@@ -2859,3 +2859,27 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         return orig.apply(this, arguments);
     };
 })();
+
+// ===== ADD-ON: block reset during generation + tell server about abandoned jobs =====
+(function () {
+    var origConfirm = confirmResetSafe;
+    confirmResetSafe = function () {
+        var generating = false;
+        try { generating = !!generatePollTimer; } catch (e) {}
+        if (generating) {
+            notify("error", "⏳ Audio generation is still running. Wait for it to finish before starting a new video — switching now could mix the two audios.");
+            return false;
+        }
+        return origConfirm();
+    };
+})();
+
+(function () {
+    var origReset = resetWorkspace;
+    resetWorkspace = function () {
+        try {
+            if (currentJobId) fetch("/api/abandon/" + currentJobId, { method: "POST" }).catch(function () {});
+        } catch (e) {}
+        origReset();
+    };
+})();

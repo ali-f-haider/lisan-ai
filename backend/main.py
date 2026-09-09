@@ -296,7 +296,8 @@ CREDIT_PACKS = {
 }
 
 _session_users = {}   # our cookie token -> supabase user id
-_job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
+_jo_job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
+_abandoned_jobs = set()b_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
 _job_started = {}     # job_id -> timestamp
 
 
@@ -360,12 +361,17 @@ def deduct_credits(uid, amount):
 def _watch_and_deduct(job_id, uid, kind):
     """Waits for the job to finish, then charges real credits."""
     def _run():
-        while True:
+             while True:
             if kind == "transcribe":
-                st = (jobs_progress.get(job_id) or {}).get("status")
+                j = jobs_progress.get(job_id)
+                if j is None:
+                    return  # job abandoned/removed
+                st = j.get("status")
                 result = {}
             else:
-                g = jobs_progress.get("generate") or {}
+                g = jobs_progress.get("generate")
+                if g is None:
+                    return
                 st = g.get("status")
                 result = g.get("result") or {}
             if st in ("done", "error"):
@@ -373,6 +379,8 @@ def _watch_and_deduct(job_id, uid, kind):
             _time.sleep(2)
         if st != "done" or not uid:
             return
+        if job_id in _abandoned_jobs:
+            return  # user switched videos — never charge for abandoned work
         if kind == "transcribe":
             amount = 3
         else:
@@ -548,6 +556,19 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
                      args=(job_id, str(dest), HF_TOKEN, speaker_count), daemon=True).start()
     _watch_and_deduct(job_id, uid, "transcribe")
     return {"job_id": job_id}
+
+@app.post("/api/abandon/{job_id}")
+def abandon_job(job_id: str):
+    _abandoned_jobs.add(job_id)
+    jobs_progress.pop(job_id, None)
+    try:
+        for d in (UPLOAD_DIR, OUTPUT_DIR):
+            for p in d.glob(f"{job_id}*"):
+                if p.is_file():
+                    p.unlink()
+    except Exception:
+        pass
+    return {"ok": True}
 
 @app.get("/api/progress/{job_id}")
 def progress(job_id: str):
