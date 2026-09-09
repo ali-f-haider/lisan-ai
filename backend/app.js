@@ -2442,6 +2442,8 @@ checkGenerateProgress = async function () {
         if (data.status === "done") {
             stopFriendlyMessages("genProgressText");
             clearInterval(generatePollTimer);
+			generatePollTimer = null;
+            generateLastPercent = 0;
 
             if (fill) fill.style.width = "100%";
             if (txt) txt.textContent = "100% — Audio generation complete.";
@@ -2471,6 +2473,8 @@ checkGenerateProgress = async function () {
         if (data.status === "error") {
             stopFriendlyMessages("genProgressText");
             clearInterval(generatePollTimer);
+			generatePollTimer = null;
+            generateLastPercent = 0;
 
             var btn2 = document.getElementById("generateButton");
             if (btn2) btn2.disabled = false;
