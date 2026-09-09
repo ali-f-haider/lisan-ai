@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lisan AI — My Usage</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="userBar">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <img src="/logo.png" style="height:30px;" alt="">
+    <strong style="color:#1a237e;">Lisan AI — My Usage</strong>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">0</span> credits</span>
+    <button class="btn-logout" onclick="location.href='/app'">← Back to App</button>
+    <button class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
+  </div>
+</div>
+<div class="card">
+  <h3>💰 Current balance</h3>
+  <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
+  <p class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
+</div>
+<div class="card">
+  <h3>🛒 Credit purchases</h3>
+  <table id="purchasesTable"><thead><tr><th>Date</th><th>Credits</th><th>Stripe session</th></tr></thead><tbody></tbody></table>
+</div>
+<div class="card">
+  <h3>📉 Credit consumption</h3>
+  <table id="spendsTable"><thead><tr><th>Date</th><th>Action</th><th>Job</th><th>Credits</th></tr></thead><tbody></tbody></table>
+</div>
+<script>
+fetch("/api/user/info").then(function(r){return r.json();}).then(function(d){
+  document.getElementById("creditsNum").textContent = d.credits;
+  document.getElementById("balanceLine").textContent = d.credits + " credits";
+}).catch(function(){});
+fetch("/api/account/summary").then(function(r){return r.json();}).then(function(d){
+  var pt = document.querySelector("#purchasesTable tbody");
+  (d.purchases || []).forEach(function(p){
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + (p.created_at||"").slice(0,16).replace("T"," ") + "</td><td style='color:#059669;font-weight:700;'>+" + p.credits + "</td><td style='font-size:11px;color:#6b7280;'>" + (p.session_id||"").slice(0,24) + "…</td>";
+    pt.appendChild(tr);
+  });
+  if (!(d.purchases || []).length) pt.innerHTML = '<tr><td colspan="3" style="color:#6b7280;">No purchases yet.</td></tr>';
+  var st = document.querySelector("#spendsTable tbody");
+  (d.spends || []).forEach(function(s){
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td>" + (s.created_at||"").slice(0,16).replace("T"," ") + "</td><td>" + (s.action||"deduction") + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id||"").slice(0,8) + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
+    st.appendChild(tr);
+  });
+  if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">No consumption recorded yet.</td></tr>';
+}).catch(function(){});
+</script>
+</body>
+</html>

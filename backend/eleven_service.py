@@ -594,3 +594,363 @@ def remix_with_offsets(req):
                 "final_duration": round(final_duration, 2)}
     except Exception as e:
         return {"error": friendly_error(e)}
+        
+        # ================= VOLUME-MATCH + CUSTOM VOICE OVERRIDES (appended; last definition wins) =================
+from ffmpeg_utils import measure_loudness_db as _measure_db
+
+USER_GAINS = {}  # job_id -> {segment_id: gain dB applied at mix time}
+
+
+def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
+    """Register a user-uploaded clip (<=20s) as a voice. No analysis here:
+    the voice engine extracts the dominant voice; UI gives the guidance."""
+    safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"
+    wav = OUTPUT_DIR / f"custom_{job_id}_{safe}.wav"
+    run_ffmpeg(["ffmpeg", "-y", "-i", str(src_path), "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(wav)])
+    dur = get_media_duration(wav)
+    if dur > 20.5:
+        try: wav.unlink()
+        except Exception: pass
+        return f"ERROR: Clip is {dur:.1f}s — the limit is 20 seconds."
+    if dur < 1.0:
+        pad = OUTPUT_DIR / f"custom_{job_id}_{safe}_pad.wav"
+        run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-af", f"apad=pad_dur={max(0.2, 1.15 - dur)}", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(pad)])
+        try: wav.unlink()
+        except Exception: pass
+        wav = pad
+    with open(wav, "rb") as f:
+        data = f.read()
+    http = urllib3.PoolManager()
+    resp = http.request("POST", "https://api.elevenlabs.io/v1/voices/add",
+                        headers={"xi-api-key": api_key},
+                        fields={"name": f"Custom_{speaker}", "files": (wav.name, data, "audio/wav"), "labels": "{}"})
+    try: wav.unlink()
+    except Exception: pass
+    if resp.status == 200:
+        return json.loads(resp.data.decode()).get("voice_id", "ERROR: no voice_id returned")
+    return f"ERROR: Voice engine rejected the clip (status {resp.status})."
+
+
+def generate_worker(req):
+    global eleven_client
+    try:
+        jobs_progress["generate"] = {"status": "processing", "percent": 0, "result": None, "error": None}
+        total_segments = len(req.segments)
+        if total_segments == 0:
+            raise Exception("No segments found.")
+        bucket = usage_bucket(req.job_id)
+        sorted_segments = sorted(req.segments, key=lambda s: s.start)
+        generated_files = []
+        lines_meta = []
+        src_for_loudness = resolve_job_audio(req.job_id)
+        # Wipe line files from any previous job so stale audio can never leak in
+        for stale in OUTPUT_DIR.glob("*_stretched.*"):
+            try: stale.unlink()
+            except Exception: pass
+        for stale in OUTPUT_DIR.glob("*_raw.*"):
+            try: stale.unlink()
+            except Exception: pass
+        for i, seg in enumerate(sorted_segments):
+            if not seg.arabic_text.strip():
+                continue
+            target_duration = max(seg.end - seg.start, 0.5)
+            tts_text = seg.arabic_text
+            if req.tts_provider == "gemini":
+                if not req.gemini_api_key:
+                    raise Exception("Missing Gemini API key.")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={req.gemini_api_key}"
+                payload = {"contents": [{"parts": [{"text": tts_text}]}],
+                           "generationConfig": {"responseModalities": ["AUDIO"],
+                                                "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": req.gemini_voice or "Kore"}}}}}
+                request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(request, timeout=120) as response:
+                    data = json.load(response)
+                record_gemini(req.job_id, data)
+                audio_bytes = base64.b64decode(data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"])
+                raw_filename = f"{seg.segment_id}_raw.wav"
+            else:
+                api_key = req.elevenlabs_api_key.strip()
+                if not api_key:
+                    raise Exception("Missing ElevenLabs API key.")
+                if eleven_client is None:
+                    eleven_client = ElevenLabs(api_key=api_key)
+                voice_id = req.speaker_voices.get(seg.speaker, "").strip() or req.default_voice_id.strip()
+                if not voice_id:
+                    raise Exception(f"No voice assigned for speaker: {seg.speaker}")
+                tts_text = f"[{seg.emotion}] {seg.arabic_text}"
+                bucket["eleven_chars"] += len(tts_text)
+                response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3")
+                audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
+                raw_filename = f"{seg.segment_id}_raw.mp3"
+            raw_path = OUTPUT_DIR / raw_filename
+            raw_path.write_bytes(audio_bytes)
+            actual_duration = get_media_duration(raw_path)
+            if actual_duration <= 0:
+                actual_duration = target_duration
+            required_tempo = actual_duration / target_duration
+            if req.tempo_mode == "excellent": min_tempo, max_tempo = 0.95, 1.10
+            elif req.tempo_mode == "good": min_tempo, max_tempo = 0.85, 1.25
+            else: min_tempo, max_tempo = 0.75, 1.35
+            needs_warning = False
+            if required_tempo < min_tempo: tempo = 1.0
+            elif required_tempo > max_tempo: tempo = max_tempo; needs_warning = True
+            else: tempo = required_tempo
+            stretched_filename = f"{seg.segment_id}_stretched.wav" if req.tts_provider == "gemini" else f"{seg.segment_id}_stretched.mp3"
+            stretched_path = OUTPUT_DIR / stretched_filename
+            if abs(tempo - 1.0) > 0.02:
+                run_ffmpeg(["ffmpeg", "-y", "-i", str(raw_path), "-filter:a", f"atempo={tempo:.6f}", str(stretched_path)])
+            else:
+                import shutil
+                shutil.copy(raw_path, stretched_path)
+            stretched_duration = get_media_duration(stretched_path)
+            if stretched_duration <= 0:
+                stretched_duration = target_duration
+            # ---- Volume match: separated original vocals vs generated line ----
+            orig_db = None
+            dub_db = None
+            auto_gain = 0.0
+            try:
+                if src_for_loudness is not None:
+                    orig_db = _measure_db(str(src_for_loudness), seg.start, target_duration)
+                dub_db = _measure_db(str(stretched_path))
+                if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
+                    auto_gain = max(-10.0, min(10.0, orig_db - dub_db))
+            except Exception:
+                auto_gain = 0.0
+            lines_meta.append({"segment_id": seg.segment_id, "speaker": seg.speaker,
+                               "start": seg.start, "end": seg.end,
+                               "orig_db": round(orig_db, 1) if orig_db is not None else None,
+                               "dub_db": round(dub_db, 1) if dub_db is not None else None,
+                               "auto_gain_db": round(auto_gain, 1)})
+            generated_files.append({"file": stretched_filename, "sid": seg.segment_id, "start": seg.start,
+                                    "end": seg.end, "speaker": seg.speaker, "duration": stretched_duration,
+                                    "tempo_warning": needs_warning})
+            jobs_progress["generate"]["percent"] = int(((i + 1) / total_segments) * 90)
+        if not generated_files:
+            raise Exception("No Arabic text found.")
+        USER_GAINS[req.job_id] = {lm["segment_id"]: float(lm["auto_gain_db"]) for lm in lines_meta}
+        jobs_progress["generate"]["percent"] = 92
+        generated_files.sort(key=lambda item: item["start"])
+        max_segment_end = max(item["end"] for item in generated_files)
+        max_played_end = max(item["start"] + item["duration"] for item in generated_files)
+        if req.duration_mode == "extend":
+            final_duration = max(req.total_duration, max_played_end, max_segment_end)
+        else:
+            final_duration = req.total_duration if req.total_duration > 0 else max(max_segment_end, max_played_end)
+        adjusted_files = []
+        cut_count = 0
+        for i, item in enumerate(generated_files):
+            allowed_end = generated_files[i + 1]["start"] - 0.02 if i + 1 < len(generated_files) else final_duration
+            allowed_duration = allowed_end - item["start"]
+            if allowed_duration <= 0.05:
+                continue
+            if item["duration"] > allowed_duration + 0.05:
+                cut_count += 1
+            item["allowed_duration"] = min(item["duration"], allowed_duration)
+            adjusted_files.append(item)
+        if not adjusted_files:
+            raise Exception("No generated segments fit.")
+        inputs = ["-f", "lavfi", "-t", str(final_duration), "-i", "anullsrc=r=44100:cl=stereo"]
+        filter_parts = []
+        active_gen = dict(USER_GAINS.get(req.job_id or "", {}))
+        for idx, item in enumerate(adjusted_files):
+            input_index = idx + 1
+            inputs.extend(["-i", str(OUTPUT_DIR / item["file"])])
+            delay_ms = int(item["start"] * 1000)
+            allowed = max(item["allowed_duration"], 0.05)
+            gdb = float(active_gen.get(item.get("sid", ""), 0.0) or 0.0)
+            vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
+            if item["duration"] > allowed + 0.05:
+                fade_start = max(0, allowed - 0.2)
+                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+            else:
+                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+        mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted_files))])
+        filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted_files) + 1}:duration=first:normalize=0[out]")
+        filter_complex = ";".join(filter_parts)
+        output_file = OUTPUT_DIR / "final_dubbed.mp3"
+        run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
+        warning_count = sum(1 for f in adjusted_files if f.get("tempo_warning"))
+        result = {"status": "success", "output_folder": str(OUTPUT_DIR), "final_file": str(output_file),
+                  "segments_generated": len(adjusted_files), "tempo_warnings": warning_count,
+                  "duration_cuts": cut_count, "final_duration": round(final_duration, 2),
+                  "eleven_credits_used": bucket["eleven_chars"], "lines": lines_meta}
+        jobs_progress["generate"].update({"status": "done", "percent": 100, "result": result, "error": None})
+    except Exception as e:
+        jobs_progress["generate"] = {"status": "error", "percent": 0, "error": str(e), "result": None}
+
+
+def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None):
+    active = dict(USER_GAINS.get(job_id or "", {}))
+    segs = sorted([s for s in segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
+    items = []
+    for s in segs:
+        sp = OUTPUT_DIR / f"{s.segment_id}_stretched.wav"
+        if not sp.exists():
+            sp = OUTPUT_DIR / f"{s.segment_id}_stretched.mp3"
+        if not sp.exists():
+            continue
+        items.append({"file": sp.name, "sid": s.segment_id, "start": s.start, "end": s.end,
+                      "duration": get_media_duration(sp)})
+    if not items:
+        raise Exception("No generated line audio found. Run Generate once first.")
+    max_segment_end = max(i["end"] for i in items)
+    max_played_end = max(i["start"] + i["duration"] for i in items)
+    if duration_mode == "extend":
+        final_duration = max(total_duration, max_played_end, max_segment_end)
+    else:
+        final_duration = total_duration if total_duration > 0 else max(max_segment_end, max_played_end)
+    adjusted = []
+    cuts = 0
+    for i, item in enumerate(items):
+        allowed_end = items[i + 1]["start"] - 0.02 if i + 1 < len(items) else final_duration
+        allowed = allowed_end - item["start"]
+        if allowed <= 0.05:
+            continue
+        if item["duration"] > allowed + 0.05:
+            cuts += 1
+        item["allowed_duration"] = min(item["duration"], allowed)
+        adjusted.append(item)
+    if not adjusted:
+        raise Exception("No lines fit the timeline.")
+    inputs = ["-f", "lavfi", "-t", str(final_duration), "-i", "anullsrc=r=44100:cl=stereo"]
+    filter_parts = []
+    for idx, item in enumerate(adjusted):
+        input_index = idx + 1
+        inputs.extend(["-i", str(OUTPUT_DIR / item["file"])])
+        delay_ms = int(item["start"] * 1000)
+        allowed = max(item["allowed_duration"], 0.05)
+        gdb = float(active.get(item["sid"], 0.0) or 0.0)
+        vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
+        if item["duration"] > allowed + 0.05:
+            fade_start = max(0, allowed - 0.2)
+            filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+        else:
+            filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+    mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted))])
+    filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted) + 1}:duration=first:normalize=0[out]")
+    filter_complex = ";".join(filter_parts)
+    output_file = OUTPUT_DIR / "final_dubbed.mp3"
+    run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
+    return {"segments_generated": len(adjusted), "duration_cuts": cuts,
+            "final_duration": round(final_duration, 2)}
+
+
+def regenerate_line(req):
+    global eleven_client
+    try:
+        seg = req.segment
+        if not (seg.arabic_text or "").strip():
+            return {"error": "This line has no Arabic text yet."}
+        api_key = req.elevenlabs_api_key.strip()
+        if not api_key:
+            return {"error": "Missing ElevenLabs API key."}
+        voice_id = (req.voice_id or "").strip()
+        if not voice_id:
+            return {"error": f"No voice selected for {seg.speaker}. Pick one in Step 4 first."}
+        if eleven_client is None:
+            eleven_client = ElevenLabs(api_key=api_key)
+        bucket = usage_bucket(req.job_id)
+        target_duration = max(seg.end - seg.start, 0.5)
+        tts_text = f"[{seg.emotion}] {seg.arabic_text}"
+        bucket["eleven_chars"] += len(tts_text)
+        response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3")
+        audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)
+        raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
+        raw_path.write_bytes(audio_bytes)
+        actual = get_media_duration(raw_path)
+        if actual <= 0:
+            actual = target_duration
+        required = actual / target_duration
+        if req.tempo_mode == "excellent": min_tempo, max_tempo = 0.95, 1.10
+        elif req.tempo_mode == "good": min_tempo, max_tempo = 0.85, 1.25
+        else: min_tempo, max_tempo = 0.75, 1.35
+        warning = False
+        if required < min_tempo: tempo = 1.0
+        elif required > max_tempo: tempo = max_tempo; warning = True
+        else: tempo = required
+        stretched = OUTPUT_DIR / f"{seg.segment_id}_stretched.wav"
+        cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
+        if abs(tempo - 1.0) > 0.02:
+            cmd += ["-filter:a", f"atempo={tempo:.6f}"]
+        cmd += ["-acodec", "pcm_s16le", str(stretched)]
+        run_ffmpeg(cmd)
+        try:
+            src = resolve_job_audio(req.job_id)
+            orig_db = _measure_db(str(src), seg.start, target_duration) if src else None
+            dub_db = _measure_db(str(stretched))
+            if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
+                USER_GAINS.setdefault(req.job_id, {})[seg.segment_id] = round(max(-10.0, min(10.0, orig_db - dub_db)), 1)
+        except Exception:
+            pass
+        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id)
+        return {"status": "success",
+                "stretched_duration": round(get_media_duration(stretched), 2),
+                "target": round(target_duration, 2),
+                "tempo_warning": warning,
+                "mix": mix}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def remix_with_offsets(req):
+    try:
+        gains = dict(getattr(req, "gains", None) or {})
+        if gains:
+            USER_GAINS[req.job_id] = {k: float(v) for k, v in gains.items()}
+        active = dict(USER_GAINS.get(req.job_id or "", {}))
+        segs = sorted([s for s in req.segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
+        items = []
+        for s in segs:
+            sp = OUTPUT_DIR / f"{s.segment_id}_stretched.wav"
+            if not sp.exists():
+                sp = OUTPUT_DIR / f"{s.segment_id}_stretched.mp3"
+            if not sp.exists():
+                continue
+            off = float((req.offsets or {}).get(s.segment_id, 0.0) or 0.0)
+            items.append({"file": sp.name, "sid": s.segment_id, "start": max(0.0, s.start + off),
+                          "end": s.end + off, "duration": get_media_duration(sp)})
+        if not items:
+            return {"error": "No generated line audio found. Run Generate once first."}
+        max_segment_end = max(i["end"] for i in items)
+        max_played_end = max(i["start"] + i["duration"] for i in items)
+        if req.duration_mode == "extend":
+            final_duration = max(req.total_duration, max_played_end, max_segment_end)
+        else:
+            final_duration = req.total_duration if req.total_duration > 0 else max(max_segment_end, max_played_end)
+        adjusted = []
+        cuts = 0
+        for i, item in enumerate(items):
+            allowed_end = items[i + 1]["start"] - 0.02 if i + 1 < len(items) else final_duration
+            allowed = allowed_end - item["start"]
+            if allowed <= 0.05:
+                continue
+            if item["duration"] > allowed + 0.05:
+                cuts += 1
+            item["allowed_duration"] = min(item["duration"], allowed)
+            adjusted.append(item)
+        if not adjusted:
+            return {"error": "No lines fit the timeline."}
+        inputs = ["-f", "lavfi", "-t", str(final_duration), "-i", "anullsrc=r=44100:cl=stereo"]
+        filter_parts = []
+        for idx, item in enumerate(adjusted):
+            input_index = idx + 1
+            inputs.extend(["-i", str(OUTPUT_DIR / item["file"])])
+            delay_ms = int(item["start"] * 1000)
+            allowed = max(item["allowed_duration"], 0.05)
+            gdb = float(active.get(item["sid"], 0.0) or 0.0)
+            vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
+            if item["duration"] > allowed + 0.05:
+                fade_start = max(0, allowed - 0.2)
+                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+            else:
+                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+        mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted))])
+        filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted) + 1}:duration=first:normalize=0[out]")
+        filter_complex = ";".join(filter_parts)
+        output_file = OUTPUT_DIR / "final_dubbed.mp3"
+        run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
+        return {"status": "success", "segments_generated": len(adjusted), "duration_cuts": cuts,
+                "final_duration": round(final_duration, 2)}
+    except Exception as e:
+        return {"error": str(e)}

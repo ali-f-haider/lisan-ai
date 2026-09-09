@@ -894,3 +894,119 @@ def download(filename: str):
     if not p.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p, filename=filename)
+    
+    # ================= USAGE PAGE, CUSTOM VOICE, SPEND LOG (appended) =================
+def _spend_log(uid, credits, job_id="", action=""):
+    if not uid or not SUPABASE_SERVICE_KEY:
+        return
+    try:
+        body = json.dumps({"uid": uid, "credits": int(credits), "job_id": job_id or "", "action": action or "deduction"}).encode("utf-8")
+        req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/credit_spends", data=body, headers={
+            "Content-Type": "application/json", "apikey": SUPABASE_SERVICE_KEY})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            r.read()
+    except Exception as e:
+        print("[spend] log error:", e)
+
+
+_orig_deduct = deduct_credits
+def deduct_credits(uid, amount, job_id="", action=""):
+    res = _sb_rpc("deduct_credits", {"uid": uid, "amount": int(amount)})
+    _spend_log(uid, amount, job_id, action)
+    return res
+
+
+def _watch_and_deduct(job_id, uid, kind):
+    def _run():
+        while True:
+            if kind == "transcribe":
+                j = jobs_progress.get(job_id)
+                if j is None:
+                    return
+                st = j.get("status"); result = {}
+            else:
+                g = jobs_progress.get("generate")
+                if g is None:
+                    return
+                st = g.get("status"); result = g.get("result") or {}
+            if st in ("done", "error"):
+                break
+            _time.sleep(2)
+        if st != "done" or not uid:
+            return
+        if job_id in _abandoned_jobs:
+            return
+        if kind == "transcribe":
+            amount = 3
+        else:
+            chars = int(result.get("eleven_credits_used", 0) or 0)
+            b = usage_bucket(job_id)
+            gemini_usd = ((int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)) / 1e6 * 0.30
+                          + int(b.get("gemini_out", 0)) / 1e6 * 2.50)
+            amount = math.ceil(chars / 60) + max(1, math.ceil(gemini_usd / 0.01))
+        new_balance = deduct_credits(uid, amount, job_id=job_id, action=kind)
+        _job_charges[job_id] = {"credits_charged": amount, "balance_after": new_balance}
+    threading.Thread(target=_run, daemon=True).start()
+
+
+@app.get("/api/segment_audio/{job_id}/{segment_id}")
+def segment_audio(job_id: str, segment_id: str, response: Response):
+    if "/" in segment_id or "\\" in segment_id or ".." in segment_id:
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    for ext, mt in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
+        p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
+        if p.exists():
+            response.headers["Cache-Control"] = "no-store"
+            return FileResponse(p, media_type=mt)
+    return JSONResponse({"error": "not found"}, status_code=404)
+
+
+@app.post("/api/upload_custom_voice")
+async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    name = (file.filename or "").lower()
+    if not name.endswith((".mp3", ".wav")):
+        return {"error": "Only MP3 or WAV files are allowed."}
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        return {"error": "File too large (max 10 MB / 20 seconds)."}
+    tmp = OUTPUT_DIR / f"custom_upload_{uuid.uuid4().hex}.bin"
+    tmp.write_bytes(data)
+    try:
+        res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+    if isinstance(res, str) and res.startswith("ERROR"):
+        return {"error": res}
+    return {"status": "success", "voice_id": res}
+
+
+@app.get("/api/account/summary")
+def account_summary(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    credits = get_credits(uid)
+
+    def _rows(table):
+        try:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/{table}?uid=eq.{uid}&select=*&order=created_at.desc&limit=100",
+                headers={"apikey": SUPABASE_SERVICE_KEY})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.load(r)
+        except Exception:
+            return []
+    return {"credits": credits if credits is not None else 100,
+            "purchases": _rows("credit_orders"),
+            "spends": _rows("credit_spends")}
+
+
+@app.get("/account")
+def account_page():
+    return FileResponse(BASE_DIR / "account.html")
