@@ -331,7 +331,7 @@ def _sb_rpc(function: str, args: dict):
     req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/rpc/{function}", data=body, headers={
         "Content-Type": "application/json",
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -352,7 +352,7 @@ def get_credits(uid: str):
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits", headers={
             "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            
         })
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -374,7 +374,6 @@ def _fulfill_order(uid: str, session_id: str, credits: int):
     try:
         chk = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/credit_orders?session_id=eq.{session_id}&select=session_id",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
         with urllib.request.urlopen(chk, timeout=10) as r:
             if json.load(r):
                 return "already-fulfilled"
@@ -382,7 +381,6 @@ def _fulfill_order(uid: str, session_id: str, credits: int):
         ins = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/credit_orders", data=body, headers={
             "Content-Type": "application/json",
             "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
         with urllib.request.urlopen(ins, timeout=10) as r:
             r.read()
         return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
