@@ -144,9 +144,11 @@ def _is_logged_in(request: Request) -> bool:
         return True
     return False
 
-
-public = ("/", "/login", "/auth/callback", "/help", "/debug-keys", "/api/login",
-          "/api/auth/session", "/api/auth/check", "/api/stripe/webhook")
+PUBLIC_PATHS = frozenset([
+    "/", "/login", "/auth/callback", "/help", "/debug-keys", "/api/login",
+    "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
+    "/api/billing/packs", "/api/billing/checkout"
+])
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -692,9 +694,11 @@ def usage(job_id: str):
     in_tok = int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)
     out_tok = int(b.get("gemini_out", 0))
     cost = in_tok / 1e6 * 0.30 + out_tok / 1e6 * 2.50
-    return {"eleven_credits": int(b.get("eleven_chars", 0)),
-            "gemini_in_tokens": in_tok, "gemini_out_billable": out_tok,
-            "gemini_cost_usd": round(cost, 6)}
+    out = {"eleven_credits": int(b.get("eleven_chars", 0)),
+           "gemini_in_tokens": in_tok, "gemini_out_billable": out_tok,
+           "gemini_cost_usd": round(cost, 6)}
+    out.update(_job_charges.get(job_id, {}))
+    return out
 
 @app.get("/api/download/{filename}")
 def download(filename: str):
