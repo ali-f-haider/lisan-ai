@@ -342,6 +342,7 @@ def _sb_rpc(function: str, args: dict):
 
 def get_credits(uid: str):
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        print(f"[credits] MISSING CONFIG: uid={bool(uid)} url={bool(SUPABASE_URL)} key={bool(SUPABASE_SERVICE_KEY)}")
         return None
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits", headers={
@@ -351,8 +352,10 @@ def get_credits(uid: str):
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
+        print(f"[credits] SUCCESS for {uid}: {rows}")
         return rows[0]["credits"] if rows else None
-    except Exception:
+    except Exception as e:
+        print(f"[credits] ERROR for {uid}: {e}")
         return None
 
 
