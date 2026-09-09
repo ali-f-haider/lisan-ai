@@ -145,11 +145,8 @@ def _is_logged_in(request: Request) -> bool:
     return False
 
 
-PUBLIC_PATHS = frozenset([
-    "/", "/login", "/auth/callback", "/help", "/debug-keys",
-    "/api/login", "/api/auth/session", "/api/auth/check"
-])
-
+public = ("/", "/login", "/auth/callback", "/help", "/debug-keys", "/api/login",
+          "/api/auth/session", "/api/auth/check", "/api/stripe/webhook")
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -277,6 +274,205 @@ def auth_callback():
     html = html.replace("</head>", inject + "</head>")
     return HTMLResponse(html)
 
+# ==================== CREDITS, BILLING & AUTO-CLEANUP ====================
+import math
+import time as _time
+try:
+    import stripe
+except Exception:
+    stripe = None
+
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+
+CREDIT_PACKS = {
+    "starter":  {"amount_usd": 4.99,  "credits": 500},
+    "standard": {"amount_usd": 14.99, "credits": 2000},
+    "pro":      {"amount_usd": 39.99, "credits": 6000},
+    "business": {"amount_usd": 99.99, "credits": 20000},
+}
+
+_session_users = {}   # our cookie token -> supabase user id
+_job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
+_job_started = {}     # job_id -> timestamp
+
+
+def _current_uid(request: Request):
+    cookie = request.cookies.get("session", "")
+    if not cookie:
+        return None
+    if _session_users.get(cookie):
+        return _session_users[cookie]
+    sb_token = _valid_tokens.get(cookie, "")
+    if not sb_token or not SUPABASE_URL:
+        return None
+    try:
+        req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/user", headers={
+            "Authorization": f"Bearer {sb_token}", "apikey": SUPABASE_ANON_KEY})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            uid = json.load(r).get("id")
+        if uid:
+            _session_users[cookie] = uid
+        return uid
+    except Exception:
+        return None
+
+
+def _sb_rpc(function: str, args: dict):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    body = json.dumps(args).encode("utf-8")
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/rpc/{function}", data=body, headers={
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r)
+    except Exception:
+        return None
+
+
+def get_credits(uid: str):
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits", headers={
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return rows[0]["credits"] if rows else None
+    except Exception:
+        return None
+
+
+def deduct_credits(uid, amount):
+    return _sb_rpc("deduct_credits", {"uid": uid, "amount": int(amount)})
+
+
+def _watch_and_deduct(job_id, uid, kind):
+    """Waits for the job to finish, then charges real credits."""
+    def _run():
+        while True:
+            if kind == "transcribe":
+                st = (jobs_progress.get(job_id) or {}).get("status")
+                result = {}
+            else:
+                g = jobs_progress.get("generate") or {}
+                st = g.get("status")
+                result = g.get("result") or {}
+            if st in ("done", "error"):
+                break
+            _time.sleep(2)
+        if st != "done" or not uid:
+            return
+        if kind == "transcribe":
+            amount = 3
+        else:
+            chars = int(result.get("eleven_credits_used", 0) or 0)
+            b = usage_bucket(job_id)
+            gemini_usd = (int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)) / 1e6 * 0.30 \
+                + int(b.get("gemini_out", 0)) / 1e6 * 2.50
+            amount = math.ceil(chars / 60) + max(1, math.ceil(gemini_usd / 0.01))
+        new_balance = deduct_credits(uid, amount)
+        _job_charges[job_id] = {"credits_charged": amount, "balance_after": new_balance}
+    threading.Thread(target=_run, daemon=True).start()
+
+
+# ---------- Stripe ----------
+@app.get("/api/billing/packs")
+def billing_packs():
+    return {"packs": CREDIT_PACKS}
+
+
+@app.post("/api/billing/checkout")
+def billing_checkout(payload: dict, request: Request):
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required to buy credits."}, status_code=401)
+    pack_key = payload.get("pack", "")
+    pack = CREDIT_PACKS.get(pack_key)
+    if not pack:
+        return JSONResponse({"error": "Unknown pack."}, status_code=400)
+    stripe.api_key = STRIPE_SECRET_KEY
+    origin = str(request.base_url).rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            client_reference_id=uid,
+            metadata={"pack": pack_key, "credits": str(pack["credits"]), "uid": uid},
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"Lisan AI {pack_key.capitalize()} Pack - {pack['credits']} credits"},
+                    "unit_amount": int(round(pack["amount_usd"] * 100)),
+                },
+                "quantity": 1,
+            }],
+            success_url=origin + "/app#credits-purchased",
+            cancel_url=origin + "/app",
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+    return {"url": session.url}
+
+
+@app.post("/api/stripe/webhook")
+async def stripe_webhook(request: Request):
+    if not stripe or not STRIPE_WEBHOOK_SECRET:
+        return JSONResponse({"error": "not configured"}, status_code=503)
+    raw = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    try:
+        event = stripe.Webhook.construct_event(raw, sig, STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        return JSONResponse({"error": "bad signature"}, status_code=400)
+    if event.get("type") == "checkout.session.completed":
+        session = event["data"]["object"]
+        uid = session.get("client_reference_id") or (session.get("metadata") or {}).get("uid")
+        credits = int((session.get("metadata") or {}).get("credits", 0))
+        if uid and credits:
+            _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+    return {"ok": True}
+
+# ---------- Auto-cleanup of old job files ----------
+CLEANUP_RETENTION_HOURS = 6
+CLEANUP_INTERVAL_MIN = 15
+
+
+def _cleanup_worker():
+    while True:
+        _time.sleep(CLEANUP_INTERVAL_MIN * 60)
+        try:
+            cutoff = _time.time() - CLEANUP_RETENTION_HOURS * 3600
+            removed = 0
+            for d in (UPLOAD_DIR, OUTPUT_DIR):
+                for p in d.glob("*"):
+                    try:
+                        if p.is_file() and p.stat().st_mtime < cutoff:
+                            p.unlink()
+                            removed += 1
+                    except Exception:
+                        pass
+            for jid in list(_job_started.keys()):
+                if _job_started[jid] < cutoff:
+                    jobs_progress.pop(jid, None)
+                    _job_started.pop(jid, None)
+            if removed:
+                print(f"[cleanup] removed {removed} old file(s)")
+        except Exception as e:
+            print("[cleanup] error:", e)
+
+
+threading.Thread(target=_cleanup_worker, daemon=True).start()
+
 # ==================== GEMINI HELPER ====================
 
 def _gemini_text(prompt: str):
@@ -332,8 +528,13 @@ def enhance_progress(job_id: str):
 # ==================== API ROUTES ====================
 
 @app.post("/api/transcribe")
-async def transcribe(file: UploadFile = File(...), speaker_count: int = Form(2), hf_token: str = Form("")):
+async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(2), hf_token: str = Form("")):
+    uid = _current_uid(request)
+    bal = get_credits(uid) if uid else None
+    if bal is not None and bal < 5:
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs 3 credits. Use ➕ Buy to get a pack."}, status_code=402)
     job_id = str(uuid.uuid4())
+    _job_started[job_id] = _time.time()
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
     dest = UPLOAD_DIR / f"{job_id}{ext}"
     with open(dest, "wb") as f:
@@ -343,6 +544,7 @@ async def transcribe(file: UploadFile = File(...), speaker_count: int = Form(2),
                              "is_video": ext in VIDEO_EXTS}
     threading.Thread(target=whisper_service.transcribe_worker,
                      args=(job_id, str(dest), HF_TOKEN, speaker_count), daemon=True).start()
+    _watch_and_deduct(job_id, uid, "transcribe")
     return {"job_id": job_id}
 
 @app.get("/api/progress/{job_id}")
@@ -414,11 +616,16 @@ def tashkeel(req: TashkeelRequest):
     return {"items": json.loads(txt.strip())}
 
 @app.post("/api/generate")
-def generate(req: GenerateRequest):
+def generate(req: GenerateRequest, request: Request):
+    uid = _current_uid(request)
+    bal = get_credits(uid) if uid else None
+    if bal is not None and bal < 20:
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Generation costs 1 credit per ~60 characters. Use ➕ Buy."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
     jobs_progress["generate"] = {"status": "processing", "percent": 0, "result": None, "error": None}
     threading.Thread(target=eleven_service.generate_worker, args=(req,), daemon=True).start()
+    _watch_and_deduct(req.job_id, uid, "generate")
     return {"status": "started"}
 
 @app.get("/api/progress/generate")
@@ -435,7 +642,13 @@ def remix_audio(req: RemixRequest):
     return eleven_service.remix_with_offsets(req)
 
 @app.post("/api/merge_video")
-def merge_video(req: MergeRequest):
+def merge_video(req: MergeRequest, request: Request):
+    uid = _current_uid(request)
+    bal = get_credits(uid) if uid else None
+    if bal is not None and bal < 1:
+        return JSONResponse({"error": "Insufficient credits (merge costs 1 credit). Use ➕ Buy."}, status_code=402)
+    if uid:
+        deduct_credits(uid, 1)
     video = find_job_video(req.job_id)
     dub = OUTPUT_DIR / "final_dubbed.mp3"
     if video is None or not dub.exists():
