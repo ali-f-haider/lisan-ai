@@ -249,6 +249,18 @@ def generate_worker(req):
         generated_files = []
         lines_meta = []
         src_for_loudness = resolve_job_audio(req.job_id)
+        # Wipe line files from any previous job so stale audio can never
+        # leak into this job's mix (segment ids repeat per job).
+        for stale in OUTPUT_DIR.glob("*_stretched.*"):
+            try:
+                stale.unlink()
+            except Exception:
+                pass
+        for stale in OUTPUT_DIR.glob("*_raw.*"):
+            try:
+                stale.unlink()
+            except Exception:
+                pass
         for i, seg in enumerate(sorted_segments):
             if not seg.arabic_text.strip():
                 continue
@@ -328,11 +340,8 @@ def generate_worker(req):
                     auto_gain = max(-10.0, min(10.0, orig_db - dub_db))
             except Exception:
                 auto_gain = 0.0
-            if abs(auto_gain) >= 0.15:
-                new_path = _bake_gain(stretched_path, auto_gain)
-                if new_path != stretched_path:
-                    stretched_path = new_path
-                    stretched_filename = new_path.name
+            # No baking: the matched gain is applied at mix time via USER_GAINS,
+            # so the Step 5.5 sliders show the matched value and stay editable.
             lines_meta.append({
                 "segment_id": seg.segment_id,
                 "speaker": seg.speaker,
@@ -348,6 +357,7 @@ def generate_worker(req):
             jobs_progress["generate"]["percent"] = int(((i + 1) / total_segments) * 90)
         if not generated_files:
             raise Exception("No Arabic text found.")
+        USER_GAINS[req.job_id] = {lm["segment_id"]: float(lm["auto_gain_db"]) for lm in lines_meta}
         jobs_progress["generate"]["percent"] = 92
         generated_files.sort(key=lambda item: item["start"])
         max_segment_end = max(item["end"] for item in generated_files)
@@ -503,14 +513,13 @@ def regenerate_line(req):
             cmd += ["-filter:a", f"atempo={tempo:.6f}"]
         cmd += ["-acodec", "pcm_s16le", str(stretched)]
         run_ffmpeg(cmd)
-        # Volume-match the re-spoken line to the original vocal slice
+        # Volume-match the re-spoken line to the original vocal slice (mix-time gain)
         try:
             src = resolve_job_audio(req.job_id)
             orig_db = measure_loudness_db(str(src), seg.start, target_duration) if src else None
             dub_db = measure_loudness_db(str(stretched))
             if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
-                g = max(-10.0, min(10.0, orig_db - dub_db))
-                stretched = _bake_gain(stretched, g)
+                USER_GAINS.setdefault(req.job_id, {})[seg.segment_id] = round(max(-10.0, min(10.0, orig_db - dub_db)), 1)
         except Exception:
             pass
         mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id)
