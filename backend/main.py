@@ -297,8 +297,9 @@ CREDIT_PACKS = {
 
 _session_users = {}   # our cookie token -> supabase user id
 _jo_job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
-_abandoned_jobs = set()b_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
-_job_started = {}     # job_id -> timestamp
+_job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
+_abandoned_jobs = set()
+
 
 
 def _current_uid(request: Request):
@@ -360,8 +361,9 @@ def deduct_credits(uid, amount):
 
 def _watch_and_deduct(job_id, uid, kind):
     """Waits for the job to finish, then charges real credits."""
+
     def _run():
-             while True:
+        while True:
             if kind == "transcribe":
                 j = jobs_progress.get(job_id)
                 if j is None:
@@ -374,23 +376,42 @@ def _watch_and_deduct(job_id, uid, kind):
                     return
                 st = g.get("status")
                 result = g.get("result") or {}
+
             if st in ("done", "error"):
                 break
+
             _time.sleep(2)
+
         if st != "done" or not uid:
             return
+
         if job_id in _abandoned_jobs:
             return  # user switched videos — never charge for abandoned work
+
         if kind == "transcribe":
             amount = 3
         else:
             chars = int(result.get("eleven_credits_used", 0) or 0)
             b = usage_bucket(job_id)
-            gemini_usd = (int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)) / 1e6 * 0.30 \
+
+            gemini_usd = (
+                (int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258))
+                / 1e6
+                * 0.30
                 + int(b.get("gemini_out", 0)) / 1e6 * 2.50
-            amount = math.ceil(chars / 60) + max(1, math.ceil(gemini_usd / 0.01))
+            )
+
+            amount = math.ceil(chars / 60) + max(
+                1, math.ceil(gemini_usd / 0.01)
+            )
+
         new_balance = deduct_credits(uid, amount)
-        _job_charges[job_id] = {"credits_charged": amount, "balance_after": new_balance}
+
+        _job_charges[job_id] = {
+            "credits_charged": amount,
+            "balance_after": new_balance,
+        }
+
     threading.Thread(target=_run, daemon=True).start()
 
 
@@ -438,21 +459,45 @@ def billing_checkout(payload: dict, request: Request):
 async def stripe_webhook(request: Request):
     if not stripe or not STRIPE_WEBHOOK_SECRET:
         return JSONResponse({"error": "not configured"}, status_code=503)
+
     raw = await request.body()
     sig = request.headers.get("stripe-signature", "")
+
     try:
-        event = stripe.Webhook.construct_event(raw, sig, STRIPE_WEBHOOK_SECRET)
+        event = stripe.Webhook.construct_event(
+            raw, sig, STRIPE_WEBHOOK_SECRET
+        )
     except Exception:
         return JSONResponse({"error": "bad signature"}, status_code=400)
-       print("[stripe] event:", event.get("type"))
+
+    print("[stripe] event:", event.get("type"))
+
     if event.get("type") == "checkout.session.completed":
         session = event["data"]["object"]
-        uid = session.get("client_reference_id") or (session.get("metadata") or {}).get("uid")
-        credits = int((session.get("metadata") or {}).get("credits", 0))
-        print("[stripe] checkout completed uid=", uid, "credits=", credits)
+
+        uid = (
+            session.get("client_reference_id")
+            or (session.get("metadata") or {}).get("uid")
+        )
+
+        credits = int(
+            (session.get("metadata") or {}).get("credits", 0)
+        )
+
+        print(
+            "[stripe] checkout completed uid=",
+            uid,
+            "credits=",
+            credits,
+        )
+
         if uid and credits:
-            res = _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+            res = _sb_rpc(
+                "add_credits",
+                {"uid": uid, "amount": credits},
+            )
             print("[stripe] add_credits result:", res)
+
     return {"ok": True}
 
 # ---------- Auto-cleanup of old job files ----------
