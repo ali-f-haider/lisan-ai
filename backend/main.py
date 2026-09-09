@@ -457,48 +457,38 @@ def billing_checkout(payload: dict, request: Request):
 
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):
-    if not stripe or not STRIPE_WEBHOOK_SECRET:
-        return JSONResponse({"error": "not configured"}, status_code=503)
-
-    raw = await request.body()
-    sig = request.headers.get("stripe-signature", "")
-
     try:
-        event = stripe.Webhook.construct_event(
-            raw, sig, STRIPE_WEBHOOK_SECRET
-        )
-    except Exception:
-        return JSONResponse({"error": "bad signature"}, status_code=400)
-
-    print("[stripe] event:", event.get("type"))
-
-    if event.get("type") == "checkout.session.completed":
-        session = event["data"]["object"]
-
-        uid = (
-            session.get("client_reference_id")
-            or (session.get("metadata") or {}).get("uid")
-        )
-
-        credits = int(
-            (session.get("metadata") or {}).get("credits", 0)
-        )
-
-        print(
-            "[stripe] checkout completed uid=",
-            uid,
-            "credits=",
-            credits,
-        )
-
-        if uid and credits:
-            res = _sb_rpc(
-                "add_credits",
-                {"uid": uid, "amount": credits},
-            )
-            print("[stripe] add_credits result:", res)
-
-    return {"ok": True}
+        print("[stripe-webhook] received request")
+        if not stripe or not STRIPE_WEBHOOK_SECRET:
+            print("[stripe-webhook] NOT CONFIGURED: stripe=", bool(stripe), "secret=", bool(STRIPE_WEBHOOK_SECRET))
+            return JSONResponse({"error": "not configured"}, status_code=503)
+        raw = await request.body()
+        sig = request.headers.get("stripe-signature", "")
+        if not sig:
+            print("[stripe-webhook] missing stripe-signature header")
+            return JSONResponse({"error": "missing signature"}, status_code=400)
+        try:
+            event = stripe.Webhook.construct_event(raw, sig, STRIPE_WEBHOOK_SECRET)
+        except Exception as e:
+            print("[stripe-webhook] SIGNATURE FAILED:", str(e))
+            return JSONResponse({"error": "bad signature"}, status_code=400)
+        etype = event.get("type")
+        print("[stripe-webhook] event type:", etype)
+        if etype == "checkout.session.completed":
+            session = event["data"]["object"]
+            uid = session.get("client_reference_id") or (session.get("metadata") or {}).get("uid")
+            credits = int((session.get("metadata") or {}).get("credits", 0))
+            print("[stripe-webhook] uid=", uid, "credits=", credits)
+            if uid and credits:
+                print("[stripe-webhook] SUPABASE_SERVICE_KEY present:", bool(SUPABASE_SERVICE_KEY))
+                res = _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+                print("[stripe-webhook] add_credits response:", res)
+        return {"ok": True}
+    except Exception as e:
+        print("[stripe-webhook] UNEXPECTED ERROR:", str(e))
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # ---------- Auto-cleanup of old job files ----------
 CLEANUP_RETENTION_HOURS = 6
