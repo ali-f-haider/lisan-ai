@@ -344,6 +344,11 @@ def get_credits(uid: str):
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         print(f"[credits] MISSING CONFIG: uid={bool(uid)} url={bool(SUPABASE_URL)} key={bool(SUPABASE_SERVICE_KEY)}")
         return None
+        
+    # ADD THESE TWO LINES:
+    print(f"[credits] URL being used: {SUPABASE_URL}")
+    print(f"[credits] Key length: {len(SUPABASE_SERVICE_KEY)} characters")
+        
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits", headers={
             "apikey": SUPABASE_SERVICE_KEY,
