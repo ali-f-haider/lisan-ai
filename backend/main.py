@@ -357,6 +357,28 @@ def get_credits(uid: str):
 def deduct_credits(uid, amount):
     return _sb_rpc("deduct_credits", {"uid": uid, "amount": int(amount)})
 
+def _fulfill_order(uid: str, session_id: str, credits: int):
+    """Idempotently credit a paid checkout session. Safe to call many times."""
+    if not uid or not session_id or not credits or not SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        chk = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/credit_orders?session_id=eq.{session_id}&select=session_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(chk, timeout=10) as r:
+            if json.load(r):
+                return "already-fulfilled"
+        body = json.dumps({"session_id": session_id, "uid": uid, "credits": credits}).encode("utf-8")
+        ins = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/credit_orders", data=body, headers={
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(ins, timeout=10) as r:
+            r.read()
+        return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+    except Exception as e:
+        print("[stripe] fulfill error:", e)
+        return None
 
 def _watch_and_deduct(job_id, uid, kind):
     """Waits for the job to finish, then charges real credits."""
@@ -454,6 +476,27 @@ def billing_checkout(payload: dict, request: Request):
     return {"url": session.url}
 
 
+@app.get("/api/billing/sync")
+def billing_sync(request: Request):
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "not configured"}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    stripe.api_key = STRIPE_SECRET_KEY
+    added = 0
+    try:
+        sessions = stripe.checkout.Session.list(limit=100, client_reference_id=uid)
+        for s in sessions.data:
+            if s.get("payment_status") == "paid":
+                credits = int((s.get("metadata") or {}).get("credits", 0))
+                res = _fulfill_order(uid, s.get("id", ""), credits)
+                if isinstance(res, int):
+                    added += credits
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    return {"added_sessions_credits": added}
+
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):
     try:
@@ -480,8 +523,8 @@ async def stripe_webhook(request: Request):
             print("[stripe-webhook] uid=", uid, "credits=", credits)
             if uid and credits:
                 print("[stripe-webhook] SUPABASE_SERVICE_KEY present:", bool(SUPABASE_SERVICE_KEY))
-                res = _sb_rpc("add_credits", {"uid": uid, "amount": credits})
-                print("[stripe-webhook] add_credits response:", res)
+                res = _fulfill_order(uid, session.get("id", ""), credits)
+                print("[stripe] fulfill result:", res)
         return {"ok": True}
     except Exception as e:
         print("[stripe-webhook] UNEXPECTED ERROR:", str(e))
@@ -706,7 +749,7 @@ def merge_video(req: MergeRequest, request: Request):
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     if bal is not None and bal < 1:
-        return JSONResponse({"error": "Insufficient credits (merge costs 1 credit). Use ➕ Buy."}, status_code=402)
+        Use ➕ Buy."}, status_code=402)
     if uid:
         deduct_credits(uid, 1)
     video = find_job_video(req.job_id)

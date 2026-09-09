@@ -2887,3 +2887,22 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         origReset();
     };
 })();
+
+// ===== ADD-ON: webhook-independent credit sync =====
+(function () {
+    function syncCredits() {
+        fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.added_sessions_credits) {
+                notify("success", "💰 " + d.added_sessions_credits + " credits from your purchase have been added.");
+            }
+            refreshCredits();
+        }).catch(function () {});
+    }
+    if (window.location.hash.indexOf("credits-purchased") > -1) {
+        setTimeout(syncCredits, 600);
+    }
+    var _origOpenBuy = window.openBuyModal;
+    if (typeof _origOpenBuy === "function") {
+        window.openBuyModal = function () { syncCredits(); return _origOpenBuy(); };
+    }
+})();
