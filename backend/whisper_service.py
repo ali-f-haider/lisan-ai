@@ -1,6 +1,10 @@
 import re
+import threading
+import time
+import traceback
 from pathlib import Path
 
+import torch
 from faster_whisper import WhisperModel
 
 from config import UPLOAD_DIR, WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE
@@ -11,8 +15,14 @@ from ffmpeg_utils import (
     separate_vocals,
 )
 
-# Loaded once at import (same behaviour as the old monolith).
-model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE)
+# Match the container's 2 vCPUs — prevents thread oversubscription
+# (the "calm CPU but 3-4x slower" bug).
+torch.set_num_threads(2)
+
+# Loaded once at import. cpu_threads=1 so Whisper shares the CPU
+# peacefully with speaker detection running in parallel.
+model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE,
+                     compute_type=WHISPER_COMPUTE, cpu_threads=1)
 
 
 def split_segment(segment, max_duration=15.0):
@@ -52,7 +62,6 @@ def get_speaker_turns(input_path: str, hf_token: str, speaker_count):
     try:
         from pyannote.audio import Pipeline
         import soundfile as sf
-        import torch
     except Exception as e:
         raise Exception(f"Missing dependency: {e}. Run: pip install soundfile")
 
@@ -217,9 +226,6 @@ def merge_mid_sentence_rows(rows):
     return merged
 
 
-import threading
-import time
-
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count):
     try:
         jobs_progress[job_id] = {
@@ -256,45 +262,27 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         speaker_label_map = {}
         warning = jobs_progress[job_id].get("warning")
 
-        if hf_token:
+        # ---------- Speaker detection runs IN PARALLEL with transcription ----------
+        diar_result = {"turns": [], "error": None}
+
+        def diarize():
+            if not hf_token:
+                return
             try:
-                jobs_progress[job_id]["status_text"] = "Loading speaker detection models..."
-                jobs_progress[job_id]["percent"] = 15
-
-                # Heartbeat thread: updates status every 30 seconds during diarization
-                heartbeat_stop = threading.Event()
-                def heartbeat():
-                    elapsed = 0
-                    while not heartbeat_stop.is_set():
-                        heartbeat_stop.wait(30)
-                        if heartbeat_stop.is_set():
-                            break
-                        elapsed += 30
-                        jobs_progress[job_id]["status_text"] = f"Detecting speakers... ({elapsed}s elapsed, this is normal on CPU)"
-
-                heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
-                heartbeat_thread.start()
-
-                try:
-                    turns = get_speaker_turns(audio_path, hf_token, speaker_count)
-                finally:
-                    heartbeat_stop.set()
-                    heartbeat_thread.join(timeout=2)
-
-                for turn in sorted(turns, key=lambda x: x["start"]):
-                    raw_speaker = turn["speaker"]
-                    if raw_speaker not in speaker_label_map:
-                        speaker_label_map[raw_speaker] = f"Speaker {len(speaker_label_map) + 1}"
-                jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
-                if speaker_count and len(speaker_label_map) < int(speaker_count):
-                    warning = f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+                diar_result["turns"] = get_speaker_turns(audio_path, hf_token, speaker_count)
             except Exception as e:
-                warning = f"Speaker detection failed: {str(e)}. Assigning all segments to Speaker 1."
-                turns = []
+                diar_result["error"] = str(e)
 
-        jobs_progress[job_id]["status_text"] = "Transcribing audio..."
-        jobs_progress[job_id]["percent"] = 25 if hf_token else 15
+        diar_thread = None
+        if hf_token:
+            torch.set_num_threads(1)  # diarization gets core #1...
+            jobs_progress[job_id]["status_text"] = "Detecting speakers + transcribing in parallel..."
+            jobs_progress[job_id]["percent"] = 15
+            diar_thread = threading.Thread(target=diarize, daemon=True)
+            diar_thread.start()
 
+        # ...Whisper gets core #2 (cpu_threads=1 at model init)
+        jobs_progress[job_id]["status_text"] = "Transcribing audio (speakers detected in background)..."
         segments_gen, info = model.transcribe(
             str(audio_path),
             beam_size=5,
@@ -306,13 +294,39 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         total_duration = float(info.duration) if info.duration else 1.0
 
         raw_segments = []
-        base_percent = 25 if hf_token else 15
+        span = 55 if diar_thread is not None else 75
         for segment in segments_gen:
             raw_segments.append(segment)
-            percent = base_percent + int((segment.end / total_duration) * (95 - base_percent))
-            jobs_progress[job_id]["percent"] = min(percent, 95)
+            jobs_progress[job_id]["percent"] = min(15 + int((segment.end / total_duration) * span), 15 + span)
 
-        jobs_progress[job_id]["status_text"] = "Building segments..."
+        # ---------- Wait for speaker detection (max 5 min) with live timer ----------
+        if diar_thread is not None:
+            waited = 0
+            while diar_thread.is_alive() and waited < 300:
+                diar_thread.join(timeout=30)
+                waited += 30
+                jobs_progress[job_id]["status_text"] = f"Finishing speaker detection... ({waited}s elapsed)"
+                jobs_progress[job_id]["percent"] = min(70 + waited // 10, 85)
+
+            if diar_thread.is_alive():
+                warning = (warning + " | " if warning else "") + \
+                    "Speaker detection timed out; all lines assigned to Speaker 1."
+            elif diar_result["error"]:
+                warning = (warning + " | " if warning else "") + \
+                    f"Speaker detection failed: {diar_result['error']}. All lines assigned to Speaker 1."
+
+            turns = diar_result["turns"]
+            for turn in sorted(turns, key=lambda x: x["start"]):
+                raw_speaker = turn["speaker"]
+                if raw_speaker not in speaker_label_map:
+                    speaker_label_map[raw_speaker] = f"Speaker {len(speaker_label_map) + 1}"
+            jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
+            if speaker_count and len(speaker_label_map) < int(speaker_count):
+                warning = (warning + " | " if warning else "") + \
+                    f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+
+        jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
+        jobs_progress[job_id]["percent"] = 90
         result = []
         seg_index = 0
 
@@ -321,6 +335,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             groups = group_words_by_speaker(segment_words, turns) if turns else []
 
             if groups:
+                # One row per speaker turn, with exact word timestamps
                 for raw_speaker, words in groups:
                     for chunk in chunk_words_by_duration(words, 15.0):
                         speaker = speaker_label_map.get(raw_speaker, "Speaker 1") if raw_speaker else "Speaker 1"
@@ -343,6 +358,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         })
                         seg_index += 1
             else:
+                # No diarization: old behaviour (split long segments by sentences)
                 split_parts = split_segment(segment, max_duration=15.0)
                 for part in split_parts:
                     speaker = "Speaker 1"
@@ -379,12 +395,9 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         jobs_progress[job_id]["warning"] = warning
 
     except Exception as e:
-        import traceback
-        error_msg = str(e)
-        error_trace = traceback.format_exc()
         jobs_progress[job_id] = {
-            "status": "error", "percent": 0, "error": error_msg, "segments": [],
+            "status": "error", "percent": 0, "error": str(e), "segments": [],
             "full_duration": 0.0, "status_text": "Error", "warning": None,
             "detected_speakers": 0, "is_video": False, "has_background": False,
-            "error_trace": error_trace,
+            "error_trace": traceback.format_exc(),
         }
