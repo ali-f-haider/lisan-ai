@@ -444,12 +444,15 @@ async def stripe_webhook(request: Request):
         event = stripe.Webhook.construct_event(raw, sig, STRIPE_WEBHOOK_SECRET)
     except Exception:
         return JSONResponse({"error": "bad signature"}, status_code=400)
+       print("[stripe] event:", event.get("type"))
     if event.get("type") == "checkout.session.completed":
         session = event["data"]["object"]
         uid = session.get("client_reference_id") or (session.get("metadata") or {}).get("uid")
         credits = int((session.get("metadata") or {}).get("credits", 0))
+        print("[stripe] checkout completed uid=", uid, "credits=", credits)
         if uid and credits:
-            _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+            res = _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+            print("[stripe] add_credits result:", res)
     return {"ok": True}
 
 # ---------- Auto-cleanup of old job files ----------
