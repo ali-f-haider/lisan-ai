@@ -57,9 +57,9 @@
     <!-- Login Form -->
     <div id="loginForm">
         <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
-        <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password"
-               onkeydown="if(event.key==='Enter')doLogin()">
-        <button class="btn-primary" id="btnLogin" onclick="doLogin()">Log In</button>
+		<input type="password" id="loginPassword" placeholder="Password or access code" autocomplete="current-password"
+               onkeydown="if(event.key==='Enter')doSmartLogin()">
+        <button class="btn-primary" id="btnLogin" onclick="doSmartLogin()">Log In</button>
     </div>
 
     <!-- Sign Up Form -->
@@ -70,13 +70,6 @@
         <button class="btn-primary" id="btnSignup" onclick="doSignup()">Sign Up</button>
     </div>
 
-    <!-- Access code (discrete) -->
-    <span class="access-toggle" onclick="toggleAccess()">Have an access code?</span>
-    <div id="accessSection" class="access-section hidden">
-        <input type="text" id="legacyPassword" placeholder="Enter access code"
-               onkeydown="if(event.key==='Enter')doLegacyLogin()">
-        <button class="btn-primary" style="background:#6b7280;" onclick="doLegacyLogin()">Enter</button>
-    </div>
 
     <div class="help-link">
         <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
@@ -171,6 +164,40 @@ function doLogin() {
         });
     }).catch(function(e) { document.getElementById("btnLogin").disabled = false; showErr(e.message); });
 }
+
+function doSmartLogin() {
+    hideMsgs();
+    var password = document.getElementById("loginPassword").value;
+    if (!password) { showErr("Please enter password or access code."); return; }
+    
+    // Try Supabase login first
+    var sb = _getSupabase();
+    if (sb) {
+        var email = document.getElementById("loginEmail").value.trim();
+        if (email) {
+            document.getElementById("btnLogin").disabled = true;
+            sb.auth.signInWithPassword({ email: email, password: password }).then(function(result) {
+                document.getElementById("btnLogin").disabled = false;
+                if (result.error) { 
+                    // If Supabase fails, try legacy access code
+                    doLegacyLogin();
+                    return; 
+                }
+                _sendSession(result.data.session).then(function() {
+                    window.location.href = "/app";
+                });
+            }).catch(function(e) { 
+                document.getElementById("btnLogin").disabled = false;
+                doLegacyLogin();
+            });
+            return;
+        }
+    }
+    
+    // Fallback to legacy access code
+    doLegacyLogin();
+}
+
 
 function _sendSession(session) {
     return fetch("/api/auth/session", {

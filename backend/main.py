@@ -299,8 +299,7 @@ _session_users = {}   # our cookie token -> supabase user id
 _jo_job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
 _job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
 _abandoned_jobs = set()
-
-
+_job_started = {}     # job_id -> timestamp
 
 def _current_uid(request: Request):
     cookie = request.cookies.get("session", "")
