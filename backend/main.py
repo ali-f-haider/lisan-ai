@@ -520,17 +520,25 @@ def billing_sync(request: Request):
         return JSONResponse({"error": "login required"}, status_code=401)
     stripe.api_key = STRIPE_SECRET_KEY
     added = 0
+    seen = 0
     try:
-        sessions = stripe.checkout.Session.list(limit=100, client_reference_id=uid)
+        sessions = stripe.checkout.Session.list(limit=100)
         for s in sessions.data:
+            suid = s.get("client_reference_id") or (s.get("metadata") or {}).get("uid")
+            if suid != uid:
+                continue
+            seen += 1
             if s.get("payment_status") == "paid":
                 credits = int((s.get("metadata") or {}).get("credits", 0))
                 res = _fulfill_order(uid, s.get("id", ""), credits)
+                print(f"[sync] session {s.get('id')} credits={credits} fulfill={res}")
                 if isinstance(res, int):
                     added += credits
     except Exception as e:
+        print("[sync] ERROR:", e)
         return JSONResponse({"error": str(e)}, status_code=502)
-    return {"added_sessions_credits": added}
+    print(f"[sync] uid={uid} seen={seen} added={added}")
+    return {"added_sessions_credits": added, "sessions_seen": seen}
 
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):

@@ -2906,3 +2906,26 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         window.openBuyModal = function () { syncCredits(); return _origOpenBuy(); };
     }
 })();
+
+// ===== ADD-ON: visible credit sync + manual trigger =====
+(function () {
+    window.syncCreditsNow = function () {
+        fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
+            console.log("[sync]", d);
+            if (d && d.error) { notify("error", "Credit sync failed: " + d.error); return; }
+            if (d && d.added_sessions_credits) {
+                notify("success", "💰 " + d.added_sessions_credits + " credits added from your purchase(s).");
+            } else if (d && d.sessions_seen === 0) {
+                notify("info", "Sync found no paid Stripe sessions for this account.");
+            }
+            refreshCredits();
+        }).catch(function (e) { notify("error", "Credit sync error: " + e.message); });
+    };
+    if (window.location.hash.indexOf("credits-purchased") > -1) {
+        setTimeout(window.syncCreditsNow, 1200);
+    }
+    var _ob = window.openBuyModal;
+    if (typeof _ob === "function") {
+        window.openBuyModal = function () { window.syncCreditsNow(); return _ob(); };
+    }
+})();
