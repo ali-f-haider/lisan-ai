@@ -85,6 +85,7 @@ class RemixRequest(BaseModel):
     job_id: str = ""
     segments: List[Segment] = []
     offsets: Dict[str, float] = {}
+    gains: Dict[str, float] = {}
     total_duration: float = 0.0
     duration_mode: str = "exact"
 
@@ -729,6 +730,17 @@ def source(job_id: str):
     if p is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p)
+
+@app.get("/api/segment_audio/{job_id}/{segment_id}")
+def segment_audio(job_id: str, segment_id: str):
+    if "/" in segment_id or "\\" in segment_id or ".." in segment_id:
+        return JSONResponse({"error": "bad id"}, status_code=400)
+    for ext, mt in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
+        p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
+        if p.exists():
+            return FileResponse(p, media_type=mt)
+    return JSONResponse({"error": "not found"}, status_code=404)
+
 
 @app.post("/api/voices")
 def voices(payload: dict = {}):

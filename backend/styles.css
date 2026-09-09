@@ -437,3 +437,8 @@ table textarea[dir="rtl"] {
     .credits-info-box { width: 100%; }
     #generateButton, #mergeButton { width: 100%; }
 }
+
+/* Step 5.5 volume table */
+#volumeTable input[type="range"] { width: 110px; vertical-align: middle; }
+#volumeTable td { white-space: nowrap; }
+#volumeTable td:nth-child(3) { white-space: normal; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }

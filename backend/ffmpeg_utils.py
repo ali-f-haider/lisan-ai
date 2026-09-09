@@ -60,7 +60,7 @@ def concat_audio_files(file_list, out_path: Path):
     list_file = out_path.with_suffix(".txt")
     with open(list_file, "w", encoding="utf-8") as f:
         for cf in file_list:
-            safe_path = str(cf).replace("\\", "/").replace("'", "'\\''")
+            safe_path = str(cf).replace("\\", "/").replace("'", "'\''")
             f.write(f"file '{safe_path}'\n")
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(out_path)]
     try:
@@ -84,11 +84,9 @@ def separate_vocals(input_audio_path: str, output_dir: str):
     except subprocess.CalledProcessError as e:
         error_message = e.stderr if e.stderr else str(e)
         raise Exception(f"Demucs vocal separation failed: {error_message}")
-
     input_name = Path(input_audio_path).stem
     vocals_path = Path(output_dir) / "htdemucs" / input_name / "vocals.wav"
     background_path = Path(output_dir) / "htdemucs" / input_name / "no_vocals.wav"
-
     if not vocals_path.exists():
         htdemucs_dir = Path(output_dir) / "htdemucs"
         if htdemucs_dir.exists():
@@ -138,3 +136,23 @@ def mux_audio_into_video(video_path: Path, audio_path: Path, out_path: Path):
         str(out_path)
     ]
     run_ffmpeg(cmd)
+
+
+def measure_loudness_db(file_path, start: float = None, duration: float = None):
+    """Mean loudness (dB) of a file or a time slice, via ffmpeg volumedetect."""
+    cmd = ["ffmpeg", "-v", "error"]
+    if start is not None:
+        cmd += ["-ss", str(start)]
+    cmd += ["-i", str(file_path)]
+    if duration is not None:
+        cmd += ["-t", str(duration)]
+    cmd += ["-af", "volumedetect", "-f", "null", "-"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        import re
+        m = re.search(r"mean_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
+        if m:
+            return float(m.group(1))
+    except Exception:
+        pass
+    return None
