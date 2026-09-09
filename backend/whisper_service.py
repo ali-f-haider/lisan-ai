@@ -217,6 +217,9 @@ def merge_mid_sentence_rows(rows):
     return merged
 
 
+import threading
+import time
+
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count):
     try:
         jobs_progress[job_id] = {
@@ -255,9 +258,29 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         if hf_token:
             try:
-                jobs_progress[job_id]["status_text"] = "Detecting speakers..."
+                jobs_progress[job_id]["status_text"] = "Loading speaker detection models..."
                 jobs_progress[job_id]["percent"] = 15
-                turns = get_speaker_turns(audio_path, hf_token, speaker_count)
+
+                # Heartbeat thread: updates status every 30 seconds during diarization
+                heartbeat_stop = threading.Event()
+                def heartbeat():
+                    elapsed = 0
+                    while not heartbeat_stop.is_set():
+                        heartbeat_stop.wait(30)
+                        if heartbeat_stop.is_set():
+                            break
+                        elapsed += 30
+                        jobs_progress[job_id]["status_text"] = f"Detecting speakers... ({elapsed}s elapsed, this is normal on CPU)"
+
+                heartbeat_thread = threading.Thread(target=heartbeat, daemon=True)
+                heartbeat_thread.start()
+
+                try:
+                    turns = get_speaker_turns(audio_path, hf_token, speaker_count)
+                finally:
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=2)
+
                 for turn in sorted(turns, key=lambda x: x["start"]):
                     raw_speaker = turn["speaker"]
                     if raw_speaker not in speaker_label_map:
@@ -266,7 +289,8 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 if speaker_count and len(speaker_label_map) < int(speaker_count):
                     warning = f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
             except Exception as e:
-                warning = str(e)
+                warning = f"Speaker detection failed: {str(e)}. Assigning all segments to Speaker 1."
+                turns = []
 
         jobs_progress[job_id]["status_text"] = "Transcribing audio..."
         jobs_progress[job_id]["percent"] = 25 if hf_token else 15
@@ -288,7 +312,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             percent = base_percent + int((segment.end / total_duration) * (95 - base_percent))
             jobs_progress[job_id]["percent"] = min(percent, 95)
 
-        jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
+        jobs_progress[job_id]["status_text"] = "Building segments..."
         result = []
         seg_index = 0
 
@@ -297,7 +321,6 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             groups = group_words_by_speaker(segment_words, turns) if turns else []
 
             if groups:
-                # One row per speaker turn, with exact word timestamps
                 for raw_speaker, words in groups:
                     for chunk in chunk_words_by_duration(words, 15.0):
                         speaker = speaker_label_map.get(raw_speaker, "Speaker 1") if raw_speaker else "Speaker 1"
@@ -320,7 +343,6 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         })
                         seg_index += 1
             else:
-                # No diarization: old behaviour (split long segments by sentences)
                 split_parts = split_segment(segment, max_duration=15.0)
                 for part in split_parts:
                     speaker = "Speaker 1"
@@ -357,8 +379,12 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         jobs_progress[job_id]["warning"] = warning
 
     except Exception as e:
+        import traceback
+        error_msg = str(e)
+        error_trace = traceback.format_exc()
         jobs_progress[job_id] = {
-            "status": "error", "percent": 0, "error": str(e), "segments": [],
+            "status": "error", "percent": 0, "error": error_msg, "segments": [],
             "full_duration": 0.0, "status_text": "Error", "warning": None,
             "detected_speakers": 0, "is_video": False, "has_background": False,
+            "error_trace": error_trace,
         }
