@@ -373,15 +373,24 @@ def _fulfill_order(uid: str, session_id: str, credits: int):
     try:
         chk = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/credit_orders?session_id=eq.{session_id}&select=session_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY}
+        )
         with urllib.request.urlopen(chk, timeout=10) as r:
             if json.load(r):
                 return "already-fulfilled"
+                
         body = json.dumps({"session_id": session_id, "uid": uid, "credits": credits}).encode("utf-8")
-        ins = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/credit_orders", data=body, headers={
-            "Content-Type": "application/json",
-            "apikey": SUPABASE_SERVICE_KEY,
+        ins = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/credit_orders", 
+            data=body, 
+            headers={
+                "Content-Type": "application/json",
+                "apikey": SUPABASE_SERVICE_KEY,
+            }
+        )
         with urllib.request.urlopen(ins, timeout=10) as r:
             r.read()
+            
         return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
     except Exception as e:
         print("[stripe] fulfill error:", e)
