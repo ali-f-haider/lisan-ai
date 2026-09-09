@@ -2846,3 +2846,16 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
     guard("generateAudio", 20, "Not enough credits — generation costs 1 credit per ~60 characters.");
     guard("mergeVideo", 1, "Not enough credits — merging costs 1 credit.");
 })();
+
+// ===== ADD-ON: guard voice cloning on loaded projects (no media on server) =====
+(function () {
+    if (typeof confirmCloning !== "function") return;
+    var orig = confirmCloning;
+    confirmCloning = function () {
+        if (!workspaceHasMedia) {
+            notify("error", "📼 Voice cloning needs the original audio on the server, and loaded projects have none. Either re-upload the same video in Step 1, or skip cloning and pick studio library voices in Step 4.");
+            return;
+        }
+        return orig.apply(this, arguments);
+    };
+})();
