@@ -2346,8 +2346,7 @@ checkTranscribeProgress = async function () {
         var statusText = data.status_text || data.message || data.status || "Processing...";
         if (txt) {
             txt.textContent =
-                transcribeLastPercent + "% — " + statusText +
-                " | Job: " + currentJobId.substring(0, 8);
+                transcribeLastPercent + "% — " + statusText;
         }
 
         if (data.status === "processing") {
@@ -2487,3 +2486,35 @@ checkGenerateProgress = async function () {
         console.error("Generate progress check failed:", e);
     }
 };
+
+
+// ===== ADD-ON: yellow original-start markers (wraps renderTimeline, deletes nothing) =====
+(function () {
+    if (typeof renderTimeline !== "function") return;
+    var _baseRenderTimeline = renderTimeline;
+    renderTimeline = function () {
+        _baseRenderTimeline();
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var W = wrap.clientWidth || 900;
+        var scale = W / total;
+        var band = document.createElement("div");
+        band.style.cssText = "position:relative;height:18px;background:#d4e157;border-radius:8px 8px 0 0;";
+        wrap.insertBefore(band, wrap.firstChild);
+        var overlay = document.createElement("div");
+        overlay.style.cssText = "position:absolute;left:0;right:0;top:18px;bottom:0;pointer-events:none;z-index:6;";
+        segmentsData.forEach(function (seg, i) {
+            var x = seg.start * scale;
+            var line = document.createElement("div");
+            line.style.cssText = "position:absolute;left:" + x + "px;top:0;bottom:0;width:1px;background:rgba(212,225,87,0.8);";
+            overlay.appendChild(line);
+            var num = document.createElement("div");
+            num.textContent = (i + 1);
+            num.title = "Line " + (i + 1) + " — original start: " + seg.start + "s";
+            num.style.cssText = "position:absolute;left:" + x + "px;top:-18px;transform:translateX(-50%);color:#1a1a2e;font-size:10px;font-weight:700;line-height:18px;padding:0 2px;";
+            overlay.appendChild(num);
+        });
+        wrap.appendChild(overlay);
+    };
+})();

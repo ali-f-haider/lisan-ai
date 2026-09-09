@@ -129,6 +129,11 @@ footer a{color:var(--accent);margin:0 12px}
     .steps::before{left:20px}
     .step-num{width:40px;height:40px;font-size:16px}
 }
+.demo-grid{display:grid !important;grid-template-columns:1fr 1fr !important;gap:40px;align-items:stretch;}
+.demo-video{position:relative !important;background:#1e293b;border-radius:16px;aspect-ratio:16/9;overflow:hidden;border:2px dashed #334155;}
+.demo-video video{position:absolute !important;inset:0;width:100% !important;height:100% !important;object-fit:cover;border-radius:14px;}
+.demo-label{position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.65);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:3;}
+@media(max-width:900px){.demo-grid{grid-template-columns:1fr !important;}}
 </style>
 </head>
 <body>
@@ -257,16 +262,12 @@ footer a{color:var(--accent);margin:0 12px}
         </div>
         <div class="demo-grid">
             <div class="demo-video fade-in">
+                <div class="demo-label">BEFORE — Original English</div>
                 <video controls preload="metadata" src="/demo_before.mp4"></video>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                     
-                </div>
             </div>
             <div class="demo-video fade-in">
+                <div class="demo-label">AFTER — Arabic Dub</div>
                 <video controls preload="metadata" src="/demo_after.mp4"></video>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                     
-                </div>
             </div>
         </div>
     </div>
