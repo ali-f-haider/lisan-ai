@@ -380,3 +380,60 @@ audio, video {
     text-align: center; font-size: 13px; color: #6b7280;
     margin-top: 8px; min-height: 20px; transition: opacity 0.3s;
 }
+
+/* ================= POLISH PASS ================= */
+/* Notification stack: compact cards below the user bar */
+#notifyPanel {
+    position: fixed; top: 80px; right: 20px; z-index: 9999;
+    display: none; flex-direction: column; gap: 10px;
+    width: 360px; max-width: calc(100vw - 40px);
+    background: transparent; border: none; box-shadow: none; padding: 0;
+    pointer-events: none;
+}
+#notifyPanel .notify { pointer-events: auto; }
+
+/* Hide the disabled lip-sync step (it hurts perceived quality) */
+#lipsyncSection { display: none !important; }
+
+/* One-line "what happens here" subtitles under step titles */
+.step-sub { font-size: 13px; color: var(--text-muted); margin: -8px 0 14px; }
+
+/* Primary CTA emphasis */
+#generateButton, #mergeButton {
+    font-size: 15px; padding: 12px 26px; border-radius: 10px;
+    box-shadow: 0 4px 14px rgba(26,35,126,0.25);
+}
+#mergeButton { box-shadow: 0 4px 14px rgba(5,150,105,0.25); }
+
+/* Make downloading unmissable (files are temporary!) */
+.download-buttons a { box-shadow: 0 3px 10px rgba(26,35,126,0.2); }
+.download-buttons a:first-child { animation: ctaPulse 2.4s ease-in-out infinite; }
+@keyframes ctaPulse {
+    0%,100% { transform: translateY(0); box-shadow: 0 3px 10px rgba(26,35,126,0.2); }
+    50%     { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(26,35,126,0.35); }
+}
+
+/* Better Arabic rendering in the table */
+table textarea[dir="rtl"] {
+    font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+    font-size: 14px; line-height: 1.9;
+}
+
+/* Friendly empty states */
+.empty-state {
+    padding: 26px 16px; text-align: center; color: var(--text-muted);
+    font-size: 13px; background: #f8fafc; border: 1px dashed var(--border);
+    border-radius: 10px; margin-top: 14px;
+}
+
+/* User bar depth */
+#userBar { box-shadow: 0 1px 8px rgba(0,0,0,0.06); }
+
+/* Mobile: scrollable tables + touch-friendly controls */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+@media (max-width: 768px) {
+    #notifyPanel { right: 10px; top: 70px; width: calc(100vw - 20px); }
+    .action-btn { min-width: 34px; min-height: 30px; }
+    .credits-info-box { width: 100%; }
+    #generateButton, #mergeButton { width: 100%; }
+}

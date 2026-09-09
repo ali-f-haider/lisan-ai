@@ -2929,3 +2929,137 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         window.openBuyModal = function () { window.syncCreditsNow(); return _ob(); };
     }
 })();
+
+// ===== ADD-ON: direct fulfillment via checkout session id + visible sync =====
+(function () {
+    var m = window.location.search.match(/[?&]sid=([^&]+)/);
+    var sid = m ? decodeURIComponent(m[1]) : "";
+    function fulfill(s) {
+        fetch("/api/billing/fulfill", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sid: s })
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            console.log("[fulfill]", d);
+            if (d && d.added) {
+                notify("success", "💰 " + d.added + " credits added from your purchase.");
+                refreshCredits();
+            } else if (d && d.error) {
+                notify("error", "Credit fulfillment: " + d.error);
+            }
+        }).catch(function (e) { console.error("[fulfill]", e); });
+    }
+    if (sid) setTimeout(function () { fulfill(sid); }, 900);
+
+    window.syncCreditsNow = function () {
+        fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
+            console.log("[sync]", d);
+            if (d && d.error) { notify("error", "Credit sync failed: " + d.error); return; }
+            if (d && d.added_sessions_credits) {
+                notify("success", "💰 " + d.added_sessions_credits + " credits added from your purchase.");
+            } else if (d && d.sessions_seen === 0) {
+                notify("info", "Sync found no paid Stripe sessions for this account.");
+            }
+            refreshCredits();
+        }).catch(function (e) { notify("error", "Credit sync error: " + e.message); });
+    };
+    var _ob = window.openBuyModal;
+    if (typeof _ob === "function") {
+        window.openBuyModal = function () { window.syncCreditsNow(); return _ob(); };
+    }
+})();
+
+// ===== POLISH PASS: favicon, meta, subtitles, empty states, mobile wraps =====
+(function () {
+    // Favicon + meta description (no HTML edits needed)
+    var fl = document.createElement("link");
+    fl.rel = "icon"; fl.type = "image/png"; fl.href = "/logo.png";
+    document.head.appendChild(fl);
+    if (!document.querySelector('meta[name="description"]')) {
+        var m = document.createElement("meta");
+        m.name = "description";
+        m.content = "Lisan AI — automatic English to Arabic video dubbing with voice cloning, emotions and lip-timed audio.";
+        document.head.appendChild(m);
+    }
+
+    // Notify safety net: panel visible while it has cards, hidden when empty
+    if (typeof notify === "function") {
+        var _n = notify;
+        notify = function (type, msg) {
+            _n(type, msg);
+            var p = document.getElementById("notifyPanel");
+            if (p) {
+                p.style.display = "flex";
+                setTimeout(function () {
+                    if (!p.children.length) p.style.display = "none";
+                }, 10500);
+            }
+        };
+    }
+
+    // Hide the disabled Lip-Sync card whatever its id is
+    document.querySelectorAll(".card h3").forEach(function (h) {
+        if (/Lip-Sync/i.test(h.textContent)) {
+            var c = h.closest(".card");
+            if (c) c.style.display = "none";
+        }
+    });
+
+    // Wrap every table in a horizontal scroll container (mobile)
+    document.querySelectorAll("table").forEach(function (t) {
+        if (t.parentElement && t.parentElement.classList.contains("table-wrap")) return;
+        var w = document.createElement("div");
+        w.className = "table-wrap";
+        t.parentNode.insertBefore(w, t);
+        w.appendChild(t);
+    });
+
+    // One-line subtitles under each step title
+    var SUBS = {
+        editorSection: "Fix timings, edit text, translate, and protect lines with 🔒.",
+        voicesSection: "Optional: clone each speaker's own voice from the video.",
+        cloneAnalysisSection: "See how much clean speech each speaker has before cloning.",
+        speakerVoicesSection: "Assign a cloned or studio voice to every speaker.",
+        generateSection: "Generate the final Arabic audio with emotions and exact timing.",
+        resultSection: "Preview, fine-tune the timeline, merge — then DOWNLOAD immediately."
+    };
+    Object.keys(SUBS).forEach(function (id) {
+        var sec = document.getElementById(id);
+        if (!sec || sec.querySelector(".step-sub")) return;
+        var h = sec.querySelector("h3");
+        if (!h) return;
+        var p = document.createElement("p");
+        p.className = "step-sub";
+        p.textContent = SUBS[id];
+        h.insertAdjacentElement("afterend", p);
+    });
+
+    // Friendly empty states for the three tables
+    function ensureEmptyState(tableId, text) {
+        var tb = document.querySelector("#" + tableId + " tbody");
+        if (!tb) return;
+        var update = function () {
+            var hasRows = tb.querySelectorAll("tr").length > 0;
+            var es = document.getElementById(tableId + "_empty");
+            if (!hasRows && !es) {
+                var wrap = tb.closest(".table-wrap") || tb.parentNode;
+                es = document.createElement("div");
+                es.id = tableId + "_empty";
+                es.className = "empty-state";
+                es.textContent = text;
+                wrap.appendChild(es);
+            } else if (hasRows && es) {
+                es.remove();
+            }
+        };
+        new MutationObserver(update).observe(tb, { childList: true });
+        update();
+    }
+    ensureEmptyState("segmentsTable", "No segments yet — upload a video in Step 1 and press Start.");
+    ensureEmptyState("speakerVoicesTable", "Voice assignments will appear here after transcription.");
+    ensureEmptyState("cloneAnalysisTable", "Clone analysis will appear here after Step 3.");
+
+    // Credits badge tooltip
+    var cb = document.getElementById("creditsDisplay");
+    if (cb) cb.title = "100 credits = $1.00 · Transcribe 3 · Generate ≈ chars/60 · Merge 1";
+})();
