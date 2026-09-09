@@ -86,7 +86,6 @@ async function doSmartLogin() {
     var password = document.getElementById("loginPassword").value;
     if (!password) { showMsg("Please enter a password or access code.", true); return; }
 
-    // If no email, try legacy access code
     if (!email) {
         doLegacyLogin(password);
         return;
@@ -99,7 +98,6 @@ async function doSmartLogin() {
         var res = await sb.auth.signInWithPassword({ email: email, password: password });
         document.getElementById("btnLogin").disabled = false;
         if (res.error) {
-            // Supabase failed, fallback to legacy access code just in case
             doLegacyLogin(password);
             return;
         }
@@ -146,15 +144,6 @@ async function doSignUp() {
     } catch (e) {
         showMsg("Sign up failed: " + e.message, true);
     }
-}
-
-// Handle OAuth callbacks
-if (sb) {
-    sb.auth.onAuthStateChange(function(event, session) {
-        if (event === "SIGNED_IN" && session && window.location.pathname === "/login") {
-            sendSession(session);
-        }
-    });
 }
 </script>
 </body>
