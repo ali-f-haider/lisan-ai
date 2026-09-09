@@ -722,6 +722,7 @@ async function mergeVideo() {
         const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
 		job_id: currentJobId,
 		enhance_background: document.getElementById("enhanceBackground") ? document.getElementById("enhanceBackground").checked : true
+	}) });
         const data = await res.json();
         document.getElementById("mergeButton").disabled = false;
         if (data.error) { notify("error", data.error); return; }
