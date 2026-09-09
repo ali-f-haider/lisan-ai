@@ -16,8 +16,8 @@ RUN mkdir -p /data/uploads /data/outputs
 ENV DATA_DIR=/data
 ENV WHISPER_DEVICE=cpu
 ENV WHISPER_COMPUTE=int8
-ENV OMP_NUM_THREADS=2
-ENV MKL_NUM_THREADS=2
+ENV OMP_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
 EXPOSE 8000
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

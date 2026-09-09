@@ -15,14 +15,14 @@ from ffmpeg_utils import (
     separate_vocals,
 )
 
-# Match the container's 2 vCPUs — prevents thread oversubscription
+# Match the container's 4 vCPUs — prevents thread oversubscription
 # (the "calm CPU but 3-4x slower" bug).
-torch.set_num_threads(2)
+torch.set_num_threads(4)
 
-# Loaded once at import. cpu_threads=1 so Whisper shares the CPU
+# Loaded once at import. cpu_threads=2 so Whisper shares the CPU
 # peacefully with speaker detection running in parallel.
 model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE,
-                     compute_type=WHISPER_COMPUTE, cpu_threads=1)
+                     compute_type=WHISPER_COMPUTE, cpu_threads=2)
 
 
 def split_segment(segment, max_duration=15.0):
@@ -275,7 +275,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         diar_thread = None
         if hf_token:
-            torch.set_num_threads(1)  # diarization gets core #1...
+            torch.set_num_threads(2)  # diarization gets core #2...
             jobs_progress[job_id]["status_text"] = "Detecting speakers + transcribing in parallel..."
             jobs_progress[job_id]["percent"] = 15
             diar_thread = threading.Thread(target=diarize, daemon=True)

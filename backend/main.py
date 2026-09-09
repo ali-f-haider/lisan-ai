@@ -155,8 +155,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if path in PUBLIC_PATHS or path.startswith("/api/auth/"):
             return await call_next(request)
-        if path.endswith(".css") or path.endswith(".js") or path.endswith(".svg") or path.endswith(".woff2"):
-            return await call_next(request)
+        if path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".mp4", ".webm")):            return await call_next(request)
         if not _is_logged_in(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
@@ -211,6 +210,16 @@ def logout(response: Response):
     # Clear session
     response.delete_cookie("session")
     return {"ok": True}
+
+@app.get("/demo_before.mp4")
+def demo_before():
+    return FileResponse(BASE_DIR / "demo_before.mp4", media_type="video/mp4")
+
+@app.get("/demo_after.mp4")
+def demo_after():
+    return FileResponse(BASE_DIR / "demo_after.mp4", media_type="video/mp4")
+
+
 @app.get("/debug-keys")
 def debug_keys():
     return {
