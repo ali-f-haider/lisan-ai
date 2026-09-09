@@ -260,9 +260,9 @@ table textarea {
 }
 
 /* Notifications */
-.notifyPanel {
+#notifyPanel {
     position: fixed;
-    top: 70px;
+    top: 80px;
     right: 20px;
     z-index: 9999;
     background: #fff;
@@ -274,9 +274,9 @@ table textarea {
     display: none;
     border-left: 4px solid #42a5f5;
 }
-.notifyPanel.error { border-left-color: #dc2626; background: #fef2f2; color: #991b1b; }
-.notifyPanel.success { border-left-color: #059669; background: #ecfdf5; color: #065f46; }
-.notifyPanel.info { border-left-color: #42a5f5; background: #eff6ff; color: #1e40af; }
+#notifyPanel.error { border-left-color: #dc2626; background: #fef2f2; color: #991b1b; }
+#notifyPanel.success { border-left-color: #059669; background: #ecfdf5; color: #065f46; }
+#notifyPanel.info { border-left-color: #42a5f5; background: #eff6ff; color: #1e40af; }
 
 .notify {
     padding: 14px 18px;
