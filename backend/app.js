@@ -719,7 +719,9 @@ async function mergeVideo() {
     document.getElementById("mergeButton").disabled = true;
     notify("info", "Merging dubbed audio with video and background music...");
     try {
-        const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId }) });
+        const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+		job_id: currentJobId,
+		enhance_background: document.getElementById("enhanceBackground") ? document.getElementById("enhanceBackground").checked : true
         const data = await res.json();
         document.getElementById("mergeButton").disabled = false;
         if (data.error) { notify("error", data.error); return; }
@@ -1363,575 +1365,14 @@ async function startTranscribe() {
     }
 }
 
-// --- Progress bar text restoration ---
-const _origCheckTranscribe = checkTranscribeProgress;
-checkTranscribeProgress = async function() {
-    if (!currentJobId) return;
-    const res = await fetch(`/api/progress/${currentJobId}`);
-    const data = await res.json();
-    const fill = document.getElementById("progressFill");
-    const txt = document.getElementById("progressText");
-    if (fill && txt) {
-        fill.style.width = data.percent + "%";
-        txt.textContent = data.percent + "%" + (data.status_text ? " — " + data.status_text : "");
-    }
-    if (data.is_video !== undefined) isVideoUpload = data.is_video;
-    if (data.status === "done") {
-        clearInterval(transcribePollTimer);
-        segmentsData = data.segments;
-        segmentsData.forEach(s => { s.start = Number(Number(s.start).toFixed(2)); s.end = Number(Number(s.end).toFixed(2)); s.locked = false; });
-        originalSegments = JSON.parse(JSON.stringify(segmentsData));
-        totalDuration = data.full_duration || 0;
-        let message = "Transcription complete.";
-        if (data.detected_speakers > 0) message += ` Detected speakers: ${data.detected_speakers}.`;
-        if (data.warning) notify("error", "⚠️ " + data.warning);
-        notify("success", message + " Use 🔒 to protect lines from Auto-Fix, Translate and Tashkeel.");
-        renderTable(); renderSpeakerVoices();
-        ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(id => document.getElementById(id).classList.remove("hidden"));
-        updateBadges(); fetchUsage();
-    }
-    if (data.status === "error") { clearInterval(transcribePollTimer); notify("error", data.error); }
-};
+// =====================================================================
+// CONSOLIDATED OVERRIDES v2 — the ONLY patch layer in this file.
+// Future UI fixes are edited INSIDE this block, never appended below.
+// =====================================================================
 
-const _origCheckGen = checkGenerateProgress;
-checkGenerateProgress = async function() {
-    const res = await fetch("/api/progress/generate");
-    const data = await res.json();
-    if (!data || data.status === "not_found") return;
-    const fill = document.getElementById("genProgressFill");
-    const txt = document.getElementById("genProgressText");
-    if (fill && txt && typeof data.percent === "number") {
-        fill.style.width = data.percent + "%";
-        txt.textContent = data.percent + "%";
-    }
-    if (data.status === "done") {
-        clearInterval(generatePollTimer);
-        document.getElementById("generateButton").disabled = false;
-        const r = data.result || {};
-        notify("success", "Arabic audio generated and merged.");
-        document.getElementById("resultSection").classList.remove("hidden");
-        document.getElementById("audioResults").innerHTML = `
-            <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
-            <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
-            <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
-            <div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
-        fetchUsage(); updateBadges();
-    }
-    if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
-};
-
-// --- Alternating row colors per speaker group ---
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    // Alternate background by speaker group
-    const prevSpeaker = i > 0 ? segmentsData[i - 1].speaker : null;
-    if (seg.speaker !== prevSpeaker) {
-        // Count how many speaker-group transitions before this index
-        let groupIdx = 0;
-        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j-1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-    } else {
-        // Same speaker as previous → inherit
-        let groupIdx = 0;
-        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j-1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-    }
-    const mk = (tag) => document.createElement(tag);
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.textContent = i + 1; row.appendChild(numCell);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-    const eCell = mk("td");
-    const eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
-    const eS = mk("select");
-    const blank = mk("option"); blank.value = ""; blank.textContent = "＋ add…"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    eS.title = "Pick a style tag to add it (you can combine several)";
-    eS.onchange = () => {
-        if (!eS.value) return;
-        const merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
-        const clean = sanitizeStyle(merged) || "neutral";
-        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
-    };
-    const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags: confident, calm"; eI.title = "Speaking style — multiple tags from the list, comma separated"; eI.style.flex = "1"; eI.style.minWidth = "90px";
-    eI.onchange = () => {
-        const clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official style list were removed. Style is now: '" + clean + "'.");
-        eI.value = clean; seg.emotion = clean; updateBadges();
-    };
-    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
-}
-
-// --- Fix clone analysis table population ---
-async function analyzeSpeakers() {
-    if (!segmentsData.length) { notify("error", "No segments found."); return; }
-    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))].sort();
-    const analysis = names.map(name => {
-        const segs = segmentsData.filter(s => (s.speaker || "Speaker 1") === name && (s.text || "").trim());
-        const total = segs.reduce((a, s) => a + Math.max(0, s.end - s.start), 0);
-        const total_time = Math.round(total * 10) / 10;
-        const n = segs.length;
-        let status, message;
-        if (total_time < 1.0) { status = "bad"; message = `❌ Cannot clone — only ${total_time}s of speech across ${n} line(s). At least 1 second is required. Use a library voice in Step 4 instead.`; }
-        else if (total_time < 3.0) { status = "warning"; message = `⚠️ Barely enough (${total_time}s across ${n} line(s)). The clone will likely sound robotic. A library voice may sound better.`; }
-        else if (total_time < 10.0) { status = "warning"; message = `🟡 Acceptable (${total_time}s across ${n} line(s)). Decent clone, but may not fully capture the speaker's character.`; }
-        else if (total_time < 20.0) { status = "good"; message = `✅ Good (${total_time}s across ${n} line(s)). Enough audio for a natural clone.`; }
-        else { status = "good"; message = `🌟 Excellent (${total_time}s across ${n} line(s)). Best possible clone quality.`; }
-        return { speaker: name, total_time, num_segments: n, status, message };
-    });
-    const tbody = document.querySelector("#cloneAnalysisTable tbody");
-    tbody.innerHTML = "";
-    analysis.forEach(item => {
-        const row = document.createElement("tr");
-        const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = item.status !== "bad"; cb.dataset.speaker = item.speaker;
-        const c0 = document.createElement("td"); c0.appendChild(cb); row.appendChild(c0);
-        const c1 = document.createElement("td"); c1.textContent = item.speaker; row.appendChild(c1);
-        const c2 = document.createElement("td"); c2.textContent = `${item.total_time}s (${item.num_segments} line${item.num_segments > 1 ? "s" : ""})`; row.appendChild(c2);
-        const c3 = document.createElement("td"); c3.textContent = item.message; c3.style.color = item.status === "good" ? "#059669" : (item.status === "warning" ? "#d97706" : "#dc2626"); c3.style.fontSize = "0.9em"; row.appendChild(c3);
-        tbody.appendChild(row);
-    });
-    document.getElementById("cloneAnalysisSection").classList.remove("hidden");
-    notify("success", "Review the guidance. Speakers marked ❌ are unchecked automatically.");
-}
-
-// --- Timeline with ruler + overlap prevention ---
-function renderTimeline() {
-    const wrap = document.getElementById("timelineWrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!segmentsData.length) return;
-    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
-    const W = wrap.clientWidth || 900;
-    const scale = W / total;
-
-    // Time ruler
-    const ruler = document.createElement("div");
-    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
-    const step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
-    for (let t = 0; t <= total; t += step) {
-        const mark = document.createElement("div");
-        mark.style.cssText = `position:absolute;left:${t * scale}px;top:0;height:100%;border-left:1px solid #475569;`;
-        const label = document.createElement("span");
-        label.textContent = t + "s";
-        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
-        mark.appendChild(label);
-        ruler.appendChild(mark);
-    }
-    wrap.appendChild(ruler);
-
-    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    speakers.forEach((spk, li) => {
-        const lane = document.createElement("div");
-        lane.style.cssText = `position:relative;height:34px;border-bottom:1px solid #334155;background:${li % 2 === 0 ? "#1e293b" : "#1a2332"};`;
-        const lab = document.createElement("span");
-        lab.textContent = spk;
-        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
-        lane.appendChild(lab);
-        segmentsData.forEach((seg, i) => {
-            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            const box = document.createElement("div");
-            const left = Math.max(0, (seg.start + off) * scale);
-            const width = Math.max(8, (seg.end - seg.start) * scale);
-            box.style.cssText = `position:absolute;left:${left}px;top:4px;width:${width}px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;`;
-            box.title = "Line " + (i + 1) + ": drag to shift";
-            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            box.onmousedown = function (ev) {
-                ev.preventDefault();
-                const startX = ev.clientX;
-                const startOff = off;
-                // Find neighbors in same speaker lane for overlap prevention
-                const sameLane = segmentsData.filter((s, idx) => idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim());
-                const move = function (e2) {
-                    let no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    const newStart = seg.start + no;
-                    const newEnd = seg.end + no;
-                    // Clamp to timeline bounds
-                    if (newStart < 0) no = -seg.start;
-                    if (newEnd > total) no = total - seg.end;
-                    // Prevent overlap with neighbors
-                    for (const nb of sameLane) {
-                        const nbOff = segmentOffsets[nb.segment_id] || 0;
-                        const nbStart = nb.start + nbOff;
-                        const nbEnd = nb.end + nbOff;
-                        const testStart = seg.start + no;
-                        const testEnd = seg.end + no;
-                        if (testStart < nbEnd && testEnd > nbStart) {
-                            // Overlap detected — clamp
-                            if (no > startOff) { no = nbStart - seg.end; } // pushing right → stop at neighbor start
-                            else { no = nbEnd - seg.start; } // pushing left → stop at neighbor end
-                        }
-                    }
-                    segmentOffsets[seg.segment_id] = no;
-                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
-                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
-                };
-                const up = function () {
-                    document.removeEventListener("mousemove", move);
-                    document.removeEventListener("mouseup", up);
-                    renderTimeline();
-                };
-                document.addEventListener("mousemove", move);
-                document.addEventListener("mouseup", up);
-            };
-            lane.appendChild(box);
-        });
-        wrap.appendChild(lane);
-    });
-}
-
-// ===== FIXED: Progress text (no double bar) =====
-const _origCheckTranscribe2 = checkTranscribeProgress;
-checkTranscribeProgress = async function() {
-    if (!currentJobId) return;
-    const res = await fetch(`/api/progress/${currentJobId}`);
-    const data = await res.json();
-    const fill = document.getElementById("progressFill");
-    const txt = document.getElementById("progressText");
-    if (fill) fill.style.width = (data.percent || 0) + "%";
-    if (txt) txt.textContent = (data.percent || 0) + "%" + (data.status_text ? " — " + data.status_text : "") + "... please wait";
-    if (data.is_video !== undefined) isVideoUpload = data.is_video;
-    if (data.status === "done") {
-        clearInterval(transcribePollTimer);
-        segmentsData = data.segments;
-        segmentsData.forEach(s => { s.start = Number(Number(s.start).toFixed(2)); s.end = Number(Number(s.end).toFixed(2)); s.locked = false; });
-        originalSegments = JSON.parse(JSON.stringify(segmentsData));
-        totalDuration = data.full_duration || 0;
-        let message = "Transcription complete.";
-        if (data.detected_speakers > 0) message += ` Detected speakers: ${data.detected_speakers}.`;
-        if (data.warning) notify("error", "⚠️ " + data.warning);
-        notify("success", message + " Use 🔒 to protect lines from Auto-Fix, Translate and Tashkeel.");
-        renderTable(); renderSpeakerVoices();
-        ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(id => document.getElementById(id).classList.remove("hidden"));
-        updateBadges(); fetchUsage();
-    }
-    if (data.status === "error") { clearInterval(transcribePollTimer); notify("error", data.error); }
-};
-
-const _origCheckGen2 = checkGenerateProgress;
-checkGenerateProgress = async function() {
-    const res = await fetch("/api/progress/generate");
-    const data = await res.json();
-    if (!data || data.status === "not_found") return;
-    const fill = document.getElementById("genProgressFill");
-    const txt = document.getElementById("genProgressText");
-    if (fill && typeof data.percent === "number") fill.style.width = data.percent + "%";
-    if (txt && typeof data.percent === "number") txt.textContent = data.percent + "% — generating audio... please wait";
-    if (data.status === "done") {
-        clearInterval(generatePollTimer);
-        document.getElementById("generateButton").disabled = false;
-        const r = data.result || {};
-        notify("success", "Arabic audio generated and merged.");
-        document.getElementById("resultSection").classList.remove("hidden");
-        document.getElementById("audioResults").innerHTML = `
-            <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
-            <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
-            <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
-            <div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
-        fetchUsage(); updateBadges();
-    }
-    if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
-};
-
-// ===== FIXED: Table row creation (no duplicate # column, aligned fields) =====
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    // Alternating background by speaker group
-    if (!seg.locked) {
-        let groupIdx = 0;
-        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-    }
-
-    const mk = (tag) => document.createElement(tag);
-
-    // # column
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
-
-    // Start
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-
-    // End
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-
-    // Speaker
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-
-    // Gender
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-
-    // Style / Emotion (dropdown + textbox)
-    const eCell = mk("td");
-    const eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
-    const eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
-    const blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    eS.title = "Pick a style tag to add it";
-    eS.onchange = () => {
-        if (!eS.value) return;
-        const merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
-        const clean = sanitizeStyle(merged) || "neutral";
-        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
-    };
-    const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.title = "Speaking style — multiple tags, comma separated"; eI.style.flex = "1"; eI.style.minWidth = "80px";
-    eI.onchange = () => {
-        const clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official list were removed. Style: '" + clean + "'.");
-        eI.value = clean; seg.emotion = clean; updateBadges();
-    };
-    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
-
-    // English
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-
-    // Arabic
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-
-    // Actions
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-
-    return row;
-}
-
-// ===== FIXED: Remove duplicate # column injection =====
-(function removeDuplicateNumCol() {
-    const tr = document.querySelector("#segmentsTable thead tr");
-    if (!tr) return;
-    const ths = tr.querySelectorAll("th");
-    // If first two THs both say "#", remove the second one (injected by old code)
-    if (ths.length >= 2 && ths[0].textContent.trim() === "#" && ths[1].textContent.trim() === "#") {
-        ths[1].remove();
-    }
-})();
-
-// ===== FIXED: Clone analysis table (frontend-computed, always populates) =====
-async function analyzeSpeakers() {
-    if (!segmentsData.length) { notify("error", "No segments found."); return; }
-    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))].sort();
-    const analysis = names.map(name => {
-        const segs = segmentsData.filter(s => (s.speaker || "Speaker 1") === name && (s.text || "").trim());
-        const total = segs.reduce((a, s) => a + Math.max(0, s.end - s.start), 0);
-        const total_time = Math.round(total * 10) / 10;
-        const n = segs.length;
-        let status, message;
-        if (total_time < 1.0) { status = "bad"; message = `❌ Cannot clone — only ${total_time}s across ${n} line(s). Need ≥1s. Use a library voice in Step 4.`; }
-        else if (total_time < 3.0) { status = "warning"; message = `⚠️ Barely enough (${total_time}s, ${n} line(s)). Clone may sound robotic.`; }
-        else if (total_time < 10.0) { status = "warning"; message = `🟡 Acceptable (${total_time}s, ${n} line(s)). Decent clone.`; }
-        else if (total_time < 20.0) { status = "good"; message = `✅ Good (${total_time}s, ${n} line(s)). Natural clone expected.`; }
-        else { status = "good"; message = `🌟 Excellent (${total_time}s, ${n} line(s)). Best quality clone.`; }
-        return { speaker: name, total_time, num_segments: n, status, message };
-    });
-    const tbody = document.querySelector("#cloneAnalysisTable tbody");
-    tbody.innerHTML = "";
-    analysis.forEach(item => {
-        const row = document.createElement("tr");
-        const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = item.status !== "bad"; cb.dataset.speaker = item.speaker;
-        const c0 = document.createElement("td"); c0.style.textAlign = "center"; c0.appendChild(cb); row.appendChild(c0);
-        const c1 = document.createElement("td"); c1.textContent = item.speaker; row.appendChild(c1);
-        const c2 = document.createElement("td"); c2.textContent = `${item.total_time}s (${item.num_segments} line${item.num_segments > 1 ? "s" : ""})`; row.appendChild(c2);
-        const c3 = document.createElement("td"); c3.textContent = item.message; c3.style.color = item.status === "good" ? "#059669" : (item.status === "warning" ? "#d97706" : "#dc2626"); c3.style.fontSize = "0.9em"; row.appendChild(c3);
-        tbody.appendChild(row);
-    });
-    document.getElementById("cloneAnalysisSection").classList.remove("hidden");
-    notify("success", "Review the guidance below. Speakers marked ❌ are unchecked automatically.");
-}
-
-// ===== FIXED: Timeline with ruler + overlap prevention =====
-function renderTimeline() {
-    const wrap = document.getElementById("timelineWrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!segmentsData.length) return;
-    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
-    const W = wrap.clientWidth || 900;
-    const scale = W / total;
-
-    // Time ruler
-    const ruler = document.createElement("div");
-    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
-    const step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
-    for (let t = 0; t <= total; t += step) {
-        const mark = document.createElement("div");
-        mark.style.cssText = `position:absolute;left:${t * scale}px;top:0;height:100%;border-left:1px solid #475569;`;
-        const label = document.createElement("span");
-        label.textContent = t + "s";
-        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
-        mark.appendChild(label);
-        ruler.appendChild(mark);
-    }
-    wrap.appendChild(ruler);
-
-    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    speakers.forEach((spk, li) => {
-        const lane = document.createElement("div");
-        lane.style.cssText = `position:relative;height:34px;border-bottom:1px solid #334155;background:${li % 2 === 0 ? "#1e293b" : "#1a2332"};`;
-        const lab = document.createElement("span");
-        lab.textContent = spk;
-        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
-        lane.appendChild(lab);
-        segmentsData.forEach((seg, i) => {
-            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            const box = document.createElement("div");
-            const left = Math.max(0, (seg.start + off) * scale);
-            const width = Math.max(8, (seg.end - seg.start) * scale);
-            box.style.cssText = `position:absolute;left:${left}px;top:4px;width:${width}px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;`;
-            box.title = "Line " + (i + 1) + ": drag to shift";
-            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            box.onmousedown = function (ev) {
-                ev.preventDefault();
-                const startX = ev.clientX;
-                const startOff = off;
-                const sameLane = segmentsData.filter((s, idx) => idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim());
-                const move = function (e2) {
-                    let no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    if (seg.start + no < 0) no = -seg.start;
-                    if (seg.end + no > total) no = total - seg.end;
-                    for (const nb of sameLane) {
-                        const nbOff = segmentOffsets[nb.segment_id] || 0;
-                        const nbStart = nb.start + nbOff;
-                        const nbEnd = nb.end + nbOff;
-                        const testStart = seg.start + no;
-                        const testEnd = seg.end + no;
-                        if (testStart < nbEnd && testEnd > nbStart) {
-                            if (no > startOff) { no = nbStart - seg.end; }
-                            else { no = nbEnd - seg.start; }
-                        }
-                    }
-                    segmentOffsets[seg.segment_id] = no;
-                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
-                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
-                };
-                const up = function () {
-                    document.removeEventListener("mousemove", move);
-                    document.removeEventListener("mouseup", up);
-                    renderTimeline();
-                };
-                document.addEventListener("mousemove", move);
-                document.addEventListener("mouseup", up);
-            };
-            lane.appendChild(box);
-        });
-        wrap.appendChild(lane);
-    });
-}
-
-// ===== FIX: Step 4 speaker voices table population =====
-async function renderSpeakerVoices() {
-    const tbody = document.querySelector("#speakerVoicesTable tbody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    if (!names.length) return;
-    const hasPools = voicePools.male.length > 0 || voicePools.female.length > 0;
-    if (!hasPools) await ensureVoicePools();
-    names.forEach(name => {
-        const row = document.createElement("tr");
-        const c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
-        const c2 = document.createElement("td");
-        const sel = document.createElement("select");
-        sel.style.width = "100%";
-        // Cloned voice option
-        if (clonedBySpeaker[name]) {
-            const o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o);
-        }
-        // Male voices
-        const addGroup = (g, label) => {
-            (voicePools[g] || []).slice(0, 8).forEach((p, i) => {
-                const o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
-            });
-        };
-        addGroup("male", "🎲 Male voice");
-        addGroup("female", "🎲 Female voice");
-        // Fallback if no pools loaded
-        if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
-            const o = document.createElement("option"); o.value = ""; o.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(o);
-        }
-        sel.value = speakerChoices[name] || "";
-        sel.onchange = () => { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
-        c2.appendChild(sel);
-        // Show current assignment
-        const info = document.createElement("div");
-        info.style.cssText = "font-size:12px;color:#6b7280;margin-top:4px;";
-        info.textContent = speakerVoiceNames[name] || "";
-        c2.appendChild(info);
-        row.appendChild(c2);
-        tbody.appendChild(row);
-    });
-}
-
-// ===== FIX: Ensure voice pools load properly =====
-async function ensureVoicePools() {
-    if (voicePools.male.length || voicePools.female.length) return true;
-    try {
-        const res = await fetch("/api/voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-        const data = await res.json();
-        if (data.error || !data.voices) return false;
-        availableVoices = data.voices;
-        buildVoicePools(availableVoices);
-        return true;
-    } catch (e) { return false; }
-}
-
-async function loadVoiceOptions() {
-    const ok = await ensureVoicePools();
-    if (ok) { notify("success", "Voice options loaded. Pick a voice per speaker below."); renderSpeakerVoices(); }
-    else notify("error", "Could not load the voice library. Check the server configuration.");
-}
-
-async function autoAssignVoices() {
-    const ok = await ensureVoicePools();
-    if (!ok) { notify("error", "Voice library unavailable. Check the server configuration."); return; }
-    const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    names.forEach(name => {
-        if (speakerChoices[name]) { applyChoice(name); return; }
-        if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
-        let male = 0, female = 0;
-        segmentsData.forEach(s => { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
-        let g = female > male ? "female" : "male";
-        let pool = voicePools[g];
-        if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
-        if (!pool.length) return;
-        const usedIds = new Set(Object.values(speakerVoices));
-        const freeIdx = pool.map((p, i) => i).filter(i => !usedIds.has(pool[i].voice_id));
-        const pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
-        speakerChoices[name] = g + ":" + (pick + 1);
-        applyChoice(name);
-    });
-    renderSpeakerVoices();
-    notify("success", "Voices auto-assigned. You can change any speaker's voice in the Step 4 table.");
-}
-
-// ===== USER HEADER =====
+// ---------- User header (name, credits, logout) ----------
 (function loadUserInfo() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+    fetch("/api/user/info").then(function (r) { return r.json(); }).then(function (data) {
         var nameEl = document.getElementById("userName");
         var credEl = document.getElementById("creditsDisplay");
         var credNum = document.getElementById("creditsNum");
@@ -1940,36 +1381,26 @@ async function autoAssignVoices() {
             credNum.textContent = data.credits;
             credEl.style.display = "inline-block";
         }
-    }).catch(function() {});
+    }).catch(function () {});
 })();
 
 function doLogout() {
-    fetch("/api/logout", { method: "POST" }).then(function() {
-        // Also clear Supabase session if available
-        if (typeof window.supabase !== "undefined" && window.__SUPABASE_URL) {
-            try {
-                var sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || "");
-                sb.auth.signOut();
-            } catch(e) {}
-        }
+    fetch("/api/logout", { method: "POST" }).then(function () {
         window.location.href = "/login";
-    }).catch(function() {
-        window.location.href = "/login";
-    });
+    }).catch(function () { window.location.href = "/login"; });
 }
 
 function refreshCredits() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+    fetch("/api/user/info").then(function (r) { return r.json(); }).then(function (data) {
         var credNum = document.getElementById("creditsNum");
         if (credNum && !data.is_guest) credNum.textContent = data.credits;
-    }).catch(function() {});
+    }).catch(function () {});
 }
 
-
-
-// ===== FILE UPLOAD LABEL =====
+// ---------- File upload button label ----------
 function onFileSelected(input) {
     var label = document.getElementById("fileUploadText");
+    if (!label) return;
     if (input.files && input.files[0]) {
         var f = input.files[0];
         var sizeMB = (f.size / (1024 * 1024)).toFixed(1);
@@ -1979,42 +1410,207 @@ function onFileSelected(input) {
     }
 }
 
-// ===== USER HEADER =====
-(function loadUserInfo() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
-        var nameEl = document.getElementById("userName");
-        var credEl = document.getElementById("creditsDisplay");
-        var credNum = document.getElementById("creditsNum");
-        if (nameEl) nameEl.textContent = data.name || "";
-        if (!data.is_guest && credEl && credNum) {
-            credNum.textContent = data.credits;
-            credEl.style.display = "inline-block";
-        }
-    }).catch(function() {});
-})();
-
-function doLogout() {
-    fetch("/api/logout", { method: "POST" }).then(function() {
-        window.location.href = "/login";
-    }).catch(function() { window.location.href = "/login"; });
-}
-
-function refreshCredits() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
-        var credNum = document.getElementById("creditsNum");
-        if (credNum && !data.is_guest) credNum.textContent = data.credits;
-    }).catch(function() {});
-}
-
-// ===== AUDIOSR TOGGLE — send preference with generate =====
+// ---------- Enhance-background toggle (stores preference; backend wiring comes next) ----------
 var _origGenerateAudio = generateAudio;
-generateAudio = function() {
+generateAudio = function () {
     var enhance = document.getElementById("enhanceBackground");
     window._enhanceBackground = enhance ? enhance.checked : false;
     _origGenerateAudio();
 };
 
-// ===== FIXED TABLE ROW (locked = yellow, alternating) =====
+// ---------- Friendly waiting messages (separate line, never replaces %) ----------
+var friendlyWaitMessages = [
+    "Still working — large videos can take a few minutes on CPU.",
+    "The system is processing audio carefully. Please keep this page open.",
+    "Speaker detection and vocal separation are the slowest steps.",
+    "If the percentage is moving, everything is fine.",
+    "High-quality processing takes longer, but gives better results.",
+    "Please do not refresh the page while processing.",
+    "The server is still alive. Waiting for the next processing update.",
+    "Some steps stay at one percentage for a while, especially speaker detection.",
+    "Almost all AI audio tasks are slower on CPU servers.",
+    "Thank you for your patience — processing is continuing."
+];
+var friendlyMsgIndex = 0;
+var friendlyTimer = null;
+
+function ensureFriendlyLine(progressTextId) {
+    var main = document.getElementById(progressTextId);
+    if (!main) return null;
+    var id = progressTextId + "_friendly";
+    var existing = document.getElementById(id);
+    if (existing) return existing;
+    var p = document.createElement("p");
+    p.id = id;
+    p.style.cssText = "text-align:center;font-size:12px;color:#9ca3af;margin-top:4px;min-height:18px;";
+    p.textContent = friendlyWaitMessages[0];
+    main.insertAdjacentElement("afterend", p);
+    return p;
+}
+
+function startFriendlyMessages(progressTextId) {
+    var friendly = ensureFriendlyLine(progressTextId);
+    if (!friendly) return;
+    if (friendlyTimer) clearInterval(friendlyTimer);
+    friendlyMsgIndex = 0;
+    friendly.textContent = friendlyWaitMessages[0];
+    friendlyTimer = setInterval(function () {
+        friendlyMsgIndex = (friendlyMsgIndex + 1) % friendlyWaitMessages.length;
+        friendly.textContent = friendlyWaitMessages[friendlyMsgIndex];
+    }, 60000);
+}
+
+function stopFriendlyMessages(progressTextId) {
+    if (friendlyTimer) { clearInterval(friendlyTimer); friendlyTimer = null; }
+    var el = document.getElementById(progressTextId + "_friendly");
+    if (el) el.remove();
+}
+
+function safePercent(value, fallback) {
+    var n = Number(value);
+    if (isNaN(n)) return fallback || 0;
+    return Math.max(fallback || 0, Math.min(100, n));
+}
+
+// ---------- Transcribe progress (percentage always visible + real backend step) ----------
+var transcribeLastPercent = 0;
+
+checkTranscribeProgress = async function () {
+    if (!currentJobId) return;
+    try {
+        var res = await fetch("/api/progress/" + currentJobId + "?t=" + Date.now());
+        var data = await res.json();
+        var fill = document.getElementById("progressFill");
+        var txt = document.getElementById("progressText");
+
+        var percent = safePercent(data.percent, transcribeLastPercent);
+        if (percent >= transcribeLastPercent) transcribeLastPercent = percent;
+
+        if (fill) fill.style.width = transcribeLastPercent + "%";
+        var statusText = data.status_text || data.message || data.status || "Processing...";
+		if (txt) txt.textContent = transcribeLastPercent + "% — " + statusText;    if (txt) txt.textContent = transcribeLastPercent + "% — " + statusText + " | Job: " + currentJobId.substring(0, 8);
+
+        if (data.status === "processing") startFriendlyMessages("progressText");
+        if (data.is_video !== undefined) isVideoUpload = data.is_video;
+
+        if (data.status === "done") {
+            stopFriendlyMessages("progressText");
+            clearInterval(transcribePollTimer);
+            transcribeLastPercent = 0;
+            if (fill) fill.style.width = "100%";
+            if (txt) txt.textContent = "100% — Transcription complete.";
+
+            segmentsData = data.segments || [];
+            segmentsData.forEach(function (s) {
+                s.start = Number(Number(s.start).toFixed(2));
+                s.end = Number(Number(s.end).toFixed(2));
+                s.locked = false;
+            });
+            originalSegments = JSON.parse(JSON.stringify(segmentsData));
+            totalDuration = data.full_duration || 0;
+
+            var message = "Transcription complete.";
+            if (data.detected_speakers > 0) message += " Detected speakers: " + data.detected_speakers + ".";
+            if (data.warning) notify("error", "⚠️ " + data.warning);
+            notify("success", message);
+
+            renderTable();
+            renderSpeakerVoices();
+            ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.classList.remove("hidden");
+            });
+            updateBadges();
+            fetchUsage();
+        }
+
+        if (data.status === "error") {
+            stopFriendlyMessages("progressText");
+            clearInterval(transcribePollTimer);
+            transcribeLastPercent = 0;
+            if (txt) txt.textContent = "Error — " + (data.error || "Unknown error");
+            notify("error", data.error || "Transcription failed.");
+        }
+    } catch (e) {
+        var t = document.getElementById("progressText");
+        if (t) t.textContent = transcribeLastPercent + "% — Still waiting for server response...";
+        console.error("Progress check failed:", e);
+    }
+};
+
+// ---------- Generate progress ----------
+var generateLastPercent = 0;
+
+checkGenerateProgress = async function () {
+    try {
+        var res = await fetch("/api/progress/generate?t=" + Date.now());
+        var data = await res.json();
+        if (!data || data.status === "not_found") return;
+
+        var fill = document.getElementById("genProgressFill");
+        var txt = document.getElementById("genProgressText");
+
+        var percent = safePercent(data.percent, generateLastPercent);
+        if (percent >= generateLastPercent) generateLastPercent = percent;
+
+        if (fill) fill.style.width = generateLastPercent + "%";
+        var statusText = data.status_text || data.message || data.status || "Generating...";
+        if (txt) txt.textContent = generateLastPercent + "% — " + statusText;
+
+        if (data.status === "processing") startFriendlyMessages("genProgressText");
+
+        if (data.status === "done") {
+            stopFriendlyMessages("genProgressText");
+            clearInterval(generatePollTimer);
+            generateLastPercent = 0;
+            if (fill) fill.style.width = "100%";
+            if (txt) txt.textContent = "100% — Audio generation complete.";
+
+            var btn = document.getElementById("generateButton");
+            if (btn) btn.disabled = false;
+
+            var r = data.result || {};
+            notify("success", "Arabic audio generated and merged.");
+            document.getElementById("resultSection").classList.remove("hidden");
+            document.getElementById("audioResults").innerHTML =
+                '<p>Segments generated: <strong>' + (r.segments_generated || 0) + '</strong> | Timing warnings: <strong>' + (r.tempo_warnings || 0) + '</strong> | Trimmed: <strong>' + (r.duration_cuts || 0) + '</strong></p>' +
+                '<p>Final duration: <strong>' + (r.final_duration || 0) + 's</strong> | Voice characters used: <strong>' + ((r.eleven_credits_used || 0).toLocaleString()) + '</strong></p>' +
+                '<audio controls src="/api/download/final_dubbed.mp3?cache=' + Date.now() + '"></audio>' +
+                '<div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=' + Date.now() + '" download="final_dubbed.mp3">⬇️ Download MP3</a></div>';
+
+            if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+            fetchUsage();
+            updateBadges();
+            refreshCredits();
+        }
+
+        if (data.status === "error") {
+            stopFriendlyMessages("genProgressText");
+            clearInterval(generatePollTimer);
+            generateLastPercent = 0;
+            var btn2 = document.getElementById("generateButton");
+            if (btn2) btn2.disabled = false;
+            if (txt) txt.textContent = "Error — " + (data.error || "Unknown error");
+            notify("error", data.error || "Audio generation failed.");
+        }
+    } catch (e) {
+        var t2 = document.getElementById("genProgressText");
+        if (t2) t2.textContent = generateLastPercent + "% — Still waiting for server response...";
+        console.error("Generate progress check failed:", e);
+    }
+};
+
+// ---------- Safety: remove a duplicated "#" header column if one ever appears ----------
+(function removeDuplicateNumCol() {
+    var tr = document.querySelector("#segmentsTable thead tr");
+    if (!tr) return;
+    var ths = tr.querySelectorAll("th");
+    if (ths.length >= 2 && ths[0].textContent.trim() === "#" && ths[1].textContent.trim() === "#") {
+        ths[1].remove();
+    }
+})();
+
+// ---------- Segments table row (locked = yellow, speaker groups alternate) ----------
 function createRow(seg, i) {
     var row = document.createElement("tr");
     if (seg.locked) row.className = "locked";
@@ -2023,54 +1619,62 @@ function createRow(seg, i) {
         for (var j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
         row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
     }
-    var mk = function(tag) { return document.createElement(tag); };
+    var mk = function (tag) { return document.createElement(tag); };
+
     var numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
-    var startCell = mk("td"); var si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = function() { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    var endCell = mk("td"); var ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = function() { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    var spCell = mk("td"); var spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = function() { updateSpeakerName(i, spI.value); }; spCell.appendChild(spI); row.appendChild(spCell);
-    var gCell = mk("td"); var gS = mk("select"); ["male", "female"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = function() { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
+
+    var startCell = mk("td"); var si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = function () { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
+
+    var endCell = mk("td"); var ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = function () { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
+
+    var spCell = mk("td"); var spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = function () { updateSpeakerName(i, spI.value); }; spCell.appendChild(spI); row.appendChild(spCell);
+
+    var gCell = mk("td"); var gS = mk("select"); ["male", "female"].forEach(function (v) { var o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = function () { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
+
     var eCell = mk("td");
     var eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
     var eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
     var blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    eS.onchange = function() {
+    EMOTIONS.slice().sort().forEach(function (v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(function (v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    eS.onchange = function () {
         if (!eS.value) return;
         var merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
         var clean = sanitizeStyle(merged) || "neutral";
         seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
     };
     var eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.style.flex = "1"; eI.style.minWidth = "80px";
-    eI.onchange = function() {
+    eI.onchange = function () {
         var clean = sanitizeStyle(eI.value) || "neutral";
         if (clean !== eI.value.trim()) notify("info", "Words not in the official list were removed. Style: '" + clean + "'.");
         eI.value = clean; seg.emotion = clean; updateBadges();
     };
     eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
-    var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function() { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function() { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
+
+    var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function () { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
+
+    var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function () { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
+
     var aCell = mk("td");
-    var pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = function() { previewRow(i, pb); };
-    var rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = function() { regenerateLine(i, rb); };
-    var ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = function() { insertSegmentAfter(i); };
-    var db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = function() { deleteSegment(i); };
-    var lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = function() { toggleLock(i); };
+    var pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = function () { previewRow(i, pb); };
+    var rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = function () { regenerateLine(i, rb); };
+    var ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = function () { insertSegmentAfter(i); };
+    var db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = function () { deleteSegment(i); };
+    var lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = function () { toggleLock(i); };
     aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
     row.appendChild(aCell);
     return row;
 }
 
-// ===== CLONE ANALYSIS (frontend-computed) =====
+// ---------- Clone analysis (computed in frontend, always populates) ----------
 async function analyzeSpeakers() {
     if (!segmentsData.length) { notify("error", "No segments found."); return; }
-    var names = [];
-    var seen = {};
-    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    var names = []; var seen = {};
+    segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
     names.sort();
-    var analysis = names.map(function(name) {
-        var segs = segmentsData.filter(function(s) { return (s.speaker || "Speaker 1") === name && (s.text || "").trim(); });
-        var total = segs.reduce(function(a, s) { return a + Math.max(0, s.end - s.start); }, 0);
+    var analysis = names.map(function (name) {
+        var segs = segmentsData.filter(function (s) { return (s.speaker || "Speaker 1") === name && (s.text || "").trim(); });
+        var total = segs.reduce(function (a, s) { return a + Math.max(0, s.end - s.start); }, 0);
         var total_time = Math.round(total * 10) / 10;
         var n = segs.length;
         var status, message;
@@ -2083,7 +1687,7 @@ async function analyzeSpeakers() {
     });
     var tbody = document.querySelector("#cloneAnalysisTable tbody");
     tbody.innerHTML = "";
-    analysis.forEach(function(item) {
+    analysis.forEach(function (item) {
         var row = document.createElement("tr");
         var cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = item.status !== "bad"; cb.dataset.speaker = item.speaker;
         var c0 = document.createElement("td"); c0.style.textAlign = "center"; c0.appendChild(cb); row.appendChild(c0);
@@ -2096,45 +1700,7 @@ async function analyzeSpeakers() {
     notify("success", "Review the guidance below. Speakers marked ❌ are unchecked automatically.");
 }
 
-// ===== SPEAKER VOICES TABLE =====
-async function renderSpeakerVoices() {
-    var tbody = document.querySelector("#speakerVoicesTable tbody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-    var names = [];
-    var seen = {};
-    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
-    if (!names.length) return;
-    var hasPools = voicePools.male.length > 0 || voicePools.female.length > 0;
-    if (!hasPools) await ensureVoicePools();
-    names.forEach(function(name) {
-        var row = document.createElement("tr");
-        var c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
-        var c2 = document.createElement("td");
-        var sel = document.createElement("select"); sel.style.width = "100%";
-        if (clonedBySpeaker[name]) { var o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o); }
-        var addGroup = function(g, label) {
-            (voicePools[g] || []).slice(0, 8).forEach(function(p, i) {
-                var o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
-            });
-        };
-        addGroup("male", "🎲 Male voice");
-        addGroup("female", "🎲 Female voice");
-        if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
-            var o = document.createElement("option"); o.value = ""; o.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(o);
-        }
-        sel.value = speakerChoices[name] || "";
-        sel.onchange = function() { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
-        c2.appendChild(sel);
-        var info = document.createElement("div");
-        info.style.cssText = "font-size:12px;color:#6b7280;margin-top:4px;";
-        info.textContent = speakerVoiceNames[name] || "";
-        c2.appendChild(info);
-        row.appendChild(c2);
-        tbody.appendChild(row);
-    });
-}
-
+// ---------- Step 4 voices ----------
 async function ensureVoicePools() {
     if (voicePools.male.length || voicePools.female.length) return true;
     try {
@@ -2147,6 +1713,42 @@ async function ensureVoicePools() {
     } catch (e) { return false; }
 }
 
+async function renderSpeakerVoices() {
+    var tbody = document.querySelector("#speakerVoicesTable tbody");
+    if (!tbody) return;
+    tbody.innerHTML = "";
+    var names = []; var seen = {};
+    segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    if (!names.length) return;
+    if (!voicePools.male.length && !voicePools.female.length) await ensureVoicePools();
+    names.forEach(function (name) {
+        var row = document.createElement("tr");
+        var c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
+        var c2 = document.createElement("td");
+        var sel = document.createElement("select"); sel.style.width = "100%";
+        if (clonedBySpeaker[name]) { var oc = document.createElement("option"); oc.value = "clone"; oc.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(oc); }
+        var addGroup = function (g, label) {
+            (voicePools[g] || []).slice(0, 8).forEach(function (p, i) {
+                var o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
+            });
+        };
+        addGroup("male", "🎲 Male voice");
+        addGroup("female", "🎲 Female voice");
+        if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
+            var oe = document.createElement("option"); oe.value = ""; oe.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(oe);
+        }
+        sel.value = speakerChoices[name] || "";
+        sel.onchange = function () { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
+        c2.appendChild(sel);
+        var info = document.createElement("div");
+        info.style.cssText = "font-size:12px;color:#6b7280;margin-top:4px;";
+        info.textContent = speakerVoiceNames[name] || "";
+        c2.appendChild(info);
+        row.appendChild(c2);
+        tbody.appendChild(row);
+    });
+}
+
 async function loadVoiceOptions() {
     var ok = await ensureVoicePools();
     if (ok) { notify("success", "Voice options loaded. Pick a voice per speaker below."); renderSpeakerVoices(); }
@@ -2156,21 +1758,20 @@ async function loadVoiceOptions() {
 async function autoAssignVoices() {
     var ok = await ensureVoicePools();
     if (!ok) { notify("error", "Voice library unavailable."); return; }
-    var names = [];
-    var seen = {};
-    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
-    names.forEach(function(name) {
+    var names = []; var seen = {};
+    segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    names.forEach(function (name) {
         if (speakerChoices[name]) { applyChoice(name); return; }
         if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
         var male = 0, female = 0;
-        segmentsData.forEach(function(s) { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
+        segmentsData.forEach(function (s) { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
         var g = female > male ? "female" : "male";
         var pool = voicePools[g];
         if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
         if (!pool.length) return;
         var usedIds = {};
-        Object.values(speakerVoices).forEach(function(v) { usedIds[v] = true; });
-        var freeIdx = pool.map(function(p, i) { return i; }).filter(function(i) { return !usedIds[pool[i].voice_id]; });
+        Object.values(speakerVoices).forEach(function (v) { usedIds[v] = true; });
+        var freeIdx = pool.map(function (p, i) { return i; }).filter(function (i) { return !usedIds[pool[i].voice_id]; });
         var pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
         speakerChoices[name] = g + ":" + (pick + 1);
         applyChoice(name);
@@ -2179,53 +1780,60 @@ async function autoAssignVoices() {
     notify("success", "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
 }
 
-// ===== TIMELINE WITH RULER + OVERLAP PREVENTION =====
+// ---------- Timeline: yellow number band + original-start lines + ruler + drag ----------
 function renderTimeline() {
     var wrap = document.getElementById("timelineWrap");
     if (!wrap) return;
     wrap.innerHTML = "";
     if (!segmentsData.length) return;
-    var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function(s) { return s.end; }).concat([1]));
+    var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
     var W = wrap.clientWidth || 900;
     var scale = W / total;
+
+    var markerBand = document.createElement("div");
+    markerBand.style.cssText = "position:relative;height:18px;background:#d4e157;";
+    wrap.appendChild(markerBand);
+
     var ruler = document.createElement("div");
     ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
     var step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
     for (var t = 0; t <= total; t += step) {
         var mark = document.createElement("div");
         mark.style.cssText = "position:absolute;left:" + (t * scale) + "px;top:0;height:100%;border-left:1px solid #475569;";
-        var label = document.createElement("span");
-        label.textContent = t + "s";
-        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
-        mark.appendChild(label);
+        var tlabel = document.createElement("span");
+        tlabel.textContent = t + "s";
+        tlabel.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
+        mark.appendChild(tlabel);
         ruler.appendChild(mark);
     }
     wrap.appendChild(ruler);
-    var speakers = [];
-    var sSeen = {};
-    segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!sSeen[n]) { sSeen[n] = true; speakers.push(n); } });
-    speakers.forEach(function(spk, li) {
+
+    var speakers = []; var sSeen = {};
+    segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!sSeen[n]) { sSeen[n] = true; speakers.push(n); } });
+
+    speakers.forEach(function (spk, li) {
         var lane = document.createElement("div");
         lane.style.cssText = "position:relative;height:34px;border-bottom:1px solid #334155;background:" + (li % 2 === 0 ? "#1e293b" : "#1a2332") + ";";
         var lab = document.createElement("span");
         lab.textContent = spk;
         lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
         lane.appendChild(lab);
-        segmentsData.forEach(function(seg, i) {
+
+        segmentsData.forEach(function (seg, i) {
             if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
             var off = segmentOffsets[seg.segment_id] || 0;
             var box = document.createElement("div");
             var left = Math.max(0, (seg.start + off) * scale);
             var width = Math.max(8, (seg.end - seg.start) * scale);
-            box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;";
-            box.title = "Line " + (i + 1) + ": drag to shift";
+            box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;z-index:2;";
+            box.title = "Line " + (i + 1) + " — drag to shift. Yellow line = where this line starts in the ORIGINAL video.";
             box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            box.onmousedown = function(ev) {
+            box.onmousedown = function (ev) {
                 ev.preventDefault();
                 var startX = ev.clientX;
                 var startOff = off;
-                var sameLane = segmentsData.filter(function(s, idx) { return idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
-                var move = function(e2) {
+                var sameLane = segmentsData.filter(function (s, idx) { return idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
+                var move = function (e2) {
                     var no = startOff + (e2.clientX - startX) / scale;
                     no = Math.max(-2, Math.min(2, no));
                     if (seg.start + no < 0) no = -seg.start;
@@ -2243,7 +1851,11 @@ function renderTimeline() {
                     box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
                     box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
                 };
-                var up = function() { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); renderTimeline(); };
+                var up = function () {
+                    document.removeEventListener("mousemove", move);
+                    document.removeEventListener("mouseup", up);
+                    renderTimeline();
+                };
                 document.addEventListener("mousemove", move);
                 document.addEventListener("mouseup", up);
             };
@@ -2251,237 +1863,19 @@ function renderTimeline() {
         });
         wrap.appendChild(lane);
     });
+
+    var overlay = document.createElement("div");
+    overlay.style.cssText = "position:absolute;left:0;right:0;top:18px;bottom:0;pointer-events:none;z-index:6;";
+    segmentsData.forEach(function (seg, i) {
+        var x = seg.start * scale;
+        var line = document.createElement("div");
+        line.style.cssText = "position:absolute;left:" + x + "px;top:0;bottom:0;width:1px;background:rgba(212,225,87,0.8);";
+        overlay.appendChild(line);
+        var num = document.createElement("div");
+        num.textContent = (i + 1);
+        num.title = "Line " + (i + 1) + " — original start: " + seg.start + "s";
+        num.style.cssText = "position:absolute;left:" + x + "px;top:-18px;transform:translateX(-50%);color:#1a1a2e;font-size:10px;font-weight:700;line-height:18px;padding:0 2px;";
+        overlay.appendChild(num);
+    });
+    wrap.appendChild(overlay);
 }
-
-// ===== SAFE PROGRESS MESSAGES — does NOT replace real progress =====
-var transcribeLastPercent = 0;
-var generateLastPercent = 0;
-var transcribeLastUpdate = Date.now();
-var generateLastUpdate = Date.now();
-
-var friendlyWaitMessages = [
-    "Still working — large videos can take a few minutes on CPU.",
-    "The system is processing audio carefully. Please keep this page open.",
-    "Speaker detection and vocal separation are the slowest steps.",
-    "If the percentage is moving, everything is fine.",
-    "High-quality processing takes longer, but gives better results.",
-    "Please do not refresh the page while processing.",
-    "The server is still alive. Waiting for the next processing update.",
-    "Some steps may stay at one percentage for a while, especially speaker detection.",
-    "Almost all AI audio tasks are slower on CPU servers.",
-    "Thank you for your patience — processing is continuing."
-];
-
-var friendlyMsgIndex = 0;
-var friendlyTimer = null;
-
-function ensureFriendlyLine(progressTextId) {
-    var main = document.getElementById(progressTextId);
-    if (!main) return null;
-
-    var id = progressTextId + "_friendly";
-    var existing = document.getElementById(id);
-    if (existing) return existing;
-
-    var p = document.createElement("p");
-    p.id = id;
-    p.style.cssText = "text-align:center;font-size:12px;color:#9ca3af;margin-top:4px;min-height:18px;";
-    p.textContent = friendlyWaitMessages[0];
-
-    main.insertAdjacentElement("afterend", p);
-    return p;
-}
-
-function startFriendlyMessages(progressTextId) {
-    var friendly = ensureFriendlyLine(progressTextId);
-    if (!friendly) return;
-
-    if (friendlyTimer) clearInterval(friendlyTimer);
-
-    friendlyMsgIndex = 0;
-    friendly.textContent = friendlyWaitMessages[0];
-
-    friendlyTimer = setInterval(function () {
-        friendlyMsgIndex = (friendlyMsgIndex + 1) % friendlyWaitMessages.length;
-        friendly.textContent = friendlyWaitMessages[friendlyMsgIndex];
-    }, 60000); // every 1 minute, as requested
-}
-
-function stopFriendlyMessages(progressTextId) {
-    if (friendlyTimer) {
-        clearInterval(friendlyTimer);
-        friendlyTimer = null;
-    }
-    var el = document.getElementById(progressTextId + "_friendly");
-    if (el) el.remove();
-}
-
-function safePercent(value, fallback) {
-    var n = Number(value);
-    if (isNaN(n)) return fallback || 0;
-    return Math.max(fallback || 0, Math.min(100, n));
-}
-
-// ===== SAFE TRANSCRIBE PROGRESS OVERRIDE =====
-checkTranscribeProgress = async function () {
-    if (!currentJobId) return;
-
-    try {
-        var res = await fetch("/api/progress/" + currentJobId + "?t=" + Date.now());
-        var data = await res.json();
-
-        var fill = document.getElementById("progressFill");
-        var txt = document.getElementById("progressText");
-
-        var percent = safePercent(data.percent, transcribeLastPercent);
-        if (percent >= transcribeLastPercent) {
-            transcribeLastPercent = percent;
-        }
-        transcribeLastUpdate = Date.now();
-
-        if (fill) fill.style.width = transcribeLastPercent + "%";
-
-        var statusText = data.status_text || data.message || data.status || "Processing...";
-        if (txt) {
-            txt.textContent =
-                transcribeLastPercent + "% — " + statusText +
-                " | Job: " + currentJobId.substring(0, 8);
-        }
-
-        if (data.status === "processing") {
-            startFriendlyMessages("progressText");
-        }
-
-        if (data.is_video !== undefined) {
-            isVideoUpload = data.is_video;
-        }
-
-        if (data.status === "done") {
-            stopFriendlyMessages("progressText");
-            clearInterval(transcribePollTimer);
-
-            if (fill) fill.style.width = "100%";
-            if (txt) txt.textContent = "100% — Transcription complete.";
-
-            segmentsData = data.segments || [];
-            segmentsData.forEach(function (s) {
-                s.start = Number(Number(s.start).toFixed(2));
-                s.end = Number(Number(s.end).toFixed(2));
-                s.locked = false;
-            });
-
-            originalSegments = JSON.parse(JSON.stringify(segmentsData));
-            totalDuration = data.full_duration || 0;
-
-            var message = "Transcription complete.";
-            if (data.detected_speakers > 0) {
-                message += " Detected speakers: " + data.detected_speakers + ".";
-            }
-
-            if (data.warning) notify("error", "⚠️ " + data.warning);
-            notify("success", message);
-
-            renderTable();
-            renderSpeakerVoices();
-
-            ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(function (id) {
-                var el = document.getElementById(id);
-                if (el) el.classList.remove("hidden");
-            });
-
-            updateBadges();
-            fetchUsage();
-        }
-
-        if (data.status === "error") {
-            stopFriendlyMessages("progressText");
-            clearInterval(transcribePollTimer);
-            if (txt) txt.textContent = "Error — " + (data.error || "Unknown error");
-            notify("error", data.error || "Transcription failed.");
-        }
-
-    } catch (e) {
-        var txt = document.getElementById("progressText");
-        if (txt) {
-            txt.textContent = transcribeLastPercent + "% — Still waiting for server response...";
-        }
-        console.error("Progress check failed:", e);
-    }
-};
-
-// ===== SAFE GENERATE PROGRESS OVERRIDE =====
-checkGenerateProgress = async function () {
-    try {
-        var res = await fetch("/api/progress/generate?t=" + Date.now());
-        var data = await res.json();
-
-        if (!data || data.status === "not_found") return;
-
-        var fill = document.getElementById("genProgressFill");
-        var txt = document.getElementById("genProgressText");
-
-        var percent = safePercent(data.percent, generateLastPercent);
-        if (percent >= generateLastPercent) {
-            generateLastPercent = percent;
-        }
-        generateLastUpdate = Date.now();
-
-        if (fill) fill.style.width = generateLastPercent + "%";
-
-        var statusText = data.status_text || data.message || data.status || "Generating...";
-        if (txt) {
-            txt.textContent = generateLastPercent + "% — " + statusText;
-        }
-
-        if (data.status === "processing") {
-            startFriendlyMessages("genProgressText");
-        }
-
-        if (data.status === "done") {
-            stopFriendlyMessages("genProgressText");
-            clearInterval(generatePollTimer);
-
-            if (fill) fill.style.width = "100%";
-            if (txt) txt.textContent = "100% — Audio generation complete.";
-
-            var btn = document.getElementById("generateButton");
-            if (btn) btn.disabled = false;
-
-            var r = data.result || {};
-            notify("success", "Arabic audio generated and merged.");
-
-            document.getElementById("resultSection").classList.remove("hidden");
-            document.getElementById("audioResults").innerHTML =
-                '<p>Segments generated: <strong>' + (r.segments_generated || 0) + '</strong> | Timing warnings: <strong>' + (r.tempo_warnings || 0) + '</strong> | Trimmed: <strong>' + (r.duration_cuts || 0) + '</strong></p>' +
-                '<p>Final duration: <strong>' + (r.final_duration || 0) + 's</strong> | Voice characters used: <strong>' + ((r.eleven_credits_used || 0).toLocaleString()) + '</strong></p>' +
-                '<audio controls src="/api/download/final_dubbed.mp3?cache=' + Date.now() + '"></audio>' +
-                '<div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=' + Date.now() + '" download="final_dubbed.mp3">⬇️ Download MP3</a></div>';
-
-            if (isVideoUpload) {
-                document.getElementById("mergeSection").classList.remove("hidden");
-            }
-
-            fetchUsage();
-            updateBadges();
-            if (typeof refreshCredits === "function") refreshCredits();
-        }
-
-        if (data.status === "error") {
-            stopFriendlyMessages("genProgressText");
-            clearInterval(generatePollTimer);
-
-            var btn2 = document.getElementById("generateButton");
-            if (btn2) btn2.disabled = false;
-
-            if (txt) txt.textContent = "Error — " + (data.error || "Unknown error");
-            notify("error", data.error || "Audio generation failed.");
-        }
-
-    } catch (e) {
-        var txt = document.getElementById("genProgressText");
-        if (txt) {
-            txt.textContent = generateLastPercent + "% — Still waiting for server response...";
-        }
-        console.error("Generate progress check failed:", e);
-    }
-};

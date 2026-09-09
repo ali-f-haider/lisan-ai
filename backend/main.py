@@ -90,6 +90,7 @@ class RemixRequest(BaseModel):
 
 class MergeRequest(BaseModel):
     job_id: str
+    enhance_background: bool = True
 
 class LipSyncRequest(BaseModel):
     job_id: str
@@ -442,14 +443,21 @@ def merge_video(req: MergeRequest):
     bg = job_background_audio(req.job_id)
     final = OUTPUT_DIR / "final_dubbed_video.mp4"
     if bg is not None:
+        # Optionally enhance the separated background
+        bg_to_use = bg
+        if req.enhance_background:
+            enhanced_bg = OUTPUT_DIR / f"{req.job_id}_bg_enhanced.wav"
+            audio_enhance.enhance_background(req.job_id, str(bg), str(enhanced_bg))
+            if enhanced_bg.exists() and enhanced_bg.stat().st_size > 0:
+                bg_to_use = enhanced_bg
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
-        ffmpeg_utils.mix_two_audio(dub, bg, mixed)
+        ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed)
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
         try: mixed.unlink()
         except Exception: pass
     else:
         ffmpeg_utils.mux_audio_into_video(video, dub, final)
-    return {"status": "success", "has_background": bg is not None}
+    return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background}
 
 @app.post("/api/lipsync")
 def lipsync(req: LipSyncRequest):
