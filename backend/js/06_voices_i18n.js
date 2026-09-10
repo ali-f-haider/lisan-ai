@@ -991,3 +991,119 @@ window.cleanOldClones = function () {
         wrap.parentNode.insertBefore(leg, wrap.nextSibling);
     };
 })();
+
+// ===== RESTORE PATCH: fixes master-slider, icons, load-voices hide, master side =====
+(function () {
+    // 1) FIX: master slider must move every line slider (the bug was window.volumeGains vs window._volumeGains)
+    function clampG(v) { return Math.max(-12, Math.min(12, v)); }
+
+    // Re-bind master input to the CORRECT handler every time it appears
+    function bindMaster() {
+        var mt = document.getElementById("masterTrim");
+        if (!mt || mt.dataset.bound === "1") return;
+        mt.dataset.bound = "1";
+        mt.oninput = function () {
+            var m = parseFloat(mt.value) || 0;
+            var lab = document.getElementById("masterTrimLab");
+            if (lab) lab.textContent = (m > 0 ? "+" : "") + m.toFixed(1) + " dB";
+            // Shift EVERY line slider by the master delta
+            var prev = window._masterPrev || 0;
+            var delta = m - prev;
+            window._masterPrev = m;
+            if (Math.abs(delta) < 0.001) return;
+            (window._volumeLines || []).forEach(function (ln) {
+                var g = clampG(((window._volumeGains || {})[ln.segment_id] || 0) + delta);
+                window._volumeGains[ln.segment_id] = g;
+                var node = (window.VOL_NODES || {})[ln.segment_id];
+                if (node) node.g.gain.value = Math.pow(10, g / 20);
+            });
+            if (typeof buildVolumeTable === "function") buildVolumeTable(window._volumeLines || []);
+            var btn = document.getElementById("applyVolumesBtn");
+            if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+        };
+    }
+
+    // 2) FIX: per-line slider handler (correct variable name)
+    window.onVolSlider = function (sid, val) {
+        window._volumeGains = window._volumeGains || {};
+        window._volumeGains[sid] = val;
+        var node = (window.VOL_NODES || {})[sid];
+        if (node) node.g.gain.value = Math.pow(10, (val + (window._masterPrev || 0)) / 20);
+        var lab = document.getElementById("vollab_" + sid);
+        if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
+        var btn = document.getElementById("applyVolumesBtn");
+        if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+    };
+
+    // 3) FIX: Step 5.5 table — green ▶ icons in BOTH columns, sliders start at matched value
+    window.buildVolumeTable = function (lines) {
+        var tbody = document.querySelector("#volumeTable tbody");
+        if (!tbody) return;
+        tbody.innerHTML = "";
+        (lines || []).forEach(function (ln, i) {
+            var seg = segmentsData.find(function (s) { return s.segment_id === ln.segment_id; }) || {};
+            var tr = document.createElement("tr");
+            function td(html) { var c = document.createElement("td"); c.innerHTML = html; tr.appendChild(c); return c; }
+            td(String(i + 1));
+            td(ln.speaker || seg.speaker || "");
+            var full = (seg.arabic_text || seg.text || "");
+            td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
+            var c1 = document.createElement("td");
+            var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "▶"; b1.title = "Play original line";
+            b1.onclick = function () { window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
+            var c2 = document.createElement("td");
+            var b2 = document.createElement("button"); b2.className = "action-btn green"; b2.textContent = "▶"; b2.title = "Play dubbed line (with slider trim)";
+            b2.onclick = function () { window.playDubLine(ln, b2); }; c2.appendChild(b2); tr.appendChild(c2);
+            td(ln.orig_db == null ? "—" : ln.orig_db + " dB");
+            td(ln.dub_db == null ? "—" : ln.dub_db + " dB");
+            td((ln.auto_gain_db > 0 ? "+" : "") + ln.auto_gain_db + " dB");
+            var c3 = document.createElement("td");
+            var cur = (window._volumeGains || {})[ln.segment_id] || 0;
+            var rg = document.createElement("input"); rg.type = "range"; rg.min = "-12"; rg.max = "12"; rg.step = "0.5"; rg.value = cur;
+            rg.oninput = function () { window.onVolSlider(ln.segment_id, parseFloat(rg.value)); };
+            c3.appendChild(rg); tr.appendChild(c3);
+            td('<span id="vollab_' + ln.segment_id + '">' + (cur > 0 ? "+" : "") + cur.toFixed(1) + " dB</span>");
+            tbody.appendChild(tr);
+        });
+    };
+
+    // showVolumeSection: seed sliders with matched values, place master on the LEFT, bind it
+    var _oldShow = window.showVolumeSection;
+    window.showVolumeSection = function (lines) {
+        window._volumeGains = {};
+        window._masterPrev = 0;
+        (lines || []).forEach(function (ln) {
+            window._volumeGains[ln.segment_id] = clampG(Number(ln.auto_gain_db) || 0);
+        });
+        if (typeof _oldShow === "function") _oldShow(lines);
+        else if (typeof buildVolumeTable === "function") buildVolumeTable(lines);
+        window._volumeLines = lines;
+        // Master on the LEFT
+        var card = document.getElementById("volumeSection");
+        if (card && !document.getElementById("masterTrimWrap")) {
+            var wrap = document.createElement("div");
+            wrap.id = "masterTrimWrap";
+            wrap.style.cssText = "display:flex;align-items:center;gap:10px;justify-content:flex-start;margin:10px 0 2px;";
+            wrap.innerHTML = '<strong style="font-size:13px;">🎚️ Master:</strong>' +
+                '<input type="range" id="masterTrim" min="-12" max="12" step="0.5" value="0" style="width:200px;">' +
+                '<span id="masterTrimLab" style="min-width:60px;">+0.0 dB</span>';
+            var tw = card.querySelector(".table-wrap");
+            if (tw) card.insertBefore(wrap, tw); else card.appendChild(wrap);
+        }
+        var mt = document.getElementById("masterTrim");
+        if (mt) { mt.value = 0; mt.dataset.bound = "0"; var lb = document.getElementById("masterTrimLab"); if (lb) lb.textContent = "+0.0 dB"; }
+        bindMaster();
+    };
+
+    // 4) FIX: keep "Load Voice Options" hidden permanently
+    function hideLoadVoices() {
+        document.querySelectorAll("button").forEach(function (b) {
+            if (/Load Voice Options/i.test(b.textContent)) b.style.display = "none";
+        });
+    }
+    hideLoadVoices();
+    new MutationObserver(hideLoadVoices).observe(document.body, { childList: true, subtree: true });
+
+    // Re-bind master whenever DOM changes
+    new MutationObserver(bindMaster).observe(document.body, { childList: true, subtree: true });
+})();
