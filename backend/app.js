@@ -3964,3 +3964,61 @@ window.cleanOldClones = function () {
         });
     };
 })();
+
+// ===== ADD-ON: show faded/trimmed portion in the timeline (amber) =====
+(function () {
+    if (typeof renderTimeline !== "function") return;
+    var _base = renderTimeline;
+    renderTimeline = function () {
+        _base();
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var W = wrap.clientWidth || 900;
+        var scale = W / total;
+
+        // One amber overlay layer on top of all lanes (pointer-events none so dragging still works)
+        var overlay = document.createElement("div");
+        overlay.style.cssText = "position:absolute;left:0;right:0;top:24px;bottom:0;pointer-events:none;z-index:7;";
+        wrap.style.position = "relative";
+        wrap.appendChild(overlay);
+
+        var speakers = [];
+        var seen = {};
+        segmentsData.forEach(function (s) {
+            var n = s.speaker || "Speaker 1";
+            if (!seen[n]) { seen[n] = true; speakers.push(n); }
+        });
+
+        speakers.forEach(function (spk, li) {
+            // Collect this speaker's lines in time order, with their current offsets
+            var lane = [];
+            segmentsData.forEach(function (seg) {
+                if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
+                var off = segmentOffsets[seg.segment_id] || 0;
+                lane.push({ seg: seg, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
+            });
+            lane.sort(function (a, b) { return a.start - b.start; });
+
+            // Each line's allowed window ends 5ms before the next line starts (matches server)
+            lane.forEach(function (item, i) {
+                var nextStart = (i + 1 < lane.length) ? lane[i + 1].start : total;
+                var allowedEnd = nextStart - 0.005;
+                var overflow = item.end - allowedEnd;     // seconds that get faded/trimmed
+                if (overflow <= 0.02) return;             // nothing trimmed → no amber
+
+                var laneTop = 24 + li * 34;               // 24px ruler + 34px per lane
+                var fadeLeftPx = Math.max(0, (allowedEnd - item.start) * scale);
+                var fadeWidthPx = Math.max(2, overflow * scale);
+
+                var f = document.createElement("div");
+                f.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" + fadeLeftPx +
+                    "px;width:" + fadeWidthPx + "px;height:26px;border-radius:0 4px 4px 0;" +
+                    "background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
+                    "opacity:0.92;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);";
+                f.title = "This part is faded/trimmed in the final mix (line is longer than its slot). Drag the block left to reduce it.";
+                overlay.appendChild(f);
+            });
+        });
+    };
+})();
