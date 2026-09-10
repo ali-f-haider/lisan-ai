@@ -3910,447 +3910,6 @@ window.cleanOldClones = function () {
     new MutationObserver(dropClean).observe(document.body, { childList: true, subtree: true });
 })();
 
-// ===== ADD-ON: Show faded/trimmed portion in timeline (amber overlay) =====
-(function () {
-    if (typeof renderTimeline !== "function") return;
-    var _baseRenderTimeline = renderTimeline;
-    renderTimeline = function () {
-        _baseRenderTimeline();
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var W = wrap.clientWidth || 900;
-        var scale = W / total;
-        
-        // Add amber overlays for trimmed portions
-        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
-        lanes.forEach(function (lane, li) {
-            var spk = lane.querySelector("span");
-            if (!spk) return;
-            var speakerName = spk.textContent;
-            segmentsData.forEach(function (seg, i) {
-                if ((seg.speaker || "Speaker 1") !== speakerName || !(seg.arabic_text || "").trim()) return;
-                var off = segmentOffsets[seg.segment_id] || 0;
-                var segStart = seg.start + off;
-                var segEnd = seg.end + off;
-                var segDuration = seg.end - seg.start;
-                
-                // Find the next segment in the same speaker lane
-                var nextStart = total;
-                segmentsData.forEach(function (other, j) {
-                    if (j !== i && (other.speaker || "Speaker 1") === speakerName && (other.arabic_text || "").trim()) {
-                        var otherStart = other.start + (segmentOffsets[other.segment_id] || 0);
-                        if (otherStart > segStart && otherStart < nextStart) {
-                            nextStart = otherStart;
-                        }
-                    }
-                });
-                
-                // Calculate allowed duration (same logic as server)
-                var allowedEnd = nextStart - 0.005;
-                var allowed = allowedEnd - segStart;
-                if (allowed <= 0.02) return;
-                
-                // If segment is longer than allowed, show amber overlay for the overflow
-                if (segDuration > allowed + 0.02) {
-                    var fadeStartPx = Math.max(0, (segStart + allowed) * scale);
-                    var fadeWidthPx = Math.max(2, (segDuration - allowed) * scale);
-                    var fade = document.createElement("div");
-                    fade.style.cssText = "position:absolute;left:" + fadeStartPx + "px;top:4px;width:" + fadeWidthPx + "px;height:26px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.85;border-radius:0 4px 4px 0;pointer-events:none;z-index:2;";
-                    fade.title = "This part is faded/trimmed (line is longer than its slot)";
-                    lane.appendChild(fade);
-                }
-            });
-        });
-    };
-})();
-
-// ===== ADD-ON: show faded/trimmed portion in the timeline (amber) =====
-(function () {
-    if (typeof renderTimeline !== "function") return;
-    var _base = renderTimeline;
-    renderTimeline = function () {
-        _base();
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var W = wrap.clientWidth || 900;
-        var scale = W / total;
-
-        // One amber overlay layer on top of all lanes (pointer-events none so dragging still works)
-        var overlay = document.createElement("div");
-        overlay.style.cssText = "position:absolute;left:0;right:0;top:24px;bottom:0;pointer-events:none;z-index:7;";
-        wrap.style.position = "relative";
-        wrap.appendChild(overlay);
-
-        var speakers = [];
-        var seen = {};
-        segmentsData.forEach(function (s) {
-            var n = s.speaker || "Speaker 1";
-            if (!seen[n]) { seen[n] = true; speakers.push(n); }
-        });
-
-        speakers.forEach(function (spk, li) {
-            // Collect this speaker's lines in time order, with their current offsets
-            var lane = [];
-            segmentsData.forEach(function (seg) {
-                if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-                var off = segmentOffsets[seg.segment_id] || 0;
-                lane.push({ seg: seg, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
-            });
-            lane.sort(function (a, b) { return a.start - b.start; });
-
-            // Each line's allowed window ends 5ms before the next line starts (matches server)
-            lane.forEach(function (item, i) {
-                var nextStart = (i + 1 < lane.length) ? lane[i + 1].start : total;
-                var allowedEnd = nextStart - 0.005;
-                var overflow = item.end - allowedEnd;     // seconds that get faded/trimmed
-                if (overflow <= 0.02) return;             // nothing trimmed → no amber
-
-                var laneTop = 24 + li * 34;               // 24px ruler + 34px per lane
-                var fadeLeftPx = Math.max(0, (allowedEnd - item.start) * scale);
-                var fadeWidthPx = Math.max(2, overflow * scale);
-
-                var f = document.createElement("div");
-                f.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" + fadeLeftPx +
-                    "px;width:" + fadeWidthPx + "px;height:26px;border-radius:0 4px 4px 0;" +
-                    "background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
-                    "opacity:0.92;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);";
-                f.title = "This part is faded/trimmed in the final mix (line is longer than its slot). Drag the block left to reduce it.";
-                overlay.appendChild(f);
-            });
-        });
-    };
-})();
-
-// ===== ADD-ON: timeline fade/trim overlay + legend =====
-(function () {
-    if (typeof renderTimeline !== "function") return;
-    var _base = renderTimeline;
-    renderTimeline = function () {
-        _base();
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var W = wrap.clientWidth || 900;
-        var scale = W / total;
-
-        // Legend (top-right of the timeline)
-        if (!document.getElementById("timelineLegend")) {
-            var leg = document.createElement("div");
-            leg.id = "timelineLegend";
-            leg.style.cssText = "position:absolute;top:2px;right:6px;z-index:9;display:flex;gap:10px;font-size:10px;color:#cbd5e1;background:rgba(15,23,42,0.7);padding:2px 8px;border-radius:6px;pointer-events:none;";
-            leg.innerHTML =
-                '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#42a5f5;border-radius:2px;display:inline-block;"></span>kept</span>' +
-                '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:2px;display:inline-block;"></span>faded / trimmed</span>';
-            wrap.appendChild(leg);
-        }
-
-        // One overlay layer above all lanes
-        var ov = document.createElement("div");
-        ov.style.cssText = "position:absolute;left:0;right:0;top:24px;bottom:0;pointer-events:none;z-index:8;";
-        var speakers = [];
-        var seen = {};
-        segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
-
-        speakers.forEach(function (spk, li) {
-            var lane = [];
-            segmentsData.forEach(function (seg) {
-                if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-                var off = segmentOffsets[seg.segment_id] || 0;
-                lane.push({ seg: seg, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
-            });
-            lane.sort(function (a, b) { return a.start - b.start; });
-
-            lane.forEach(function (item, i) {
-                var nextStart = (i + 1 < lane.length) ? lane[i + 1].start : total;
-                var allowedEnd = nextStart - 0.005;          // same 5ms guard as the server
-                var overflow = item.end - allowedEnd;          // seconds that get faded/trimmed
-                var laneTop = li * 34;
-
-                if (overflow > 0.02) {
-                    // Hard overflow: striped amber block over the cut portion
-                    var fLeft = Math.max(0, (allowedEnd - item.start) * scale);
-                    var fWidth = Math.max(2, overflow * scale);
-                    var f = document.createElement("div");
-                    f.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" + fLeft +
-                        "px;width:" + fWidth + "px;height:26px;border-radius:0 4px 4px 0;" +
-                        "background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
-                        "opacity:0.92;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);";
-                    f.title = "Faded/trimmed in the final mix (" + overflow.toFixed(2) + "s over the slot). Drag the block left to reduce it.";
-                    ov.appendChild(f);
-                } else {
-                    // No hard overflow: thin amber cap marking the 60ms fade tail
-                    var capW = Math.max(2, 0.06 * scale);
-                    var capLeft = Math.max(0, (item.end - 0.06 - item.start) * scale);
-                    var c = document.createElement("div");
-                    c.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" + capLeft +
-                        "px;width:" + capW + "px;height:26px;border-radius:0 4px 4px 0;" +
-                        "background:linear-gradient(90deg,#fbbf24,#d97706);opacity:0.85;";
-                    c.title = "60 ms fade-out tail in the final mix.";
-                    ov.appendChild(c);
-                }
-            });
-        });
-        wrap.appendChild(ov);
-    };
-})();
-
-// ===== ADD-ON: paint the faded/trimmed tail on each timeline block =====
-(function () {
-    if (typeof renderTimeline !== "function") return;
-    var _base = renderTimeline;
-    renderTimeline = function () {
-        _base();
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var W = wrap.clientWidth || 900;
-        var scale = W / total;
-
-        // Group lines by speaker lane (same order as the lanes drawn above)
-        var speakers = [];
-        var seen = {};
-        segmentsData.forEach(function (s) {
-            var n = s.speaker || "Speaker 1";
-            if (!seen[n]) { seen[n] = true; speakers.push(n); }
-        });
-
-        // One overlay above all lanes
-        var ov = document.createElement("div");
-        ov.style.cssText = "position:absolute;left:0;right:0;top:42px;bottom:0;pointer-events:none;z-index:7;";
-
-        speakers.forEach(function (spk, li) {
-            // This speaker's lines, time-sorted, with current drag offsets
-            var lane = [];
-            segmentsData.forEach(function (seg) {
-                if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-                var off = segmentOffsets[seg.segment_id] || 0;
-                lane.push({ seg: seg, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
-            });
-            lane.sort(function (a, b) { return a.start - b.start; });
-
-            var laneTop = li * 34; // 34px per lane (matches the lane height)
-            lane.forEach(function (item, i) {
-                var nextStart = (i + 1 < lane.length) ? lane[i + 1].start : total;
-                var allowedEnd = nextStart - 0.005;          // same 5ms guard as the server
-                var blockLeft = item.start;
-                var blockRight = item.end;
-                var fadeStart = Math.min(blockRight, allowedEnd); // where the fade begins
-
-                // (A) Always show the 60ms fade tail at the end of the kept portion
-                var fadeTailStart = Math.max(blockLeft, fadeStart - 0.06);
-                var tailLeftPx = Math.max(0, (fadeTailStart - blockLeft) * scale);
-                var tailWidthPx = Math.max(2, (Math.min(blockRight, fadeStart) - fadeTailStart) * scale);
-                if (tailWidthPx >= 1) {
-                    var t = document.createElement("div");
-                    t.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" +
-                        (Math.max(0, blockLeft * scale) + tailLeftPx) + "px;width:" + tailWidthPx +
-                        "px;height:26px;background:linear-gradient(90deg,rgba(245,158,11,0.0),rgba(245,158,11,0.85));border-radius:0 4px 4px 0;";
-                    t.title = "60 ms fade-out tail in the final mix";
-                    ov.appendChild(t);
-                }
-
-                // (B) If the line runs past its slot, show the hard-trimmed overflow in solid amber
-                if (blockRight > allowedEnd + 0.02) {
-                    var overLeftPx = Math.max(0, (allowedEnd - blockLeft) * scale);
-                    var overWidthPx = Math.max(2, (blockRight - allowedEnd) * scale);
-                    var o = document.createElement("div");
-                    o.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" +
-                        (Math.max(0, blockLeft * scale) + overLeftPx) + "px;width:" + overWidthPx +
-                        "px;height:26px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.95;border-radius:0 4px 4px 0;";
-                    o.title = "Hard-trimmed in the final mix (" + (blockRight - allowedEnd).toFixed(2) + "s over the slot)";
-                    ov.appendChild(o);
-                }
-            });
-        });
-        wrap.appendChild(ov);
-    };
-})();
-
-// ===== TIMELINE v2: per-block fade that moves with the block + correct trim rule + legend below =====
-(function () {
-    if (typeof renderTimeline !== "function") return;
-    var _base = renderTimeline;
-
-    // Decide whether a line should be trimmed/faded:
-    //   - only if it runs past the next line's start (in the CURRENT, offset-adjusted layout), AND
-    //   - that overlap did NOT already exist in the ORIGINAL audio.
-    // If the original already overlapped, we preserve the overlap (no trim).
-    function shouldTrim(seg, nextInLane, total) {
-        var off = segmentOffsets[seg.segment_id] || 0;
-        var curEnd = seg.end + off;
-        var limit = nextInLane ? (nextInLane.start + (segmentOffsets[nextInLane.segment_id] || 0)) : total;
-        if (curEnd <= limit + 0.02) return null;          // fits → no trim
-        // Did the original (un-offset) audio already overlap here?
-        var origNextStart = nextInLane ? nextInLane.start : total;
-        if (seg.end > origNextStart + 0.02) return null;  // original already overlapped → keep overlap, no trim
-        var overflow = curEnd - limit;                     // seconds that get faded/trimmed
-        return { overflow: overflow, limit: limit, off: off };
-    }
-
-    function renderTimeline() {
-    const wrap = document.getElementById("timelineWrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!segmentsData.length) return;
-    
-    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
-    const W = wrap.clientWidth || 900;
-    const scale = W / total;
-    
-    // Time ruler (top)
-    const ruler = document.createElement("div");
-    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
-    const step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
-    for (let t = 0; t <= total; t += step) {
-        const mark = document.createElement("div");
-        mark.style.cssText = `position:absolute;left:${t * scale}px;top:0;height:100%;border-left:1px solid #475569;`;
-        const label = document.createElement("span");
-        label.textContent = t + "s";
-        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
-        mark.appendChild(label);
-        ruler.appendChild(mark);
-    }
-    wrap.appendChild(ruler);
-    
-    // Legend (below timeline, not on ruler)
-    const legend = document.createElement("div");
-    legend.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:8px;font-size:11px;color:#64748b;";
-    legend.innerHTML = 
-        '<span style="display:inline-flex;align-items:center;gap:5px;">' +
-          '<span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
-        '<span style="display:inline-flex;align-items:center;gap:5px;">' +
-          '<span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
-    
-    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    speakers.forEach((spk, li) => {
-        const lane = document.createElement("div");
-        lane.style.cssText = `position:relative;height:34px;border-bottom:1px solid #334155;background:${li % 2 === 0 ? "#1e293b" : "#1a2332"};`;
-        const lab = document.createElement("span");
-        lab.textContent = spk;
-        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
-        lane.appendChild(lab);
-        
-        // Collect this speaker's lines sorted by time
-        const laneSegs = [];
-        segmentsData.forEach((seg, i) => {
-            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            laneSegs.push({ seg, i, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
-        });
-        laneSegs.sort((a, b) => a.start - b.start);
-        
-        laneSegs.forEach((item, idx) => {
-            const { seg, i, start, end, dur } = item;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            const box = document.createElement("div");
-            const left = Math.max(0, start * scale);
-            const width = Math.max(8, dur * scale);
-            box.style.cssText = `position:absolute;left:${left}px;top:4px;width:${width}px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;`;
-            box.title = "Line " + (i + 1) + ": drag to shift";
-            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            
-            // Calculate fade/trim region (only if line overflows into next line AND original didn't overlap)
-            const nextInLane = laneSegs[idx + 1];
-            const limit = nextInLane ? nextInLane.start : total;
-            const overflow = end - limit;
-            const origNextStart = nextInLane ? nextInLane.seg.start : total;
-            const origOverlap = seg.end > origNextStart + 0.02;
-            
-            if (overflow > 0.02 && !origOverlap) {
-                // Draw amber overlay for the trimmed portion (as child of box so it moves with drag)
-                const fadeLeftPx = Math.max(0, (limit - start) * scale);
-                const fadeWidthPx = Math.max(2, overflow * scale);
-                const fade = document.createElement("div");
-                fade.style.cssText = `position:absolute;top:0;height:100%;left:${fadeLeftPx}px;width:${fadeWidthPx}px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;`;
-                fade.title = "Faded/trimmed in final mix (" + overflow.toFixed(2) + "s over slot)";
-                box.appendChild(fade);
-            }
-            
-            // Drag logic with overlap prevention
-            box.onmousedown = function (ev) {
-                ev.preventDefault();
-                const startX = ev.clientX;
-                const startOff = off;
-                const sameLane = laneSegs.filter((_, j) => j !== idx);
-                
-                const move = function (e2) {
-                    let no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    const newStart = seg.start + no;
-                    const newEnd = seg.end + no;
-                    
-                    // Clamp to timeline bounds
-                    if (newStart < 0) no = -seg.start;
-                    if (newEnd > total) no = total - seg.end;
-                    
-                    // Prevent overlap with neighbors
-                    for (const nb of sameLane) {
-                        const nbOff = segmentOffsets[nb.seg.segment_id] || 0;
-                        const nbStart = nb.seg.start + nbOff;
-                        const nbEnd = nb.seg.end + nbOff;
-                        const testStart = seg.start + no;
-                        const testEnd = seg.end + no;
-                        if (testStart < nbEnd && testEnd > nbStart) {
-                            if (no > startOff) { no = nbStart - seg.end; }
-                            else { no = nbEnd - seg.start; }
-                        }
-                    }
-                    
-                    segmentOffsets[seg.segment_id] = no;
-                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
-                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
-                    
-                    // Re-calculate and redraw fade overlay during drag
-                    const fadeEl = box.querySelector("div");
-                    if (fadeEl) {
-                        const newEndDrag = seg.end + no;
-                        const newLimit = nextInLane ? (nextInLane.seg.start + (segmentOffsets[nextInLane.seg.segment_id] || 0)) : total;
-                        const newOverflow = newEndDrag - newLimit;
-                        if (newOverflow > 0.02 && !origOverlap) {
-                            const newFadeLeft = Math.max(0, (newLimit - (seg.start + no)) * scale);
-                            const newFadeWidth = Math.max(2, newOverflow * scale);
-                            fadeEl.style.left = newFadeLeft + "px";
-                            fadeEl.style.width = newFadeWidth + "px";
-                        } else {
-                            fadeEl.style.display = "none";
-                        }
-                    }
-                };
-                
-                const up = function () {
-                    document.removeEventListener("mousemove", move);
-                    document.removeEventListener("mouseup", up);
-                    renderTimeline(); // Full re-render on drop to recalculate all fades
-                };
-                document.addEventListener("mousemove", move);
-                document.addEventListener("mouseup", up);
-            };
-            
-            lane.appendChild(box);
-        });
-        wrap.appendChild(lane);
-    });
-    
-    // Append legend below all lanes
-    wrap.appendChild(legend);
-}
-
-        // Legend BELOW the timeline (not over the ruler)
-        var leg = document.createElement("div");
-        leg.id = "timelineLegendV2";
-        leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;" +
-            "margin-top:6px;font-size:11px;color:#64748b;";
-        leg.innerHTML =
-            '<span style="display:inline-flex;align-items:center;gap:5px;">' +
-              '<span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
-            '<span style="display:inline-flex;align-items:center;gap:5px;">' +
-              '<span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
-        wrap.parentNode.insertBefore(leg, wrap.nextSibling);
-    };
-})();
-
 // ===== RESTORE PATCH: fixes master-slider, icons, load-voices hide, master side =====
 (function () {
     // 1) FIX: master slider must move every line slider (the bug was window.volumeGains vs window._volumeGains)
@@ -4465,4 +4024,68 @@ window.cleanOldClones = function () {
 
     // Re-bind master whenever DOM changes
     new MutationObserver(bindMaster).observe(document.body, { childList: true, subtree: true });
+})();
+
+// ===== FADE PACK: fade follows the block, trim only on real overflow, legend below =====
+(function () {
+    if (typeof renderTimeline !== "function" || window._fadePackDone) return;
+    window._fadePackDone = true;
+    var _baseRT = renderTimeline;
+    renderTimeline = function () {
+        _baseRT.apply(this, arguments);
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        var oldLeg = document.getElementById("timelineLegendFinal");
+        if (oldLeg) oldLeg.remove();
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var W = wrap.clientWidth || 900;
+        var scale = W / total;
+        var speakers = [];
+        var seen = {};
+        segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
+        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        speakers.forEach(function (spk, li) {
+            var lane = lanes[li];
+            if (!lane) return;
+            var laneSegs = segmentsData.filter(function (s) { return (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
+            var boxes = lane.querySelectorAll("div[style*='cursor:grab']");
+            laneSegs.forEach(function (seg, idx) {
+                var off = segmentOffsets[seg.segment_id] || 0;
+                var curStart = seg.start + off, curEnd = seg.end + off;
+                var nextStart = null, origNext = null;
+                laneSegs.forEach(function (o) {
+                    if (o === seg) return;
+                    var os = o.start + (segmentOffsets[o.segment_id] || 0);
+                    if (os > curStart + 0.0001 && (nextStart === null || os < nextStart)) nextStart = os;
+                    if (o.start > seg.start + 0.0001 && (origNext === null || o.start < origNext)) origNext = o.start;
+                });
+                var limit = (nextStart === null) ? total : nextStart - 0.005;
+                var overflow = curEnd - limit;
+                var origOverlap = (origNext !== null) && (seg.end > origNext + 0.02);
+                if (overflow <= 0.02 || origOverlap) return;
+                var f = document.createElement("div");
+                f.className = "segFadeOv";
+                f.style.cssText = "position:absolute;top:4px;height:26px;left:" + (limit * scale) + "px;width:" + Math.max(2, overflow * scale) +
+                    "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
+                    "opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;z-index:3;";
+                f.title = "Faded/trimmed in final mix (" + overflow.toFixed(2) + "s over slot)";
+                lane.appendChild(f);
+                var box = boxes[idx];
+                if (box && typeof MutationObserver !== "undefined") {
+                    new MutationObserver(function () {
+                        var o2 = segmentOffsets[seg.segment_id] || 0;
+                        var ov2 = (seg.end + o2) - limit;
+                        if (ov2 <= 0.02) { f.style.display = "none"; }
+                        else { f.style.display = ""; f.style.left = (limit * scale) + "px"; f.style.width = Math.max(2, ov2 * scale) + "px"; }
+                    }).observe(box, { attributes: true, attributeFilter: ["style"] });
+                }
+            });
+        });
+        var leg = document.createElement("div");
+        leg.id = "timelineLegendFinal";
+        leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:6px;font-size:11px;color:#64748b;";
+        leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
+            '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
+        wrap.parentNode.insertBefore(leg, wrap.nextSibling);
+    };
 })();
