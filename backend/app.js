@@ -4022,3 +4022,76 @@ window.cleanOldClones = function () {
         });
     };
 })();
+
+// ===== ADD-ON: timeline fade/trim overlay + legend =====
+(function () {
+    if (typeof renderTimeline !== "function") return;
+    var _base = renderTimeline;
+    renderTimeline = function () {
+        _base();
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var W = wrap.clientWidth || 900;
+        var scale = W / total;
+
+        // Legend (top-right of the timeline)
+        if (!document.getElementById("timelineLegend")) {
+            var leg = document.createElement("div");
+            leg.id = "timelineLegend";
+            leg.style.cssText = "position:absolute;top:2px;right:6px;z-index:9;display:flex;gap:10px;font-size:10px;color:#cbd5e1;background:rgba(15,23,42,0.7);padding:2px 8px;border-radius:6px;pointer-events:none;";
+            leg.innerHTML =
+                '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:#42a5f5;border-radius:2px;display:inline-block;"></span>kept</span>' +
+                '<span style="display:inline-flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:2px;display:inline-block;"></span>faded / trimmed</span>';
+            wrap.appendChild(leg);
+        }
+
+        // One overlay layer above all lanes
+        var ov = document.createElement("div");
+        ov.style.cssText = "position:absolute;left:0;right:0;top:24px;bottom:0;pointer-events:none;z-index:8;";
+        var speakers = [];
+        var seen = {};
+        segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
+
+        speakers.forEach(function (spk, li) {
+            var lane = [];
+            segmentsData.forEach(function (seg) {
+                if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
+                var off = segmentOffsets[seg.segment_id] || 0;
+                lane.push({ seg: seg, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
+            });
+            lane.sort(function (a, b) { return a.start - b.start; });
+
+            lane.forEach(function (item, i) {
+                var nextStart = (i + 1 < lane.length) ? lane[i + 1].start : total;
+                var allowedEnd = nextStart - 0.005;          // same 5ms guard as the server
+                var overflow = item.end - allowedEnd;          // seconds that get faded/trimmed
+                var laneTop = li * 34;
+
+                if (overflow > 0.02) {
+                    // Hard overflow: striped amber block over the cut portion
+                    var fLeft = Math.max(0, (allowedEnd - item.start) * scale);
+                    var fWidth = Math.max(2, overflow * scale);
+                    var f = document.createElement("div");
+                    f.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" + fLeft +
+                        "px;width:" + fWidth + "px;height:26px;border-radius:0 4px 4px 0;" +
+                        "background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
+                        "opacity:0.92;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.15);";
+                    f.title = "Faded/trimmed in the final mix (" + overflow.toFixed(2) + "s over the slot). Drag the block left to reduce it.";
+                    ov.appendChild(f);
+                } else {
+                    // No hard overflow: thin amber cap marking the 60ms fade tail
+                    var capW = Math.max(2, 0.06 * scale);
+                    var capLeft = Math.max(0, (item.end - 0.06 - item.start) * scale);
+                    var c = document.createElement("div");
+                    c.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" + capLeft +
+                        "px;width:" + capW + "px;height:26px;border-radius:0 4px 4px 0;" +
+                        "background:linear-gradient(90deg,#fbbf24,#d97706);opacity:0.85;";
+                    c.title = "60 ms fade-out tail in the final mix.";
+                    ov.appendChild(c);
+                }
+            });
+        });
+        wrap.appendChild(ov);
+    };
+})();
