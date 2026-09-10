@@ -18,6 +18,21 @@ let transcribePollTimer = null, generatePollTimer = null, emotionPollTimer = nul
 let previewAudio = null, previewBtnCurrent = null;
 window.clonedVoiceIds = [];
 
+
+// Compute the "allowed" time window for a line (same logic the server uses to trim/fade).
+// Returns { allowedStart, allowedEnd } in seconds. Anything beyond allowedEnd is the faded/cut part.
+function allowedWindowFor(seg) {
+    var sorted = segmentsData.slice().sort(function (a, b) { return a.start - b.start; });
+    var idx = -1;
+    for (var k = 0; k < sorted.length; k++) { if (sorted[k].segment_id === seg.segment_id) { idx = k; break; } }
+    if (idx < 0) return { allowedStart: seg.start, allowedEnd: seg.end };
+    var nextStart = (idx + 1 < sorted.length) ? sorted[idx + 1].start : (totalDuration > 0 ? totalDuration : seg.end + 5);
+    var allowedEnd = Math.min(seg.end, nextStart - 0.005); // 5ms guard, matches server
+    return { allowedStart: seg.start, allowedEnd: Math.max(allowedEnd, seg.start + 0.05) };
+}
+
+
+
 function friendly(msg) {
     msg = String(msg || "");
     if (/voice_not_found|was not found/i.test(msg)) {
@@ -3893,4 +3908,59 @@ window.cleanOldClones = function () {
     function dropClean() { var b = document.getElementById("cvClean"); if (b) b.remove(); }
     dropClean();
     new MutationObserver(dropClean).observe(document.body, { childList: true, subtree: true });
+})();
+
+// ===== ADD-ON: Show faded/trimmed portion in timeline (amber overlay) =====
+(function () {
+    if (typeof renderTimeline !== "function") return;
+    var _baseRenderTimeline = renderTimeline;
+    renderTimeline = function () {
+        _baseRenderTimeline();
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var W = wrap.clientWidth || 900;
+        var scale = W / total;
+        
+        // Add amber overlays for trimmed portions
+        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        lanes.forEach(function (lane, li) {
+            var spk = lane.querySelector("span");
+            if (!spk) return;
+            var speakerName = spk.textContent;
+            segmentsData.forEach(function (seg, i) {
+                if ((seg.speaker || "Speaker 1") !== speakerName || !(seg.arabic_text || "").trim()) return;
+                var off = segmentOffsets[seg.segment_id] || 0;
+                var segStart = seg.start + off;
+                var segEnd = seg.end + off;
+                var segDuration = seg.end - seg.start;
+                
+                // Find the next segment in the same speaker lane
+                var nextStart = total;
+                segmentsData.forEach(function (other, j) {
+                    if (j !== i && (other.speaker || "Speaker 1") === speakerName && (other.arabic_text || "").trim()) {
+                        var otherStart = other.start + (segmentOffsets[other.segment_id] || 0);
+                        if (otherStart > segStart && otherStart < nextStart) {
+                            nextStart = otherStart;
+                        }
+                    }
+                });
+                
+                // Calculate allowed duration (same logic as server)
+                var allowedEnd = nextStart - 0.005;
+                var allowed = allowedEnd - segStart;
+                if (allowed <= 0.02) return;
+                
+                // If segment is longer than allowed, show amber overlay for the overflow
+                if (segDuration > allowed + 0.02) {
+                    var fadeStartPx = Math.max(0, (segStart + allowed) * scale);
+                    var fadeWidthPx = Math.max(2, (segDuration - allowed) * scale);
+                    var fade = document.createElement("div");
+                    fade.style.cssText = "position:absolute;left:" + fadeStartPx + "px;top:4px;width:" + fadeWidthPx + "px;height:26px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.85;border-radius:0 4px 4px 0;pointer-events:none;z-index:2;";
+                    fade.title = "This part is faded/trimmed (line is longer than its slot)";
+                    lane.appendChild(fade);
+                }
+            });
+        });
+    };
 })();
