@@ -342,7 +342,7 @@ def generate_worker(req):
                                "start": seg.start, "end": seg.end,
                                "orig_db": round(orig_db, 1) if orig_db is not None else None,
                                "dub_db": round(dub_db, 1) if dub_db is not None else None,
-                               "auto_gain_db": round(auto_gain, 1)})
+                               "auto_gain_db": round(auto_gain, 1), "duration": round(stretched_duration, 3)})
             generated_files.append({"file": stretched_filename, "sid": seg.segment_id, "start": seg.start,
                                     "end": seg.end, "speaker": seg.speaker, "duration": stretched_duration,
                                     "tempo_warning": needs_warning})

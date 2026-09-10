@@ -4235,3 +4235,182 @@ window.cleanOldClones = function () {
     };
 })();
 
+// ===== RESTORE v2: Step 5.5 buttons + master slider on the LEFT =====
+(function () {
+    function clampG(v) { return Math.max(-12, Math.min(12, v)); }
+    function bindMaster() {
+        var mt = document.getElementById("masterTrim");
+        if (!mt || mt.dataset.bound === "1") return;
+        mt.dataset.bound = "1";
+        mt.oninput = function () {
+            var m = parseFloat(mt.value) || 0;
+            var lab = document.getElementById("masterTrimLab");
+            if (lab) lab.textContent = (m > 0 ? "+" : "") + m.toFixed(1) + " dB";
+            var delta = m - (window._masterPrev || 0);
+            window._masterPrev = m;
+            if (Math.abs(delta) < 0.001) return;
+            (window._volumeLines || []).forEach(function (ln) {
+                var g = clampG(((window._volumeGains || {})[ln.segment_id] || 0) + delta);
+                window._volumeGains[ln.segment_id] = g;
+                var node = (window.VOL_NODES || {})[ln.segment_id];
+                if (node) node.g.gain.value = Math.pow(10, g / 20);
+            });
+            if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
+            var btn = document.getElementById("applyVolumesBtn");
+            if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+        };
+    }
+    window.onVolSlider = function (sid, val) {
+        window._volumeGains = window._volumeGains || {};
+        window._volumeGains[sid] = val;
+        var node = (window.VOL_NODES || {})[sid];
+        if (node) node.g.gain.value = Math.pow(10, (val + (window._masterPrev || 0)) / 20);
+        var lab = document.getElementById("vollab_" + sid);
+        if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
+        var btn = document.getElementById("applyVolumesBtn");
+        if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+    };
+    window.buildVolumeTable = function (lines) {
+        var tbody = document.querySelector("#volumeTable tbody");
+        if (!tbody) return;
+        tbody.innerHTML = "";
+        (lines || []).forEach(function (ln, i) {
+            var seg = segmentsData.find(function (s) { return s.segment_id === ln.segment_id; }) || {};
+            var tr = document.createElement("tr");
+            function td(html) { var c = document.createElement("td"); c.innerHTML = html; tr.appendChild(c); return c; }
+            td(String(i + 1));
+            td(ln.speaker || seg.speaker || "");
+            var full = (seg.arabic_text || seg.text || "");
+            td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
+            var c1 = document.createElement("td");
+            var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "▶"; b1.title = "Play original line";
+            b1.onclick = function () { if (window.playOrigLine) window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
+            var c2 = document.createElement("td");
+            var b2 = document.createElement("button"); b2.className = "action-btn green"; b2.textContent = "▶"; b2.title = "Play dubbed line";
+            b2.onclick = function () { if (window.playDubLine) window.playDubLine(ln, b2); }; c2.appendChild(b2); tr.appendChild(c2);
+            td((ln.auto_gain_db > 0 ? "+" : "") + ln.auto_gain_db + " dB");
+            var c3 = document.createElement("td");
+            var cur = (window._volumeGains || {})[ln.segment_id] || 0;
+            var rg = document.createElement("input"); rg.type = "range"; rg.min = "-12"; rg.max = "12"; rg.step = "0.5"; rg.value = cur;
+            rg.oninput = function () { window.onVolSlider(ln.segment_id, parseFloat(rg.value)); };
+            c3.appendChild(rg); tr.appendChild(c3);
+            td('<span id="vollab_' + ln.segment_id + '">' + (cur > 0 ? "+" : "") + cur.toFixed(1) + " dB</span>");
+            tbody.appendChild(tr);
+        });
+    };
+    var _oldShow = window.showVolumeSection;
+    window.showVolumeSection = function (lines) {
+        window._volumeGains = {}; window._masterPrev = 0;
+        (lines || []).forEach(function (ln) { window._volumeGains[ln.segment_id] = clampG(Number(ln.auto_gain_db) || 0); });
+        window._volumeLines = lines;
+        if (typeof _oldShow === "function") _oldShow(lines);
+        else window.buildVolumeTable(lines);
+        var card = document.getElementById("volumeSection");
+        if (card && !document.getElementById("masterTrimWrap")) {
+            var wrap = document.createElement("div");
+            wrap.id = "masterTrimWrap";
+            wrap.style.cssText = "display:flex;align-items:center;gap:10px;justify-content:flex-start;margin:10px 0 2px;";
+            wrap.innerHTML = '<strong style="font-size:13px;">🎚️ Master:</strong>' +
+                '<input type="range" id="masterTrim" min="-12" max="12" step="0.5" value="0" style="width:200px;">' +
+                '<span id="masterTrimLab" style="min-width:60px;">+0.0 dB</span>';
+            var tw = card.querySelector(".table-wrap");
+            if (tw) card.insertBefore(wrap, tw); else card.appendChild(wrap);
+        }
+        var mt = document.getElementById("masterTrim");
+        if (mt) { mt.value = 0; mt.dataset.bound = "0"; var lb = document.getElementById("masterTrimLab"); if (lb) lb.textContent = "+0.0 dB"; }
+        bindMaster();
+    };
+    function hideLoadVoices() {
+        document.querySelectorAll("button").forEach(function (b) {
+            if (/Load Voice Options/i.test(b.textContent)) b.style.display = "none";
+        });
+    }
+    hideLoadVoices();
+    new MutationObserver(hideLoadVoices).observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(bindMaster).observe(document.body, { childList: true, subtree: true });
+})();
+// ===== FADE PACK v4: INTERACTIVE overlap fading (live while dragging) =====
+(function () {
+    if (window._fadePackV4) return; window._fadePackV4 = true;
+    if (typeof checkGenerateProgress === "function" && !window._durWrapV4) {
+        window._durWrapV4 = true;
+        var _cg = checkGenerateProgress;
+        checkGenerateProgress = async function () {
+            await _cg.apply(this, arguments);
+            try {
+                var r = await fetch("/api/progress/generate?t=" + Date.now());
+                var d = await r.json();
+                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
+                    window._lineDurations = window._lineDurations || {};
+                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
+                }
+            } catch (e) {}
+        };
+    }
+    var pending = false;
+    function scheduleDraw() {
+        if (pending) return; pending = true;
+        requestAnimationFrame(function () { pending = false; drawFades(); });
+    }
+    function drawFades() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        wrap.querySelectorAll(".segFadeOv").forEach(function (f) { f.remove(); });
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var scale = (wrap.clientWidth || 900) / total;
+        var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
+        var pos = act.map(function (seg) {
+            var off = segmentOffsets[seg.segment_id] || 0;
+            var cs = seg.start + off;
+            var slot = seg.end - seg.start;
+            var dur = Math.max((window._lineDurations || {})[seg.segment_id] || 0, slot);
+            return { seg: seg, cs: cs, end: cs + dur };
+        });
+        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        var speakers = []; var seen = {};
+        act.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
+        speakers.forEach(function (spk, li) {
+            var lane = lanes[li]; if (!lane) return;
+            pos.filter(function (p) { return (p.seg.speaker || "Speaker 1") === spk; }).forEach(function (p) {
+                var limit = null;
+                pos.forEach(function (q) {
+                    if (q === p) return;
+                    if (q.cs > p.cs + 0.0001 && (limit === null || q.cs < limit)) limit = q.cs;
+                });
+                if (limit === null) return;
+                var fadeFrom = limit - 0.005;
+                if (p.end <= fadeFrom + 0.02) return;
+                var leftPx = Math.max(0, fadeFrom * scale);
+                var w = Math.max(3, Math.min(p.end, total) * scale - leftPx);
+                var f = document.createElement("div");
+                f.className = "segFadeOv";
+                f.style.cssText = "position:absolute;top:4px;height:26px;left:" + leftPx + "px;width:" + w +
+                    "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
+                    "opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;z-index:4;";
+                f.title = "Overlaps the next line — this zone is faded/trimmed in the final mix";
+                lane.appendChild(f);
+            });
+        });
+        if (!document.getElementById("timelineLegendFinal")) {
+            var leg = document.createElement("div");
+            leg.id = "timelineLegendFinal";
+            leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:6px;font-size:11px;color:#64748b;";
+            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
+                '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
+            wrap.parentNode.insertBefore(leg, wrap.nextSibling);
+        }
+    }
+    function hookDrag() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || typeof MutationObserver === "undefined") return;
+        wrap.querySelectorAll("div[style*='cursor:grab']").forEach(function (b) {
+            if (b.dataset.fadeHook) return; b.dataset.fadeHook = "1";
+            new MutationObserver(scheduleDraw).observe(b, { attributes: true, attributeFilter: ["style"] });
+        });
+    }
+    if (typeof renderTimeline === "function") {
+        var _rt = renderTimeline;
+        renderTimeline = function () { var r = _rt.apply(this, arguments); drawFades(); hookDrag(); return r; };
+    }
+})();
+
