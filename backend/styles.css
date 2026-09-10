@@ -442,3 +442,25 @@ table textarea[dir="rtl"] {
 #volumeTable input[type="range"] { width: 110px; vertical-align: middle; }
 #volumeTable td { white-space: nowrap; }
 #volumeTable td:nth-child(3) { white-space: normal; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ===== RTL (Arabic mode): text right-aligned, controls keep LTR where needed ===== */
+body.lang-ar h1, body.lang-ar h3, body.lang-ar h4, body.lang-ar p,
+body.lang-ar .note, body.lang-ar label, body.lang-ar th, body.lang-ar .subtitle {
+    direction: rtl; text-align: right;
+}
+body.lang-ar button, body.lang-ar .download-buttons a, body.lang-ar .btn-logout {
+    direction: rtl;
+}
+body.lang-ar table textarea { direction: rtl; text-align: right; }
+body.lang-ar input[type="number"], body.lang-ar #timelineWrap, body.lang-ar .progress-status {
+    direction: ltr; text-align: left;
+}
+/* ===== Themed Choose File: native input hidden, label IS the button (auto filename) ===== */
+#audioFile { display: none !important; }
+#fileUploadLabel {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 20px; background: var(--primary); color: #fff;
+    border-radius: 8px; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all .2s; margin-top: 8px;
+}
+#fileUploadLabel:hover { background: var(--primary-light); transform: translateY(-1px); }
