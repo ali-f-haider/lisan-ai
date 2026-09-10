@@ -402,7 +402,7 @@ def generate_worker(req):
     except Exception as e:
         jobs_progress["generate"] = {"status": "error", "percent": 0, "error": str(e), "result": None}
 
-def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None):
+def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None):
     """Rebuild final_dubbed.mp3 from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
     active = dict(USER_GAINS.get(job_id or "", {}))
     segs = sorted([s for s in segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
@@ -516,7 +516,7 @@ def regenerate_line(req):
                 USER_GAINS.setdefault(req.job_id, {})[seg.segment_id] = round(max(-10.0, min(10.0, orig_db - dub_db)), 1)
         except Exception:
             pass
-        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id)
+        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None))
         return {"status": "success",
                 "stretched_duration": round(get_media_duration(stretched), 2),
                 "target": round(target_duration, 2),
