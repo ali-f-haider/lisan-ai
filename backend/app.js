@@ -3661,20 +3661,6 @@ window.cleanOldClones = function () {
         .catch(function (e) { notify("error", e.message); });
 };
 
-// 🧹 button inside the custom-voice box
-(function () {
-    function ensure() {
-        var box = document.getElementById("customVoiceBox");
-        if (!box || document.getElementById("cvClean")) return;
-        var b = document.createElement("button");
-        b.id = "cvClean"; b.className = "red"; b.style.marginTop = "8px";
-        b.textContent = "🧹 Clean old cloned voices";
-        b.onclick = function () { window.cleanOldClones(); };
-        box.appendChild(b);
-    }
-    ensure();
-    new MutationObserver(ensure).observe(document.body, { childList: true, subtree: true });
-})();
 
 // Auto garbage-collect after every cloning run (keep only current clones)
 (function () {

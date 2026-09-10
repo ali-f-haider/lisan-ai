@@ -1,123 +1,135 @@
-// ===== ADD-ON: yellow original-start markers (wraps renderTimeline, deletes nothing) =====
-(function () {
-    if (typeof renderTimeline !== "function") return;
-    var _baseRenderTimeline = renderTimeline;
-    renderTimeline = function () {
-        _baseRenderTimeline();
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var W = wrap.clientWidth || 900;
-        var scale = W / total;
-        var band = document.createElement("div");
-        band.style.cssText = "position:relative;height:18px;background:#d4e157;border-radius:8px 8px 0 0;";
-        wrap.insertBefore(band, wrap.firstChild);
-        var overlay = document.createElement("div");
-        overlay.style.cssText = "position:absolute;left:0;right:0;top:18px;bottom:0;pointer-events:none;z-index:6;";
-        segmentsData.forEach(function (seg, i) {
-            var x = seg.start * scale;
-            var line = document.createElement("div");
-            line.style.cssText = "position:absolute;left:" + x + "px;top:0;bottom:0;width:1px;background:rgba(212,225,87,0.8);";
-            overlay.appendChild(line);
-            var num = document.createElement("div");
-            num.textContent = (i + 1);
-            num.title = "Line " + (i + 1) + " — original start: " + seg.start + "s";
-            num.style.cssText = "position:absolute;left:" + x + "px;top:-18px;transform:translateX(-50%);color:#1a1a2e;font-size:10px;font-weight:700;line-height:18px;padding:0 2px;";
-            overlay.appendChild(num);
-        });
-        wrap.appendChild(overlay);
-    };
-})();
+// ===== ADD-ON: download protection, safe reset, loaded-project media guard =====
+var workspaceHasMedia = true;
+var resultsExist = false;
+var resultsDownloaded = false;
 
-// ===== ADD-ON: New-project reset (second video starts clean) =====
-function resetWorkspace() {
-    // Stop any running pollers / friendly messages
-    try { clearInterval(transcribePollTimer); } catch (e) {}
-    try { clearInterval(generatePollTimer); } catch (e) {}
-    if (typeof stopFriendlyMessages === "function") {
-        stopFriendlyMessages("progressText");
-        stopFriendlyMessages("genProgressText");
-    }
-
-    // Clear all job data
-    segmentsData = [];
-    originalSegments = [];
-    totalDuration = 0;
-    currentJobId = null;
-    segmentOffsets = {};
-    speakerChoices = {};
-    speakerVoices = {};
-    speakerVoiceNames = {};
-    clonedBySpeaker = {};
-    isVideoUpload = false;
-    // NOTE: voicePools / availableVoices are kept on purpose —
-    // they are your account-level studio library, not job data.
-
-    // Hide all result/edit sections
-    ["editorSection", "voicesSection", "cloneAnalysisSection", "speakerVoicesSection",
-     "generateSection", "resultSection", "timelineSection", "mergeSection", "lipsyncSection"]
-        .forEach(function (id) {
-            var el = document.getElementById(id);
-            if (el) el.classList.add("hidden");
-        });
-
-    // Clear tables and results
-    var tb = document.querySelector("#segmentsTable tbody"); if (tb) tb.innerHTML = "";
-    var cb = document.querySelector("#cloneAnalysisTable tbody"); if (cb) cb.innerHTML = "";
-    var vb = document.querySelector("#speakerVoicesTable tbody"); if (vb) vb.innerHTML = "";
-    var ar = document.getElementById("audioResults"); if (ar) ar.innerHTML = "";
-    var vr = document.getElementById("videoResults");
-    if (vr) { vr.innerHTML = ""; vr.classList.add("hidden"); }
-    var tw = document.getElementById("timelineWrap"); if (tw) tw.innerHTML = "";
-
-    // Reset progress bars
-    var pf = document.getElementById("progressFill"); if (pf) pf.style.width = "0%";
-    var pt = document.getElementById("progressText"); if (pt) pt.textContent = "Starting...";
-    var ps = document.getElementById("progressSection"); if (ps) ps.classList.add("hidden");
-    var gf = document.getElementById("genProgressFill"); if (gf) gf.style.width = "0%";
-    var gt = document.getElementById("genProgressText"); if (gt) gt.textContent = "Starting...";
-    var gp = document.getElementById("genProgress"); if (gp) gp.classList.add("hidden");
-    var ep = document.getElementById("emotionProgress"); if (ep) ep.classList.add("hidden");
-
-    // Reset speaker count + badges
-    var sc = document.getElementById("speakerCount"); if (sc) sc.value = "";
-    if (typeof updateBadges === "function") updateBadges();
+function resetFileLabel() {
+    var fl = document.getElementById("fileUploadText");
+    if (fl) fl.textContent = "Choose File";
 }
 
-// When a NEW file is chosen: warn if a project exists, then reset
+function confirmResetSafe() {
+    if (resultsExist && !resultsDownloaded) {
+        if (!confirm("⚠️ You generated audio/video that has NOT been downloaded yet.\n\nIf you continue, it will be lost forever (server files are temporary).\n\nDid you download everything you need?")) return false;
+    }
+    if (segmentsData.length) {
+        if (!confirm("This clears the current project (segments, translations, voices).\nTip: use 💾 Save Project first if you want to keep it.\n\nContinue?")) return false;
+    }
+    return true;
+}
+
+// Detect: results appeared / a download link was clicked
 (function () {
-    if (typeof onFileSelected !== "function") return;
-    var _origOnFile = onFileSelected;
-    onFileSelected = function (input) {
-        if (input.files && input.files[0]) {
-            if (segmentsData.length &&
-                !confirm("Choosing a new file will clear the current project (segments, translations, voices). Continue?")) {
-                input.value = "";
-                var fl = document.getElementById("fileUploadText");
-                if (fl) fl.textContent = "Choose File";
+    var rs = document.getElementById("resultSection");
+    if (rs && typeof MutationObserver !== "undefined") {
+        new MutationObserver(function () {
+            if (!rs.classList.contains("hidden")) { resultsExist = true; resultsDownloaded = false; }
+        }).observe(rs, { attributes: true, attributeFilter: ["class"] });
+    }
+    document.addEventListener("click", function (e) {
+        var t = e.target;
+        var a = (t && t.closest) ? t.closest('a[href*="/api/download/"]') : null;
+        if (a) resultsDownloaded = true;
+    }, true);
+})();
+
+// Warn when closing tab / pressing back / reloading with undownloaded results (or mid-generation)
+window.addEventListener("beforeunload", function (e) {
+    var generating = false;
+    try { generating = !!generatePollTimer; } catch (err) {}
+    if ((resultsExist && !resultsDownloaded) || generating) {
+        e.preventDefault();
+        e.returnValue = "";
+        return "";
+    }
+});
+
+// Yellow banner for loaded projects (no media on server)
+function showMediaBanner() {
+    var ed = document.getElementById("editorSection");
+    if (!ed) return;
+    var b = document.getElementById("noMediaBanner");
+    if (!b) {
+        b = document.createElement("div");
+        b.id = "noMediaBanner";
+        b.style.cssText = "margin:0 0 12px;padding:10px 14px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;font-size:13px;color:#92400e;";
+        b.innerHTML = "📼 <strong>Loaded project:</strong> the original audio/video is not on the server (files are temporary). Preview ▶, re-speak 🔄, emotion detection, auto-fix and video merge are disabled. You can still edit text, translate, add tashkeel, export SRT/SBV and generate the Arabic MP3.";
+        ed.insertBefore(b, ed.children[1] || null);
+    }
+    b.style.display = "block";
+}
+function hideMediaBanner() {
+    var b = document.getElementById("noMediaBanner");
+    if (b) b.style.display = "none";
+}
+
+// Guard media-dependent actions when the workspace has no media on server
+["previewRow", "regenerateLine", "detectEmotions", "autoFixTiming", "mergeVideo"].forEach(function (name) {
+    if (typeof window[name] === "function") {
+        var orig = window[name];
+        window[name] = function () {
+            if (!workspaceHasMedia) {
+                notify("error", "📼 Loaded projects have no media on the server. Preview, re-speak, emotions, auto-fix and merge need a fresh upload. Editing, translate, tashkeel, SRT export and Generate still work.");
                 return;
             }
-            resetWorkspace();
-        }
-        _origOnFile(input);
+            return orig.apply(this, arguments);
+        };
+    }
+});
+
+// Mark workspace as media-less after loading a JSON project
+(function () {
+    if (typeof loadProjectFile !== "function") return;
+    var orig = loadProjectFile;
+    loadProjectFile = function (ev) {
+        var r = orig(ev);
+        workspaceHasMedia = false;
+        showMediaBanner();
+        notify("info", "Project loaded. Original media is not on the server — media features are disabled (see the yellow notice).");
+        return r;
     };
 })();
 
-// "Dub Another Video" button injected into Step 6
+// Reset also restores media flag + hides banner + clears result flags
 (function () {
-    var target = document.getElementById("resultSection");
-    if (!target) return;
-    var btn = document.createElement("button");
-    btn.className = "blue";
-    btn.style.marginTop = "16px";
-    btn.textContent = "🆕 Dub Another Video";
-    btn.onclick = function () {
-        resetWorkspace();
-        var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
-        var fl = document.getElementById("fileUploadText"); if (fl) fl.textContent = "Choose File";
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        notify("info", "Workspace cleared. Upload your next video in Step 1.");
+    if (typeof resetWorkspace !== "function") return;
+    var orig = resetWorkspace;
+    resetWorkspace = function () {
+        orig();
+        workspaceHasMedia = true;
+        resultsExist = false;
+        resultsDownloaded = false;
+        hideMediaBanner();
     };
-    target.appendChild(btn);
+})();
+
+// File selection: single safe confirm (download warning + project warning), no double dialogs
+(function () {
+    if (typeof onFileSelected !== "function") return;
+    var prev = onFileSelected;
+    onFileSelected = function (input) {
+        if (input.files && input.files[0]) {
+            if (!confirmResetSafe()) { input.value = ""; resetFileLabel(); return; }
+            resetWorkspace(); // clears segments so the inner wrapper won't ask twice
+        }
+        prev(input);
+    };
+})();
+
+// "Dub Another Video" button: same safe confirm before wiping
+(function () {
+    var btns = document.querySelectorAll("#resultSection button");
+    for (var i = 0; i < btns.length; i++) {
+        if (btns[i].textContent.indexOf("Dub Another Video") > -1) {
+            btns[i].onclick = function () {
+                if (!confirmResetSafe()) return;
+                resetWorkspace();
+                var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
+                resetFileLabel();
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                notify("info", "Workspace cleared. Upload your next video in Step 1.");
+            };
+        }
+    }
 })();
 
