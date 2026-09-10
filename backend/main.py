@@ -1043,3 +1043,8 @@ async def upload_custom_voice2(request: Request, file: UploadFile = File(...), s
     if isinstance(res, str) and res.startswith("ERROR"):
         return {"error": res}
     return {"status": "success", "voice_id": res}
+
+@app.post("/api/cleanup_voices")
+def cleanup_voices(payload: dict = {}):
+    keep = payload.get("keep", []) or []
+    return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)

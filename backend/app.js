@@ -3734,7 +3734,7 @@ window.cleanOldClones = function () {
         ["Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM", "يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. الحدود: 60 ثانية و400 ميجابايت كحد أقصى"],
         ["Important: Your generated audio", "مهم: ملفات الصوت والفيديو الناتجة مؤقتة. نزّلها فورًا بعد المعالجة — ستُفقد عند انتهاء الجلسة أو إعادة تشغيل الخادم"],
         ["Download your files now", "نزّل ملفاتك الآن! الصوت والفيديو الناتجان مؤقتان ويُفقدان عند انتهاء الجلسة"],
-        ["English to Arabic AI Dubbing", "دبلجة ذكاء اصطناعي من الإنجليزية إلى العربية"],
+        ["English to Arabic AI Dubbing", "English to Arabic AI Dubbing"],
         ["Credits are our internal unit", "الائتمانات وحدتنا الداخلية: 100 ائتمان = 1 دولار. الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط"],
         ["Voice generation supports emotions", "يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُحتسب التكلفة بالأحرف وتُعرض بالائتمانات (100 ائتمان = 1 دولار)"],
         ["Cloning copies each speaker's own voice", "ينسخ الاستنساخ صوت كل متحدث من الفيديو. اختياري — يمكنك اختيار أصوات المكتبة في الخطوة 4"],
@@ -3900,4 +3900,11 @@ window.cleanOldClones = function () {
     repairCvBox();
     bindCv();
     applyLang(localStorage.getItem("lisan_lang") || "en");
+})();
+
+// ===== No clean button: voice cleanup is automatic only =====
+(function () {
+    function dropClean() { var b = document.getElementById("cvClean"); if (b) b.remove(); }
+    dropClean();
+    new MutationObserver(dropClean).observe(document.body, { childList: true, subtree: true });
 })();

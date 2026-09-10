@@ -1008,3 +1008,28 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
     if resp.status == 200:
         return json.loads(resp.data.decode()).get("voice_id", "ERROR: no voice_id returned")
     return f"ERROR: Voice engine rejected the clip (status {resp.status})."
+    
+    def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
+    keep = set(keep_ids or [])
+    try:
+        req = urllib.request.Request("https://api.elevenlabs.io/v1/voices?page_size=100",
+                                     headers={"xi-api-key": api_key})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.load(r)
+        deleted, errors = 0, []
+        for v in data.get("voices", []):
+            name = v.get("name") or ""
+            vid = v.get("voice_id")
+            if not name.startswith(("Cloned_", "Custom_")) or vid in keep:
+                continue
+            try:
+                dreq = urllib.request.Request(f"https://api.elevenlabs.io/v1/voices/{vid}",
+                                              method="DELETE", headers={"xi-api-key": api_key})
+                with urllib.request.urlopen(dreq, timeout=30) as dr:
+                    dr.read()
+                deleted += 1
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+        return {"deleted": deleted, "errors": errors}
+    except Exception as e:
+        return {"deleted": 0, "errors": [str(e)]}
