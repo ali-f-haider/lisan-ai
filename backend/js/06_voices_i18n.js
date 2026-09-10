@@ -736,3 +736,75 @@ window.cleanOldClones = function () {
         wrap.appendChild(ov);
     };
 })();
+
+// ===== ADD-ON: paint the faded/trimmed tail on each timeline block =====
+(function () {
+    if (typeof renderTimeline !== "function") return;
+    var _base = renderTimeline;
+    renderTimeline = function () {
+        _base();
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var W = wrap.clientWidth || 900;
+        var scale = W / total;
+
+        // Group lines by speaker lane (same order as the lanes drawn above)
+        var speakers = [];
+        var seen = {};
+        segmentsData.forEach(function (s) {
+            var n = s.speaker || "Speaker 1";
+            if (!seen[n]) { seen[n] = true; speakers.push(n); }
+        });
+
+        // One overlay above all lanes
+        var ov = document.createElement("div");
+        ov.style.cssText = "position:absolute;left:0;right:0;top:42px;bottom:0;pointer-events:none;z-index:7;";
+
+        speakers.forEach(function (spk, li) {
+            // This speaker's lines, time-sorted, with current drag offsets
+            var lane = [];
+            segmentsData.forEach(function (seg) {
+                if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
+                var off = segmentOffsets[seg.segment_id] || 0;
+                lane.push({ seg: seg, start: seg.start + off, end: seg.end + off, dur: seg.end - seg.start });
+            });
+            lane.sort(function (a, b) { return a.start - b.start; });
+
+            var laneTop = li * 34; // 34px per lane (matches the lane height)
+            lane.forEach(function (item, i) {
+                var nextStart = (i + 1 < lane.length) ? lane[i + 1].start : total;
+                var allowedEnd = nextStart - 0.005;          // same 5ms guard as the server
+                var blockLeft = item.start;
+                var blockRight = item.end;
+                var fadeStart = Math.min(blockRight, allowedEnd); // where the fade begins
+
+                // (A) Always show the 60ms fade tail at the end of the kept portion
+                var fadeTailStart = Math.max(blockLeft, fadeStart - 0.06);
+                var tailLeftPx = Math.max(0, (fadeTailStart - blockLeft) * scale);
+                var tailWidthPx = Math.max(2, (Math.min(blockRight, fadeStart) - fadeTailStart) * scale);
+                if (tailWidthPx >= 1) {
+                    var t = document.createElement("div");
+                    t.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" +
+                        (Math.max(0, blockLeft * scale) + tailLeftPx) + "px;width:" + tailWidthPx +
+                        "px;height:26px;background:linear-gradient(90deg,rgba(245,158,11,0.0),rgba(245,158,11,0.85));border-radius:0 4px 4px 0;";
+                    t.title = "60 ms fade-out tail in the final mix";
+                    ov.appendChild(t);
+                }
+
+                // (B) If the line runs past its slot, show the hard-trimmed overflow in solid amber
+                if (blockRight > allowedEnd + 0.02) {
+                    var overLeftPx = Math.max(0, (allowedEnd - blockLeft) * scale);
+                    var overWidthPx = Math.max(2, (blockRight - allowedEnd) * scale);
+                    var o = document.createElement("div");
+                    o.style.cssText = "position:absolute;top:" + (laneTop + 4) + "px;left:" +
+                        (Math.max(0, blockLeft * scale) + overLeftPx) + "px;width:" + overWidthPx +
+                        "px;height:26px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.95;border-radius:0 4px 4px 0;";
+                    o.title = "Hard-trimmed in the final mix (" + (blockRight - allowedEnd).toFixed(2) + "s over the slot)";
+                    ov.appendChild(o);
+                }
+            });
+        });
+        wrap.appendChild(ov);
+    };
+})();
