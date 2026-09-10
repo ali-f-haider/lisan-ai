@@ -85,7 +85,6 @@ class RemixRequest(BaseModel):
     job_id: str = ""
     segments: List[Segment] = []
     offsets: Dict[str, float] = {}
-    gains: Dict[str, float] = {}
     total_duration: float = 0.0
     duration_mode: str = "exact"
 
@@ -187,19 +186,7 @@ def user_info(request: Request):
         # Read credits securely via service key (bypasses RLS issues)
         credits = get_credits(user_id)
         if credits is None:
-            # Fallback: read own row with the user's own token (RLS own-row policy)
-            try:
-                fb_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=credits"
-                fb_req = urllib.request.Request(fb_url, headers={
-                    "Authorization": f"Bearer {sb_token}",
-                    "apikey": SUPABASE_ANON_KEY
-                })
-                with urllib.request.urlopen(fb_req, timeout=10) as fr:
-                    fb = json.load(fr)
-                if fb:
-                    credits = fb[0].get("credits", 100)
-            except Exception:
-                credits = 100
+            credits = 100
             
         try:
             prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name"
@@ -372,14 +359,7 @@ def get_credits(uid: str):
         print(f"[credits] SUCCESS for {uid}: {rows}")
         return rows[0]["credits"] if rows else None
     except Exception as e:
-        body = ""
-        try:
-            if hasattr(e, "read"):
-                body = e.read().decode("utf-8", "ignore")
-        except Exception:
-            pass
-        print(f"[credits] ERROR for {uid}: {e} | BODY: {body[:300]}")
-        print(f"[credits] KEY PREFIX: {SUPABASE_SERVICE_KEY[:13]}...")
+        print(f"[credits] ERROR for {uid}: {e}")
         return None
 
 
@@ -504,7 +484,7 @@ def billing_checkout(payload: dict, request: Request):
                 },
                 "quantity": 1,
             }],
-            success_url=origin + "/app?sid={CHECKOUT_SESSION_ID}#credits-purchased",
+            success_url=origin + "/app#credits-purchased",
             cancel_url=origin + "/app",
         )
     except Exception as e:
@@ -521,51 +501,17 @@ def billing_sync(request: Request):
         return JSONResponse({"error": "login required"}, status_code=401)
     stripe.api_key = STRIPE_SECRET_KEY
     added = 0
-    seen = 0
     try:
-        sessions = stripe.checkout.Session.list(limit=100)
+        sessions = stripe.checkout.Session.list(limit=100, client_reference_id=uid)
         for s in sessions.data:
-            suid = s.get("client_reference_id") or (s.get("metadata") or {}).get("uid")
-            if suid != uid:
-                continue
-            seen += 1
             if s.get("payment_status") == "paid":
                 credits = int((s.get("metadata") or {}).get("credits", 0))
                 res = _fulfill_order(uid, s.get("id", ""), credits)
-                print(f"[sync] session {s.get('id')} credits={credits} fulfill={res}")
                 if isinstance(res, int):
                     added += credits
     except Exception as e:
-        print("[sync] ERROR:", e)
         return JSONResponse({"error": str(e)}, status_code=502)
-    print(f"[sync] uid={uid} seen={seen} added={added}")
-    return {"added_sessions_credits": added, "sessions_seen": seen}
-
-
-@app.post("/api/billing/fulfill")
-def billing_fulfill(payload: dict, request: Request):
-    if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "not configured"}, status_code=503)
-    uid = _current_uid(request)
-    if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
-    sid = (payload or {}).get("sid", "")
-    if not sid:
-        return JSONResponse({"error": "missing sid"}, status_code=400)
-    stripe.api_key = STRIPE_SECRET_KEY
-    try:
-        s = stripe.checkout.Session.retrieve(sid)
-    except Exception as e:
-        return JSONResponse({"error": f"retrieve failed: {e}"}, status_code=502)
-    suid = s.get("client_reference_id") or (s.get("metadata") or {}).get("uid")
-    if suid != uid:
-        return JSONResponse({"error": "session belongs to another user"}, status_code=403)
-    if s.get("payment_status") != "paid":
-        return {"fulfilled": False, "reason": "not paid yet"}
-    credits = int((s.get("metadata") or {}).get("credits", 0))
-    res = _fulfill_order(uid, sid, credits)
-    print(f"[fulfill] sid={sid} credits={credits} result={res}")
-    return {"fulfilled": isinstance(res, int), "added": credits if isinstance(res, int) else 0, "detail": str(res)}
+    return {"added_sessions_credits": added}
 
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):
@@ -731,17 +677,6 @@ def source(job_id: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p)
 
-@app.get("/api/segment_audio/{job_id}/{segment_id}")
-def segment_audio(job_id: str, segment_id: str):
-    if "/" in segment_id or "\\" in segment_id or ".." in segment_id:
-        return JSONResponse({"error": "bad id"}, status_code=400)
-    for ext, mt in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
-        p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
-        if p.exists():
-            return FileResponse(p, media_type=mt)
-    return JSONResponse({"error": "not found"}, status_code=404)
-
-
 @app.post("/api/voices")
 def voices(payload: dict = {}):
     return eleven_service.fetch_voices(ELEVENLABS_API_KEY)
@@ -894,166 +829,3 @@ def download(filename: str):
     if not p.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p, filename=filename)
-    
-    # ================= USAGE PAGE, CUSTOM VOICE, SPEND LOG (appended) =================
-def _spend_log(uid, credits, job_id="", action=""):
-    if not uid or not SUPABASE_SERVICE_KEY:
-        return
-    try:
-        body = json.dumps({"uid": uid, "credits": int(credits), "job_id": job_id or "", "action": action or "deduction"}).encode("utf-8")
-        req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/credit_spends", data=body, headers={
-            "Content-Type": "application/json", "apikey": SUPABASE_SERVICE_KEY})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            r.read()
-    except Exception as e:
-        print("[spend] log error:", e)
-
-
-_orig_deduct = deduct_credits
-def deduct_credits(uid, amount, job_id="", action=""):
-    res = _sb_rpc("deduct_credits", {"uid": uid, "amount": int(amount)})
-    _spend_log(uid, amount, job_id, action)
-    return res
-
-
-def _watch_and_deduct(job_id, uid, kind):
-    def _run():
-        while True:
-            if kind == "transcribe":
-                j = jobs_progress.get(job_id)
-                if j is None:
-                    return
-                st = j.get("status"); result = {}
-            else:
-                g = jobs_progress.get("generate")
-                if g is None:
-                    return
-                st = g.get("status"); result = g.get("result") or {}
-            if st in ("done", "error"):
-                break
-            _time.sleep(2)
-        if st != "done" or not uid:
-            return
-        if job_id in _abandoned_jobs:
-            return
-        if kind == "transcribe":
-            amount = 3
-        else:
-            chars = int(result.get("eleven_credits_used", 0) or 0)
-            b = usage_bucket(job_id)
-            gemini_usd = ((int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)) / 1e6 * 0.30
-                          + int(b.get("gemini_out", 0)) / 1e6 * 2.50)
-            amount = math.ceil(chars / 60) + max(1, math.ceil(gemini_usd / 0.01))
-        new_balance = deduct_credits(uid, amount, job_id=job_id, action=kind)
-        _job_charges[job_id] = {"credits_charged": amount, "balance_after": new_balance}
-    threading.Thread(target=_run, daemon=True).start()
-
-
-@app.get("/api/segment_audio/{job_id}/{segment_id}")
-def segment_audio(job_id: str, segment_id: str, response: Response):
-    if "/" in segment_id or "\\" in segment_id or ".." in segment_id:
-        return JSONResponse({"error": "bad id"}, status_code=400)
-    for ext, mt in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
-        p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
-        if p.exists():
-            response.headers["Cache-Control"] = "no-store"
-            return FileResponse(p, media_type=mt)
-    return JSONResponse({"error": "not found"}, status_code=404)
-
-
-@app.post("/api/upload_custom_voice")
-async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
-    uid = _current_uid(request)
-    if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
-    name = (file.filename or "").lower()
-    if not name.endswith((".mp3", ".wav")):
-        return {"error": "Only MP3 or WAV files are allowed."}
-    data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
-        return {"error": "File too large (max 10 MB / 20 seconds)."}
-    tmp = OUTPUT_DIR / f"custom_upload_{uuid.uuid4().hex}.bin"
-    tmp.write_bytes(data)
-    try:
-        res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
-    finally:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-    if isinstance(res, str) and res.startswith("ERROR"):
-        return {"error": res}
-    return {"status": "success", "voice_id": res}
-
-
-@app.get("/api/account/summary")
-def account_summary(request: Request):
-    uid = _current_uid(request)
-    if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
-    credits = get_credits(uid)
-
-    def _rows(table):
-        try:
-            req = urllib.request.Request(
-                f"{SUPABASE_URL}/rest/v1/{table}?uid=eq.{uid}&select=*&order=created_at.desc&limit=100",
-                headers={"apikey": SUPABASE_SERVICE_KEY})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                return json.load(r)
-        except Exception:
-            return []
-    return {"credits": credits if credits is not None else 100,
-            "purchases": _rows("credit_orders"),
-            "spends": _rows("credit_spends")}
-
-
-@app.get("/account")
-def account_page():
-    return FileResponse(BASE_DIR / "account.html")
-    
-    # ================= VOICE CLEANUP + CUSTOM VOICE (appended; safe if routes already exist) =================
-@app.post("/api/cleanup_voices")
-def cleanup_voices(payload: dict = {}):
-    keep = payload.get("keep", []) or []
-    return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)
-
-
-@app.post("/api/upload_custom_voice2")
-async def upload_custom_voice2(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
-    uid = _current_uid(request)
-    if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
-    name = (file.filename or "").lower()
-    if not name.endswith((".mp3", ".wav")):
-        return {"error": "Only MP3 or WAV files are allowed."}
-    data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
-        return {"error": "File too large (max 10 MB / 20 seconds)."}
-    tmp = OUTPUT_DIR / f"custom_upload_{uuid.uuid4().hex}.bin"
-    tmp.write_bytes(data)
-    try:
-        res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
-    except Exception as e:
-        res = f"ERROR: {e}"
-    finally:
-        try:
-            tmp.unlink()
-        except Exception:
-            pass
-    if isinstance(res, str) and res.startswith("ERROR"):
-        return {"error": res}
-    return {"status": "success", "voice_id": res}
-
-@app.post("/api/cleanup_voices")
-def cleanup_voices(payload: dict = {}):
-    keep = payload.get("keep", []) or []
-    return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)
-
-@app.get("/js/{name}")
-def js_module(name: str):
-    if ".." in name or "/" in name:
-        return JSONResponse({"error": "bad name"}, status_code=400)
-    p = BASE_DIR / "js" / name
-    if not p.exists():
-        return JSONResponse({"error": "not found"}, status_code=404)
-    return FileResponse(p, media_type="application/javascript")
