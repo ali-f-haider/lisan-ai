@@ -4026,10 +4026,25 @@ window.cleanOldClones = function () {
     new MutationObserver(bindMaster).observe(document.body, { childList: true, subtree: true });
 })();
 
-// ===== FADE PACK: fade follows the block, trim only on real overflow, legend below =====
+// ===== FADE PACK v2: amber shows exactly what the final mix fades/trims =====
 (function () {
-    if (typeof renderTimeline !== "function" || window._fadePackDone) return;
-    window._fadePackDone = true;
+    if (window._fadePackV2) return;
+    window._fadePackV2 = true;
+    if (typeof checkGenerateProgress === "function") {
+        var _cg = checkGenerateProgress;
+        checkGenerateProgress = async function () {
+            await _cg.apply(this, arguments);
+            try {
+                var r = await fetch("/api/progress/generate?t=" + Date.now());
+                var d = await r.json();
+                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
+                    window._lineDurations = window._lineDurations || {};
+                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
+                }
+            } catch (e) {}
+        };
+    }
+    if (typeof renderTimeline !== "function") return;
     var _baseRT = renderTimeline;
     renderTimeline = function () {
         _baseRT.apply(this, arguments);
@@ -4037,48 +4052,54 @@ window.cleanOldClones = function () {
         if (!wrap || !segmentsData.length) return;
         var oldLeg = document.getElementById("timelineLegendFinal");
         if (oldLeg) oldLeg.remove();
+        wrap.querySelectorAll(".segFadeOv").forEach(function (f) { f.remove(); });
         var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
         var W = wrap.clientWidth || 900;
         var scale = W / total;
-        var speakers = [];
-        var seen = {};
-        segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
         var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        var speakers = []; var seen = {};
+        segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
+        var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
         speakers.forEach(function (spk, li) {
             var lane = lanes[li];
             if (!lane) return;
-            var laneSegs = segmentsData.filter(function (s) { return (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
             var boxes = lane.querySelectorAll("div[style*='cursor:grab']");
+            var laneSegs = act.filter(function (s) { return (s.speaker || "Speaker 1") === spk; });
             laneSegs.forEach(function (seg, idx) {
-                var off = segmentOffsets[seg.segment_id] || 0;
-                var curStart = seg.start + off, curEnd = seg.end + off;
-                var nextStart = null, origNext = null;
-                laneSegs.forEach(function (o) {
-                    if (o === seg) return;
-                    var os = o.start + (segmentOffsets[o.segment_id] || 0);
-                    if (os > curStart + 0.0001 && (nextStart === null || os < nextStart)) nextStart = os;
-                    if (o.start > seg.start + 0.0001 && (origNext === null || o.start < origNext)) origNext = o.start;
-                });
-                var limit = (nextStart === null) ? total : nextStart - 0.005;
-                var overflow = curEnd - limit;
-                var origOverlap = (origNext !== null) && (seg.end > origNext + 0.02);
-                if (overflow <= 0.02 || origOverlap) return;
+                var box = boxes[idx];
+                if (!box) return;
                 var f = document.createElement("div");
                 f.className = "segFadeOv";
-                f.style.cssText = "position:absolute;top:4px;height:26px;left:" + (limit * scale) + "px;width:" + Math.max(2, overflow * scale) +
-                    "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
-                    "opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;z-index:3;";
-                f.title = "Faded/trimmed in final mix (" + overflow.toFixed(2) + "s over slot)";
-                lane.appendChild(f);
-                var box = boxes[idx];
-                if (box && typeof MutationObserver !== "undefined") {
-                    new MutationObserver(function () {
-                        var o2 = segmentOffsets[seg.segment_id] || 0;
-                        var ov2 = (seg.end + o2) - limit;
-                        if (ov2 <= 0.02) { f.style.display = "none"; }
-                        else { f.style.display = ""; f.style.left = (limit * scale) + "px"; f.style.width = Math.max(2, ov2 * scale) + "px"; }
-                    }).observe(box, { attributes: true, attributeFilter: ["style"] });
+                function draw() {
+                    var off = segmentOffsets[seg.segment_id] || 0;
+                    var cs = seg.start + off;
+                    var slot = seg.end - seg.start;
+                    var stored = (window._lineDurations || {})[seg.segment_id] || 0;
+                    var ae = cs + Math.max(stored, slot);
+                    var ns = total;
+                    for (var k = 0; k < act.length; k++) {
+                        var os = act[k].start + (segmentOffsets[act[k].segment_id] || 0);
+                        if (act[k] !== seg && os > cs + 0.0001 && os < ns) ns = os;
+                    }
+                    var lim = ns - 0.005;
+                    var ov = ae - lim;
+                    var origNext = null;
+                    for (var j = 0; j < act.length; j++) {
+                        if (act[j] !== seg && act[j].start > seg.start + 0.0001 && (origNext === null || act[j].start < origNext)) origNext = act[j].start;
+                    }
+                    var origOverlap = (origNext !== null) && (seg.end > origNext + 0.02);
+                    if (ov > 0.02 && !origOverlap) {
+                        var lp = Math.max(0, (lim - cs) * scale);
+                        var wp = Math.max(3, slot * scale - lp);
+                        f.style.cssText = "position:absolute;top:4px;height:26px;left:" + lp + "px;width:" + wp + "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.92;border-radius:0 4px 4px 0;pointer-events:none;z-index:4;";
+                        f.title = "Faded/trimmed in the final mix (" + ov.toFixed(2) + "s runs into the next line)";
+                    } else {
+                        f.style.cssText = "display:none;";
+                    }
                 }
+                draw();
+                lane.appendChild(f);
+                if (typeof MutationObserver !== "undefined") new MutationObserver(draw).observe(box, { attributes: true, attributeFilter: ["style"] });
             });
         });
         var leg = document.createElement("div");
@@ -4089,3 +4110,4 @@ window.cleanOldClones = function () {
         wrap.parentNode.insertBefore(leg, wrap.nextSibling);
     };
 })();
+
