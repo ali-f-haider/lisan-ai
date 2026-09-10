@@ -861,7 +861,6 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
     return {"status": "success", "voice_id": res}
 
-@app.get("/api/account/summary")
 def account_summary(request: Request):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "login required"}, status_code=401)
@@ -898,3 +897,34 @@ try:
         return r
 except NameError:
     pass
+
+
+@app.get("/api/account/summary")
+def account_summary_diag(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+        
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?select=*&order=created_at.desc&limit=5"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    
+    raw_data = []
+    err = None
+    status_code = None
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            status_code = r.status
+            raw_data = json.load(r)
+    except Exception as e:
+        err = str(e)
+        
+    return {
+        "uid_used": str(uid),
+        "supabase_status": status_code,
+        "raw_count": len(raw_data) if isinstance(raw_data, list) else "not a list",
+        "error": err,
+        "first_row": raw_data[0] if raw_data else None,
+        "credits": get_credits(uid) or 0
+    }
