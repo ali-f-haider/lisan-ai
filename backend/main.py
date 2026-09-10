@@ -1048,3 +1048,12 @@ async def upload_custom_voice2(request: Request, file: UploadFile = File(...), s
 def cleanup_voices(payload: dict = {}):
     keep = payload.get("keep", []) or []
     return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)
+
+@app.get("/js/{name}")
+def js_module(name: str):
+    if ".." in name or "/" in name:
+        return JSONResponse({"error": "bad name"}, status_code=400)
+    p = BASE_DIR / "js" / name
+    if not p.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(p, media_type="application/javascript")
