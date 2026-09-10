@@ -1009,7 +1009,7 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
         return json.loads(resp.data.decode()).get("voice_id", "ERROR: no voice_id returned")
     return f"ERROR: Voice engine rejected the clip (status {resp.status})."
     
-    def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
+def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
     keep = set(keep_ids or [])
     try:
         req = urllib.request.Request("https://api.elevenlabs.io/v1/voices?page_size=100",
