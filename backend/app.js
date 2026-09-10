@@ -4049,14 +4049,14 @@ window.cleanOldClones = function () {
         var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
         var W = wrap.clientWidth || 900;
         var scale = W / total;
-        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        var lanes = wrap.querySelectorAll("div[style*='height: 34px']");
         var speakers = []; var seen = {};
         segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
         var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
         speakers.forEach(function (spk, li) {
             var lane = lanes[li];
             if (!lane) return;
-            var boxes = lane.querySelectorAll("div[style*='cursor:grab']");
+            var boxes = lane.querySelectorAll("div[style*='cursor: grab']");
             var laneSegs = act.filter(function (s) { return (s.speaker || "Speaker 1") === spk; });
             laneSegs.forEach(function (seg, idx) {
                 var box = boxes[idx];
@@ -4128,7 +4128,7 @@ window.cleanOldClones = function () {
         var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
         var scale = (wrap.clientWidth || 900) / total;
         var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
-        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        var lanes = wrap.querySelectorAll("div[style*='height: 34px']");
         var speakers = []; var seen = {};
         act.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
         speakers.forEach(function (spk, li) {
@@ -4169,7 +4169,7 @@ window.cleanOldClones = function () {
     function hookDrag() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || typeof MutationObserver === "undefined") return;
-        wrap.querySelectorAll("div[style*='cursor:grab']").forEach(function (b) {
+        wrap.querySelectorAll("div[style*='cursor: grab']").forEach(function (b) {
             if (b.dataset.fadeHook) return; b.dataset.fadeHook = "1";
             new MutationObserver(function () { drawFades(); }).observe(b, { attributes: true, attributeFilter: ["style"] });
         });
@@ -4188,7 +4188,7 @@ window.cleanOldClones = function () {
                 if ((row.cells[0] || {}).textContent !== name) return;
                 var opt = row.querySelector('select option[value="clone"]');
                 if (opt) opt.textContent = window._customVoiceNames[name];
-                var info = row.querySelector("div.note, div[style*='font-size:12px']");
+                var info = row.querySelector("div.note, div[style*='font-size: 12px']");
                 if (info && speakerChoices[name] === "clone") info.textContent = window._customVoiceNames[name];
             });
         });
@@ -4366,7 +4366,7 @@ window.cleanOldClones = function () {
             var dur = Math.max((window._lineDurations || {})[seg.segment_id] || 0, slot);
             return { seg: seg, cs: cs, end: cs + dur };
         });
-        var lanes = wrap.querySelectorAll("div[style*='height:34px']");
+        var lanes = wrap.querySelectorAll("div[style*='height: 34px']");
         var speakers = []; var seen = {};
         act.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
         speakers.forEach(function (spk, li) {
@@ -4403,7 +4403,7 @@ window.cleanOldClones = function () {
     function hookDrag() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || typeof MutationObserver === "undefined") return;
-        wrap.querySelectorAll("div[style*='cursor:grab']").forEach(function (b) {
+        wrap.querySelectorAll("div[style*='cursor: grab']").forEach(function (b) {
             if (b.dataset.fadeHook) return; b.dataset.fadeHook = "1";
             new MutationObserver(scheduleDraw).observe(b, { attributes: true, attributeFilter: ["style"] });
         });
@@ -4414,3 +4414,20 @@ window.cleanOldClones = function () {
     }
 })();
 
+// ===== LIVE CREDITS v2 (notify hook) =====
+// Calls refreshCredits() once whenever notify("success", ...) fires.
+// No polling, no per-tick spam. Idempotent.
+(function () {
+    if (typeof window.notify !== "function") return;
+    if (window._notifyCreditsHooked) return;
+    window._notifyCreditsHooked = true;
+    var _origNotify = window.notify;
+    window.notify = function (type, msg) {
+        try {
+            if (type === "success" && typeof window.refreshCredits === "function") {
+                setTimeout(window.refreshCredits, 50);  // defer so UI isn't blocked
+            }
+        } catch (e) {}
+        return _origNotify.apply(this, arguments);
+    };
+})();
