@@ -391,7 +391,8 @@ def generate_worker(req):
             vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
             if item["duration"] > allowed + 0.05:
                 fade_start = max(0, allowed - 0.2)
-                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+              fade_start = max(0, allowed - 0.06)
+            filter_parts.append(f"[{input_index}]aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.06,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
             else:
                 filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted_files))])
@@ -433,11 +434,11 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     adjusted = []
     cuts = 0
     for i, item in enumerate(items):
-        allowed_end = items[i + 1]["start"] - 0.02 if i + 1 < len(items) else final_duration
+        allowed_end = items[i + 1]["start"] - 0.005 if i + 1 < len(items) else final_duration
         allowed = allowed_end - item["start"]
-        if allowed <= 0.05:
+        if allowed <= 0.02:
             continue
-        if item["duration"] > allowed + 0.05:
+        if item["duration"] > allowed + 0.02:
             cuts += 1
         item["allowed_duration"] = min(item["duration"], allowed)
         adjusted.append(item)
@@ -582,7 +583,8 @@ def remix_with_offsets(req):
             vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
             if item["duration"] > allowed + 0.05:
                 fade_start = max(0, allowed - 0.2)
-                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+              fade_start = max(0, allowed - 0.06)
+            filter_parts.append(f"[{input_index}]aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.06,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
             else:
                 filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted))])
@@ -762,7 +764,8 @@ def generate_worker(req):
             vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
             if item["duration"] > allowed + 0.05:
                 fade_start = max(0, allowed - 0.2)
-                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+              fade_start = max(0, allowed - 0.06)
+            filter_parts.append(f"[{input_index}]aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.06,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
             else:
                 filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted_files))])
@@ -803,11 +806,11 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     adjusted = []
     cuts = 0
     for i, item in enumerate(items):
-        allowed_end = items[i + 1]["start"] - 0.02 if i + 1 < len(items) else final_duration
+        allowed_end = items[i + 1]["start"] - 0.005 if i + 1 < len(items) else final_duration
         allowed = allowed_end - item["start"]
-        if allowed <= 0.05:
+        if allowed <= 0.02:
             continue
-        if item["duration"] > allowed + 0.05:
+        if item["duration"] > allowed + 0.02:
             cuts += 1
         item["allowed_duration"] = min(item["duration"], allowed)
         adjusted.append(item)
@@ -942,7 +945,8 @@ def remix_with_offsets(req):
             vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
             if item["duration"] > allowed + 0.05:
                 fade_start = max(0, allowed - 0.2)
-                filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.2,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
+              fade_start = max(0, allowed - 0.06)
+            filter_parts.append(f"[{input_index}]aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},afade=t=out:st={fade_start:.3f}:d=0.06,asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
             else:
                 filter_parts.append(f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{idx}]")
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted))])
