@@ -19,10 +19,8 @@ from media_paths import resolve_job_audio
 eleven_client = None
 USER_GAINS = {}  # job_id -> {segment_id: extra dB from Step 5.5 sliders}
 
-
 def friendly_error(e):
     return str(e)
-
 
 def _bake_gain(path: Path, gain_db: float) -> Path:
     """Apply a volume gain to a line file (returns final path, always .wav)."""
@@ -49,7 +47,6 @@ def _bake_gain(path: Path, gain_db: float) -> Path:
                 pass
         return path
 
-
 def fetch_voices(api_key: str) -> dict:
     try:
         request = urllib.request.Request("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": api_key})
@@ -70,7 +67,6 @@ def fetch_voices(api_key: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
-
 def record_gemini(job_id, data):
     if not isinstance(data, dict):
         return
@@ -79,7 +75,6 @@ def record_gemini(job_id, data):
     b["gemini_in"] += int(u.get("promptTokenCount", 0) or 0)
     b["gemini_out"] += int(u.get("candidatesTokenCount", 0) or 0)
     b["gemini_thoughts"] += int(u.get("thoughtsTokenCount", 0) or 0)
-
 
 def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None) -> dict:
     audio_path = resolve_job_audio(job_id)
@@ -236,7 +231,6 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 warnings.append(f"{speaker}: Only {total_available:.1f}s available. Clone quality may be reduced.")
     return {"status": "success", "cloned_voices": cloned_voices, "warnings": warnings}
 
-
 def _mix_filter_part(input_index, allowed, delay_ms, gdb, trim):
     vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
     if trim:
@@ -246,7 +240,6 @@ def _mix_filter_part(input_index, allowed, delay_ms, gdb, trim):
                 f"adelay={delay_ms}|{delay_ms},apad[a{input_index - 1}]")
     return (f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},"
             f"asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{input_index - 1}]")
-
 
 def generate_worker(req):
     global eleven_client
@@ -403,7 +396,6 @@ def generate_worker(req):
     except Exception as e:
         jobs_progress["generate"] = {"status": "error", "percent": 0, "error": str(e), "result": None}
 
-
 def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None):
     """Rebuild final_dubbed.mp3 from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
     active = dict(USER_GAINS.get(job_id or "", {}))
@@ -455,7 +447,6 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
     return {"segments_generated": len(adjusted), "duration_cuts": cuts,
             "final_duration": round(final_duration, 2)}
-
 
 def regenerate_line(req):
     """Re-speak ONE segment with TTS, stretch it into its window, volume-match it, then rebuild the mix."""
@@ -522,7 +513,6 @@ def regenerate_line(req):
     except Exception as e:
         return {"error": friendly_error(e)}
 
-
 def remix_with_offsets(req):
     """Rebuild final_dubbed.mp3 applying per-segment time offsets AND Step 5.5 volume gains."""
     try:
@@ -582,7 +572,6 @@ def remix_with_offsets(req):
     except Exception as e:
         return {"error": friendly_error(e)}
 
-
 def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
     keep = set(keep_ids or [])
     try:
@@ -605,7 +594,6 @@ def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
         return {"deleted": deleted, "errors": errors}
     except Exception as e:
         return {"deleted": 0, "errors": [str(e)]}
-
 
 def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
     safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"
