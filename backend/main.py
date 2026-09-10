@@ -870,3 +870,31 @@ def account_summary(request: Request):
 @app.get("/account")
 def account_page():
     return FileResponse(BASE_DIR / "account.html")
+
+
+# ===== USAGE RECORDING: log every credit deduction to credit_spends =====
+def _record_spend(uid, action, credits, job_id=None):
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/credit_spends",
+            data=json.dumps({"uid": uid, "action": action, "job_id": job_id, "credits": credits}).encode("utf-8"),
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Content-Type": "application/json", "Prefer": "return=minimal"},
+            method="POST")
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
+try:
+    _od = deduct_credits
+    def deduct_credits(*a, **k):
+        r = _od(*a, **k)
+        try:
+            uid = a[0] if len(a) > 0 else k.get("uid")
+            amt = a[1] if len(a) > 1 else k.get("amount", k.get("credits"))
+            act = a[2] if len(a) > 2 else k.get("action", "deduction")
+            jid = a[3] if len(a) > 3 else k.get("job_id")
+            _record_spend(uid, act or "deduction", amt, jid)
+        except Exception:
+            pass
+        return r
+except NameError:
+    pass
