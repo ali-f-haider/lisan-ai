@@ -3598,3 +3598,201 @@ async function applyVolumes() {
         };
     }
 })();
+
+// ===== FIX: custom voice button (late binding) + robust upload + voice GC =====
+(function () {
+    function bind() {
+        var b = document.getElementById("cvUpload");
+        if (b) b.onclick = function () { if (typeof window.uploadCustomVoice === "function") window.uploadCustomVoice(); };
+    }
+    bind();
+    new MutationObserver(bind).observe(document.body, { childList: true, subtree: true });
+})();
+
+window.uploadCustomVoice = function () {
+    var fEl = document.getElementById("cvFile");
+    var spEl = document.getElementById("cvSpeaker");
+    var st = document.getElementById("cvStatus");
+    if (!fEl || !spEl) { notify("error", "Custom voice box not ready — refresh the page."); return; }
+    var f = fEl.files[0];
+    var sp = spEl.value || "Speaker 1";
+    if (!f) { notify("error", "Choose an MP3 or WAV clip first."); return; }
+    if (!/\.(mp3|wav)$/i.test(f.name)) { notify("error", "Only MP3 or WAV files are allowed."); return; }
+    var probe = new Audio(URL.createObjectURL(f));
+    probe.onloadedmetadata = function () {
+        if (probe.duration > 20.5) { notify("error", "Clip is " + Math.round(probe.duration) + "s — the limit is 20 seconds."); return; }
+        var form = new FormData();
+        form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
+        if (st) st.textContent = "Uploading & creating voice...";
+        function tryUrl(url, fallback) {
+            fetch(url, { method: "POST", body: form.clone ? form : form })
+                .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+                .then(function (out) {
+                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) {
+                        if (fallback) { tryUrl(fallback, null); return; }
+                        if (st) st.textContent = "";
+                        notify("error", (out.d && (out.d.error || out.d.detail)) || "Server error — is the server redeployed?");
+                        return;
+                    }
+                    if (st) st.textContent = "";
+                    clonedBySpeaker[sp] = out.d.voice_id;
+                    speakerChoices[sp] = "clone";
+                    applyChoice(sp);
+                    renderSpeakerVoices();
+                    notify("success", "Custom voice created and assigned to " + sp + ".");
+                })
+                .catch(function (e) {
+                    if (fallback) { tryUrl(fallback, null); return; }
+                    if (st) st.textContent = "";
+                    notify("error", "Upload failed: " + e.message);
+                });
+        }
+        tryUrl("/api/upload_custom_voice", "/api/upload_custom_voice2");
+    };
+    probe.onerror = function () { notify("error", "Could not read that audio file."); };
+};
+
+window.cleanOldClones = function () {
+    if (!confirm("Delete ALL old cloned/custom voices from your voice account, except the ones this project is using right now?")) return;
+    var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
+    fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep }) })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { notify("success", "🧹 Removed " + (d.deleted || 0) + " old cloned voice(s)." + ((d.errors || []).length ? " (" + d.errors.length + " errors)" : "")); })
+        .catch(function (e) { notify("error", e.message); });
+};
+
+// 🧹 button inside the custom-voice box
+(function () {
+    function ensure() {
+        var box = document.getElementById("customVoiceBox");
+        if (!box || document.getElementById("cvClean")) return;
+        var b = document.createElement("button");
+        b.id = "cvClean"; b.className = "red"; b.style.marginTop = "8px";
+        b.textContent = "🧹 Clean old cloned voices";
+        b.onclick = function () { window.cleanOldClones(); };
+        box.appendChild(b);
+    }
+    ensure();
+    new MutationObserver(ensure).observe(document.body, { childList: true, subtree: true });
+})();
+
+// Auto garbage-collect after every cloning run (keep only current clones)
+(function () {
+    if (typeof confirmCloning !== "function") return;
+    var orig = confirmCloning;
+    confirmCloning = function () {
+        var p = orig.apply(this, arguments);
+        Promise.resolve(p).then(function () {
+            var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
+            if (keep.length) fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep }) }).catch(function () {});
+        });
+        return p;
+    };
+})();
+
+// ===== BILINGUAL UI (EN ⇄ AR) =====
+(function () {
+    var P = [ // prefix-mode: buttons, links, headings
+        ["Step 1: Upload Audio or Video", "الخطوة 1: رفع الصوت أو الفيديو"],
+        ["Step 2: Edit Segments", "الخطوة 2: تحرير المقاطع"],
+        ["Step 3: Voice Cloning Setup", "الخطوة 3: إعداد استنساخ الصوت"],
+        ["Step 3.5: Choose Which Speakers to Clone", "الخطوة 3.5: اختيار المتحدثين للاستنساخ"],
+        ["Step 4: Speaker Voices", "الخطوة 4: أصوات المتحدثين"],
+        ["Step 5: Generate Arabic Audio", "الخطوة 5: توليد الصوت العربي"],
+        ["Step 5.5: Volume Match & Per-Line Mix", "الخطوة 5.5: مطابقة مستوى الصوت ومزج كل سطر"],
+        ["Step 6: Final Result", "الخطوة 6: النتيجة النهائية"],
+        ["Start", "ابدأ"],
+        ["Auto Translate to Arabic", "ترجمة تلقائية إلى العربية"],
+        ["Add Tashkeel Only", "إضافة التشكيل فقط"],
+        ["Detect Emotions from Voice", "كشف المشاعر من الصوت"],
+        ["Auto-Fix Timing", "إصلاح التوقيت تلقائيًا"],
+        ["Import SRT/SBV", "استيراد SRT/SBV"],
+        ["Save Project", "حفظ المشروع"],
+        ["Load Project", "تحميل المشروع"],
+        ["Prepare Voice Cloning", "تحضير استنساخ الصوت"],
+        ["Clone Selected Voices", "استنساخ الأصوات المحددة"],
+        ["Auto-Assign All", "تعيين تلقائي للكل"],
+        ["Generate Arabic Audio", "توليد الصوت العربي"],
+        ["Merge Audio into Video", "دمج الصوت في الفيديو"],
+        ["Confirm Changes & Rebuild MP3", "تأكيد التغييرات وإعادة بناء MP3"],
+        ["Reset Offsets", "إصفار الإزاحات"],
+        ["Fine-Tune Timeline", "ضبط الخط الزمني"],
+        ["Dub Another Video", "دبلجة فيديو آخر"],
+        ["Log Out", "تسجيل الخروج"],
+        ["Download MP3", "تنزيل MP3"],
+        ["Download Dubbed Video (MP4)", "تنزيل الفيديو المدبلج (MP4)"],
+        ["Download Pure Vocals (MP3)", "تنزيل الصوت فقط (MP3)"],
+        ["Apply Volumes & Rebuild MP3", "تطبيق مستويات الصوت وإعادة بناء MP3"],
+        ["Reset All Sliders", "إعادة تعيين كل المنزلقات"],
+        ["Upload as this speaker's voice", "رفعه كصوت لهذا المتحدث"],
+        ["Clean old cloned voices", "تنظيف الأصوات المستنسخة القديمة"],
+        ["📊 Usage", "📊 الاستخدام"],
+        ["➕ Buy", "➕ شراء"]
+    ];
+    var R = [ // replace-mode: notes & paragraphs
+        ["Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM", "يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. الحدود: 60 ثانية و400 ميجابايت كحد أقصى"],
+        ["Important: Your generated audio", "مهم: ملفات الصوت والفيديو الناتجة مؤقتة. نزّلها فورًا بعد المعالجة — ستُفقد عند انتهاء الجلسة أو إعادة تشغيل الخادم"],
+        ["Download your files now", "نزّل ملفاتك الآن! الصوت والفيديو الناتجان مؤقتان ويُفقدان عند انتهاء الجلسة"],
+        ["English to Arabic AI Dubbing", "دبلجة ذكاء اصطناعي من الإنجليزية إلى العربية"],
+        ["Credits are our internal unit", "الائتمانات وحدتنا الداخلية: 100 ائتمان = 1 دولار. الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط"],
+        ["Voice generation supports emotions", "يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُحتسب التكلفة بالأحرف وتُعرض بالائتمانات (100 ائتمان = 1 دولار)"],
+        ["Cloning copies each speaker's own voice", "ينسخ الاستنساخ صوت كل متحدث من الفيديو. اختياري — يمكنك اختيار أصوات المكتبة في الخطوة 4"],
+        ["Pick a voice for each speaker", "اختر صوتًا لكل متحدث. الأصوات المستنسخة من الفيديو؛ والأصوات المرقمة من مكتبة الاستوديو"],
+        ["Combines the dubbed Arabic audio", "يدمج الصوت العربي المدبلج مع موسيقى الخلفية الأصلية والفيديو"],
+        ["Drag each block left/right", "اسحب كل كتلة يسارًا/يمينًا لمطابقة حركة الشفاه، ثم أكّد لإعادة بناء MP3"],
+        ["Each Arabic line was automatically loudness-matched", "تمت مطابقة مستوى كل سطر عربي مع صوت المتحدث الأصلي تلقائيًا (عمود Auto). شغّل 🔊 واضبط بالمنزلق ثم طبّق"],
+        ["Use your own voice clip", "استخدم مقطع صوتك الخاص: اختر متحدثًا وارفع مقطع MP3/WAV (حتى 20 ثانية) يتحدث فيه الشخص معظم الوقت. لا يُحلَّل المقطع — يستخرج محرك الصوت الصوت السائد فيه"]
+    ];
+    var WM = new WeakMap();
+    window.currentLang = localStorage.getItem("lisan_lang") || "en";
+    function snap(el) {
+        if (!WM.has(el)) {
+            if (el.firstChild && el.firstChild.nodeType === 3) WM.set(el, { t: "n", v: el.firstChild.nodeValue });
+            else WM.set(el, { t: "h", v: el.innerHTML });
+        }
+        return WM.get(el);
+    }
+    window.applyLang = function (lang) {
+        window.currentLang = lang;
+        localStorage.setItem("lisan_lang", lang);
+        document.querySelectorAll("h3, button, a, p, .note, span").forEach(function (el) {
+            if (el.id === "fileUploadText" || el.closest("#notifyPanel") || el.closest("#buyModal")) return;
+            var base = (el.textContent || "").trim();
+            if (!base) return;
+            var isCtl = (el.tagName === "BUTTON" || el.tagName === "A" || el.tagName === "H3");
+            var list = isCtl ? P : R;
+            for (var i = 0; i < list.length; i++) {
+                var en = list[i][0], ar = list[i][1];
+                var hit = isCtl ? base.indexOf(en) === 0 : base.indexOf(en) > -1;
+                if (!hit) continue;
+                var s = snap(el);
+                if (lang === "ar") {
+                    if (s.t === "n") el.firstChild.nodeValue = isCtl ? ar + " " : s.v.replace(en, ar);
+                    else el.innerHTML = ar;
+                } else {
+                    if (s.t === "n") el.firstChild.nodeValue = s.v;
+                    else el.innerHTML = s.v;
+                }
+                return;
+            }
+        });
+        var lb = document.getElementById("langBtn");
+        if (lb) lb.textContent = (lang === "en") ? "🌐 عربي" : "🌐 English";
+        document.documentElement.lang = (lang === "ar") ? "ar" : "en";
+    };
+    (function () {
+        var bar = document.getElementById("userBar");
+        if (!bar || document.getElementById("langBtn")) return;
+        var right = bar.children[1];
+        var b = document.createElement("button");
+        b.id = "langBtn"; b.className = "btn-logout";
+        b.onclick = function () { window.applyLang(window.currentLang === "en" ? "ar" : "en"); };
+        right.insertBefore(b, right.firstElementChild);
+        window.applyLang(window.currentLang);
+    })();
+    var t = null;
+    new MutationObserver(function () {
+        clearTimeout(t);
+        t = setTimeout(function () { if (window.currentLang === "ar") window.applyLang("ar"); }, 400);
+    }).observe(document.body, { childList: true, subtree: true });
+})();

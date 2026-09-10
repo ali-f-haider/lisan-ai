@@ -954,3 +954,57 @@ def remix_with_offsets(req):
                 "final_duration": round(final_duration, 2)}
     except Exception as e:
         return {"error": str(e)}
+        
+        # ================= VOICE GARBAGE COLLECTION (appended) =================
+def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
+    keep = set(keep_ids or [])
+    try:
+        req = urllib.request.Request("https://api.elevenlabs.io/v1/voices?page_size=100", headers={"xi-api-key": api_key})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.load(r)
+        deleted, errors = 0, []
+        for v in data.get("voices", []):
+            name = v.get("name") or ""
+            vid = v.get("voice_id")
+            if not name.startswith(("Cloned_", "Custom_")):
+                continue
+            if vid in keep:
+                continue
+            try:
+                dreq = urllib.request.Request(f"https://api.elevenlabs.io/v1/voices/{vid}", method="DELETE", headers={"xi-api-key": api_key})
+                with urllib.request.urlopen(dreq, timeout=30) as dr:
+                    dr.read()
+                deleted += 1
+            except Exception as e:
+                errors.append(f"{name}: {e}")
+        return {"deleted": deleted, "errors": errors}
+    except Exception as e:
+        return {"deleted": 0, "errors": [str(e)]}
+
+
+def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
+    safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"
+    wav = OUTPUT_DIR / f"custom_{job_id}_{safe}.wav"
+    run_ffmpeg(["ffmpeg", "-y", "-i", str(src_path), "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(wav)])
+    dur = get_media_duration(wav)
+    if dur > 20.5:
+        try: wav.unlink()
+        except Exception: pass
+        return f"ERROR: Clip is {dur:.1f}s — the limit is 20 seconds."
+    if dur < 1.0:
+        pad = OUTPUT_DIR / f"custom_{job_id}_{safe}_pad.wav"
+        run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-af", f"apad=pad_dur={max(0.2, 1.15 - dur)}", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(pad)])
+        try: wav.unlink()
+        except Exception: pass
+        wav = pad
+    with open(wav, "rb") as f:
+        file_data = f.read()
+    http = urllib3.PoolManager()
+    resp = http.request("POST", "https://api.elevenlabs.io/v1/voices/add",
+                        headers={"xi-api-key": api_key},
+                        fields={"name": f"Custom_{speaker}", "files": (wav.name, file_data, "audio/wav"), "labels": "{}"})
+    try: wav.unlink()
+    except Exception: pass
+    if resp.status == 200:
+        return json.loads(resp.data.decode()).get("voice_id", "ERROR: no voice_id returned")
+    return f"ERROR: Voice engine rejected the clip (status {resp.status})."

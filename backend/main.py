@@ -1010,3 +1010,36 @@ def account_summary(request: Request):
 @app.get("/account")
 def account_page():
     return FileResponse(BASE_DIR / "account.html")
+    
+    # ================= VOICE CLEANUP + CUSTOM VOICE (appended; safe if routes already exist) =================
+@app.post("/api/cleanup_voices")
+def cleanup_voices(payload: dict = {}):
+    keep = payload.get("keep", []) or []
+    return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)
+
+
+@app.post("/api/upload_custom_voice2")
+async def upload_custom_voice2(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    name = (file.filename or "").lower()
+    if not name.endswith((".mp3", ".wav")):
+        return {"error": "Only MP3 or WAV files are allowed."}
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        return {"error": "File too large (max 10 MB / 20 seconds)."}
+    tmp = OUTPUT_DIR / f"custom_upload_{uuid.uuid4().hex}.bin"
+    tmp.write_bytes(data)
+    try:
+        res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
+    except Exception as e:
+        res = f"ERROR: {e}"
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+    if isinstance(res, str) and res.startswith("ERROR"):
+        return {"error": res}
+    return {"status": "success", "voice_id": res}
