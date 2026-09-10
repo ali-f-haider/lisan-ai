@@ -2906,3 +2906,110 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         window.openBuyModal = function () { syncCredits(); return _origOpenBuy(); };
     }
 })();
+// ===== STEP 5.5: VOLUME MATCH =====
+window.VOL_NODES = {}; window._volumeGains = window._volumeGains || {}; window._volumeLines = window._volumeLines || [];
+(function injectVolumeCard() {
+    if (document.getElementById("volumeSection")) return;
+    var res = document.getElementById("resultSection"); if (!res) return;
+    var card = document.createElement("div"); card.className = "card hidden"; card.id = "volumeSection";
+    card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3><p class="note">Fine-tune each line\'s volume.</p><div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>Orig</th><th>Dub</th><th>Auto</th><th>Trim</th></tr></thead><tbody></tbody></table></div><button id="applyVolumesBtn" class="green">🔊 Apply Volumes & Rebuild MP3</button> <button id="resetVolumesBtn" class="blue">↺ Reset</button>';
+    res.parentNode.insertBefore(card, res);
+    document.getElementById("applyVolumesBtn").onclick = applyVolumesV2;
+    document.getElementById("resetVolumesBtn").onclick = resetVolumesV2;
+})();
+function buildVolumeTable(lines) {
+    var tbody = document.querySelector("#volumeTable tbody"); if (!tbody) return; tbody.innerHTML = "";
+    (lines || []).forEach(function (ln, i) {
+        var seg = segmentsData.find(function (s) { return s.segment_id === ln.segment_id; }) || {};
+        var tr = document.createElement("tr");
+        function td(html) { var c = document.createElement("td"); c.innerHTML = html; tr.appendChild(c); return c; }
+        td(String(i + 1)); td(ln.speaker || seg.speaker || "");
+        td('<span title="' + (seg.arabic_text||"").replace(/"/g, "'") + '">' + (seg.arabic_text||"").slice(0, 40) + '</span>');
+        td(ln.orig_db == null ? "—" : ln.orig_db + " dB");
+        td(ln.dub_db == null ? "—" : ln.dub_db + " dB");
+        td((ln.auto_gain_db > 0 ? "+" : "") + ln.auto_gain_db + " dB");
+        var c3 = document.createElement("td");
+        var cur = (window._volumeGains || {})[ln.segment_id] || 0;
+        var rg = document.createElement("input"); rg.type = "range"; rg.min = -12; rg.max = 12; rg.step = 0.5; rg.value = cur;
+        rg.oninput = function () { window._volumeGains[ln.segment_id] = parseFloat(rg.value); };
+        c3.appendChild(rg); tr.appendChild(c3);
+        tbody.appendChild(tr);
+    });
+}
+function showVolumeSection(lines) {
+    window._volumeLines = lines; window._volumeGains = {};
+    (lines || []).forEach(function (ln) { window._volumeGains[ln.segment_id] = Number(ln.auto_gain_db) || 0; });
+    buildVolumeTable(lines);
+    var el = document.getElementById("volumeSection"); if (el) el.classList.remove("hidden");
+}
+function applyVolumesV2() {
+    if (!currentJobId) return;
+    var btn = document.getElementById("applyVolumesBtn"); btn.disabled = true; btn.textContent = "⏳ Rebuilding...";
+    fetch("/api/remix_audio", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, offsets: segmentOffsets, gains: window._volumeGains, total_duration: totalDuration, duration_mode: document.getElementById("durationMode").value })
+    }).then(function (r) { return r.json(); }).then(function (data) {
+        if (!data || data.status !== "success") { notify("error", "Rebuild failed"); return; }
+        notify("success", "Volumes applied — final MP3 rebuilt.");
+        var au = document.querySelector("#audioResults audio"); if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+    }).catch(function (e) { notify("error", e.message); }).finally(function () { btn.disabled = false; btn.textContent = "🔊 Apply Volumes & Rebuild MP3"; });
+}
+function resetVolumesV2() {
+    window._volumeGains = {};
+    (window._volumeLines || []).forEach(function (ln) { window._volumeGains[ln.segment_id] = Number(ln.auto_gain_db) || 0; });
+    buildVolumeTable(window._volumeLines || []);
+    notify("info", "Sliders reset to auto-matched volumes.");
+}
+(function () {
+    if (typeof checkGenerateProgress !== "function") return;
+    var orig = checkGenerateProgress;
+    checkGenerateProgress = async function () {
+        await orig();
+        try {
+            var r = await fetch("/api/progress/generate?t=" + Date.now()); var d = await r.json();
+            if (d && d.status === "done" && d.result && Array.isArray(d.result.lines) && d.result.lines.length) {
+                showVolumeSection(d.result.lines);
+            }
+        } catch (e) {}
+    };
+})();
+
+// ===== V3: custom voices =====
+(function () {
+    document.querySelectorAll("button").forEach(function (b) { if (/Load Voice Options/i.test(b.textContent)) b.style.display = "none"; });
+    var bar = document.getElementById("userBar");
+    if (bar && !document.getElementById("accountBtn")) {
+        var right = bar.children[1]; var a = document.createElement("button");
+        a.id = "accountBtn"; a.className = "btn-logout"; a.textContent = "📊 Usage";
+        a.onclick = function () { window.location.href = "/account"; };
+        right.insertBefore(a, document.getElementById("buyBtn") || right.lastElementChild);
+    }
+    var sv = document.getElementById("speakerVoicesSection");
+    if (sv && !document.getElementById("customVoiceBox")) {
+        var box = document.createElement("div"); box.id = "customVoiceBox"; box.className = "note"; box.style.marginTop = "12px";
+        box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s).<br><select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select><input type="file" id="cvFile" accept=".mp3,.wav" style="width:auto;display:inline-block;margin-top:8px;"><button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice</button><span id="cvStatus" style="margin-left:10px;font-size:12px;color:#6b7280;"></span>';
+        sv.appendChild(box);
+        document.getElementById("cvUpload").onclick = window.uploadCustomVoice;
+    }
+    window.uploadCustomVoice = function () {
+        var f = document.getElementById("cvFile").files[0]; var sp = document.getElementById("cvSpeaker").value; var st = document.getElementById("cvStatus");
+        if (!f) { notify("error", "Choose an MP3 or WAV clip first."); return; }
+        var form = new FormData(); form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
+        if (st) st.textContent = "Uploading & creating voice...";
+        fetch("/api/upload_custom_voice", { method: "POST", body: form }).then(function (r) { return r.json(); }).then(function (d) {
+            if (st) st.textContent = "";
+            if (d.error) { notify("error", d.error); return; }
+            clonedBySpeaker[sp] = d.voice_id; speakerChoices[sp] = "clone"; applyChoice(sp); renderSpeakerVoices();
+            notify("success", "Custom voice created and assigned to " + sp + ".");
+        }).catch(function (e) { if (st) st.textContent = ""; notify("error", e.message); });
+    };
+    function refreshCvSpeakers() {
+        var sel = document.getElementById("cvSpeaker"); if (!sel) return;
+        var names = []; segmentsData.forEach(function (s) { if (names.indexOf(s.speaker) < 0) names.push(s.speaker); });
+        sel.innerHTML = ""; names.forEach(function (n) { var o = document.createElement("option"); o.value = n; o.textContent = n; sel.appendChild(o); });
+    }
+    if (typeof renderSpeakerVoices === "function") {
+        var _rsv = renderSpeakerVoices;
+        renderSpeakerVoices = function () { var r = _rsv.apply(this, arguments); refreshCvSpeakers(); return r; };
+    }
+})();

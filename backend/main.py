@@ -829,3 +829,44 @@ def download(filename: str):
     if not p.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p, filename=filename)
+@app.get("/api/segment_audio/{job_id}/{segment_id}")
+def segment_audio(job_id: str, segment_id: str):
+    if "/" in segment_id or ".." in segment_id: return JSONResponse({"error": "bad id"}, status_code=400)
+    for ext, mt2 in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
+        p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
+        if p.exists():
+            fr = FileResponse(p, media_type=mt2); fr.headers["Cache-Control"] = "no-store"; return fr
+    return JSONResponse({"error": "not found"}, status_code=404)
+
+@app.post("/api/cleanup_voices")
+def cleanup_voices(payload: dict = {}):
+    return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, payload.get("keep", []))
+
+@app.post("/api/upload_custom_voice")
+async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
+    uid = _current_uid(request)
+    if not uid: return JSONResponse({"error": "login required"}, status_code=401)
+    nm = (file.filename or "").lower()
+    if not nm.endswith((".mp3", ".wav")): return {"error": "Only MP3 or WAV files are allowed."}
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024: return {"error": "File too large (max 10 MB / 20 seconds)."}
+    import uuid as _u
+    tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
+    tmp.write_bytes(data)
+    try: res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
+    except Exception as e: res = f"ERROR: {e}"
+    finally:
+        try: tmp.unlink()
+        except Exception: pass
+    if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
+    return {"status": "success", "voice_id": res}
+
+@app.get("/api/account/summary")
+def account_summary(request: Request):
+    uid = _current_uid(request)
+    if not uid: return JSONResponse({"error": "login required"}, status_code=401)
+    return {"credits": get_credits(uid) or 100, "purchases": [], "spends": []}
+
+@app.get("/account")
+def account_page():
+    return FileResponse(BASE_DIR / "account.html")
