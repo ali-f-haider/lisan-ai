@@ -18,6 +18,21 @@ let transcribePollTimer = null, generatePollTimer = null, emotionPollTimer = nul
 let previewAudio = null, previewBtnCurrent = null;
 window.clonedVoiceIds = [];
 
+
+// Compute the "allowed" time window for a line (same logic the server uses to trim/fade).
+// Returns { allowedStart, allowedEnd } in seconds. Anything beyond allowedEnd is the faded/cut part.
+function allowedWindowFor(seg) {
+    var sorted = segmentsData.slice().sort(function (a, b) { return a.start - b.start; });
+    var idx = -1;
+    for (var k = 0; k < sorted.length; k++) { if (sorted[k].segment_id === seg.segment_id) { idx = k; break; } }
+    if (idx < 0) return { allowedStart: seg.start, allowedEnd: seg.end };
+    var nextStart = (idx + 1 < sorted.length) ? sorted[idx + 1].start : (totalDuration > 0 ? totalDuration : seg.end + 5);
+    var allowedEnd = Math.min(seg.end, nextStart - 0.005); // 5ms guard, matches server
+    return { allowedStart: seg.start, allowedEnd: Math.max(allowedEnd, seg.start + 0.05) };
+}
+
+
+
 function friendly(msg) {
     msg = String(msg || "");
     if (/voice_not_found|was not found/i.test(msg)) {
