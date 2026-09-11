@@ -638,7 +638,22 @@ def terms_page():
     return FileResponse(BASE_DIR / "terms.html")
 
 
-@app.get("/help", "/privacy", "/privacy.html", "/terms", "/terms.html")
+@app.get("/privacy")
+@app.get("/privacy.html")
+def privacy_page():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html"))
+
+@app.get("/terms")
+@app.get("/terms.html")
+def terms_page():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
+
+@app.get("/help")
+@app.get("/help.html")
 def help_page():
     return FileResponse(BASE_DIR / "help.html", media_type="text/html")
 
