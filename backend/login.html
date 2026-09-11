@@ -29,12 +29,11 @@
 <body>
     <div class="login-card">
         <img src="/logo.png" alt="Lisan AI">
-        <h1>Welcome Back</h1>
-        <p>Log in to continue your dubbing projects.</p>
-        
+        <h1>Welcome to Lisan AI</h1>
+                
         <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
         <input type="password" id="loginPassword" placeholder="Password (or access code)" autocomplete="current-password" onkeydown="if(event.key==='Enter')doSmartLogin()">
-        
+        <button type="button" id="googleBtn" onclick="googleLogin()" style="width:100%;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #dadce0;background:#fff;font-weight:600;cursor:pointer;">🔵 Continue with Google</button>
         <button class="btn-primary" id="btnLogin" onclick="doSmartLogin()">Log In</button>
         <button class="btn-secondary" onclick="doSignUp()">Create Account</button>
         
@@ -145,6 +144,22 @@ async function doSignUp() {
         showMsg("Sign up failed: " + e.message, true);
     }
 }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+function googleLogin(){
+  var sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY);
+  sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + "/login" } });
+}
+(function(){
+  var m = location.hash.match(/access_token=([^&]+)/);
+  if (!m) return;
+  fetch("/api/login", { method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ access_token: decodeURIComponent(m[1]) }) })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ if (!d.error) location.replace("/app"); })
+    .catch(function(){});
+})();
 </script>
 </body>
 </html>

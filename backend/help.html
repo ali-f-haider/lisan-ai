@@ -165,6 +165,10 @@
                 <summary>Are my uploaded files and generated videos saved on your servers?</summary>
                 <p><strong>No.</strong> Your uploaded files, transcriptions, and generated audio/video are stored temporarily on the server only while your session is active. They are automatically deleted when the server restarts or after a short period. <strong>You must download your results during your session</strong> — once you close the browser or the server recycles, the files are gone permanently. We do not keep copies of your media. For your safety, always click the download buttons in Step 6 before leaving the page.</p>
             </details>
+			<details class="faq-item">
+                <summary>Will the resolution or quality of my video be affected?</summary>
+                <p><strong>No.</strong> The original video stream is copied unchanged; only the audio track is replaced (or mixed) with the dubbed Arabic audio. Resolution, bitrate and visuals stay exactly as your source file.</p>
+            </details>
         </div>
     </div>
 
@@ -288,33 +292,13 @@
                 <summary>هل يتم حفظ ملفاتي ومقاطع الفيديو المولدة على خوادمكم؟</summary>
                 <p><strong>لا.</strong> ملفاتك المرفوعة والنسخ الكتابية والصوت/الفيديو المُولّد تُخزّن مؤقتاً على الخادم فقط أثناء جلستك النشطة. تُحذف تلقائياً عند إعادة تشغيل الخادم أو بعد فترة قصيرة. <strong>يجب عليك تنزيل نتائجك أثناء جلستك</strong> — بمجرد إغلاق المتصفح أو إعادة تدوير الخادم، تختفي الملفات نهائياً. لا نحتفظ بنسخ من وسائطك. لسلامتك، اضغط دائماً على أزرار التنزيل في الخطوة ٦ قبل مغادرة الصفحة.</p>
             </details>
+			<details class="faq-item">
+                <summary>هل ستتأثر دقة أو جودة الفيديو؟</summary>
+                <p><strong>لا.</strong> يتم نسخ مسار الفيديو الأصلي دون أي تغيير، ويُستبدل مسار الصوت فقط بالصوت العربي المدبلج (أو يُدمج معه). تبقى الدقة والمعدل البصري كما هي في ملفك الأصلي.</p>
+            </details>
         </div>
     </div>
 </div>
 
-<script>
-function showLang(lang) {
-    document.getElementById("helpEn").classList.toggle("active", lang === "en");
-    document.getElementById("helpAr").classList.toggle("active", lang === "ar");
-    document.getElementById("btnEn").classList.toggle("active", lang === "en");
-    document.getElementById("btnAr").classList.toggle("active", lang === "ar");
-}
-</script>
-</body>
-<script>
-(function () {
-    if (document.getElementById("faqVideoQuality")) return;
-    var cards = document.querySelectorAll(".card");
-    var anchor = cards[cards.length - 1];
-    if (!anchor) return;
-    var faq = document.createElement("div");
-    faq.className = "card";
-    faq.id = "faqVideoQuality";
-    faq.innerHTML =
-        '<h3>❓ Will the resolution or quality of my video be affected?</h3>' +
-        '<p class="note"><strong>No.</strong> Your video picture is never re-encoded or resized: the original video stream is copied bit-for-bit into the final file, so resolution, frame rate and visual quality stay exactly as you uploaded them. Only the <strong>audio track</strong> is replaced — the original English vocals are removed and the Arabic dub is mixed in together with your original background music/sounds (optionally enhanced). The only quality-related settings are audio ones: each Arabic line is automatically loudness-matched to its original speaker, and the Tempo Stretch Limit (Excellent / Good / Maximum) controls how far a line may be sped up or slowed down to fit its lip window.</p>' +
-        '<p class="note" dir="rtl" style="text-align:right;"><strong>لا.</strong> لا تتم إعادة ترميز صورة الفيديو أبدًا ولا يتغير حجمه: يُنسخ مسار الفيديو الأصلي كما هو تمامًا في الملف النهائي، فتبقى الدقة ومعدل الإطارات وجودة الصورة كما رفعتها. ما يُستبدل هو <strong>مسار الصوت</strong> فقط — تُزال الأصوات الإنجليزية ويُضاف الصوت العربي المدبلج مع موسيقى الخلفية والأصوات الأصلية (مع إمكانية تحسينها). الإعدادات الوحيدة المتعلقة بالجودة هي صوتية: مطابقة مستوى الصوت تلقائيًا لكل متحدث أصلي، وحد تمديد الزمن (Excellent / Good / Maximum) الذي يتحكم بمدى تسريع أو إبطاء السطر ليطابق نافذة حركة الشفاه.</p>';
-    anchor.parentNode.insertBefore(faq, anchor.nextSibling);
-})();
-</script>
+
 </html>
