@@ -33,6 +33,14 @@
     .ar .step-card ul { padding-left: 0; padding-right: 20px; }
 </style>
 </head>
+<script>
+function showLang(lang) {
+    document.getElementById("helpEn").classList.toggle("active", lang === "en");
+    document.getElementById("helpAr").classList.toggle("active", lang === "ar");
+    document.getElementById("btnEn").classList.toggle("active", lang === "en");
+    document.getElementById("btnAr").classList.toggle("active", lang === "ar");
+}
+</script>
 <body>
 <div class="help-container">
     <a href="/" class="back-link">← Back to App / العودة للتطبيق</a>
