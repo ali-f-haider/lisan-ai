@@ -1,56 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lisan AI — Login</title>
-<link rel="icon" type="image/png" href="/logo.png">
-<style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef4f7;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
-.card{background:#f8fafc;border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.08);width:560px;max-width:96vw;padding:40px 60px;text-align:center}
-.card img{height:70px;margin-bottom:18px}
-h1{color:#1a237e;font-size:30px;margin:0 0 26px}
-input{width:100%;box-sizing:border-box;padding:14px 16px;margin:0 0 14px;border:1px solid #d7e0ea;border-radius:10px;background:#e8eef7;font-size:15px;font-family:inherit}
-button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radius:10px;border:1px solid #d7e0ea;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:10px}
-.social{background:#fff;color:#1f2937}
-.social:hover{background:#f3f4f6}
-.primary{background:#1a237e;color:#fff;border-color:#1a237e}
-.primary:hover{background:#283593}
-.secondary{background:#eceff3;color:#1a237e}
-.secondary:hover{background:#e2e6eb}
-.msg{display:none;font-size:14px;margin:6px 0 12px;white-space:pre-line}
-.msg.ok{color:#2e7d32}.msg.err{color:#c62828}
-.row{display:none;margin:4px 0 12px}
-.linklike{background:none;border:none;color:#2563eb;font-weight:600;font-size:13px;padding:0;margin:0 0 14px;width:auto;display:inline-block;cursor:pointer}
-.help{margin-top:18px;font-size:14px}
-.help a{color:#42a5f5;text-decoration:none;font-weight:600}
-</style>
-</head>
-<body>
-<div class="card">
-  <img src="/logo.png" alt="Lisan AI logo">
-  <h1>Welcome to Lisan AI</h1>
-  <input id="email" type="email" placeholder="Email" autocomplete="email">
-  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
-  <div class="msg" id="formMsg"></div>
+import re
+from pathlib import Path
 
-  <button class="social" id="googleBtn" onclick="socialLogin('google')">
-    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.3 5.3C37 41.9 44 36 44 24c0-1.2-.1-2.3-.4-3.5z"/></svg>
-    <span>Continue with Google</span>
-  </button>
-  <button class="primary" onclick="doLogin()">Log In</button>
-  <button class="secondary" onclick="doSignup()">Create Account</button>
-  <button class="linklike" onclick="doForgot()">Forgot password?</button>
+p = Path("login.html")
+t = p.read_text(encoding="utf-8")
 
-  <div class="row" id="recoveryRow">
-    <input id="newPass" type="password" placeholder="New password">
-    <button class="primary" onclick="doRecovery()">Set New Password</button>
-  </div>
-
-  <div class="help"><a href="/help">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+new_script = '''<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 var sb = null;
 function client(){ if(!sb && window.__SUPABASE_URL) sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || ""); return sb; }
@@ -132,6 +86,11 @@ function socialLogin(p){
   c.auth.signInWithOAuth({ provider: p, options: { redirectTo: location.origin + "/login" } });
 }
 </script>
+'''
 
-</body>
-</html>
+t = re.sub(r'<script src="https://cdn\.jsdelivr\.net/npm/@supabase/supabase-js@2"></script>.*?</script>\s*</body>', new_script + '\n</body>', t, flags=re.DOTALL)
+# safety: remove Facebook button if any leftover
+t = re.sub(r'<button class="social" id="fbBtn"[^>]*>.*?</button>\s*', '', t, flags=re.DOTALL)
+
+p.write_text(t, encoding="utf-8")
+print("✅ Login page is now calm: no auto-redirect on plain load.")
