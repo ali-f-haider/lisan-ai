@@ -626,7 +626,19 @@ def styles():
 def logo():
     return FileResponse(BASE_DIR / "logo.png", media_type="image/png")
 
-@app.get("/help")
+@app.get("/privacy")
+@app.get("/privacy.html")
+def privacy_page():
+    return FileResponse(BASE_DIR / "privacy.html")
+
+
+@app.get("/terms")
+@app.get("/terms.html")
+def terms_page():
+    return FileResponse(BASE_DIR / "terms.html")
+
+
+@app.get("/help", "/privacy", "/privacy.html", "/terms", "/terms.html")
 def help_page():
     return FileResponse(BASE_DIR / "help.html", media_type="text/html")
 
