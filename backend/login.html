@@ -78,8 +78,14 @@ async function doLogin(){
   var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
   var res = await c.auth.signInWithPassword({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
   if(res.error){
-    if(/confirm/i.test(res.error.message)) msg("Please confirm your email first (check your inbox), then log in.", "err");
-    else msg("Wrong email or password. Try again, or use “Forgot password?”.", "err");
+    if(/confirm/i.test(res.error.message)){
+      try{ await c.auth.resend({ type:"signup", email: document.getElementById("email").value.trim() }); }catch(e){}
+      msg("Your email is not confirmed yet. We just re-sent the confirmation link — open it, then log in again.", "err");
+    }
+    else if(/invalid login credentials/i.test(res.error.message)){
+      msg("Wrong password — or this account's email was never confirmed. Open your confirmation email, or use “Forgot password?” to reset, then log in.", "err");
+    }
+    else msg(res.error.message, "err");
     return;
   }
   await finishLogin(res.data.session);
@@ -106,6 +112,8 @@ async function doForgot(){
 }
 async function doRecovery(){
   var c = client(); if(!c) return;
+  var s0 = await c.auth.getSession();
+  if(!(s0.data && s0.data.session)){ msg("Recovery session missing or expired — open the link in your reset email again, then set the new password here.", "err"); return; }
   var res = await c.auth.updateUser({ password: document.getElementById("newPass").value });
   if(res.error){ msg(res.error.message, "err"); return; }
   msg("Password updated. Logging you in…", "ok");
@@ -122,6 +130,7 @@ window.addEventListener("DOMContentLoaded", async function(){
     var c = client();
     if(c){
       var s = await c.auth.getSession();
+      for(var i=0; i<6 && !(s.data && s.data.session); i++){ await new Promise(function(r){ setTimeout(r, 400); }); s = await c.auth.getSession(); }
       if(s.data.session){
         if(/type=recovery/.test(h)){ document.getElementById("recoveryRow").style.display = "block"; msg("Set your new password below.", "ok"); }
         else await finishLogin(s.data.session);
