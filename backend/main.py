@@ -194,7 +194,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not _is_logged_in(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
-            return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200, "/help", "/help.html", "/privacy", "/privacy.html", "/terms", "/terms.html")
+            return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200)
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
