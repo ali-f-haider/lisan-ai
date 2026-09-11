@@ -4019,166 +4019,6 @@ window.cleanOldClones = function () {
     new MutationObserver(bindMaster).observe(document.body, { childList: true, subtree: true });
 })();
 
-// ===== FADE PACK v2: amber shows exactly what the final mix fades/trims =====
-(function () {
-    if (window._fadePackV2) return;
-    window._fadePackV2 = true;
-    if (typeof checkGenerateProgress === "function") {
-        var _cg = checkGenerateProgress;
-        checkGenerateProgress = async function () {
-            await _cg.apply(this, arguments);
-            try {
-                var r = await fetch("/api/progress/generate?t=" + Date.now());
-                var d = await r.json();
-                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
-                    window._lineDurations = window._lineDurations || {};
-                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
-                }
-            } catch (e) {}
-        };
-    }
-    if (typeof renderTimeline !== "function") return;
-    var _baseRT = renderTimeline;
-    renderTimeline = function () {
-        _baseRT.apply(this, arguments);
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        var oldLeg = document.getElementById("timelineLegendFinal");
-        if (oldLeg) oldLeg.remove();
-        wrap.querySelectorAll(".segFadeOv").forEach(function (f) { f.remove(); });
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var W = wrap.clientWidth || 900;
-        var scale = W / total;
-        var lanes = wrap.querySelectorAll("div[style*='height: 34px']");
-        var speakers = []; var seen = {};
-        segmentsData.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
-        var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
-        speakers.forEach(function (spk, li) {
-            var lane = lanes[li];
-            if (!lane) return;
-            var boxes = lane.querySelectorAll("div[style*='cursor: grab']");
-            var laneSegs = act.filter(function (s) { return (s.speaker || "Speaker 1") === spk; });
-            laneSegs.forEach(function (seg, idx) {
-                var box = boxes[idx];
-                if (!box) return;
-                var f = document.createElement("div");
-                f.className = "segFadeOv";
-                function draw() {
-                    var off = segmentOffsets[seg.segment_id] || 0;
-                    var cs = seg.start + off;
-                    var slot = seg.end - seg.start;
-                    var stored = (window._lineDurations || {})[seg.segment_id] || 0;
-                    var ae = cs + Math.max(stored, slot);
-                    var ns = total;
-                    for (var k = 0; k < act.length; k++) {
-                        var os = act[k].start + (segmentOffsets[act[k].segment_id] || 0);
-                        if (act[k] !== seg && os > cs + 0.0001 && os < ns) ns = os;
-                    }
-                    var lim = ns - 0.005;
-                    var ov = ae - lim;
-                    var origNext = null;
-                    for (var j = 0; j < act.length; j++) {
-                        if (act[j] !== seg && act[j].start > seg.start + 0.0001 && (origNext === null || act[j].start < origNext)) origNext = act[j].start;
-                    }
-                    var origOverlap = (origNext !== null) && (seg.end > origNext + 0.02);
-                    if (ov > 0.02 && !origOverlap) {
-                        var lp = Math.max(0, (lim - cs) * scale);
-                        var wp = Math.max(3, slot * scale - lp);
-                        f.style.cssText = "position:absolute;top:4px;height:26px;left:" + lp + "px;width:" + wp + "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.92;border-radius:0 4px 4px 0;pointer-events:none;z-index:4;";
-                        f.title = "Faded/trimmed in the final mix (" + ov.toFixed(2) + "s runs into the next line)";
-                    } else {
-                        f.style.cssText = "display:none;";
-                    }
-                }
-                draw();
-                lane.appendChild(f);
-                if (typeof MutationObserver !== "undefined") new MutationObserver(draw).observe(box, { attributes: true, attributeFilter: ["style"] });
-            });
-        });
-        var leg = document.createElement("div");
-        leg.id = "timelineLegendFinal";
-        leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:6px;font-size:11px;color:#64748b;";
-        leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
-            '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
-        wrap.parentNode.insertBefore(leg, wrap.nextSibling);
-    };
-})();
-
-// ===== FADE PACK v3: interactive fade overlay (audio-length aware, live during drag) =====
-(function () {
-    if (window._fadePackV3) return; window._fadePackV3 = true;
-    if (typeof checkGenerateProgress === "function") {
-        var _cg = checkGenerateProgress;
-        checkGenerateProgress = async function () {
-            await _cg.apply(this, arguments);
-            try {
-                var r = await fetch("/api/progress/generate?t=" + Date.now());
-                var d = await r.json();
-                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
-                    window._lineDurations = window._lineDurations || {};
-                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
-                }
-            } catch (e) {}
-        };
-    }
-    function drawFades() {
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        wrap.querySelectorAll(".segFadeOv").forEach(function (f) { f.remove(); });
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var scale = (wrap.clientWidth || 900) / total;
-        var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
-        var lanes = wrap.querySelectorAll("div[style*='height: 34px']");
-        var speakers = []; var seen = {};
-        act.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
-        speakers.forEach(function (spk, li) {
-            var lane = lanes[li]; if (!lane) return;
-            act.filter(function (s) { return (s.speaker || "Speaker 1") === spk; }).forEach(function (seg) {
-                var off = segmentOffsets[seg.segment_id] || 0;
-                var cs = seg.start + off;
-                var slot = seg.end - seg.start;
-                var dur = Math.max((window._lineDurations || {})[seg.segment_id] || 0, slot);
-                var audioEnd = cs + dur;
-                var nextStart = null;
-                act.forEach(function (o) {
-                    if (o === seg) return;
-                    var os = o.start + (segmentOffsets[o.segment_id] || 0);
-                    if (os > cs + 0.0001 && (nextStart === null || os < nextStart)) nextStart = os;
-                });
-                var limit = (nextStart === null) ? total : nextStart - 0.005;
-                var overflow = audioEnd - limit;
-                if (overflow <= 0.02) return;
-                var leftPx = Math.max(0, limit * scale);
-                var w = Math.max(3, Math.min(audioEnd, total) * scale - leftPx);
-                var f = document.createElement("div");
-                f.className = "segFadeOv";
-                f.style.cssText = "position:absolute;top:4px;height:26px;left:" + leftPx + "px;width:" + w + "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;z-index:4;";
-                f.title = "Faded/trimmed in final mix (" + overflow.toFixed(2) + "s past the next line)";
-                lane.appendChild(f);
-            });
-        });
-        if (!document.getElementById("timelineLegendFinal")) {
-            var leg = document.createElement("div");
-            leg.id = "timelineLegendFinal";
-            leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:6px;font-size:11px;color:#64748b;";
-            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
-                '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
-            wrap.parentNode.insertBefore(leg, wrap.nextSibling);
-        }
-    }
-    function hookDrag() {
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || typeof MutationObserver === "undefined") return;
-        wrap.querySelectorAll("div[style*='cursor: grab']").forEach(function (b) {
-            if (b.dataset.fadeHook) return; b.dataset.fadeHook = "1";
-            new MutationObserver(function () { drawFades(); }).observe(b, { attributes: true, attributeFilter: ["style"] });
-        });
-    }
-    if (typeof renderTimeline === "function") {
-        var _rt = renderTimeline;
-        renderTimeline = function () { var r = _rt.apply(this, arguments); drawFades(); hookDrag(); return r; };
-    }
-})();
 // ===== CUSTOM VOICE v2: appears in speaker dropdown + label =====
 (function () {
     window._customVoiceNames = window._customVoiceNames || {};
@@ -4329,91 +4169,6 @@ window.cleanOldClones = function () {
     new MutationObserver(hideLoadVoices).observe(document.body, { childList: true, subtree: true });
     new MutationObserver(bindMaster).observe(document.body, { childList: true, subtree: true });
 })();
-// ===== FADE PACK v4: INTERACTIVE overlap fading (live while dragging) =====
-(function () {
-    if (window._fadePackV4) return; window._fadePackV4 = true;
-    if (typeof checkGenerateProgress === "function" && !window._durWrapV4) {
-        window._durWrapV4 = true;
-        var _cg = checkGenerateProgress;
-        checkGenerateProgress = async function () {
-            await _cg.apply(this, arguments);
-            try {
-                var r = await fetch("/api/progress/generate?t=" + Date.now());
-                var d = await r.json();
-                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
-                    window._lineDurations = window._lineDurations || {};
-                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
-                }
-            } catch (e) {}
-        };
-    }
-    var pending = false;
-    function scheduleDraw() {
-        if (pending) return; pending = true;
-        requestAnimationFrame(function () { pending = false; drawFades(); });
-    }
-    function drawFades() {
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || !segmentsData.length) return;
-        wrap.querySelectorAll(".segFadeOv").forEach(function (f) { f.remove(); });
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
-        var scale = (wrap.clientWidth || 900) / total;
-        var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
-        var pos = act.map(function (seg) {
-            var off = segmentOffsets[seg.segment_id] || 0;
-            var cs = seg.start + off;
-            var slot = seg.end - seg.start;
-            var dur = Math.max((window._lineDurations || {})[seg.segment_id] || 0, slot);
-            return { seg: seg, cs: cs, end: cs + dur };
-        });
-        var lanes = wrap.querySelectorAll("div[style*='height: 34px']");
-        var speakers = []; var seen = {};
-        act.forEach(function (s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; speakers.push(n); } });
-        speakers.forEach(function (spk, li) {
-            var lane = lanes[li]; if (!lane) return;
-            pos.filter(function (p) { return (p.seg.speaker || "Speaker 1") === spk; }).forEach(function (p) {
-                var limit = null;
-                pos.forEach(function (q) {
-                    if (q === p) return;
-                    if (q.cs > p.cs + 0.0001 && (limit === null || q.cs < limit)) limit = q.cs;
-                });
-                if (limit === null) return;
-                var fadeFrom = limit - 0.005;
-                if (p.end <= fadeFrom + 0.02) return;
-                var leftPx = Math.max(0, fadeFrom * scale);
-                var w = Math.max(3, Math.min(p.end, total) * scale - leftPx);
-                var f = document.createElement("div");
-                f.className = "segFadeOv";
-                f.style.cssText = "position:absolute;top:4px;height:26px;left:" + leftPx + "px;width:" + w +
-                    "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);" +
-                    "opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;z-index:4;";
-                f.title = "Overlaps the next line — this zone is faded/trimmed in the final mix";
-                lane.appendChild(f);
-            });
-        });
-        if (!document.getElementById("timelineLegendFinal")) {
-            var leg = document.createElement("div");
-            leg.id = "timelineLegendFinal";
-            leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:6px;font-size:11px;color:#64748b;";
-            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span>' +
-                '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span>';
-            wrap.parentNode.insertBefore(leg, wrap.nextSibling);
-        }
-    }
-    function hookDrag() {
-        var wrap = document.getElementById("timelineWrap");
-        if (!wrap || typeof MutationObserver === "undefined") return;
-        wrap.querySelectorAll("div[style*='cursor: grab']").forEach(function (b) {
-            if (b.dataset.fadeHook) return; b.dataset.fadeHook = "1";
-            new MutationObserver(scheduleDraw).observe(b, { attributes: true, attributeFilter: ["style"] });
-        });
-    }
-    if (typeof renderTimeline === "function") {
-        var _rt = renderTimeline;
-        renderTimeline = function () { var r = _rt.apply(this, arguments); drawFades(); hookDrag(); return r; };
-    }
-})();
-
 // ===== LIVE CREDITS v2 (notify hook) =====
 // Calls refreshCredits() once whenever notify("success", ...) fires.
 // No polling, no per-tick spam. Idempotent.
@@ -4432,14 +4187,14 @@ window.cleanOldClones = function () {
     };
 })();
 
-// ===== OVERLAP CONTROL v1: per-segment overlap permission + attached fades + custom-voice separation =====
+// ===== OVERLAP CONTROL v2: single flag-aware fade engine + UI updates =====
 (function () {
     window.overlapAllowed = window.overlapAllowed || {};
     window.customBySpeaker = window.customBySpeaker || {};
 
-    // attach overlap_allowed to remix/generate payloads
-    if (!window._fetchOverlapWrapped) {
-        window._fetchOverlapWrapped = true;
+    // send overlap flags with remix/generate requests
+    if (!window._fetchOvWrap2) {
+        window._fetchOvWrap2 = true;
         var _fetch = window.fetch;
         window.fetch = function (url, opts) {
             try {
@@ -4452,12 +4207,12 @@ window.cleanOldClones = function () {
                         opts = Object.assign({}, opts, { body: JSON.stringify(obj) });
                     }
                 }
-            } catch (err) {}
+            } catch (e) {}
             return _fetch.call(this, url, opts);
         };
     }
 
-    // custom voice no longer overwrites the video clone
+    // custom voice stays separate from the video clone (working — kept as-is)
     window.uploadCustomVoice = function () {
         var fEl = document.getElementById("cvFile"), spEl = document.getElementById("cvSpeaker"), st = document.getElementById("cvStatus");
         if (!fEl || !spEl) { notify("error", "Custom voice box not ready - refresh the page."); return; }
@@ -4482,14 +4237,14 @@ window.cleanOldClones = function () {
                     speakerVoices[sp] = out.d.voice_id;
                     speakerVoiceNames[sp] = "\uD83D\uDCE4 Custom voice";
                     renderSpeakerVoices();
-                    notify("success", "Custom voice created. The cloned voice stays available in the dropdown.");
+                    notify("success", "Custom voice created. The cloned voice stays in the dropdown.");
                 })
                 .catch(function (err) { if (st) st.textContent = ""; notify("error", "Upload failed: " + err.message); });
         };
         probe.onerror = function () { notify("error", "Could not read that audio file."); };
     };
-    if (typeof applyChoice === "function" && !window._acWrap6) {
-        window._acWrap6 = true;
+    if (typeof applyChoice === "function" && !window._acWrap7) {
+        window._acWrap7 = true;
         var _ac = applyChoice;
         applyChoice = function (name) {
             if ((speakerChoices[name] || "") === "custom" && window.customBySpeaker[name]) {
@@ -4500,8 +4255,8 @@ window.cleanOldClones = function () {
             return _ac.apply(this, arguments);
         };
     }
-    if (typeof renderSpeakerVoices === "function" && !window._rsvWrap6) {
-        window._rsvWrap6 = true;
+    if (typeof renderSpeakerVoices === "function" && !window._rsvWrap7) {
+        window._rsvWrap7 = true;
         var _rsv = renderSpeakerVoices;
         renderSpeakerVoices = function () {
             var p = _rsv.apply(this, arguments);
@@ -4525,15 +4280,50 @@ window.cleanOldClones = function () {
         };
     }
 
-    // Step 5.5 table: overlap checkbox column, dB columns removed
-    function fixedHeader() {
-        var thr = document.querySelector("#volumeTable thead tr");
-        if (!thr || thr.dataset.v6) return;
-        thr.dataset.v6 = "1";
-        thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th title='Unchecked = this line may be talked over; intruders are not faded'>No overlap</th><th></th>";
+    // Step 2 header: lock / unlock ALL lines icon
+    function injectLockAll() {
+        var sec = document.getElementById("editorSection");
+        if (!sec || document.getElementById("lockAllBtn")) return;
+        var h = sec.querySelector("h3");
+        if (!h) return;
+        var b = document.createElement("button");
+        b.id = "lockAllBtn"; b.className = "action-btn"; b.textContent = "\uD83D\uDD13";
+        b.title = "Lock / unlock ALL lines";
+        b.style.marginLeft = "8px";
+        b.onclick = function () {
+            var allLocked = segmentsData.length > 0 && segmentsData.every(function (s) { return s.locked; });
+            segmentsData.forEach(function (s) { s.locked = !allLocked; });
+            b.textContent = allLocked ? "\uD83D\uDD13" : "\uD83D\uDD12";
+            renderTable();
+            notify("info", allLocked ? "All lines unlocked." : "All lines locked.");
+        };
+        h.appendChild(b);
     }
+    injectLockAll();
+    new MutationObserver(injectLockAll).observe(document.body, { childList: true, subtree: true });
+
+    // Step 6: hide Fine-Tune button, timeline always visible with results
+    function syncTimelineVisibility() {
+        document.querySelectorAll("button").forEach(function (b) {
+            if (/fine-?tune timeline/i.test(b.textContent || "")) b.style.display = "none";
+        });
+        var rs = document.getElementById("resultSection");
+        var ts = document.getElementById("timelineSection");
+        if (rs && ts && !rs.classList.contains("hidden") && ts.classList.contains("hidden")) {
+            ts.classList.remove("hidden");
+            if (typeof renderTimeline === "function") renderTimeline();
+        }
+    }
+    syncTimelineVisibility();
+    new MutationObserver(syncTimelineVisibility).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+
+    // Step 5.5 table: No-overlap checkbox as 4th column
     window.buildVolumeTable = function (lines) {
-        fixedHeader();
+        var thead = document.querySelector("#volumeTable thead");
+        if (thead && !thead.dataset.v7) {
+            thead.dataset.v7 = "1";
+            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th></th></tr>";
+        }
         var tbody = document.querySelector("#volumeTable tbody");
         if (!tbody) return;
         tbody.innerHTML = "";
@@ -4545,6 +4335,18 @@ window.cleanOldClones = function () {
             td(ln.speaker || seg.speaker || "");
             var full = (seg.arabic_text || seg.text || "");
             td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
+            var cN = document.createElement("td");
+            var cb = document.createElement("input"); cb.type = "checkbox";
+            cb.checked = !window.overlapAllowed[ln.segment_id];
+            cb.title = "Checked = protected (intruders get faded). Uncheck = allow talk-over without fading.";
+            cb.onchange = function () {
+                if (cb.checked) delete window.overlapAllowed[ln.segment_id];
+                else window.overlapAllowed[ln.segment_id] = true;
+                if (typeof renderTimeline === "function") renderTimeline();
+                var btn = document.getElementById("applyVolumesBtn");
+                if (btn) btn.textContent = "\uD83D\uDD0A Apply Volumes & Rebuild MP3 \u2022";
+            };
+            cN.appendChild(cb); tr.appendChild(cN);
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "\u25B6"; b1.title = "Play original line";
             b1.onclick = function () { if (window.playOrigLine) window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -4557,30 +4359,22 @@ window.cleanOldClones = function () {
             var rg = document.createElement("input"); rg.type = "range"; rg.min = "-12"; rg.max = "12"; rg.step = "0.5"; rg.value = cur;
             rg.oninput = function () { window.onVolSlider(ln.segment_id, parseFloat(rg.value)); };
             c3.appendChild(rg); tr.appendChild(c3);
-            var c4 = document.createElement("td");
-            var cb = document.createElement("input"); cb.type = "checkbox";
-            cb.checked = !window.overlapAllowed[ln.segment_id];
-            cb.title = "Checked = intruders into this line get faded. Uncheck to allow talk-over without fading.";
-            cb.onchange = function () {
-                if (cb.checked) delete window.overlapAllowed[ln.segment_id];
-                else window.overlapAllowed[ln.segment_id] = true;
-                if (typeof renderTimeline === "function") renderTimeline();
-                var btn = document.getElementById("applyVolumesBtn");
-                if (btn) btn.textContent = "\uD83D\uDD0A Apply Volumes & Rebuild MP3 \u2022";
-            };
-            c4.appendChild(cb); tr.appendChild(c4);
             td('<span id="vollab_' + ln.segment_id + '">' + (cur > 0 ? "+" : "") + cur.toFixed(1) + " dB</span>");
             tbody.appendChild(tr);
         });
     };
 
-    // FADE v6: glued to blocks via real offsets, live during drag, honors overlap flags
-    var pending6 = false;
-    function scheduleDraw6() { if (pending6) return; pending6 = true; requestAnimationFrame(function () { pending6 = false; drawFadesV6(); }); }
-    function drawFadesV6() {
+    // THE single fade engine: glued to blocks, live during drag, honors overlap flags
+    var pending7 = false;
+    function schedule7() { if (pending7) return; pending7 = true; requestAnimationFrame(function () { pending7 = false; draw7(); }); }
+    function draw7() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData.length) return;
-        wrap.querySelectorAll(".segFadeOv").forEach(function (f) { f.remove(); });
+        wrap.querySelectorAll(".segFadeOv, .fadeOv7").forEach(function (f) { f.remove(); });
+        Array.prototype.forEach.call(wrap.querySelectorAll("div"), function (d) {
+            var bg = (d.style.background || "") + (d.style.backgroundImage || "");
+            if (bg.indexOf("f59e0b") > -1 && d.style.pointerEvents === "none") d.remove();
+        });
         var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
         var scale = (wrap.clientWidth || 900) / total;
         var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
@@ -4593,8 +4387,7 @@ window.cleanOldClones = function () {
             if (!num || num < 1 || num > segmentsData.length) continue;
             var seg = segmentsData[num - 1];
             if (!seg || !(seg.arabic_text || "").trim()) continue;
-            var wantShadow = window.overlapAllowed[seg.segment_id] ? "inset 0 0 0 2px #22c55e" : "";
-            if (b.style.boxShadow !== wantShadow) b.style.boxShadow = wantShadow;
+            b.style.boxShadow = window.overlapAllowed[seg.segment_id] ? "inset 0 0 0 2px #22c55e" : "";
             var cs = seg.start + (segmentOffsets[seg.segment_id] || 0);
             var slot = seg.end - seg.start;
             var audioEnd = cs + Math.max((window._lineDurations || {})[seg.segment_id] || 0, slot);
@@ -4607,14 +4400,13 @@ window.cleanOldClones = function () {
             });
             var fadeFrom = boundary - 0.005;
             var ov = audioEnd - fadeFrom;
-            var lane = b.parentElement;
-            if (!lane) continue;
+            var lane = b.parentElement; if (!lane) continue;
             var f = document.createElement("div");
-            f.className = "segFadeOv";
-            if (ov <= 0.02) f.style.display = "none";
+            f.className = "fadeOv7";
             f.style.position = "absolute";
             f.style.top = b.offsetTop + "px";
             f.style.height = b.offsetHeight + "px";
+            if (ov <= 0.02) f.style.display = "none";
             f.style.left = (b.offsetLeft + Math.max(0, (fadeFrom - cs) * scale)) + "px";
             f.style.width = Math.max(3, (Math.min(audioEnd, total) - fadeFrom) * scale) + "px";
             f.style.background = "repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px)";
@@ -4622,11 +4414,11 @@ window.cleanOldClones = function () {
             f.style.borderRadius = "0 4px 4px 0";
             f.style.pointerEvents = "none";
             f.style.zIndex = "4";
-            f.title = "Faded/trimmed in the final mix (runs into the next protected line)";
+            f.title = "Faded/trimmed in the final mix";
             lane.appendChild(f);
-            if (!b.dataset.fadeHook6) {
-                b.dataset.fadeHook6 = "1";
-                new MutationObserver(scheduleDraw6).observe(b, { attributes: true, attributeFilter: ["style"] });
+            if (!b.dataset.fadeHook7) {
+                b.dataset.fadeHook7 = "1";
+                new MutationObserver(schedule7).observe(b, { attributes: true, attributeFilter: ["style"] });
             }
         }
         if (!document.getElementById("timelineLegendFinal")) {
@@ -4637,10 +4429,25 @@ window.cleanOldClones = function () {
             wrap.parentNode.insertBefore(leg, wrap.nextSibling);
         }
     }
-    if (typeof renderTimeline === "function" && !window._fadeV6) {
-        window._fadeV6 = true;
-        var _rt6 = renderTimeline;
-        renderTimeline = function () { var r = _rt6.apply(this, arguments); drawFadesV6(); return r; };
+    if (typeof renderTimeline === "function" && !window._fadeV7) {
+        window._fadeV7 = true;
+        var _rt7 = renderTimeline;
+        renderTimeline = function () { var r = _rt7.apply(this, arguments); draw7(); return r; };
+    }
+    if (typeof checkGenerateProgress === "function" && !window._durWrap7) {
+        window._durWrap7 = true;
+        var _cg7 = checkGenerateProgress;
+        checkGenerateProgress = async function () {
+            await _cg7.apply(this, arguments);
+            try {
+                var r = await fetch("/api/progress/generate?t=" + Date.now());
+                var d = await r.json();
+                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
+                    window._lineDurations = window._lineDurations || {};
+                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
+                }
+            } catch (e) {}
+        };
     }
 })();
 

@@ -17,7 +17,8 @@ from ffmpeg_utils import (
 from media_paths import resolve_job_audio
 
 eleven_client = None
-USER_GAINS = {}  # job_id -> {segment_id: extra dB from Step 5.5 sliders}
+USER_GAINS = {}
+OVERLAP_FLAGS = {}  # segment_id -> True: this line may be talked over (intruders not faded)  # job_id -> {segment_id: extra dB from Step 5.5 sliders}
 
 def friendly_error(e):
     return str(e)
@@ -243,6 +244,8 @@ def _mix_filter_part(input_index, allowed, delay_ms, gdb, trim):
 
 def generate_worker(req):
     global eleven_client
+    global OVERLAP_FLAGS
+    OVERLAP_FLAGS = dict(getattr(req, 'overlap_allowed', None) or {})
     try:
         jobs_progress["generate"] = {"status": "processing", "percent": 0, "result": None, "error": None}
         total_segments = len(req.segments)
@@ -403,6 +406,8 @@ def generate_worker(req):
         jobs_progress["generate"] = {"status": "error", "percent": 0, "error": str(e), "result": None}
 
 def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None):
+    global OVERLAP_FLAGS
+    if flags: OVERLAP_FLAGS = dict(flags)
     """Rebuild final_dubbed.mp3 from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
     active = dict(USER_GAINS.get(job_id or "", {}))
     segs = sorted([s for s in segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
@@ -527,6 +532,8 @@ def regenerate_line(req):
 
 def remix_with_offsets(req):
     """Rebuild final_dubbed.mp3 applying per-segment time offsets AND Step 5.5 volume gains."""
+    global OVERLAP_FLAGS
+    OVERLAP_FLAGS = dict(getattr(req, 'overlap_allowed', None) or {})
     try:
         gains = dict(getattr(req, "gains", None) or {})
         if gains:
