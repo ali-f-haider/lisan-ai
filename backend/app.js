@@ -2669,11 +2669,7 @@ window.addEventListener("beforeunload", function (e) {
     var generating = false;
     try { generating = !!generatePollTimer; } catch (err) {}
     if (window._internalNav && !window._forceWarn) return;
-    if ((resultsExist && !resultsDownloaded) || generating) {
-        e.preventDefault();
-        e.returnValue = "";
-        return "";
-    }
+    if ((resultsExist && !resultsDownloaded) || generating) { e.preventDefault(); e.returnValue = ""; return ""; }
 });
 
 // Yellow banner for loaded projects (no media on server)
@@ -4568,6 +4564,198 @@ window.cleanOldClones = function () {
     var cd = document.getElementById("creditsDisplay");
     if (cd) cd.title = "";
     function runAll() { fixStep2Buttons(); fixLockAll(); fixVolumeHeader(); fixStep6(); fixDubBtn(); }
+    runAll();
+    var tmo = null;
+    new MutationObserver(function () { clearTimeout(tmo); tmo = setTimeout(runAll, 300); }).observe(document.body, { childList: true, subtree: true });
+})();
+
+// ===== FADE FINAL: one engine, glued fades, overlap flags, server-identical rule =====
+(function () {
+    if (window._fadeFinal) return; window._fadeFinal = true;
+    window.overlapAllowed = window.overlapAllowed || {};
+    if (typeof checkGenerateProgress === "function" && !window._durF) {
+        window._durF = true;
+        var _cg = checkGenerateProgress;
+        checkGenerateProgress = async function () {
+            await _cg.apply(this, arguments);
+            try {
+                var r = await fetch("/api/progress/generate?t=" + Date.now());
+                var d = await r.json();
+                if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
+                    window._lineDurations = window._lineDurations || {};
+                    d.result.lines.forEach(function (ln) { if (ln && ln.duration) window._lineDurations[ln.segment_id] = ln.duration; });
+                }
+            } catch (e) {}
+        };
+    }
+    var pending = false;
+    function schedule() { if (pending) return; pending = true; requestAnimationFrame(function () { pending = false; draw(); }); }
+    function draw() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData.length) return;
+        wrap.querySelectorAll(".fadeFinal").forEach(function (f) { f.remove(); });
+        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var scale = (wrap.clientWidth || 900) / total;
+        var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
+        var divs = wrap.querySelectorAll("div");
+        for (var bi = 0; bi < divs.length; bi++) {
+            var b = divs[bi];
+            var st = b.getAttribute("style") || "";
+            if (st.indexOf("cursor") === -1 || st.indexOf("grab") === -1) continue;
+            var num = parseInt(b.textContent, 10);
+            if (!num || num < 1 || num > segmentsData.length) continue;
+            var seg = segmentsData[num - 1];
+            if (!seg || !(seg.arabic_text || "").trim()) continue;
+            var want = window.overlapAllowed[seg.segment_id] ? "inset 0 0 0 2px #22c55e" : "";
+            if (b.style.boxShadow !== want) b.style.boxShadow = want;
+            var cs = seg.start + (segmentOffsets[seg.segment_id] || 0);
+            var slot = seg.end - seg.start;
+            var audioEnd = cs + Math.max((window._lineDurations || {})[seg.segment_id] || 0, slot);
+            var boundary = total;
+            act.forEach(function (q) {
+                if (q.segment_id === seg.segment_id) return;
+                if (window.overlapAllowed[q.segment_id]) return;   // overlap-able lines never protect
+                var qs = q.start + (segmentOffsets[q.segment_id] || 0);
+                if (qs > cs + 0.0001 && qs < boundary) boundary = qs;
+            });
+            var fadeFrom = boundary - 0.005;
+            var ov = audioEnd - fadeFrom;
+            var lane = b.parentElement; if (!lane) continue;
+            var f = document.createElement("div");
+            f.className = "fadeFinal";
+            f.style.position = "absolute";
+            f.style.top = b.offsetTop + "px";
+            f.style.height = b.offsetHeight + "px";
+            if (ov <= 0.02) f.style.display = "none";
+            f.style.left = (b.offsetLeft + Math.max(0, (fadeFrom - cs) * scale)) + "px";
+            f.style.width = Math.max(3, (Math.min(audioEnd, total) - fadeFrom) * scale) + "px";
+            f.style.background = "repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px)";
+            f.style.opacity = "0.9";
+            f.style.borderRadius = "0 4px 4px 0";
+            f.style.pointerEvents = "none";
+            f.style.zIndex = "4";
+            f.title = "Faded/trimmed in the final mix";
+            lane.appendChild(f);
+            if (!b.dataset.fadeF) { b.dataset.fadeF = "1"; new MutationObserver(schedule).observe(b, { attributes: true, attributeFilter: ["style"] }); }
+        }
+        if (!document.getElementById("timelineLegendFinal")) {
+            var leg = document.createElement("div");
+            leg.id = "timelineLegendFinal";
+            leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:6px;font-size:11px;color:#64748b;";
+            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border-radius:3px;display:inline-block;"></span>kept</span><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 3px,#d97706 3px,#d97706 6px);border-radius:3px;display:inline-block;"></span>faded / trimmed</span><span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;border:2px solid #22c55e;border-radius:3px;display:inline-block;"></span>overlap allowed</span>';
+            wrap.parentNode.insertBefore(leg, wrap.nextSibling);
+        }
+    }
+    if (typeof renderTimeline === "function") {
+        var _rt = renderTimeline;
+        renderTimeline = function () { var r = _rt.apply(this, arguments); draw(); return r; };
+    }
+})();
+
+// ===== UI UPDATE v2 =====
+(function () {
+    window.addEventListener("click", function (e) {
+        var a = e.target && e.target.closest ? e.target.closest('a[href^="/"]') : null;
+        if (a) window._internalNav = true;
+    }, true);
+    if (typeof window.doLogout === "function" && !window._dlW2) {
+        window._dlW2 = true;
+        var _dl = window.doLogout;
+        window.doLogout = function () { window._forceWarn = true; return _dl.apply(this, arguments); };
+    }
+    function fixStep2() {
+        document.querySelectorAll("button, a").forEach(function (b) {
+            var tx = (b.textContent || "").trim();
+            if (/^(⬇️?\s*)?(Export\s+)?(SRT|SBV)$/i.test(tx)) b.style.display = "none";
+            if (/Import SRT\/SBV/i.test(tx)) b.textContent = "Import Eng. Subtitle";
+        });
+    }
+    function fixLockAll() {
+        var thr = document.querySelector("#segmentsTable thead tr");
+        if (!thr || document.getElementById("lockAllBtn2")) return;
+        var ths = thr.querySelectorAll("th"), target = null;
+        ths.forEach(function (th) { if (/actions/i.test(th.textContent || "")) target = th; });
+        if (!target && ths.length) target = ths[ths.length - 1];
+        if (!target) return;
+        var b = document.createElement("button");
+        b.id = "lockAllBtn2"; b.className = "action-btn"; b.textContent = "🔓";
+        b.title = "Lock / unlock ALL lines"; b.style.marginLeft = "6px";
+        b.onclick = function () {
+            var all = segmentsData.length > 0 && segmentsData.every(function (s) { return s.locked; });
+            segmentsData.forEach(function (s) { s.locked = !all; });
+            b.textContent = all ? "🔓" : "🔒";
+            renderTable();
+            notify("info", all ? "All lines unlocked." : "All lines locked.");
+        };
+        target.appendChild(b);
+    }
+    function fixVolume() {
+        var thr = document.querySelector("#volumeTable thead tr");
+        if (thr && !thr.dataset.v9) {
+            thr.dataset.v9 = "1";
+            thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th></th>";
+        }
+        document.querySelectorAll("#volumeSection strong, #volumeSection span").forEach(function (el) {
+            if (/Master trim/i.test(el.textContent || "")) el.textContent = (el.textContent || "").replace(/Master trim[^\(:]*/i, "Master volume");
+        });
+    }
+    function fixStep6() {
+        document.querySelectorAll("button").forEach(function (b) {
+            if (/Fine-?Tune Timeline/i.test((b.textContent || "").trim())) {
+                var p = document.createElement("p");
+                p.className = "step-sub"; p.style.cssText = "font-weight:600;margin:10px 0 4px;";
+                p.textContent = "Fine-Tune Timeline";
+                b.parentNode.insertBefore(p, b); b.remove();
+            }
+        });
+        var rs = document.getElementById("resultSection"), ts = document.getElementById("timelineSection");
+        if (rs && ts && !rs.classList.contains("hidden")) { ts.classList.remove("hidden"); if (typeof renderTimeline === "function") renderTimeline(); }
+    }
+    function fixDub() {
+        var btn = null;
+        document.querySelectorAll("#resultSection button, #mergeSection button, #videoResults button, #videoResults a").forEach(function (b) {
+            if (/Dub Another Video/i.test(b.textContent || "")) btn = b;
+        });
+        if (!btn || btn.dataset.moved) return;
+        var row = document.querySelector("#videoResults .download-buttons");
+        if (!row) return;
+        btn.dataset.moved = "1";
+        btn.style.cssText += ";background:#ed6c02;color:#fff;border-color:#ed6c02;font-weight:700;margin-left:auto;";
+        var sep = document.createElement("span");
+        sep.style.cssText = "width:1px;align-self:stretch;background:#cbd5e1;margin:0 12px;";
+        row.style.display = "flex"; row.style.alignItems = "center";
+        row.appendChild(sep); row.appendChild(btn);
+    }
+    // Step 2 edits flow into 5.5 + timeline (sizes yes, dragged positions preserved)
+    var prevStarts = {};
+    function snap() { segmentsData.forEach(function (s) { prevStarts[s.segment_id] = s.start; }); }
+    function onChg(e) {
+        var inp = e.target;
+        if (!inp || !inp.closest || !inp.closest("#segmentsTable")) return;
+        var tr = inp.closest("tr"); if (!tr || !tr.parentNode) return;
+        var i = Array.prototype.indexOf.call(tr.parentNode.children, tr);
+        var seg = segmentsData[i]; if (!seg) return;
+        var cell = inp.closest("td");
+        var ci = cell ? Array.prototype.indexOf.call(tr.children, cell) : -1;
+        if (ci === 1) {
+            var prev = prevStarts[seg.segment_id];
+            if (typeof prev === "number") {
+                var d = seg.start - prev;
+                if (Math.abs(d) > 0.0001) segmentOffsets[seg.segment_id] = (segmentOffsets[seg.segment_id] || 0) - d;
+            }
+        }
+        prevStarts[seg.segment_id] = seg.start;
+        if (typeof renderTimeline === "function") renderTimeline();
+        if (window._volumeLines && window._volumeLines.length && typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines);
+    }
+    document.addEventListener("change", onChg, true);
+    if (typeof window.renderTable === "function" && !window._snapW2) {
+        window._snapW2 = true;
+        var _rt0 = window.renderTable;
+        window.renderTable = function () { var r = _rt0.apply(this, arguments); snap(); return r; };
+    }
+    snap();
+    function runAll() { fixStep2(); fixLockAll(); fixVolume(); fixStep6(); fixDub(); }
     runAll();
     var tmo = null;
     new MutationObserver(function () { clearTimeout(tmo); tmo = setTimeout(runAll, 300); }).observe(document.body, { childList: true, subtree: true });
