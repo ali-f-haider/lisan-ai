@@ -1,86 +1,494 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lisan AI — English to Arabic AI Dubbing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-:root{--indigo:#1a237e;--green:#059669;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--bg:#f9fafb}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:#fff;line-height:1.6}
-a{color:var(--indigo);text-decoration:none}a:hover{text-decoration:underline}
-.bar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:12px 22px;z-index:10}
-.bar img{height:32px}.bar .brand{font-weight:800;color:var(--indigo);font-size:18px}
-.bar nav{margin-left:auto;display:flex;gap:18px;font-size:14px;font-weight:600}.bar nav a{color:var(--ink)}
-.wrap{max-width:1000px;margin:0 auto;padding:0 22px}
-.hero{text-align:center;padding:64px 22px 40px;background:linear-gradient(180deg,#eef2ff 0%,#fff 100%)}
-.hero h1{color:var(--indigo);font-size:38px;line-height:1.2;margin-bottom:14px}
-.hero p{max-width:640px;margin:0 auto 10px;color:var(--muted);font-size:17px}
-.hero .ar{direction:rtl;font-size:18px;color:#334155;margin-bottom:26px}
-.cta{display:inline-block;background:var(--green);color:#fff;font-weight:800;font-size:17px;padding:14px 34px;border-radius:12px;border:none;cursor:pointer}
-.cta:hover{filter:brightness(1.06);text-decoration:none}
-section{padding:44px 0}h2{color:var(--indigo);font-size:26px;margin-bottom:18px;text-align:center}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.card h3{color:var(--indigo);font-size:16px;margin-bottom:8px}.card p{font-size:14px;color:var(--muted)}.card .ico{font-size:26px;margin-bottom:8px}
-.stepnum{display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--indigo);color:#fff;font-weight:800;align-items:center;justify-content:center;margin-bottom:10px}
-.videos{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.videos .slot{background:#0f172a;border-radius:16px;min-height:220px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;overflow:hidden}
-.pricing{background:var(--bg);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.packs{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin:18px 0}
-.pack{border:2px solid var(--line);border-radius:14px;padding:14px 20px;min-width:160px;background:#fff;text-align:center}
-.pack .k{font-weight:800;color:var(--indigo);text-transform:capitalize}.pack .p{font-size:20px;font-weight:800;color:var(--green)}.pack .c{font-size:13px;color:#334155}.pack .n{font-size:11px;color:var(--muted)}
-ul.points{max-width:640px;margin:14px auto 0;list-style:none;font-size:14px;color:#334155}
-ul.points li{margin:6px 0;padding-left:22px;position:relative}ul.points li:before{content:"✓";position:absolute;left:0;color:var(--green);font-weight:800}
-.trust{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted);padding:18px 0 8px}
-footer{border-top:1px solid var(--line);padding:30px 22px;background:#fff}
-.fwrap{max-width:1000px;margin:0 auto;display:flex;flex-wrap:wrap;gap:18px;align-items:center}
-footer img{height:28px}footer .brand{font-weight:800;color:var(--indigo)}
-footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600;flex-wrap:wrap}
-.legal{max-width:1000px;margin:14px auto 0;font-size:12px;color:var(--muted)}.legal a{color:var(--muted);text-decoration:underline}
-.copy{max-width:1000px;margin:10px auto 0;font-size:12px;color:var(--muted)}
-@media(max-width:720px){.videos{grid-template-columns:1fr}.hero h1{font-size:30px}}
+:root{--primary:#1a237e;--accent:#42a5f5;--dark:#0f172a;--text:#1e293b;--muted:#64748b;--bg:#f8fafc;--white:#fff;--gradient:linear-gradient(135deg,#1a237e 0%,#3949ab 50%,#42a5f5 100%)}
+body{font-family:'Inter',-apple-system,sans-serif;color:var(--text);line-height:1.6;overflow-x:hidden}
+a{text-decoration:none;color:inherit}
+
+/* Navbar */
+nav{position:fixed;top:0;width:100%;padding:16px 40px;display:flex;justify-content:space-between;align-items:center;z-index:100;background:rgba(255,255,255,0.95);backdrop-filter:blur(10px);border-bottom:1px solid #e2e8f0;transition:all 0.3s}
+nav.scrolled{box-shadow:0 2px 20px rgba(0,0,0,0.08)}
+.logo{font-size:24px;font-weight:900;color:var(--primary);display:flex;align-items:center;gap:8px}
+.logo span{background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-links{display:flex;gap:32px;align-items:center}
+.nav-links a{font-size:14px;font-weight:500;color:var(--muted);transition:color 0.2s}
+.nav-links a:hover{color:var(--primary)}
+.btn-nav{padding:10px 24px;background:var(--primary);color:#fff!important;border-radius:8px;font-weight:600;transition:all 0.2s}
+.btn-nav:hover{background:#283593;transform:translateY(-1px)}
+
+/* Hero */
+.hero{min-height:100vh;display:flex;align-items:center;justify-content:center;text-align:center;padding:120px 20px 80px;background:var(--gradient);position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(circle,rgba(255,255,255,0.05) 1px,transparent 1px);background-size:30px 30px;animation:drift 20s linear infinite}
+@keyframes drift{from{transform:translate(0,0)}to{transform:translate(30px,30px)}}
+.hero-content{position:relative;z-index:2;max-width:800px}
+.hero h1{font-size:clamp(36px,6vw,64px);font-weight:900;color:#fff;line-height:1.1;margin-bottom:20px;letter-spacing:-1px}
+.hero .ar-title{font-size:clamp(20px,3vw,32px);color:rgba(255,255,255,0.85);direction:rtl;margin-bottom:24px;font-weight:600}
+.hero p{font-size:clamp(16px,2vw,20px);color:rgba(255,255,255,0.8);margin-bottom:40px;max-width:600px;margin-left:auto;margin-right:auto}
+.hero-buttons{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.btn-hero{padding:16px 36px;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;border:none;transition:all 0.3s}
+.btn-primary{background:#fff;color:var(--primary);box-shadow:0 4px 20px rgba(0,0,0,0.2)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,0,0,0.3)}
+.btn-secondary{background:rgba(255,255,255,0.15);color:#fff;border:2px solid rgba(255,255,255,0.3)}
+.btn-secondary:hover{background:rgba(255,255,255,0.25)}
+
+/* Stats */
+.stats{display:flex;justify-content:center;gap:60px;padding:60px 20px;background:var(--white);flex-wrap:wrap}
+.stat{text-align:center}
+.stat-num{font-size:42px;font-weight:900;color:var(--primary);display:block}
+.stat-label{font-size:14px;color:var(--muted);font-weight:500}
+
+/* Sections */
+section{padding:100px 20px}
+.container{max-width:1100px;margin:0 auto}
+.section-title{text-align:center;margin-bottom:60px}
+.section-title h2{font-size:clamp(28px,4vw,42px);font-weight:800;color:var(--dark);margin-bottom:12px}
+.section-title p{font-size:18px;color:var(--muted);max-width:600px;margin:0 auto}
+
+/* Features */
+.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+.feature-card{background:var(--white);border:1px solid #e2e8f0;border-radius:16px;padding:32px;transition:all 0.3s}
+.feature-card:hover{transform:translateY(-4px);box-shadow:0 12px 40px rgba(0,0,0,0.08);border-color:var(--accent)}
+.feature-icon{width:52px;height:52px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;margin-bottom:16px}
+.fi-blue{background:#eff6ff}.fi-green{background:#ecfdf5}.fi-purple{background:#f5f3ff}.fi-orange{background:#fff7ed}.fi-pink{background:#fdf2f8}.fi-teal{background:#f0fdfa}
+.feature-card h3{font-size:18px;font-weight:700;margin-bottom:8px;color:var(--dark)}
+.feature-card p{font-size:14px;color:var(--muted);line-height:1.6}
+
+/* How it works */
+.steps{display:flex;flex-direction:column;gap:0;position:relative}
+.steps::before{content:'';position:absolute;left:32px;top:0;bottom:0;width:2px;background:#e2e8f0}
+.step{display:flex;gap:24px;align-items:flex-start;padding:24px 0;position:relative}
+.step-num{width:64px;height:64px;border-radius:50%;background:var(--gradient);color:#fff;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;flex-shrink:0;position:relative;z-index:2}
+.step-content h3{font-size:20px;font-weight:700;color:var(--dark);margin-bottom:6px}
+.step-content p{font-size:15px;color:var(--muted)}
+
+/* Demo section */
+.demo-section{background:var(--dark);color:#fff}
+.demo-section .section-title h2{color:#fff}
+.demo-section .section-title p{color:#94a3b8}
+.demo-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+.demo-video{background:#1e293b;border-radius:16px;aspect-ratio:16/9;display:flex;align-items:center;justify-content:center;border:2px dashed #334155;overflow:hidden;position:relative}
+.demo-video video{width:100%;height:100%;object-fit:cover;border-radius:14px}
+.demo-placeholder{text-align:center;color:#64748b}
+.demo-placeholder svg{width:64px;height:64px;margin-bottom:12px;opacity:0.5}
+.demo-placeholder p{font-size:14px}
+.demo-label{position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.6);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:3}
+
+/* Specs */
+.specs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.spec-item{background:var(--white);border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;display:flex;align-items:center;gap:14px}
+.spec-icon{font-size:24px}
+.spec-text h4{font-size:15px;font-weight:700;color:var(--dark)}
+.spec-text p{font-size:13px;color:var(--muted)}
+
+/* Pricing */
+.pricing-section{background:var(--bg)}
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:24px;align-items:start}
+.price-card{background:var(--white);border:2px solid #e2e8f0;border-radius:20px;padding:36px 28px;text-align:center;transition:all 0.3s;position:relative}
+.price-card.popular{border-color:var(--primary);transform:scale(1.05);box-shadow:0 20px 60px rgba(26,35,126,0.15)}
+.popular-badge{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:var(--gradient);color:#fff;padding:6px 20px;border-radius:20px;font-size:12px;font-weight:700}
+.price-card h3{font-size:20px;font-weight:700;color:var(--dark);margin-bottom:8px}
+.price-card .price{font-size:48px;font-weight:900;color:var(--primary);margin:16px 0}
+.price-card .price span{font-size:16px;font-weight:500;color:var(--muted)}
+.price-card .price-desc{font-size:14px;color:var(--muted);margin-bottom:24px}
+.price-features{list-style:none;text-align:left;margin-bottom:28px}
+.price-features li{padding:8px 0;font-size:14px;color:var(--text);display:flex;align-items:center;gap:10px;border-bottom:1px solid #f1f5f9}
+.price-features li::before{content:'✓';color:var(--success);font-weight:700}
+.btn-price{width:100%;padding:14px;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;border:none;transition:all 0.2s}
+.btn-price.primary{background:var(--primary);color:#fff}
+.btn-price.primary:hover{background:#283593}
+.btn-price.outline{background:transparent;color:var(--primary);border:2px solid var(--primary)}
+.btn-price.outline:hover{background:var(--primary);color:#fff}
+
+/* CTA */
+.cta{background:var(--gradient);text-align:center;padding:100px 20px}
+.cta h2{font-size:clamp(28px,4vw,42px);font-weight:800;color:#fff;margin-bottom:16px}
+.cta p{font-size:18px;color:rgba(255,255,255,0.8);margin-bottom:36px}
+
+/* Footer */
+footer{background:var(--dark);color:#94a3b8;padding:40px 20px;text-align:center;font-size:14px}
+footer a{color:var(--accent);margin:0 12px}
+
+/* Animations */
+.fade-in{opacity:0;transform:translateY(30px);transition:all 0.6s ease}
+.fade-in.visible{opacity:1;transform:translateY(0)}
+
+/* Responsive */
+@media(max-width:768px){
+    nav{padding:12px 20px}
+    .nav-links{gap:16px}
+    .stats{gap:30px}
+    .demo-grid{grid-template-columns:1fr}
+    .price-card.popular{transform:scale(1)}
+    .steps::before{left:20px}
+    .step-num{width:40px;height:40px;font-size:16px}
+}
+.demo-grid{display:grid !important;grid-template-columns:1fr 1fr !important;gap:40px;align-items:stretch;}
+.demo-video{position:relative !important;background:#1e293b;border-radius:16px;aspect-ratio:16/9;overflow:hidden;border:2px dashed #334155;}
+.demo-video video{position:absolute !important;inset:0;width:100% !important;height:100% !important;object-fit:cover;border-radius:14px;}
+.demo-label{position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.65);color:#fff;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:600;z-index:3;}
+@media(max-width:900px){.demo-grid{grid-template-columns:1fr !important;}}
 </style>
 </head>
 <body>
-<div class="bar">
-  <img src="/logo.png" alt="Lisan AI logo"><span class="brand">Lisan AI</span>
-  <nav><a href="/help">Help &amp; FAQ</a><a href="/login">Log in</a></nav>
-</div>
-<div class="hero">
-  <h1>Dub any video into Arabic — automatically</h1>
-  <p>AI-assisted dubbing with voice cloning, emotion detection and smart timing — plus full manual control: you edit, translate, fine-tune and approve every line before the final render.</p>
-  <p class="ar">دبلجة عربية بمساعدة الذكاء الاصطناعي — بأصوات تشبه الأصل وتوقيت ذكي، مع تحكم يدوي كامل</p>
-  <div style="display:flex;justify-content:center;margin:8px 0 4px;"><a class="cta" href="/login">🚀 Start Dubbing Free</a></div>
-</div>
-<section class="wrap"><h2>Our Videos — Before / After</h2>
-  <div class="videos"><div class="slot">Before — original English</div><div class="slot">After — Arabic dub by Lisan AI</div></div>
+
+<!-- Navbar -->
+<nav id="navbar">
+    <div class="logo"><img src="/logo.png" alt="Lisan AI" style="height:34px;"><span>Lisan AI</span></div>
+    <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#how-it-works">How It Works</a>
+        <a href="#demo">Demo</a>
+        <a href="#pricing">Pricing</a>
+        <a href="/help" class="btn-nav">&#10067; Help &amp; FAQ</a><a href="/login" class="btn-nav">Get Started</a>
+    </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+    <div class="hero-content">
+        <h1>Dub Any Video from English to Arabic in Minutes</h1>
+        <p class="ar-title">دبلجة أي فيديو من الإنجليزية إلى العربية في دقائق</p>
+        <p>AI-assisted dubbing with voice cloning, emotion detection and smart timing — plus full manual control: you edit, translate, fine-tune and approve every line before the final render.</p>
+        <div class="hero-buttons">
+            <a href="/login" class="btn-hero btn-primary">Start Dubbing Free →</a>
+            <a href="#demo" class="btn-hero btn-secondary">▶ Watch Demo</a>
+        </div>
+    </div>
 </section>
-<section class="wrap"><h2>How it works</h2><div class="grid">
-    <div class="card"><span class="stepnum">1</span><h3>Upload</h3><p>Drop a video or audio clip (up to 60 s). We transcribe it and detect who speaks when.</p></div>
-    <div class="card"><span class="stepnum">2</span><h3>Edit &amp; choose voices</h3><p>Fix text, translate to Arabic, add tashkeel and emotions. Clone each speaker's own voice or pick studio voices.</p></div>
-    <div class="card"><span class="stepnum">3</span><h3>Generate &amp; download</h3><p>Precisely timed Arabic audio mixed with the original background, merged back into your video. Download instantly.</p></div>
-</div></section>
-<section class="pricing"><div class="wrap">
-    <h2>Simple pay-as-you-go credits</h2>
-    <p style="text-align:center;color:var(--muted);max-width:640px;margin:0 auto;">No subscriptions. No monthly fees. Buy a pack once, use it whenever you want — credits never expire.</p>
-    <div class="packs" id="packCards"><div class="pack"><div class="k">Packs</div><div class="p">from $4.99</div><div class="c">one-time purchase</div><div class="n">exact sizes inside the app under ➕ Buy</div></div></div>
-    <ul class="points">
-      <li>100 credits = $1.00 · Transcribe ≈ 3 credits · Generate ≈ 1 credit per ~60 characters · Merge = 1 credit.</li>
-      <li>Unused credits are refundable within 14 days of purchase, minus Stripe processing and currency-conversion fees (borne by the user).</li>
-      <li>Secure one-time checkout by Stripe — no recurring charges, ever.</li>
-    </ul>
-    <div style="text-align:center;margin-top:22px;"><a class="cta" href="/login">Create your free account</a></div>
-    <div class="trust"><span>🔒 Login-protected projects</span><span>⏳ Files auto-delete after 6 hours</span><span>💳 Secure payments by Stripe</span></div>
-</div></section>
-<footer><div class="fwrap">
-    <img src="/logo.png" alt=""><span class="brand">Lisan AI</span>
-    <nav><a href="/help">Help &amp; FAQ / المساعدة والأسئلة الشائعة</a><a href="mailto:ali_f_haider@hotmail.com">Contact</a><a href="/login">Log in</a></nav>
+
+<!-- Stats -->
+<div class="stats">
+    <div class="stat fade-in"><span class="stat-num" data-target="60">0</span><span class="stat-label">Seconds Max Duration</span></div>
+    <div class="stat fade-in"><span class="stat-num" data-target="4">0</span><span class="stat-label">K Resolution Supported</span></div>
+    <div class="stat fade-in"><span class="stat-num" data-target="31">0</span><span class="stat-label">Emotion Styles</span></div>
+    <div class="stat fade-in"><span class="stat-num" data-target="3">0</span><span class="stat-label">Minutes Average Processing</span></div>
 </div>
-<div class="legal">
-    <a href="/terms">Terms of Service</a> · <a href="/privacy">Privacy Policy</a>
-    <p style="margin-top:8px;"><strong>Refund Policy:</strong> Unused credits are refundable on request within 14 days of purchase: we refund the pack price minus Stripe processing and currency-conversion costs, which are borne by the user. Used credits are non-refundable, except when a processing error consumed credits without producing a result.</p>
-</div>
-<div class="copy">© 2025 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div></footer>
-<script>fetch("/api/billing/packs").then(r=>r.ok?r.json():null).then(d=>{if(!d||!d.packs)return;var b=document.getElementById("packCards"),h="";["starter","standard","pro","business"].forEach(k=>{var p=d.packs[k];if(!p)return;h+='<div class="pack"><div class="k">'+k+'</div><div class="p">$'+p.amount_usd.toFixed(2)+'</div><div class="c">'+p.credits.toLocaleString()+' credits</div><div class="n">one-time · never expires</div></div>';});if(h)b.innerHTML=h;}).catch(()=>{});</script>
-</body></html>
+
+<!-- Features -->
+<section id="features" style="background:var(--bg)">
+    <div class="container">
+        <div class="section-title fade-in">
+            <h2>Everything You Need for Perfect Dubbing</h2>
+            <p>Professional-grade AI tools that handle every step of the dubbing process automatically.</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card fade-in">
+                <div class="feature-icon fi-blue">🎙️</div>
+                <h3>Voice Cloning</h3>
+                <p>Automatically extracts each speaker's unique voice from your video and creates a synthetic copy for the Arabic dub.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <div class="feature-icon fi-green">🌍</div>
+                <h3>Smart Translation</h3>
+                <p>AI translates English to natural-sounding Arabic, preserving context, tone, and meaning — not just word-for-word.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <div class="feature-icon fi-purple">🎭</div>
+                <h3>Emotion Detection</h3>
+                <p>Analyzes voice tone to detect 31+ emotions and speaking styles. Combine tags like "confident, calm" for precise control.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <div class="feature-icon fi-orange">⏱️</div>
+                <h3>Auto Timing Sync</h3>
+                <p>Automatically aligns Arabic speech to match the original timing. Fine-tune manually with our drag-and-drop timeline editor.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <div class="feature-icon fi-pink">🔤</div>
+                <h3>Arabic Tashkeel</h3>
+                <p>Adds full diacritics (harakat) to Arabic text automatically, ensuring correct pronunciation by the voice engine.</p>
+            </div>
+            <div class="feature-card fade-in">
+                <div class="feature-icon fi-teal">🎬</div>
+                <h3>Background Preservation</h3>
+                <p>Separates vocals from background music/SFX, then mixes them back with the new Arabic audio at balanced volumes.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- How It Works -->
+<section id="how-it-works">
+    <div class="container">
+        <div class="section-title fade-in">
+            <h2>How It Works</h2>
+            <p>From upload to final dubbed video in four simple steps.</p>
+        </div>
+        <div class="steps">
+            <div class="step fade-in">
+                <div class="step-num">1</div>
+                <div class="step-content">
+                    <h3>Upload Your Video</h3>
+                    <p>Drop your MP4, AVI, MKV, or audio file. We support up to 60 seconds and 4K resolution. Our AI transcribes the English speech and identifies each speaker.</p>
+                </div>
+            </div>
+            <div class="step fade-in">
+                <div class="step-num">2</div>
+                <div class="step-content">
+                    <h3>Review & Edit</h3>
+                    <p>Check the transcription, translate to Arabic with one click, add tashkeel, and let AI detect emotions. Edit anything manually if needed.</p>
+                </div>
+            </div>
+            <div class="step fade-in">
+                <div class="step-num">3</div>
+                <div class="step-content">
+                    <h3>Assign Voices & Generate</h3>
+                    <p>Pick cloned voices or studio library voices for each speaker. Hit generate — the AI speaks every line in Arabic with the right emotion and timing.</p>
+                </div>
+            </div>
+            <div class="step fade-in">
+                <div class="step-num">4</div>
+                <div class="step-content">
+                    <h3>Fine-Tune & Download</h3>
+                    <p>Use the timeline editor to perfectly align audio with lip movements. Merge with the original video and download your final dubbed result.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Demo / Before & After -->
+<section id="demo" class="demo-section">
+    <div class="container">
+        <div class="section-title fade-in">
+            <h2>See It In Action</h2>
+            <p>Watch how Lisan AI transforms English videos into natural Arabic dubs.</p>
+        </div>
+        <div class="demo-grid">
+            <div class="demo-video fade-in">
+                <div class="demo-label">BEFORE — Original English</div>
+                <video controls preload="metadata" src="/demo_before.mp4"></video>
+            </div>
+            <div class="demo-video fade-in">
+                <div class="demo-label">AFTER — Arabic Dub</div>
+                <video controls preload="metadata" src="/demo_after.mp4"></video>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Specifications -->
+<section style="background:var(--bg)">
+    <div class="container">
+        <div class="section-title fade-in">
+            <h2>Technical Specifications</h2>
+            <p>Built for quality and reliability.</p>
+        </div>
+        <div class="specs-grid">
+            <div class="spec-item fade-in"><div class="spec-icon">📁</div><div class="spec-text"><h4>Input Formats</h4><p>MP4, AVI, MKV, MOV, WEBM, MP3, WAV</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">⏱️</div><div class="spec-text"><h4>Max Duration</h4><p>60 seconds per clip</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">📐</div><div class="spec-text"><h4>Max Resolution</h4><p>4K (3840×2160)</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">💾</div><div class="spec-text"><h4>Max File Size</h4><p>400 MB</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">🗣️</div><div class="spec-text"><h4>Speaker Detection</h4><p>Automatic multi-speaker diarization</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">🎭</div><div class="spec-text"><h4>Emotion Styles</h4><p>31+ combinable tags</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">🎙️</div><div class="spec-text"><h4>Voice Options</h4><p>Clone from video or studio library</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">🎵</div><div class="spec-text"><h4>Background Audio</h4><p>Auto-separated and re-mixed</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">📥</div><div class="spec-text"><h4>Output</h4><p>MP3 audio + MP4 video download</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">🔒</div><div class="spec-text"><h4>Privacy</h4><p>Files deleted after session ends</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">📝</div><div class="spec-text"><h4>Subtitles</h4><p>SRT / SBV import & export</p></div></div>
+            <div class="spec-item fade-in"><div class="spec-icon">💾</div><div class="spec-text"><h4>Project Save</h4><p>Save & load projects as JSON</p></div></div>
+        </div>
+    </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing" class="pricing-section">
+    <div class="container">
+        <div class="section-title fade-in">
+            <h2>Simple, Transparent Pricing</h2>
+            <p>Start free. Upgrade when you need more.</p>
+        </div>
+        <div class="pricing-grid">
+            <div class="price-card fade-in">
+                <h3>Free Trial</h3>
+                <div class="price">$0<span></span></div>
+                <p class="price-desc">Try before you commit</p>
+                <ul class="price-features">
+                    <li>1 video (up to 60s)</li>
+                    <li>All features included</li>
+                    <li>Studio library voices</li>
+                    <li>MP3 + MP4 download</li>
+                </ul>
+                
+            </div>
+            <div class="price-card popular fade-in">
+                <div class="popular-badge">Most Popular</div>
+                <h3>Starter</h3>
+                <div class="price">$9.99<span>/month</span></div>
+                <p class="price-desc">For creators and freelancers</p>
+                <ul class="price-features">
+                    <li>20 videos per month</li>
+                    <li>Voice cloning included</li>
+                    <li>Priority processing</li>
+                    <li>All formats supported</li>
+                    <li>$0.79 per extra video</li>
+                </ul>
+                <a href="/login" class="btn-price primary">Get Started</a>
+            </div>
+            <div class="price-card fade-in">
+                <h3>Pro</h3>
+                <div class="price">$24.99<span>/month</span></div>
+                <p class="price-desc">For agencies and teams</p>
+                <ul class="price-features">
+                    <li>60 videos per month</li>
+                    <li>Voice cloning included</li>
+                    <li>Priority processing</li>
+                    <li>Bulk upload (coming soon)</li>
+                    <li>$0.59 per extra video</li>
+                </ul>
+                <a href="/login" class="btn-price outline">Get Started</a>
+            </div>
+            <div class="price-card fade-in">
+                <h3>Business</h3>
+                <div class="price">$49.99<span>/month</span></div>
+                <p class="price-desc">For high-volume production</p>
+                <ul class="price-features">
+                    <li>150 videos per month</li>
+                    <li>Voice cloning included</li>
+                    <li>Highest priority</li>
+                    <li>Dedicated support</li>
+                    <li>$0.49 per extra video</li>
+                </ul>
+                <a href="/login" class="btn-price outline">Contact Us</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="cta">
+    <h2>Ready to Dub Your First Video?</h2>
+    <p>Join creators who are reaching Arabic-speaking audiences effortlessly.</p>
+    <a href="/login" class="btn-hero btn-primary">Start Dubbing Now →</a>
+</section>
+
+<!-- Footer -->
+<footer>
+    <p>© 2026 Lisan AI. All rights reserved.</p>
+    <p style="margin-top:12px;">
+        <a href="/help">Help & FAQ</a>
+        <a href="/help"><a href="/privacy.html" style="color:inherit;text-decoration:underline;"><a href="/privacy.html" style="color:inherit;text-decoration:underline;">Privacy Policy</a></a></a>
+        <a href="/help"><a href="/terms.html" style="color:inherit;text-decoration:underline;"><a href="/terms.html" style="color:inherit;text-decoration:underline;">Terms of Service</a></a></a>
+    </p>
+</footer>
+
+<script>
+// Navbar scroll effect
+window.addEventListener('scroll', () => {
+    document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 50);
+});
+
+// Fade-in on scroll
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } });
+}, { threshold: 0.1 });
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// Counter animation
+const counterObserver = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+        if (e.isIntersecting) {
+            const el = e.target;
+            const target = parseInt(el.dataset.target);
+            let current = 0;
+            const step = Math.max(1, Math.floor(target / 40));
+            const timer = setInterval(() => {
+                current += step;
+                if (current >= target) { current = target; clearInterval(timer); }
+                el.textContent = current;
+            }, 30);
+            counterObserver.unobserve(el);
+        }
+    });
+}, { threshold: 0.5 });
+document.querySelectorAll('.stat-num').forEach(el => counterObserver.observe(el));
+
+// Smooth scroll
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+    a.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelector(a.getAttribute('href'))?.scrollIntoView({ behavior: 'smooth' });
+    });
+});
+</script>
+<script>
+(function(){
+  function findBar(){
+    var bar = document.querySelector('header') || document.querySelector('nav');
+    if (bar) return bar;
+    var l = null;
+    document.querySelectorAll('a').forEach(function(a){ if(!l && /\s*log in\s*/i.test(a.textContent)) l = a; });
+    return l ? l.closest('div') : null;
+  }
+  function normBar(){
+    var bar = findBar(); if(!bar) return;
+    var login = null;
+    bar.querySelectorAll('a').forEach(function(a){ if(/\s*log in\s*/i.test(a.textContent)) login = a; });
+    var refClass = login ? login.className : '';
+    bar.querySelectorAll('a, button').forEach(function(el){
+      if(el === login) return;
+      var tx = (el.textContent||'').trim();
+      var isHelp = /help|faq|المساعدة/i.test(tx);
+      var isStart = /^(start free|get started|start dubbing free|🚀\s*start.*)$/i.test(tx);
+      if(!isHelp && !isStart) return;
+      if(el.tagName === 'A' && el.className === refClass && !/btn|button/i.test(el.className)) return;
+      var a = document.createElement('a');
+      a.href = (el.tagName === 'A' && el.getAttribute('href')) ? el.getAttribute('href') : (isHelp ? '/help' : '/login');
+      a.className = refClass;
+      a.textContent = tx;
+      el.parentNode.replaceChild(a, el);
+    });
+  }
+  function findFooter(){
+    var f = document.querySelector('footer');
+    if (f) return f;
+    var c = null;
+    document.querySelectorAll('a').forEach(function(a){ if(!c && /contact/i.test(a.textContent)) c = a; });
+    return c ? c.closest('div') : null;
+  }
+  function wireFooter(){
+    var foot = findFooter(); if(!foot) return;
+    var contact = null;
+    foot.querySelectorAll('a').forEach(function(a){ if(/contact/i.test(a.textContent)) contact = a; });
+    var refClass = contact ? contact.className : '';
+    foot.querySelectorAll('h1,h2,h3,h4,h5,strong,b,span,p,div,a').forEach(function(el){
+      if(el.children.length) return;
+      var tx = (el.textContent||'').trim();
+      var href = null;
+      if(tx === 'Terms of Service') href = '/terms.html';
+      if(tx === 'Privacy Policy') href = '/privacy.html';
+      if(!href) return;
+      if(el.tagName === 'A'){ el.setAttribute('href', href); return; }
+      var a = document.createElement('a');
+      a.href = href; a.className = refClass; a.textContent = tx;
+      a.style.cssText = 'display:inline-block;margin:4px 12px 4px 0;font-weight:600;';
+      el.parentNode.replaceChild(a, el);
+    });
+  }
+  function loadPacks(){
+    var box = document.getElementById('pricingPacks'); if(!box) return;
+    fetch('/api/billing/packs').then(function(r){ return r.json(); }).then(function(d){
+      var html = '';
+      ['starter','standard','pro','business'].forEach(function(k){
+        var pk = d && d.packs && d.packs[k]; if(!pk) return;
+        html += '<div style="border:2px solid #e5e7eb;border-radius:14px;padding:14px 18px;min-width:150px;background:#fff;">' +
+          '<div style="font-weight:800;color:#1a237e;text-transform:capitalize;">' + k + '</div>' +
+          '<div style="font-size:20px;font-weight:800;color:#059669;">$' + pk.amount_usd.toFixed(2) + '</div>' +
+          '<div style="font-size:13px;color:#334155;">' + pk.credits.toLocaleString() + ' credits</div>' +
+          '<div style="font-size:11px;color:#6b7280;">one-time · never expires</div></div>';
+      });
+      box.innerHTML = html || '<span style="color:#6b7280;">Pack prices are shown inside the app under ➕ Buy.</span>';
+    }).catch(function(){ box.innerHTML = '<span style="color:#6b7280;">Pack prices are shown inside the app under ➕ Buy.</span>'; });
+  }
+  function run(){ normBar(); wireFooter(); loadPacks(); }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+})();
+</script>
+</body>
+</html>
