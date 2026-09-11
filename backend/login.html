@@ -25,12 +25,13 @@
     .help-link { margin-top: 24px; font-size: 13px; color: #6b7280; }
     .help-link a { color: #42a5f5; text-decoration: none; font-weight: 600; }
 </style>
+<style id="login-center-css">button{display:flex;align-items:center;justify-content:center;text-align:center;gap:8px;}</style>
 </head>
 <body>
     <div class="login-card">
         <img src="/logo.png" alt="Lisan AI">
-        <h1>Welcome Back</h1>
-        <p>Log in to continue your dubbing projects.</p>
+        <h1>Welcome to Lisan AI</h1>
+        <p></p>
         
         <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
         <input type="password" id="loginPassword" placeholder="Password (or access code)" autocomplete="current-password" onkeydown="if(event.key==='Enter')doSmartLogin()">
@@ -172,6 +173,24 @@ async function doSignUp() {
         showMsg("Sign up failed: " + e.message, true);
     }
 }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+window.socialLogin = function (provider) {
+  var sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY);
+  sb.auth.signInWithOAuth({ provider: provider, options: { redirectTo: location.origin + "/login" } });
+};
+(function () {
+  if (window._hashLoginHandled) return;
+  var m = location.hash.match(/access_token=([^&]+)/);
+  if (!m) return;
+  window._hashLoginHandled = true;
+  fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ access_token: decodeURIComponent(m[1]) }) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { if (!d.error) location.replace("/app"); })
+    .catch(function () {});
+})();
 </script>
 </body>
 </html>
