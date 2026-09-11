@@ -417,5 +417,78 @@ document.querySelectorAll('a[href^="#"]').forEach(a => {
     });
 });
 </script>
+<script>
+(function(){
+  function findBar(){
+    var bar = document.querySelector('header') || document.querySelector('nav');
+    if (bar) return bar;
+    var l = null;
+    document.querySelectorAll('a').forEach(function(a){ if(!l && /\s*log in\s*/i.test(a.textContent)) l = a; });
+    return l ? l.closest('div') : null;
+  }
+  function normBar(){
+    var bar = findBar(); if(!bar) return;
+    var login = null;
+    bar.querySelectorAll('a').forEach(function(a){ if(/\s*log in\s*/i.test(a.textContent)) login = a; });
+    var refClass = login ? login.className : '';
+    bar.querySelectorAll('a, button').forEach(function(el){
+      if(el === login) return;
+      var tx = (el.textContent||'').trim();
+      var isHelp = /help|faq|المساعدة/i.test(tx);
+      var isStart = /^(start free|get started|start dubbing free|🚀\s*start.*)$/i.test(tx);
+      if(!isHelp && !isStart) return;
+      if(el.tagName === 'A' && el.className === refClass && !/btn|button/i.test(el.className)) return;
+      var a = document.createElement('a');
+      a.href = (el.tagName === 'A' && el.getAttribute('href')) ? el.getAttribute('href') : (isHelp ? '/help' : '/login');
+      a.className = refClass;
+      a.textContent = tx;
+      el.parentNode.replaceChild(a, el);
+    });
+  }
+  function findFooter(){
+    var f = document.querySelector('footer');
+    if (f) return f;
+    var c = null;
+    document.querySelectorAll('a').forEach(function(a){ if(!c && /contact/i.test(a.textContent)) c = a; });
+    return c ? c.closest('div') : null;
+  }
+  function wireFooter(){
+    var foot = findFooter(); if(!foot) return;
+    var contact = null;
+    foot.querySelectorAll('a').forEach(function(a){ if(/contact/i.test(a.textContent)) contact = a; });
+    var refClass = contact ? contact.className : '';
+    foot.querySelectorAll('h1,h2,h3,h4,h5,strong,b,span,p,div,a').forEach(function(el){
+      if(el.children.length) return;
+      var tx = (el.textContent||'').trim();
+      var href = null;
+      if(tx === 'Terms of Service') href = '/terms.html';
+      if(tx === 'Privacy Policy') href = '/privacy.html';
+      if(!href) return;
+      if(el.tagName === 'A'){ el.setAttribute('href', href); return; }
+      var a = document.createElement('a');
+      a.href = href; a.className = refClass; a.textContent = tx;
+      a.style.cssText = 'display:inline-block;margin:4px 12px 4px 0;font-weight:600;';
+      el.parentNode.replaceChild(a, el);
+    });
+  }
+  function loadPacks(){
+    var box = document.getElementById('pricingPacks'); if(!box) return;
+    fetch('/api/billing/packs').then(function(r){ return r.json(); }).then(function(d){
+      var html = '';
+      ['starter','standard','pro','business'].forEach(function(k){
+        var pk = d && d.packs && d.packs[k]; if(!pk) return;
+        html += '<div style="border:2px solid #e5e7eb;border-radius:14px;padding:14px 18px;min-width:150px;background:#fff;">' +
+          '<div style="font-weight:800;color:#1a237e;text-transform:capitalize;">' + k + '</div>' +
+          '<div style="font-size:20px;font-weight:800;color:#059669;">$' + pk.amount_usd.toFixed(2) + '</div>' +
+          '<div style="font-size:13px;color:#334155;">' + pk.credits.toLocaleString() + ' credits</div>' +
+          '<div style="font-size:11px;color:#6b7280;">one-time · never expires</div></div>';
+      });
+      box.innerHTML = html || '<span style="color:#6b7280;">Pack prices are shown inside the app under ➕ Buy.</span>';
+    }).catch(function(){ box.innerHTML = '<span style="color:#6b7280;">Pack prices are shown inside the app under ➕ Buy.</span>'; });
+  }
+  function run(){ normBar(); wireFooter(); loadPacks(); }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+})();
+</script>
 </body>
 </html>
