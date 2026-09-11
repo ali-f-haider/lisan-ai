@@ -1,3 +1,4 @@
+from fastapi.staticfiles import StaticFiles
 import json
 import os
 import secrets
@@ -27,24 +28,9 @@ from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 app = FastAPI()
 
-@app.get("/")
-def read_landing():
-    from fastapi.responses import FileResponse
-    import os
-    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "landing.html"))
-
-@app.get("/login")
-def read_login():
-    from fastapi.responses import FileResponse
-    import os
-    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "login.html"))
-
-@app.get("/help")
-@app.get("/help.html")
-def read_help():
-    from fastapi.responses import FileResponse
-    import os
-    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "help.html"))
+import os
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/privacy")
 @app.get("/privacy.html")
