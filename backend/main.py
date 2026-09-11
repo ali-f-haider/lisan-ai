@@ -298,7 +298,7 @@ def login_legacy(req: LoginRequest, response: Response):
     return {"ok": False}
 
 
-@app.get("/login", "/help", "/help.html", "/privacy", "/privacy.html", "/terms", "/terms.html")
+@app.get("/login")
 def login_page():
     html = (BASE_DIR / "login.html").read_text(encoding="utf-8")
     inject = f'<script>window.__SUPABASE_URL="{SUPABASE_URL}";window.__SUPABASE_KEY="{SUPABASE_ANON_KEY}";</script>'
@@ -1010,3 +1010,26 @@ def account_summary_diag(request: Request):
         "first_row": raw_data[0] if raw_data else None,
         "credits": get_credits(uid) or 0
     }
+
+
+# --- PUBLIC PAGES ROUTING (Auto-injected fix) ---
+@app.get("/help")
+@app.get("/help.html")
+def public_help_page():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "help.html"))
+
+@app.get("/privacy")
+@app.get("/privacy.html")
+def public_privacy_page():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html"))
+
+@app.get("/terms")
+@app.get("/terms.html")
+def public_terms_page():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
