@@ -27,6 +27,39 @@ from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 app = FastAPI()
 
+@app.get("/")
+def read_landing():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "landing.html"))
+
+@app.get("/login")
+def read_login():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "login.html"))
+
+@app.get("/help")
+@app.get("/help.html")
+def read_help():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "help.html"))
+
+@app.get("/privacy")
+@app.get("/privacy.html")
+def read_privacy():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html"))
+
+@app.get("/terms")
+@app.get("/terms.html")
+def read_terms():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
+
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
 GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
 
