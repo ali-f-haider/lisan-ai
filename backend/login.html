@@ -4,193 +4,131 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lisan AI — Login</title>
-<link rel="icon" href="/logo.png">
-<link rel="stylesheet" href="/styles.css">
+<link rel="icon" type="image/png" href="/logo.png">
 <style>
-    body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; background: #f0f2f5; }
-    .login-card { background: #fff; padding: 40px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; }
-    .login-card img { height: 60px; margin-bottom: 16px; }
-    .login-card h1 { font-size: 28px; margin-bottom: 8px; color: #1a237e; }
-    .login-card p { color: #6b7280; margin-bottom: 24px; }
-    .login-card input { width: 100%; padding: 12px; margin-bottom: 12px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 14px; box-sizing: border-box; }
-    .login-card input:focus { outline: none; border-color: #42a5f5; }
-    .login-card button { width: 100%; padding: 12px; margin-bottom: 8px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-    .btn-primary { background: #1a237e; color: #fff; display: flex; align-items: center; justify-content: center;}
-    .btn-primary:hover { background: #3949ab; }
-    .btn-secondary { background: #f3f4f6; color: #1a237e; border: 1px solid #e5e7eb;  display: flex; align-items: center; justify-content: center;}
-    .btn-secondary:hover { background: #e5e7eb; }
-    .msg { margin-top: 12px; font-size: 13px; min-height: 20px; }
-    .msg.err { color: #dc2626; }
-    .msg.ok { color: #059669; }
-    .help-link { margin-top: 24px; font-size: 13px; color: #6b7280; }
-    .help-link a { color: #42a5f5; text-decoration: none; font-weight: 600; }
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#eef4f7;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{background:#f8fafc;border-radius:18px;box-shadow:0 10px 40px rgba(0,0,0,.08);width:560px;max-width:96vw;padding:40px 60px;text-align:center}
+.card img{height:70px;margin-bottom:18px}
+h1{color:#1a237e;font-size:30px;margin:0 0 26px}
+input{width:100%;box-sizing:border-box;padding:14px 16px;margin:0 0 14px;border:1px solid #d7e0ea;border-radius:10px;background:#e8eef7;font-size:15px;font-family:inherit}
+button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radius:10px;border:1px solid #d7e0ea;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:10px}
+.social{background:#fff;color:#1f2937}
+.social:hover{background:#f3f4f6}
+.primary{background:#1a237e;color:#fff;border-color:#1a237e}
+.primary:hover{background:#283593}
+.secondary{background:#eceff3;color:#1a237e}
+.secondary:hover{background:#e2e6eb}
+.msg{display:none;font-size:14px;margin:6px 0 12px;white-space:pre-line}
+.msg.ok{color:#2e7d32}.msg.err{color:#c62828}
+.row{display:none;margin:4px 0 12px}
+.linklike{background:none;border:none;color:#2563eb;font-weight:600;font-size:13px;padding:0;margin:0 0 14px;width:auto;display:inline-block;cursor:pointer}
+.help{margin-top:18px;font-size:14px}
+.help a{color:#42a5f5;text-decoration:none;font-weight:600}
 </style>
-<style id="login-center-css">button{display:flex;align-items:center;justify-content:center;text-align:center;gap:8px;}</style>
 </head>
 <body>
-    <div class="login-card">
-        <img src="/logo.png" alt="Lisan AI">
-        <h1>Welcome to Lisan AI</h1>
-        <p></p>
-        
-        <input type="email" id="loginEmail" placeholder="Email address" autocomplete="email">
-        <input type="password" id="loginPassword" placeholder="Password (or access code)" autocomplete="current-password" onkeydown="if(event.key==='Enter')doSmartLogin()">
-        <div style="display:flex;flex-direction:column;gap:10px;margin:14px 0;">
-  <button type="button" onclick="socialLogin('google')"
-    style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border-radius:10px;border:1px solid #dadce0;background:#fff;font-weight:600;cursor:pointer;font-family:inherit;">
-    <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.3 5.3C37 41.9 44 36 44 24c0-1.2-.1-2.3-.4-3.5z"/></svg>
+<div class="card">
+  <img src="/logo.png" alt="Lisan AI logo">
+  <h1>Welcome to Lisan AI</h1>
+  <input id="email" type="email" placeholder="Email" autocomplete="email">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <div class="msg" id="formMsg"></div>
+
+  <button class="social" id="googleBtn" onclick="socialLogin('google')">
+    <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.5 6.1 29.5 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4.1 5.5l6.3 5.3C37 41.9 44 36 44 24c0-1.2-.1-2.3-.4-3.5z"/></svg>
     <span>Continue with Google</span>
   </button>
-  <button type="button" onclick="socialLogin('facebook')"
-    style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border-radius:10px;border:1px solid #dadce0;background:#fff;font-weight:600;cursor:pointer;font-family:inherit;">
-    <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.09 24 18.1 24 12.07z"/></svg>
+  <button class="social" id="fbBtn" onclick="socialLogin('facebook')">
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.09 24 18.1 24 12.07z"/></svg>
     <span>Continue with Facebook</span>
   </button>
+
+  <button class="primary" onclick="doLogin()">Log In</button>
+  <button class="secondary" onclick="doSignup()">Create Account</button>
+  <button class="linklike" onclick="doForgot()">Forgot password?</button>
+
+  <div class="row" id="recoveryRow">
+    <input id="newPass" type="password" placeholder="New password">
+    <button class="primary" onclick="doRecovery()">Set New Password</button>
+  </div>
+
+  <div class="help"><a href="/help">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-function socialLogin(provider){
-  var sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY);
-  sb.auth.signInWithOAuth({ provider: provider, options: { redirectTo: location.origin + "/login" } });
-}
-(function(){
-  var m = location.hash.match(/access_token=([^&]+)/);
-  if (!m) return;
-  fetch("/api/login", { method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ access_token: decodeURIComponent(m[1]) }) })
-    .then(function(r){ return r.json(); })
-    .then(function(d){ if (!d.error) location.replace("/app"); })
-    .catch(function(){});
-})();
-</script>
-        <button class="btn-primary" id="btnLogin" onclick="doSmartLogin()">Log In</button>
-        <button class="btn-secondary" onclick="doSignUp()">Create Account</button>
-        
-        <div id="loginMsg" class="msg"></div>
-        
-        <div class="help-link">
-            <a href="/help">❓ Help & FAQ / المساعدة والأسئلة الشائعة</a>
-        </div>
-    </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-var SUPABASE_URL = window.__SUPABASE_URL || "";
-var SUPABASE_KEY = window.__SUPABASE_KEY || "";
 var sb = null;
-
-if (SUPABASE_URL && SUPABASE_KEY) {
-    try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY); } catch(e) { console.error(e); }
+function client(){ if(!sb && window.__SUPABASE_URL) sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || ""); return sb; }
+function msg(t, kind){ var m = document.getElementById("formMsg"); m.textContent = t || ""; m.className = "msg " + (kind || ""); m.style.display = t ? "block" : "none"; }
+async function finishLogin(session){
+  var token = session && session.access_token;
+  if(!token) return false;
+  try{
+    var r = await fetch("/api/login", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ access_token: token }) });
+    var d = await r.json();
+    if(!d.error){ location.replace("/app"); return true; }
+    msg("Login failed: " + (d.error || "server error"), "err");
+  }catch(e){ msg("Login failed: " + e.message, "err"); }
+  return false;
 }
-
-function showMsg(text, isErr) {
-    var el = document.getElementById("loginMsg");
-    el.textContent = text;
-    el.className = "msg " + (isErr ? "err" : "ok");
+function alreadyRegistered(){
+  msg("This email is already registered. Please log in instead — or press “Forgot password?” to recover your account.", "err");
 }
-
-function hideMsg() { document.getElementById("loginMsg").textContent = ""; }
-
-async function sendSession(session) {
-    if (!session || !session.access_token) return;
-    try {
-        await fetch("/api/auth/session", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                access_token: session.access_token,
-                refresh_token: session.refresh_token || ""
-            })
-        });
-        window.location.href = "/app";
-    } catch (e) {
-        showMsg("Session error: " + e.message, true);
+async function doLogin(){
+  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var res = await c.auth.signInWithPassword({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
+  if(res.error){
+    if(/confirm/i.test(res.error.message)) msg("Please confirm your email first (check your inbox), then log in.", "err");
+    else msg("Wrong email or password. Try again, or use “Forgot password?”.", "err");
+    return;
+  }
+  await finishLogin(res.data.session);
+}
+async function doSignup(){
+  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var res = await c.auth.signUp({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
+  if(res.error){
+    if(/already registered|already exists/i.test(res.error.message)){ alreadyRegistered(); return; }
+    msg(res.error.message, "err"); return;
+  }
+  // Supabase hides duplicate emails: an existing (unconfirmed) account returns a user with NO identities
+  if(res.data.user && (!res.data.user.identities || res.data.user.identities.length === 0)){ alreadyRegistered(); return; }
+  if(res.data.session){ await finishLogin(res.data.session); return; }
+  msg("Account created! Check your email to confirm, then log in.", "ok");
+}
+async function doForgot(){
+  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var email = document.getElementById("email").value.trim();
+  if(!email){ msg("Type your email in the email field first, then press “Forgot password?”.", "err"); return; }
+  var res = await c.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/login" });
+  if(res.error) msg(res.error.message, "err");
+  else msg("Password-reset email sent. Open it, set a new password, then log in.", "ok");
+}
+async function doRecovery(){
+  var c = client(); if(!c) return;
+  var res = await c.auth.updateUser({ password: document.getElementById("newPass").value });
+  if(res.error){ msg(res.error.message, "err"); return; }
+  msg("Password updated. Logging you in…", "ok");
+  await finishLogin(res.data.session);
+}
+function socialLogin(p){
+  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  c.auth.signInWithOAuth({ provider: p, options: { redirectTo: location.origin + "/login" } });
+}
+window.addEventListener("DOMContentLoaded", async function(){
+  var h = location.hash;
+  if(/error=/.test(h)){ msg("Social login failed: " + decodeURIComponent((h.match(/error=([^&]+)/)||[])[1] || "provider error").replace(/\+/g," "), "err"); return; }
+  if(/access_token=/.test(h)){
+    var c = client();
+    if(c){
+      var s = await c.auth.getSession();
+      if(s.data.session){
+        if(/type=recovery/.test(h)){ document.getElementById("recoveryRow").style.display = "block"; msg("Set your new password below.", "ok"); }
+        else await finishLogin(s.data.session);
+      }
     }
-}
-
-async function doSmartLogin() {
-    hideMsg();
-    var email = document.getElementById("loginEmail").value.trim();
-    var password = document.getElementById("loginPassword").value;
-    if (!password) { showMsg("Please enter a password or access code.", true); return; }
-
-    if (!email) {
-        doLegacyLogin(password);
-        return;
-    }
-
-    if (!sb) { showMsg("Login system unavailable.", true); return; }
-
-    document.getElementById("btnLogin").disabled = true;
-    try {
-        var res = await sb.auth.signInWithPassword({ email: email, password: password });
-        document.getElementById("btnLogin").disabled = false;
-        if (res.error) {
-            doLegacyLogin(password);
-            return;
-        }
-        await sendSession(res.data.session);
-    } catch (e) {
-        document.getElementById("btnLogin").disabled = false;
-        doLegacyLogin(password);
-    }
-}
-
-async function doLegacyLogin(pw) {
-    try {
-        var res = await fetch("/api/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ password: pw || document.getElementById("loginPassword").value })
-        });
-        var data = await res.json();
-        if (data.ok) {
-            window.location.href = "/app";
-        } else {
-            showMsg("Invalid email, password, or access code.", true);
-        }
-    } catch (e) {
-        showMsg("Login failed: " + e.message, true);
-    }
-}
-
-async function doSignUp() {
-    hideMsg();
-    var email = document.getElementById("loginEmail").value.trim();
-    var password = document.getElementById("loginPassword").value;
-    if (!email || !password) { showMsg("Enter email and password to sign up.", true); return; }
-    if (!sb) { showMsg("Sign up unavailable.", true); return; }
-    
-    try {
-        var res = await sb.auth.signUp({ email: email, password: password });
-        if (res.error) { showMsg(res.error.message, true); return; }
-        if (res.data.session) {
-            await sendSession(res.data.session);
-        } else {
-            showMsg("Account created! Check your email to confirm, then log in.", false);
-        }
-    } catch (e) {
-        showMsg("Sign up failed: " + e.message, true);
-    }
-}
-</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-window.socialLogin = function (provider) {
-  var sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY);
-  sb.auth.signInWithOAuth({ provider: provider, options: { redirectTo: location.origin + "/login" } });
-};
-(function () {
-  if (window._hashLoginHandled) return;
-  var m = location.hash.match(/access_token=([^&]+)/);
-  if (!m) return;
-  window._hashLoginHandled = true;
-  fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ access_token: decodeURIComponent(m[1]) }) })
-    .then(function (r) { return r.json(); })
-    .then(function (d) { if (!d.error) location.replace("/app"); })
-    .catch(function () {});
-})();
+  }
+});
 </script>
 </body>
 </html>

@@ -28,6 +28,19 @@ from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 app = FastAPI()
 
+@app.get("/help")
+def public_help():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "help.html"))
+
+@app.get("/help.html")
+def public_help_html():
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "help.html"))
+
+
 import os
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -170,7 +183,7 @@ PUBLIC_PATHS = frozenset([
     "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
     "/api/billing/packs", "/api/billing/checkout"
-])
+, "/help.html"])
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -181,7 +194,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not _is_logged_in(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
-            return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200)
+            return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200, "/help", "/help.html", "/privacy", "/privacy.html", "/terms", "/terms.html")
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
@@ -285,7 +298,7 @@ def login_legacy(req: LoginRequest, response: Response):
     return {"ok": False}
 
 
-@app.get("/login")
+@app.get("/login", "/help", "/help.html", "/privacy", "/privacy.html", "/terms", "/terms.html")
 def login_page():
     html = (BASE_DIR / "login.html").read_text(encoding="utf-8")
     inject = f'<script>window.__SUPABASE_URL="{SUPABASE_URL}";window.__SUPABASE_KEY="{SUPABASE_ANON_KEY}";</script>'
