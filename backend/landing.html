@@ -80,9 +80,23 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
 
 <section class="wrap">
   <h2>Our Videos — Before / After</h2>
+  
+  <h3 style="text-align:center; color:#475569; margin-bottom:12px; font-size:18px;">Example 1</h3>
   <div class="videos">
-    <div class="slot" id="slotBefore">Before — original English</div>
-    <div class="slot" id="slotAfter">After — Arabic dub by Lisan AI</div>
+    <div class="slot" id="slot1Before">Before — original English (Example 1)</div>
+    <div class="slot" id="slot1After">After — Arabic dub (Example 1)</div>
+  </div>
+
+  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 2 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span></h3>
+  <div class="videos">
+    <div class="slot" id="slot2Before">Before — original English (Example 2)</div>
+    <div class="slot" id="slot2After">After — Arabic dub (Example 2)</div>
+  </div>
+
+  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 3 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span></h3>
+  <div class="videos">
+    <div class="slot" id="slot3Before">Before — original English (Example 3)</div>
+    <div class="slot" id="slot3After">After — Arabic dub (Example 3)</div>
   </div>
 </section>
 
@@ -153,11 +167,17 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
   if (html) box.innerHTML = html;
 }).catch(function () {});
 // Demo clips: show placeholders until real files exist at /static/demo_*.mp4
-[["slotBefore","/static/demo_before.mp4"],["slotAfter","/static/demo_after.mp4"]].forEach(function (pair) {
+[
+  ["slot1Before", "/static/pair1_before.mp4"],
+  ["slot1After", "/static/pair1_after.mp4"],
+  ["slot2Before", "/static/pair2_before.mp4"],
+  ["slot2After", "/static/pair2_after.mp4"]
+].forEach(function (pair) {
   var slot = document.getElementById(pair[0]);
+  if (!slot) return;
   var v = document.createElement("video");
   v.controls = true; v.muted = true; v.src = pair[1];
-  v.onerror = function () { v.remove(); };
+  v.onerror = function () { v.remove(); }; // Keeps text placeholder if video is missing
   v.onloadeddata = function () { slot.innerHTML = ""; slot.appendChild(v); };
 });
 </script>
