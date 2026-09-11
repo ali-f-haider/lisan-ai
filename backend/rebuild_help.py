@@ -1,4 +1,11 @@
-<!DOCTYPE html>
+from pathlib import Path
+
+p = Path("help.html")
+if p.exists():
+    Path("help_broken_backup.html").write_bytes(p.read_bytes())
+    print("backed up current help.html -> help_broken_backup.html")
+
+HTML = '''<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -118,3 +125,7 @@ function showLang(l){
 </script>
 </body>
 </html>
+'''
+
+p.write_text(HTML, encoding="utf-8")
+print("help.html rebuilt: single copy, unified cards, EN/AR toggle, resolution FAQ in both languages.")
