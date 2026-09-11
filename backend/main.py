@@ -148,7 +148,7 @@ def _is_logged_in(request: Request) -> bool:
     return False
 
 PUBLIC_PATHS = frozenset([
-    "/", "/login", "/auth/callback", "/help", "/debug-keys", "/api/login",
+    "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
     "/api/billing/packs", "/api/billing/checkout"
 ])
@@ -626,34 +626,24 @@ def styles():
 def logo():
     return FileResponse(BASE_DIR / "logo.png", media_type="image/png")
 
-@app.get("/privacy")
-@app.get("/privacy.html")
 def privacy_page():
     return FileResponse(BASE_DIR / "privacy.html")
 
 
-@app.get("/terms")
-@app.get("/terms.html")
 def terms_page():
     return FileResponse(BASE_DIR / "terms.html")
 
 
-@app.get("/privacy")
-@app.get("/privacy.html")
 def privacy_page():
     from fastapi.responses import FileResponse
     import os
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html"))
 
-@app.get("/terms")
-@app.get("/terms.html")
 def terms_page():
     from fastapi.responses import FileResponse
     import os
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
 
-@app.get("/help")
-@app.get("/help.html")
 def help_page():
     return FileResponse(BASE_DIR / "help.html", media_type="text/html")
 
