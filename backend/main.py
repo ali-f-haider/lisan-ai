@@ -374,6 +374,27 @@ def _sb_rpc(function: str, args: dict):
         return None
 
 
+def set_credits(uid, new_amount):
+    """Updates user's credits in profiles table."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    body = json.dumps({"credits": int(new_amount)}).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal"
+    }
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[credits] set_credits error: {ex}")
+        return False
+
 def get_credits(uid: str):
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         print(f"[credits] MISSING CONFIG: uid={bool(uid)} url={bool(SUPABASE_URL)} key={bool(SUPABASE_SERVICE_KEY)}")
@@ -1033,3 +1054,323 @@ def public_terms_page():
     from fastapi.responses import FileResponse
     import os
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
+    
+    # ============================================================
+# ADMIN ROUTES — protected by APP_PASSWORD env var
+# ============================================================
+import hmac
+import time
+import secrets
+
+# In-memory admin session tokens (valid for 4 hours)
+_ADMIN_TOKENS = {}
+ADMIN_TOKEN_TTL = 4 * 3600  # 4 hours
+
+def _admin_check(request):
+    """Returns True if request has a valid admin token."""
+    tok = request.headers.get("X-Admin-Token", "")
+    if not tok or tok not in _ADMIN_TOKENS:
+        return False
+    # Check expiry
+    if time.time() - _ADMIN_TOKENS[tok] > ADMIN_TOKEN_TTL:
+        del _ADMIN_TOKENS[tok]
+        return False
+    return True
+
+def _get_pricing_config():
+    """Returns pricing config from DB, with defaults if not set."""
+    # Uses Supabase service key to read from a `pricing_config` table
+    # If table doesn't exist or is empty, returns defaults
+    defaults = {
+        "pricePerMin": 150,
+        "freeCredits": 150,
+        "minReserve": 150,
+        "maxVideoMin": 60,
+        "markup": 4.0,
+        "packs": [
+            {"name": "Starter", "credits": 1500, "price_usd": 15, "bonus_pct": 0, "stripe_link": ""},
+            {"name": "Standard", "credits": 4000, "price_usd": 35, "bonus_pct": 14, "stripe_link": ""},
+            {"name": "Pro", "credits": 10000, "price_usd": 75, "bonus_pct": 33, "stripe_link": ""},
+            {"name": "Studio", "credits": 25000, "price_usd": 150, "bonus_pct": 66, "stripe_link": ""}
+        ]
+    }
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return defaults
+    try:
+        import urllib.request as _ur
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=*"
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=5) as r:
+            rows = json.load(r)
+        if rows and isinstance(rows, list) and len(rows) > 0:
+            row = rows[0]
+            return {
+                "pricePerMin": row.get("price_per_min", defaults["pricePerMin"]),
+                "freeCredits": row.get("free_credits", defaults["freeCredits"]),
+                "minReserve": row.get("min_reserve", defaults["minReserve"]),
+                "maxVideoMin": row.get("max_video_min", defaults["maxVideoMin"]),
+                "markup": row.get("markup", defaults["markup"]),
+                "packs": row.get("packs", defaults["packs"])
+            }
+    except Exception as ex:
+        print(f"[admin] pricing_config load error: {ex}")
+    return defaults
+
+def _save_pricing_config(config):
+    """Saves pricing config to DB (upsert)."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False  # not in DB, but UI already shows current values
+    try:
+        import urllib.request as _ur
+        body = json.dumps({
+            "id": "singleton",
+            "price_per_min": config.get("pricePerMin", 150),
+            "free_credits": config.get("freeCredits", 150),
+            "min_reserve": config.get("minReserve", 150),
+            "max_video_min": config.get("maxVideoMin", 60),
+            "markup": config.get("markup", 4.0),
+            "packs": config.get("packs", []),
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        }).encode("utf-8")
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config"
+        hdrs = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "upsert=on-conflict-table-constraints"
+        }
+        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
+        with _ur.urlopen(req, timeout=10) as r:
+            pass
+        return True
+    except Exception as ex:
+        print(f"[admin] pricing_config save error: {ex}")
+        return False
+
+@app.post("/api/admin/login")
+def admin_login(request: Request):
+    """Admin login — verifies code matches APP_PASSWORD env var."""
+    try:
+        body = json.loads(request._body.decode("utf-8")) if hasattr(request, "_body") else {}
+    except Exception:
+        body = {}
+    code = body.get("code", "") if isinstance(body, dict) else ""
+    if not code or not APP_PASSWORD:
+        return JSONResponse({"error": "admin access disabled"}, status_code=403)
+    # Constant-time comparison
+    if not hmac.compare_digest(str(code), str(APP_PASSWORD)):
+        return JSONResponse({"error": "invalid code"}, status_code=401)
+    # Generate session token
+    token = secrets.token_urlsafe(32)
+    _ADMIN_TOKENS[token] = time.time()
+    return {"token": token}
+
+@app.get("/api/admin/overview")
+def admin_overview(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    # Aggregate metrics
+    import urllib.request as _ur
+    def _fetch_count(table):
+        url = f"{SUPABASE_URL}/rest/v1/{table}?select=*"
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Prefer": "count=exact"}
+        try:
+            req = _ur.Request(url, headers=hdrs, method="HEAD")
+            with _ur.urlopen(req, timeout=5) as r:
+                return int(r.headers.get("Content-Range", "*/0").split("/")[-1])
+        except Exception:
+            return 0
+    def _fetch_rows(table, limit=20):
+        url = f"{SUPABASE_URL}/rest/v1/{table}?order=created_at.desc&limit={limit}&select=*"
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        try:
+            req = _ur.Request(url, headers=hdrs)
+            with _ur.urlopen(req, timeout=5) as r:
+                return json.load(r) or []
+        except Exception:
+            return []
+    profiles = _fetch_rows("profiles", 1000)
+    total_users = len(profiles)
+    credits_outstanding = sum(p.get("credits", 0) for p in profiles)
+    paying_users = sum(1 for p in profiles if not p.get("is_guest", True) and p.get("credits", 0) > 150)
+    orders = _fetch_rows("credit_orders", 1000)
+    revenue = sum(o.get("credits", 0) for o in orders) / 100.0  # 100 cr = $1
+    recent_jobs = _fetch_rows("credit_spends", 20)
+    return {
+        "total_users": total_users,
+        "paying_users": paying_users,
+        "credits_outstanding": credits_outstanding,
+        "revenue_usd": revenue,
+        "recent_jobs": [{"created_at": j.get("created_at",""), "uid": j.get("uid",""), "user_name": "",
+                         "action": j.get("action",""), "credits": j.get("credits",0), "status": "done"} for j in recent_jobs]
+    }
+
+@app.get("/api/admin/users")
+def admin_users(request: Request, q: str = ""):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/profiles?order=created_at.desc&limit=500&select=*"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            users = json.load(r) or []
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    # Filter by search query
+    if q:
+        ql = q.lower()
+        users = [u for u in users if ql in (str(u.get("display_name","")) + str(u.get("email","")) + str(u.get("id",""))).lower()]
+    return {"users": users}
+
+@app.post("/api/admin/adjust_credits")
+def admin_adjust_credits(request: Request):
+    """Manually grant or deduct credits. Logged to audit."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = json.loads(request._body.decode("utf-8")) if hasattr(request, "_body") else {}
+    except Exception:
+        body = {}
+    uid = body.get("uid", "")
+    delta = int(body.get("delta", 0))
+    reason = body.get("reason", "")
+    if not uid or delta == 0:
+        return JSONResponse({"error": "uid and non-zero delta required"}, status_code=400)
+    if abs(delta) > 10000:
+        return JSONResponse({"error": "delta too large (max 10000)"}, status_code=400)
+    # Update credits
+    current = get_credits(uid) or 0
+    new_credits = max(0, current + delta)
+    if not set_credits(uid, new_credits):
+        return JSONResponse({"error": "failed to update credits"}, status_code=500)
+    # Log to credit_spends
+    _log_spend(uid, "admin_adjustment", delta, job_id=None, reason=reason)
+    # Log to audit table
+    _log_audit(uid, delta, reason)
+    return {"ok": True, "new_credits": new_credits}
+
+def _log_spend(uid, action, credits, job_id=None, reason=None):
+    """Helper: insert into credit_spends."""
+    import urllib.request as _ur
+    body = json.dumps({
+        "uid": uid, "action": action, "credits": credits,
+        "job_id": job_id, "reason": reason,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
+        with _ur.urlopen(req, timeout=5) as r: pass
+    except Exception as ex:
+        print(f"[admin] log_spend error: {ex}")
+
+def _log_audit(target_uid, delta, reason):
+    """Helper: insert into credit_audit."""
+    import urllib.request as _ur
+    body = json.dumps({
+        "admin": "admin", "target_uid": target_uid, "delta": delta,
+        "reason": reason,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    }).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/credit_audit"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
+        with _ur.urlopen(req, timeout=5) as r: pass
+    except Exception as ex:
+        print(f"[admin] log_audit error: {ex}")
+
+@app.get("/api/admin/pricing")
+def admin_get_pricing(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return _get_pricing_config()
+
+@app.post("/api/admin/pricing")
+def admin_save_pricing(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = json.loads(request._body.decode("utf-8")) if hasattr(request, "_body") else {}
+    except Exception:
+        body = {}
+    ok = _save_pricing_config(body)
+    return {"ok": ok}
+
+@app.get("/api/admin/audit")
+def admin_audit(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/credit_audit?order=created_at.desc&limit=100&select=*"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r) or []
+    except Exception:
+        rows = []
+    return {"audit": rows}
+
+@app.get("/api/admin/health")
+def admin_health(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import urllib.request as _ur
+    def _check(url, hdrs):
+        try:
+            req = _ur.Request(url, headers=hdrs)
+            with _ur.urlopen(req, timeout=5) as r:
+                return "ok" if r.status == 200 else f"http_{r.status}"
+        except Exception:
+            return "fail"
+    supabase = _check(f"{SUPABASE_URL}/rest/v1/profiles?limit=1",
+                       {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    eleven = "ok" if ELEVENLABS_API_KEY else "fail"
+    gemini = "ok" if GEMINI_API_KEY else "fail"
+    return {"supabase": supabase, "elevenlabs": eleven, "gemini": gemini}
+
+@app.post("/api/admin/purge_old_jobs")
+def admin_purge_jobs(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import os, shutil, time
+    purge_before = time.time() - 30 * 86400  # 30 days ago
+    purged = 0
+    try:
+        for d in os.listdir(OUTPUT_DIR):
+            full = os.path.join(OUTPUT_DIR, d)
+            if os.path.isdir(full) and os.path.getmtime(full) < purge_before:
+                shutil.rmtree(full, ignore_errors=True)
+                purged += 1
+    except Exception:
+        pass
+    return {"purged": purged}
+
+@app.post("/api/admin/clear_sessions")
+def admin_clear_sessions(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    cleared = 0
+    cutoff = time.time() - 7 * 86400
+    for tok in list(_session_users.keys()):
+        # _session_users values are UIDs, not timestamps — we'd need to track timestamps
+        # For now, clear all sessions (admin's call)
+        del _session_users[tok]
+        cleared += 1
+    return {"cleared": cleared}
+
+# Serve the admin HTML page
+@app.get("/admin")
+def admin_page(request: Request):
+    if not APP_PASSWORD:
+        return JSONResponse({"error": "admin access disabled"}, status_code=403)
+    from pathlib import Path
+    p = Path(__file__).parent / "admin.html"
+    if not p.exists():
+        return JSONResponse({"error": "admin.html not found"}, status_code=404)
+    return HTMLResponse(p.read_text(encoding="utf-8"))
