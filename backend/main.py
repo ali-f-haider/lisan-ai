@@ -564,8 +564,13 @@ def _watch_and_deduct(job_id, uid, kind):
 # ---------- Stripe ----------
 @app.get("/api/billing/packs")
 def billing_packs():
-    return {"packs": get_packs(), "source": _PACKS_STATE["source"]}
-
+    try:
+        data = get_packs() if "get_packs" in globals() else CREDIT_PACKS
+        src = _PACKS_STATE.get("source", "unknown") if "_PACKS_STATE" in globals() else "hardcoded"
+        return {"packs": data, "source": src}
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": str(e), "trace": traceback.format_exc()}, status_code=500)
 
 @app.post("/api/billing/checkout")
 def billing_checkout(payload: dict, request: Request):
