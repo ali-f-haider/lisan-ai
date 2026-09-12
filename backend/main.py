@@ -424,13 +424,34 @@ def _load_packs_from_db():
         return None
 
 def get_packs():
-    now = _time.time()
-    if _PACKS_CACHE["data"] is not None and (now - _PACKS_CACHE["ts"]) < 60:
-        return _PACKS_CACHE["data"]
-    data = _load_packs_from_db() or CREDIT_PACKS
-    _PACKS_CACHE["ts"] = now
-    _PACKS_CACHE["data"] = data
-    return data
+    """Returns credit packs keyed by pack_key (starter, standard, pro, business).
+    Reads from pricing_config table — admin panel is the single source of truth."""
+    cfg = _get_pricing_config()
+    packs_array = cfg.get("packs", [])
+    # Fallback defaults if DB is empty
+    if not packs_array:
+        packs_array = [
+            {"name": "Starter", "credits": 1500, "price_usd": 15.0, "bonus_pct": 0, "stripe_link": ""},
+            {"name": "Standard", "credits": 4000, "price_usd": 35.0, "bonus_pct": 14, "stripe_link": ""},
+            {"name": "Pro", "credits": 10000, "price_usd": 75.0, "bonus_pct": 33, "stripe_link": ""},
+            {"name": "Studio", "credits": 25000, "price_usd": 150.0, "bonus_pct": 66, "stripe_link": ""}
+        ]
+    keyed = {}
+    for p in packs_array:
+        name = (p.get("name") or "").strip()
+        if not name:
+            continue
+        key = name.lower().split()[0]
+        # Keep backward-compat with old keys (business vs studio)
+        if key in ("studio", "business"):
+            key = "business"
+        keyed[key] = {
+            "credits": int(p.get("credits", 0)),
+            "amount_usd": float(p.get("price_usd", 0)),
+            "bonus_pct": int(p.get("bonus_pct", 0)),
+            "stripe_link": p.get("stripe_link", "")
+        }
+    return keyed
 
 
 _session_users = {}   # our cookie token -> supabase user id
