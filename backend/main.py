@@ -183,7 +183,7 @@ PUBLIC_PATHS = frozenset([
     "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
     "/api/billing/packs", "/api/billing/checkout"
-, "/help.html"])
+, "/help.html", "/admin"])
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
