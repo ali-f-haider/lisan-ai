@@ -1470,3 +1470,17 @@ def admin_page(request: Request):
     if not p.exists():
         return JSONResponse({"error": "admin.html not found"}, status_code=404)
     return HTMLResponse(p.read_text(encoding="utf-8"))
+
+
+# ============================================================
+# PUBLIC PRICING — readable by anyone (no auth needed)
+# ============================================================
+@app.get("/api/pricing")
+def public_pricing():
+    """Returns the user-facing pricing config (packs + per-minute rate).
+    No auth required — used by the buy-credits modal."""
+    cfg = _get_pricing_config()
+    return {
+        "pricePerMin": cfg.get("pricePerMin", 150),
+        "packs": cfg.get("packs", [])
+    }
