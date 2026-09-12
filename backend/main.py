@@ -610,7 +610,7 @@ def _watch_and_deduct(job_id, uid, kind):
 
 
 # ---------- Stripe ----------
-@app.get("/api/billing/packs")
+
 def billing_packs():
     return {"packs": get_packs_from_db() or CREDIT_PACKS}
 
@@ -1484,3 +1484,38 @@ def public_pricing():
         "pricePerMin": cfg.get("pricePerMin", 150),
         "packs": cfg.get("packs", [])
     }
+
+@app.get("/api/billing/packs")
+def billing_packs_dynamic():
+    """Returns credit packs from pricing_config (managed by admin panel).
+    Maps the admin array structure into the keyed structure the buy modal expects."""
+    cfg = _get_pricing_config()
+    packs_array = cfg.get("packs", [])
+    # Default fallback if DB is empty
+    if not packs_array:
+        packs_array = [
+            {"name": "Starter", "credits": 1500, "price_usd": 15.0, "bonus_pct": 0, "stripe_link": ""},
+            {"name": "Standard", "credits": 4000, "price_usd": 35.0, "bonus_pct": 14, "stripe_link": ""},
+            {"name": "Pro", "credits": 10000, "price_usd": 75.0, "bonus_pct": 33, "stripe_link": ""},
+            {"name": "Studio", "credits": 25000, "price_usd": 150.0, "bonus_pct": 66, "stripe_link": ""}
+        ]
+    # Map array → keyed dict (lowercase name as key)
+    # The buy modal iterates ["starter","standard","pro","business"]
+    # so we map by lowercased first word of the pack name
+    keyed = {}
+    for p in packs_array:
+        name = (p.get("name") or "").strip()
+        if not name:
+            continue
+        key = name.lower().split()[0]
+        # Keep backward-compat with old keys (business vs studio)
+        if key in ("studio", "business"):
+            key = "business"
+        keyed[key] = {
+            "credits": int(p.get("credits", 0)),
+            "amount_usd": float(p.get("price_usd", 0)),
+            "bonus_pct": int(p.get("bonus_pct", 0)),
+            "stripe_link": p.get("stripe_link", "")
+        }
+    return {"packs": keyed, "price_per_min": cfg.get("pricePerMin", 150)}
+
