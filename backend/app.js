@@ -258,6 +258,7 @@ function loadProjectFile(evt) {
             // Step 1 remains visible for media upload
             ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(id => document.getElementById(id).classList.remove("hidden"));
             document.getElementById("attachMediaSection").classList.remove("hidden");
+            projectWasLoaded = true;
             notify("success", "Project loaded. Please upload the matching audio/video file to enable preview, re-speak, and other functions.");
             workspaceHasMedia = false;
             fetchUsage(); updateBadges();
