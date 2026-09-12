@@ -4714,7 +4714,7 @@ window.cleanOldClones = function () {
         var id = (b.id || "") + " " + (b.className || "");
         var tx = (b.textContent || "").trim();
         var ti = (b.title || "");
-        return (/lockAll/i.test(id)) || ((tx === "\uD83D\uDD13" || tx === "\uD83D\uDD12") && /lock/i.test(ti));
+        return (/lockAll/i.test(id)) || ((tx === "\uD83D\uDD13" || tx === "\uD83D\uDD12") && /lock/i.test(ti) && !b.classList.contains("action-btn"));
     }
     function killStray() {
         document.querySelectorAll("button").forEach(function (b) { if (isStrayLock(b)) b.remove(); });
