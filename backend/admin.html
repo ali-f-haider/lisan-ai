@@ -260,9 +260,9 @@ async function loadUsers() {
       <td>${u.is_guest ? 'Yes' : 'No'}</td>
       <td>${u.created_at||'—'}</td>
       <td>
-        <button class="btn-sm btn-success" onclick="adjustCredits('${u.id}', 1, i)">+ Grant</button>
-        <button class="btn-sm btn-danger" onclick="adjustCredits('${u.id}', -1, i)">− Deduct</button>
-        <button class="btn-sm" onclick="setCredits('${u.id}', i)">Set</button>
+        <button class="btn-sm btn-success" onclick="adjustCredits('${u.id}', 1, ${i})">+ Grant</button>
+        <button class="btn-sm btn-danger" onclick="adjustCredits('${u.id}', -1, ${i})">− Deduct</button>
+        <button class="btn-sm" onclick="setCredits('${u.id}', ${i})">Set</button>
       </td>
     </tr>`;
   });
