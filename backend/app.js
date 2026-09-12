@@ -3226,7 +3226,7 @@ var volOrigAudio = null;
     card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3>' +
         '<p class="note">Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.</p>' +
         '<div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style="min-width:130px">Trim</th><th></th></tr></thead><tbody></tbody></table></div>' +
-        '<button id="applyVolumesBtn" class="green">🔊 Apply Volumes & Rebuild MP3</button> ' +
+        '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3</button> ' +
         '<button id="resetVolumesBtn" class="blue">↺ Reset All Sliders</button>';
     res.parentNode.insertBefore(card, res);
     document.getElementById("applyVolumesBtn").onclick = applyVolumes;
@@ -3277,7 +3277,7 @@ function onVolSlider(sid, val) {
     var lab = document.getElementById("vollab_" + sid);
     if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
     var btn = document.getElementById("applyVolumesBtn");
-    if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+    if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
 }
 
 function buildVolumeTable(lines) {
@@ -3340,7 +3340,7 @@ async function applyVolumes() {
         notify("success", "Volumes applied — final MP3 rebuilt with your per-line trim.");
         var au = document.querySelector("#audioResults audio");
         if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
-        btn.textContent = "🔊 Apply Volumes & Rebuild MP3";
+        btn.textContent = "🔊 Apply changes & rebuild MP3";
     } catch (e) { notify("error", e.message); }
     finally { btn.disabled = false; }
 }
@@ -3407,7 +3407,7 @@ async function applyVolumes() {
                     window.VOL_NODES[sid].g.gain.value = Math.pow(10, (base + v) / 20);
                 });
                 var btn = document.getElementById("applyVolumesBtn");
-                if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+                if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
             };
         }
         var ab = document.getElementById("applyVolumesBtn");
@@ -3451,7 +3451,7 @@ async function applyVolumes() {
             var au = document.querySelector("#audioResults audio");
             if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         }).catch(function (e) { notify("error", e.message); }).finally(function () {
-            btn.disabled = false; btn.textContent = "🔊 Apply Volumes & Rebuild MP3";
+            btn.disabled = false; btn.textContent = "🔊 Apply changes & rebuild MP3";
         });
     };
     var _oldShow = window.showVolumeSection;
@@ -3474,7 +3474,7 @@ async function applyVolumes() {
         var lab = document.getElementById("vollab_" + sid);
         if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
         var btn = document.getElementById("applyVolumesBtn");
-        if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+        if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
     };
     var _oldPlayDub = window.playDubLine;
     window.playDubLine = function (line) {
@@ -3644,7 +3644,7 @@ async function applyVolumes() {
         var lab = document.getElementById("vollab_" + sid);
         if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
         var btn = document.getElementById("applyVolumesBtn");
-        if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+        if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
     };
 
     function placeMaster() {
@@ -3676,7 +3676,7 @@ async function applyVolumes() {
             });
             window.buildVolumeTable(window._volumeLines || []);
             var btn = document.getElementById("applyVolumesBtn");
-            if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+            if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
         };
     }
 
@@ -3718,10 +3718,11 @@ async function applyVolumes() {
             body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, offsets: offs, gains: gains, total_duration: totalDuration, duration_mode: document.getElementById("durationMode").value })
         }).then(function (r) { return r.json(); }).then(function (data) {
             if (!data || data.status !== "success") { notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "server error")); return; }
-            notify("success", "Volumes applied — final MP3 rebuilt.");
+            var cuts = (data.duration_cuts || 0);
+            notify("success", "Final MP3 rebuilt" + (cuts > 0 ? " — " + cuts + " line(s) still trimmed." : " — no lines were trimmed."));
             var au = document.querySelector("#audioResults audio");
-            if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
-            btn.textContent = "🔊 Apply Volumes & Rebuild MP3";
+            if (au) { au.pause(); au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+            btn.textContent = "🔊 Apply changes & rebuild MP3";
         }).catch(function (e) { notify("error", e.message); })
           .finally(function () { btn.disabled = false; });
     };
@@ -3850,7 +3851,7 @@ window.cleanOldClones = function () {
         ["Download MP3", "تنزيل MP3"],
         ["Download Dubbed Video (MP4)", "تنزيل الفيديو المدبلج (MP4)"],
         ["Download Pure Vocals (MP3)", "تنزيل الصوت فقط (MP3)"],
-        ["Apply Volumes & Rebuild MP3", "تطبيق مستويات الصوت وإعادة بناء MP3"],
+        ["Apply changes & rebuild MP3", "تطبيق التغييرات وإعادة بناء MP3"],
         ["Reset All Sliders", "إعادة تعيين كل المنزلقات"],
         ["Upload as this speaker's voice", "رفعه كصوت لهذا المتحدث"],
         ["Clean old cloned voices", "تنظيف الأصوات المستنسخة القديمة"],
@@ -4064,7 +4065,7 @@ window.cleanOldClones = function () {
             });
             if (typeof buildVolumeTable === "function") buildVolumeTable(window._volumeLines || []);
             var btn = document.getElementById("applyVolumesBtn");
-            if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+            if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
         };
     }
 
@@ -4077,7 +4078,7 @@ window.cleanOldClones = function () {
         var lab = document.getElementById("vollab_" + sid);
         if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
         var btn = document.getElementById("applyVolumesBtn");
-        if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+        if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
     };
 
     // 3) FIX: Step 5.5 table — green ▶ icons in BOTH columns, sliders start at matched value
@@ -4229,7 +4230,7 @@ window.cleanOldClones = function () {
             });
             if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
             var btn = document.getElementById("applyVolumesBtn");
-            if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+            if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
         };
     }
     window.onVolSlider = function (sid, val) {
@@ -4240,7 +4241,7 @@ window.cleanOldClones = function () {
         var lab = document.getElementById("vollab_" + sid);
         if (lab) lab.textContent = (val > 0 ? "+" : "") + val.toFixed(1) + " dB";
         var btn = document.getElementById("applyVolumesBtn");
-        if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+        if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
     };
     window.buildVolumeTable = function (lines) {
         var tbody = document.querySelector("#volumeTable tbody");
@@ -4478,7 +4479,7 @@ window.cleanOldClones = function () {
                 else window.overlapAllowed[ln.segment_id] = true;
                 if (typeof renderTimeline === "function") renderTimeline();
                 var btn = document.getElementById("applyVolumesBtn");
-                if (btn) btn.textContent = "\uD83D\uDD0A Apply Volumes & Rebuild MP3 \u2022";
+                if (btn) btn.textContent = "\uD83D\uDD0A Apply changes & rebuild MP3 \u2022";
             };
             cN.appendChild(cb); tr.appendChild(cN);
             var cD = document.createElement("td");
@@ -4490,7 +4491,7 @@ window.cleanOldClones = function () {
                 else delete window.deadSpaceAllowed[ln.segment_id];
                 if (typeof renderTimeline === "function") renderTimeline();
                 var btn = document.getElementById("applyVolumesBtn");
-                if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+                if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
             };
             cD.appendChild(cbD); tr.appendChild(cD);
             var c1 = document.createElement("td");

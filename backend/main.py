@@ -121,6 +121,7 @@ class RemixRequest(BaseModel):
     job_id: str = ""
     segments: List[Segment] = []
     offsets: Dict[str, float] = {}
+    gains: Dict[str, float] = {}
     total_duration: float = 0.0
     duration_mode: str = "exact"
     overlap_allowed: dict = {}
