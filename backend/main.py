@@ -1254,14 +1254,13 @@ def _save_pricing_config(config):
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
-        url = f"{SUPABASE_URL}/rest/v1/pricing_config"
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton"
         hdrs = {
             "apikey": SUPABASE_SERVICE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-            "Content-Type": "application/json",
-            "Prefer": "upsert=on-conflict-table-constraints"
+            "Content-Type": "application/json"
         }
-        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
+        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
         with _ur.urlopen(req, timeout=10) as r:
             pass
         return True
