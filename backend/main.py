@@ -1149,10 +1149,10 @@ def _save_pricing_config(config):
         return False
 
 @app.post("/api/admin/login")
-def admin_login(request: Request):
+async def admin_login(request: Request):
     """Admin login — verifies code matches APP_PASSWORD env var."""
     try:
-        body = json.loads(request._body.decode("utf-8")) if hasattr(request, "_body") else {}
+        body = await request.json()
     except Exception:
         body = {}
     code = body.get("code", "") if isinstance(body, dict) else ""
