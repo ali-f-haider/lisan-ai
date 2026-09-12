@@ -204,7 +204,7 @@ function toast(msg, isError) {
 function doLogin() {
   const code = document.getElementById('adminCode').value.trim();
   if (!code) return;
-  fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
+  fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: code }) })
     .then(r => r.json())
     .then(d => {
       if (d.token) {
