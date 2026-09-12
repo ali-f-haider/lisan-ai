@@ -35,7 +35,7 @@
     <p style="margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;">❓ Help &amp; FAQ / المساعدة والأسئلة الشائعة</a></p>
 </div>
 
-<div class="card">
+<div class="card" id="step1Card">
     <h3>Step 1: Upload Audio or Video</h3>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
@@ -52,6 +52,8 @@
             <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
             <br>
             <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>
+            <button class="green" onclick="document.getElementById('projectFileStep1').click()" style="margin-left:8px;">📂 Load Project</button>
+            <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
             <div id="progressSection" class="hidden">
                 <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
                 <p id="progressText" class="progress-status">Starting...</p>

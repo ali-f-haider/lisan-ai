@@ -255,6 +255,7 @@ function loadProjectFile(evt) {
             if (Number(p.total_duration) > 0) totalDuration = Number(p.total_duration);
             isVideoUpload = !!p.is_video;
             renderTable(); renderSpeakerVoices();
+            var s1 = document.getElementById("step1Card"); if (s1) s1.classList.add("hidden");
             ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(id => document.getElementById(id).classList.remove("hidden"));
             notify("success", "Project loaded.");
             fetchUsage(); updateBadges();
