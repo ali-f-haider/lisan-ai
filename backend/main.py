@@ -332,6 +332,59 @@ CREDIT_PACKS = {
     "business": {"amount_usd": 99.99, "credits": 20000},
 }
 
+# ---- DB-backed packs (admin-editable via pricing_config.packs), fallback + 60s cache ----
+_PACKS_CACHE = {"ts": 0.0, "data": None}
+
+def _norm_pack(v):
+    if not isinstance(v, dict):
+        return None
+    amt = float(v.get("amount_usd") or v.get("amountUsd") or v.get("price") or v.get("usd") or 0)
+    cr = int(v.get("credits") or v.get("credit") or 0)
+    if amt > 0 and cr > 0:
+        return {"amount_usd": round(amt, 2), "credits": cr}
+    return None
+
+def _load_packs_from_db():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/pricing_config?select=packs&limit=1",
+            headers={"apikey": SUPABASE_SERVICE_KEY,
+                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            rows = json.load(r)
+        if not rows:
+            return None
+        packs = rows[0].get("packs")
+        out = {}
+        if isinstance(packs, dict):
+            for k, v in packs.items():
+                np = _norm_pack(v)
+                if np:
+                    out[k] = np
+        elif isinstance(packs, list):
+            for v in packs:
+                np = _norm_pack(v)
+                if np:
+                    k = v.get("key") or v.get("id") or v.get("name")
+                    if k:
+                        out[str(k).lower()] = np
+        return out or None
+    except Exception as e:
+        print("[pricing] packs DB read failed, using built-in defaults:", e)
+        return None
+
+def get_packs():
+    now = _time.time()
+    if _PACKS_CACHE["data"] is not None and (now - _PACKS_CACHE["ts"]) < 60:
+        return _PACKS_CACHE["data"]
+    data = _load_packs_from_db() or CREDIT_PACKS
+    _PACKS_CACHE["ts"] = now
+    _PACKS_CACHE["data"] = data
+    return data
+
+
 _session_users = {}   # our cookie token -> supabase user id
 _job_charges = {}     # job_id -> {"credits_charged": n, "balance_after": m}
 _abandoned_jobs = set()
@@ -511,7 +564,7 @@ def _watch_and_deduct(job_id, uid, kind):
 # ---------- Stripe ----------
 @app.get("/api/billing/packs")
 def billing_packs():
-    return {"packs": CREDIT_PACKS}
+    return {"packs": get_packs()}
 
 
 @app.post("/api/billing/checkout")
@@ -522,7 +575,7 @@ def billing_checkout(payload: dict, request: Request):
     if not uid:
         return JSONResponse({"error": "Login required to buy credits."}, status_code=401)
     pack_key = payload.get("pack", "")
-    pack = CREDIT_PACKS.get(pack_key)
+    pack = get_packs().get(pack_key)
     if not pack:
         return JSONResponse({"error": "Unknown pack."}, status_code=400)
     stripe.api_key = STRIPE_SECRET_KEY
