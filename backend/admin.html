@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Lisan AI — Admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+.header { background: #1e293b; padding: 16px 24px; border-bottom: 2px solid #f59e0b; display: flex; justify-content: space-between; align-items: center; }
+.header h1 { font-size: 22px; color: #f59e0b; }
+.header .badge { background: #f59e0b; color: #000; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.login { max-width: 400px; margin: 80px auto; padding: 32px; background: #1e293b; border-radius: 8px; }
+.login h2 { color: #f59e0b; margin-bottom: 16px; text-align: center; }
+.login input { width: 100%; padding: 12px; margin: 8px 0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: #e2e8f0; font-size: 14px; }
+.login button { width: 100%; padding: 12px; background: #f59e0b; color: #000; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; }
+.login button:hover { background: #d97706; }
+.tabbar { display: flex; background: #1e293b; border-bottom: 1px solid #334155; }
+.tab { padding: 14px 24px; cursor: pointer; border-bottom: 2px solid transparent; color: #94a3b8; font-size: 14px; }
+.tab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
+.content { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.panel { display: none; }
+.panel.active { display: block; }
+.card { background: #1e293b; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.card h3 { color: #f59e0b; margin-bottom: 12px; font-size: 16px; }
+.metric { display: inline-block; margin-right: 32px; }
+.metric .label { color: #94a3b8; font-size: 12px; text-transform: uppercase; }
+.metric .value { color: #f59e0b; font-size: 28px; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; padding: 10px; background: #0f172a; color: #94a3b8; border-bottom: 1px solid #334155; }
+td { padding: 10px; border-bottom: 1px solid #334155; }
+tr:hover { background: #1e293b; }
+input, select, textarea { background: #0f172a; border: 1px solid #334155; border-radius: 4px; padding: 8px; color: #e2e8f0; font-size: 13px; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: #f59e0b; }
+button.btn { background: #f59e0b; color: #000; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 13px; }
+button.btn:hover { background: #d97706; }
+button.btn-sm { background: #334155; color: #e2e8f0; border: none; padding: 6px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 4px; }
+button.btn-sm:hover { background: #475569; }
+button.btn-danger { background: #dc2626; color: #fff; }
+button.btn-danger:hover { background: #b91c1c; }
+button.btn-success { background: #16a34a; color: #fff; }
+button.btn-success:hover { background: #15803d; }
+.row { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+.col { flex: 1; min-width: 200px; }
+.form-group { margin-bottom: 12px; }
+.form-group label { display: block; margin-bottom: 4px; color: #94a3b8; font-size: 12px; }
+.search { width: 100%; padding: 10px; margin-bottom: 12px; }
+.muted { color: #64748b; font-size: 12px; }
+.toast { position: fixed; bottom: 20px; right: 20px; background: #16a34a; color: #fff; padding: 12px 20px; border-radius: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+.toast.error { background: #dc2626; }
+</style>
+</head>
+<body>
+<div id="app" style="display:none">
+  <div class="header">
+    <h1>Lisan AI — Admin Dashboard</h1>
+    <span class="badge" id="adminBadge">ADMIN</span>
+  </div>
+  <div class="tabbar">
+    <div class="tab active" data-tab="overview">📊 Overview</div>
+    <div class="tab" data-tab="users">👥 Users</div>
+    <div class="tab" data-tab="pricing">💰 Pricing</div>
+    <div class="tab" data-tab="audit">📜 Audit Log</div>
+    <div class="tab" data-tab="health">❤️ Health</div>
+  </div>
+  <div class="content">
+
+    <!-- OVERVIEW -->
+    <div class="panel active" id="panel-overview">
+      <div class="card">
+        <h3>📊 Business Metrics</h3>
+        <div class="metric"><div class="label">Total Users</div><div class="value" id="mUsers">—</div></div>
+        <div class="metric"><div class="label">Paying Users</div><div class="value" id="mPaying">—</div></div>
+        <div class="metric"><div class="label">Credits Outstanding</div><div class="value" id="mCredits">—</div></div>
+        <div class="metric"><div class="label">Revenue (all-time)</div><div class="value" id="mRevenue">—</div></div>
+      </div>
+      <div class="card">
+        <h3>📈 Recent Jobs (last 24h)</h3>
+        <table>
+          <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Credits</th><th>Status</th></tr></thead>
+          <tbody id="recentJobs"><tr><td colspan="5" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="panel" id="panel-users">
+      <div class="card">
+        <h3>👥 User Management</h3>
+        <input class="search" id="userSearch" placeholder="Search by name, email, or UID..." oninput="loadUsers()">
+        <table>
+          <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
+          <tbody id="usersTable"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PRICING -->
+    <div class="panel" id="panel-pricing">
+      <div class="card">
+        <h3>💰 Pricing Configuration</h3>
+        <p class="muted" style="margin-bottom:16px;">Changes take effect immediately for all new jobs.</p>
+        <div class="form-group">
+          <label>Credits per minute of audio/video</label>
+          <input type="number" id="pricePerMin" style="width:120px;" step="10" min="50" max="500">
+          <span class="muted">Recommended: 150 (= $1.50/min at 100 cr/$)</span>
+        </div>
+        <div class="form-group">
+          <label>Free credits on signup</label>
+          <input type="number" id="freeCredits" style="width:120px;" step="50" min="0" max="1000">
+          <span class="muted">Recommended: 150 (enough for 1 minute trial)</span>
+        </div>
+        <div class="form-group">
+          <label>Minimum credits per job (reserve before processing)</label>
+          <input type="number" id="minReserve" style="width:120px;" step="50" min="0" max="5000">
+          <span class="muted">Recommended: 150 (one minute, refund unused)</span>
+        </div>
+        <div class="form-group">
+          <label>Maximum video length (minutes, 0 = no limit)</label>
+          <input type="number" id="maxVideoMin" style="width:120px;" step="5" min="0" max="240">
+          <span class="muted">Recommended: 60 until you've stress-tested longer</span>
+        </div>
+        <div class="form-group">
+          <label>Markup multiplier (informational, used by cost calculator)</label>
+          <input type="number" id="markup" style="width:120px;" step="0.5" min="1" max="10">
+          <span class="muted">4× means 4× your real API cost</span>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save Pricing</button>
+      </div>
+
+      <div class="card">
+        <h3>💳 Credit Packs</h3>
+        <table>
+          <thead><tr><th>Name</th><th>Credits</th><th>Price (USD)</th><th>Bonus %</th><th>Stripe Link</th><th>Actions</th></tr></thead>
+          <tbody id="packsTable"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+        </table>
+        <button class="btn" style="margin-top:12px;" onclick="addPack()">+ Add Pack</button>
+      </div>
+    </div>
+
+    <!-- AUDIT -->
+    <div class="panel" id="panel-audit">
+      <div class="card">
+        <h3>📜 Credit Adjustments Audit Log</h3>
+        <p class="muted" style="margin-bottom:12px;">All manual credit grants/deductions by admin are logged here.</p>
+        <table>
+          <thead><tr><th>Time</th><th>Admin</th><th>Target User</th><th>Delta</th><th>Reason</th></tr></thead>
+          <tbody id="auditTable"><tr><td colspan="5" class="muted">Loading...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- HEALTH -->
+    <div class="panel" id="panel-health">
+      <div class="card">
+        <h3>❤️ System Health</h3>
+        <div class="metric"><div class="label">Server Status</div><div class="value" id="hServer">—</div></div>
+        <div class="metric"><div class="label">Supabase</div><div class="value" id="hSupabase">—</div></div>
+        <div class="metric"><div class="label">ElevenLabs</div><div class="value" id="hEleven">—</div></div>
+        <div class="metric"><div class="label">Gemini</div><div class="value" id="hGemini">—</div></div>
+      </div>
+      <div class="card">
+        <h3>🚪 Danger Zone</h3>
+        <p class="muted" style="margin-bottom:12px;">These actions cannot be undone.</p>
+        <button class="btn btn-danger" onclick="purgeOldJobs()">🗑️ Purge jobs older than 30 days</button>
+        <button class="btn btn-danger" onclick="clearBrokenSessions()">🧹 Clear broken sessions</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LOGIN -->
+<div class="login" id="login">
+  <h2>🔐 Admin Access</h2>
+  <input type="password" id="adminCode" placeholder="Enter admin access code" onkeydown="if(event.key==='Enter')doLogin()">
+  <button onclick="doLogin()">Login</button>
+  <p class="muted" style="margin-top:12px;text-align:center;font-size:12px;">Code is set via APP_PASSWORD in Railway env vars.</p>
+</div>
+
+<script>
+let ADMIN_TOKEN = sessionStorage.getItem('adminToken') || '';
+let usersCache = [];
+
+async function api(path, opts={}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { 'X-Admin-Token': ADMIN_TOKEN, 'Content-Type': 'application/json', ...(opts.headers||{}) }
+  });
+  if (res.status === 401) { sessionStorage.removeItem('adminToken'); location.reload(); }
+  const txt = await res.text();
+  try { return { ok: res.ok, status: res.status, data: JSON.parse(txt) }; }
+  catch { return { ok: res.ok, status: res.status, data: { error: txt } }; }
+}
+
+function toast(msg, isError) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (isError ? ' error' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3500);
+}
+
+function doLogin() {
+  const code = document.getElementById('adminCode').value.trim();
+  if (!code) return;
+  fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })
+    .then(r => r.json())
+    .then(d => {
+      if (d.token) {
+        ADMIN_TOKEN = d.token;
+        sessionStorage.setItem('adminToken', d.token);
+        showAdmin();
+      } else {
+        toast('Invalid code', true);
+      }
+    });
+}
+
+async function showAdmin() {
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth();
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  };
+});
+
+async function loadOverview() {
+  const r = await api('/api/admin/overview');
+  if (!r.ok) return;
+  document.getElementById('mUsers').textContent = r.data.total_users;
+  document.getElementById('mPaying').textContent = r.data.paying_users;
+  document.getElementById('mCredits').textContent = r.data.credits_outstanding;
+  document.getElementById('mRevenue').textContent = '$' + r.data.revenue_usd.toFixed(2);
+  let html = '';
+  r.data.recent_jobs.forEach(j => {
+    html += `<tr><td>${j.created_at}</td><td>${j.user_name||j.uid.slice(0,8)}</td><td>${j.action}</td><td>${j.credits}</td><td>${j.status||'—'}</td></tr>`;
+  });
+  document.getElementById('recentJobs').innerHTML = html || '<tr><td colspan="5" class="muted">No recent jobs</td></tr>';
+}
+
+async function loadUsers() {
+  const q = document.getElementById('userSearch').value.trim();
+  const r = await api('/api/admin/users?q=' + encodeURIComponent(q));
+  if (!r.ok) return;
+  usersCache = r.data.users;
+  let html = '';
+  usersCache.forEach((u, i) => {
+    html += `<tr>
+      <td>${u.display_name || u.email || '(no name)'}<br><span class="muted">${u.email||''}</span></td>
+      <td><code style="font-size:11px;">${u.id.slice(0,8)}...</code></td>
+      <td><strong>${u.credits}</strong></td>
+      <td>${u.is_guest ? 'Yes' : 'No'}</td>
+      <td>${u.created_at||'—'}</td>
+      <td>
+        <button class="btn-sm btn-success" onclick="adjustCredits('${u.id}', 1, i)">+ Grant</button>
+        <button class="btn-sm btn-danger" onclick="adjustCredits('${u.id}', -1, i)">− Deduct</button>
+        <button class="btn-sm" onclick="setCredits('${u.id}', i)">Set</button>
+      </td>
+    </tr>`;
+  });
+  document.getElementById('usersTable').innerHTML = html || '<tr><td colspan="6" class="muted">No users found</td></tr>';
+}
+
+async function adjustCredits(uid, sign, idx) {
+  const u = usersCache[idx];
+  const reason = prompt(`Reason for ${sign>0?'granting':'deducting'} credits to ${u.display_name||u.email||uid.slice(0,8)}:`);
+  if (!reason) return;
+  const amount = parseInt(prompt(`How many credits to ${sign>0?'grant':'deduct'}?`));
+  if (!amount || amount <= 0) return;
+  const r = await api('/api/admin/adjust_credits', {
+    method: 'POST',
+    body: JSON.stringify({ uid, delta: sign * amount, reason })
+  });
+  toast(r.ok ? `Adjusted ${sign * amount} credits` : 'Failed: ' + (r.data.error||''), !r.ok);
+  loadUsers();
+}
+
+async function setCredits(uid, idx) {
+  const u = usersCache[idx];
+  const newAmount = parseInt(prompt(`Set credits for ${u.display_name||u.email||uid.slice(0,8)} to:`, u.credits));
+  if (isNaN(newAmount)) return;
+  const delta = newAmount - u.credits;
+  if (delta === 0) return;
+  const reason = prompt(`Reason for setting credits to ${newAmount}:`);
+  if (!reason) return;
+  const r = await api('/api/admin/adjust_credits', {
+    method: 'POST',
+    body: JSON.stringify({ uid, delta, reason })
+  });
+  toast(r.ok ? `Credits set to ${newAmount}` : 'Failed: ' + (r.data.error||''), !r.ok);
+  loadUsers();
+}
+
+async function loadPricing() {
+  const r = await api('/api/admin/pricing');
+  if (!r.ok) return;
+  ['pricePerMin','freeCredits','minReserve','maxVideoMin','markup'].forEach(k => {
+    document.getElementById(k).value = r.data[k] ?? '';
+  });
+  let html = '';
+  r.data.packs.forEach((p, i) => {
+    html += `<tr>
+      <td><input value="${p.name}" data-idx="${i}" data-field="name"></td>
+      <td><input type="number" value="${p.credits}" data-idx="${i}" data-field="credits" style="width:100px"></td>
+      <td><input type="number" step="0.01" value="${p.price_usd}" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
+      <td><input type="number" value="${p.bonus_pct||0}" data-idx="${i}" data-field="bonus_pct" style="width:80px"></td>
+      <td><input value="${p.stripe_link||''}" data-idx="${i}" data-field="stripe_link" style="width:200px"></td>
+      <td><button class="btn-sm btn-danger" onclick="deletePack(${i})">Delete</button></td>
+    </tr>`;
+  });
+  document.getElementById('packsTable').innerHTML = html || '<tr><td colspan="6" class="muted">No packs</td></tr>';
+}
+
+async function savePricing() {
+  const r = await api('/api/admin/pricing');
+  if (!r.ok) return;
+  const packs = r.data.packs;
+  document.querySelectorAll('#packsTable input').forEach(inp => {
+    const i = parseInt(inp.dataset.idx);
+    const f = inp.dataset.field;
+    let v = inp.value;
+    if (['credits','bonus_pct'].includes(f)) v = parseInt(v) || 0;
+    if (['price_usd'].includes(f)) v = parseFloat(v) || 0;
+    packs[i][f] = v;
+  });
+  const update = {
+    pricePerMin: parseInt(document.getElementById('pricePerMin').value),
+    freeCredits: parseInt(document.getElementById('freeCredits').value),
+    minReserve: parseInt(document.getElementById('minReserve').value),
+    maxVideoMin: parseInt(document.getElementById('maxVideoMin').value),
+    markup: parseFloat(document.getElementById('markup').value),
+    packs
+  };
+  const res = await api('/api/admin/pricing', { method: 'POST', body: JSON.stringify(update) });
+  toast(res.ok ? 'Pricing saved' : 'Failed: ' + (res.data.error||''), !res.ok);
+}
+
+function addPack() {
+  const tbody = document.getElementById('packsTable');
+  const i = tbody.querySelectorAll('tr').length;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><input value="New Pack" data-idx="${i}" data-field="name"></td>
+    <td><input type="number" value="1500" data-idx="${i}" data-field="credits" style="width:100px"></td>
+    <td><input type="number" step="0.01" value="15" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
+    <td><input type="number" value="0" data-idx="${i}" data-field="bonus_pct" style="width:80px"></td>
+    <td><input value="" data-idx="${i}" data-field="stripe_link" style="width:200px"></td>
+    <td><button class="btn-sm btn-danger" onclick="this.closest('tr').remove()">Delete</button></td>`;
+  tbody.appendChild(tr);
+}
+
+function deletePack(i) {
+  document.querySelectorAll('#packsTable tr')[i].remove();
+}
+
+async function loadAudit() {
+  const r = await api('/api/admin/audit');
+  if (!r.ok) return;
+  let html = '';
+  r.data.audit.forEach(a => {
+    const sign = a.delta > 0 ? '+' : '';
+    html += `<tr><td>${a.created_at}</td><td>${a.admin}</td><td>${a.target_uid.slice(0,8)}...</td><td style="color:${a.delta>0?'#16a34a':'#dc2626'}">${sign}${a.delta}</td><td>${a.reason}</td></tr>`;
+  });
+  document.getElementById('auditTable').innerHTML = html || '<tr><td colspan="5" class="muted">No adjustments yet</td></tr>';
+}
+
+async function loadHealth() {
+  const r = await api('/api/admin/health');
+  if (!r.ok) return;
+  const map = { ok: '#16a34a', fail: '#dc2626', '?': '#64748b' };
+  document.getElementById('hServer').textContent = '✓ OK';
+  document.getElementById('hServer').style.color = '#16a34a';
+  document.getElementById('hSupabase').textContent = r.data.supabase.toUpperCase();
+  document.getElementById('hSupabase').style.color = map[r.data.supabase] || '#dc2626';
+  document.getElementById('hEleven').textContent = r.data.elevenlabs.toUpperCase();
+  document.getElementById('hEleven').style.color = map[r.data.elevenlabs] || '#dc2626';
+  document.getElementById('hGemini').textContent = r.data.gemini.toUpperCase();
+  document.getElementById('hGemini').style.color = map[r.data.gemini] || '#dc2626';
+}
+
+async function purgeOldJobs() {
+  if (!confirm('Delete all job folders older than 30 days? This cannot be undone.')) return;
+  const r = await api('/api/admin/purge_old_jobs', { method: 'POST' });
+  toast(r.ok ? 'Purged ' + r.data.purged + ' jobs' : 'Failed', !r.ok);
+}
+
+async function clearBrokenSessions() {
+  if (!confirm('Clear all sessions older than 7 days?')) return;
+  const r = await api('/api/admin/clear_sessions', { method: 'POST' });
+  toast(r.ok ? 'Cleared ' + r.data.cleared + ' sessions' : 'Failed', !r.ok);
+}
+
+if (ADMIN_TOKEN) showAdmin();
+</script>
+</body>
+</html>
