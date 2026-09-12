@@ -1,8 +1,6 @@
-.env
+backend_Backup/
 venv/
 __pycache__/
-uploads/
+*.pyc
 outputs/
-*.mp3
-*.mp4
-*.wav
+uploads/
