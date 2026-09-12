@@ -2640,6 +2640,7 @@ function resetWorkspace() {
     var _origOnFile = onFileSelected;
     onFileSelected = function (input) {
         if (input.files && input.files[0]) {
+            if (projectWasLoaded && !workspaceHasMedia) { attachMedia(input); return; }
             if (segmentsData.length &&
                 !confirm("Choosing a new file will clear the current project (segments, translations, voices). Continue?")) {
                 input.value = "";
@@ -2673,6 +2674,7 @@ function resetWorkspace() {
 
 // ===== ADD-ON: download protection, safe reset, loaded-project media guard =====
 var workspaceHasMedia = true;
+var projectWasLoaded = false;
 var resultsExist = false;
 var resultsDownloaded = false;
 
@@ -2779,6 +2781,11 @@ function hideMediaBanner() {
     var prev = onFileSelected;
     onFileSelected = function (input) {
         if (input.files && input.files[0]) {
+            // If project was loaded, route to attachMedia instead
+            if (projectWasLoaded && !workspaceHasMedia) {
+                attachMedia(input);
+                return;
+            }
             if (!confirmResetSafe()) { input.value = ""; resetFileLabel(); return; }
             resetWorkspace(); // clears segments so the inner wrapper won't ask twice
         }
