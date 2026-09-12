@@ -88,6 +88,8 @@ window.addEventListener("DOMContentLoaded", async function(){
 });
 
 async function doLogin(){ /* _adminShortcut */
+  var _em = document.getElementById("email").value.trim();
+  var _pw = document.getElementById("password").value;
   if(!_em && !_pw){ msg("Enter your email — or put the admin access code in the password field.", "err"); return; }
   var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
   var res = await c.auth.signInWithPassword({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
