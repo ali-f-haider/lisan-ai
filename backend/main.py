@@ -679,8 +679,10 @@ def billing_sync(request: Request):
     stripe.api_key = STRIPE_SECRET_KEY
     added = 0
     try:
-        sessions = stripe.checkout.Session.list(limit=100, client_reference_id=uid)
+        sessions = stripe.checkout.Session.list(limit=100)
         for s in sessions.data:
+            if s.get("client_reference_id") != uid:
+                continue
             if s.get("payment_status") == "paid":
                 credits = int((s.get("metadata") or {}).get("credits", 0))
                 res = _fulfill_order(uid, s.get("id", ""), credits)
