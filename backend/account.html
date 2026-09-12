@@ -48,7 +48,7 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
   var st = document.querySelector("#spendsTable tbody");
   (d.spends || []).forEach(function(s){
     var tr = document.createElement("tr");
-    tr.innerHTML = "<td>" + (s.created_at||"").slice(0,16).replace("T"," ") + "</td><td>" + (s.action||"deduction") + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id||"").slice(0,8) + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
+    tr.innerHTML = "<td>" + (s.created_at||"").slice(0,16).replace("T"," ") + "</td><td>" + (s.action||"deduction") + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id||"") + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
     st.appendChild(tr);
   });
   if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">No consumption recorded yet.</td></tr>';

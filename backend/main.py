@@ -624,7 +624,7 @@ def _watch_and_deduct(job_id, uid, kind):
                 1, math.ceil(gemini_usd / 0.01)
             )
 
-        new_balance = deduct_credits(uid, amount)
+        new_balance = deduct_credits(uid, amount, kind, job_id)
 
         _job_charges[job_id] = {
             "credits_charged": amount,
@@ -1009,8 +1009,8 @@ def merge_video(req: MergeRequest, request: Request):
     if bal is not None and bal < 1:
         return JSONResponse({"error": "Insufficient credits (merge costs 1 credit). Use ➕ Buy."}, status_code=402)
     if uid:
-        deduct_credits(uid, 1)
-    
+        deduct_credits(uid, 1, "merge", req.job_id)
+
     video = find_job_video(req.job_id)
     dub = OUTPUT_DIR / "final_dubbed.mp3"
     if video is None or not dub.exists():
@@ -1127,12 +1127,16 @@ def _record_spend(uid, action, credits, job_id=None):
 try:
     _od = deduct_credits
     def deduct_credits(*a, **k):
-        r = _od(*a, **k)
+        uid = a[0] if len(a) > 0 else k.get("uid")
+        amt = a[1] if len(a) > 1 else k.get("amount", k.get("credits"))
+        act = a[2] if len(a) > 2 else k.get("action", "deduction")
+        jid = a[3] if len(a) > 3 else k.get("job_id")
+        # _od (the original deduct_credits) only ever took (uid, amount) — call it
+        # with exactly that, never with the extra action/job_id tracking args,
+        # or it raises "takes 2 positional arguments but 4 were given" and the
+        # real credit deduction never happens.
+        r = _od(uid, amt)
         try:
-            uid = a[0] if len(a) > 0 else k.get("uid")
-            amt = a[1] if len(a) > 1 else k.get("amount", k.get("credits"))
-            act = a[2] if len(a) > 2 else k.get("action", "deduction")
-            jid = a[3] if len(a) > 3 else k.get("job_id")
             _record_spend(uid, act or "deduction", amt, jid)
         except Exception:
             pass
