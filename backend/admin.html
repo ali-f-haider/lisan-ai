@@ -320,17 +320,54 @@ async function loadPricing() {
 }
 
 async function savePricing() {
-  const r = await api('/api/admin/pricing');
-  if (!r.ok) return;
-  const packs = r.data.packs;
-  document.querySelectorAll('#packsTable input').forEach(inp => {
-    const i = parseInt(inp.dataset.idx);
-    const f = inp.dataset.field;
-    let v = inp.value;
-    if (['credits','bonus_pct'].includes(f)) v = parseInt(v) || 0;
-    if (['price_usd'].includes(f)) v = parseFloat(v) || 0;
-    packs[i][f] = v;
+  // Build packs fresh from the input fields (don't trust cached state)
+  const packs = [];
+  const rows = document.querySelectorAll('#packsTable tr');
+  rows.forEach((tr) => {
+    const inputs = tr.querySelectorAll('input');
+    if (inputs.length < 5) return;
+    const pack = {
+      name: inputs[0].value || '',
+      credits: parseInt(inputs[1].value) || 0,
+      price_usd: parseFloat(inputs[2].value) || 0,
+      bonus_pct: parseInt(inputs[3].value) || 0,
+      stripe_link: inputs[4].value || ''
+    };
+    if (pack.name || pack.credits || pack.price_usd) {
+      packs.push(pack);
+    }
   });
+
+  // Read the pricing config inputs
+  const update = {
+    pricePerMin: parseInt(document.getElementById('pricePerMin')?.value || '150'),
+    freeCredits: parseInt(document.getElementById('freeCredits')?.value || '150'),
+    minReserve: parseInt(document.getElementById('minReserve')?.value || '150'),
+    maxVideoMin: parseInt(document.getElementById('maxVideoMin')?.value || '60'),
+    markup: parseFloat(document.getElementById('markup')?.value || '4.0'),
+    packs: packs
+  };
+
+  console.log('Saving pricing:', update);
+
+  try {
+    const res = await api('/api/admin/pricing', {
+      method: 'POST',
+      body: JSON.stringify(update)
+    });
+    console.log('Save response:', res);
+    if (res.ok) {
+      toast('Pricing saved (' + packs.length + ' packs)');
+      // Reload to verify
+      setTimeout(() => loadPricing(), 500);
+    } else {
+      toast('Failed: ' + (res.data.error || 'unknown error'), true);
+    }
+  } catch (e) {
+    console.error('Save error:', e);
+    toast('Error: ' + e.message, true);
+  }
+});
   const update = {
     pricePerMin: parseInt(document.getElementById('pricePerMin').value),
     freeCredits: parseInt(document.getElementById('freeCredits').value),
