@@ -2856,7 +2856,7 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
             }).catch(function () { orig(); });
         };
     }
-    guard("startTranscribe", 5, "Not enough credits — transcription costs 3 credits.");
+    guard("startTranscribe", 0, "Not enough credits — transcription costs 3 credits.");
     guard("generateAudio", 20, "Not enough credits — generation costs 1 credit per ~60 characters.");
     guard("mergeVideo", 1, "Not enough credits — merging costs 1 credit.");
 })();
