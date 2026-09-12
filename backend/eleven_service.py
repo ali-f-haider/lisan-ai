@@ -366,11 +366,12 @@ def generate_worker(req):
         for i, item in enumerate(generated_files):
             # PATCHED: global overlap check
             allowed_end = final_duration
-            for _j in range(len(generated_files)):
-                if _j == i: continue
-                _other_start = generated_files[_j]["start"]
-                if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
-                    allowed_end = _other_start - 0.005
+            if not OVERLAP_FLAGS.get(item.get("sid", ""), False):
+                for _j in range(len(generated_files)):
+                    if _j == i: continue
+                    _other_start = generated_files[_j]["start"]
+                    if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
+                        allowed_end = _other_start - 0.005
             allowed_duration = allowed_end - item["start"]
             if allowed_duration <= 0.02:
                 continue
@@ -433,11 +434,12 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     for i, item in enumerate(items):
         # PATCHED: global overlap check
         allowed_end = final_duration
-        for _j in range(len(items)):
-            if _j == i: continue
-            _other_start = items[_j]["start"]
-            if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
-                allowed_end = _other_start - 0.005
+        if not OVERLAP_FLAGS.get(item.get("sid", ""), False):
+            for _j in range(len(items)):
+                if _j == i: continue
+                _other_start = items[_j]["start"]
+                if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
+                    allowed_end = _other_start - 0.005
         allowed = allowed_end - item["start"]
         if allowed <= 0.02:
             continue
@@ -563,11 +565,12 @@ def remix_with_offsets(req):
         for i, item in enumerate(items):
             # PATCHED: global overlap check
             allowed_end = final_duration
-            for _j in range(len(items)):
-                if _j == i: continue
-                _other_start = items[_j]["start"]
-                if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
-                    allowed_end = _other_start - 0.005
+            if not OVERLAP_FLAGS.get(item.get("sid", ""), False):
+                for _j in range(len(items)):
+                    if _j == i: continue
+                    _other_start = items[_j]["start"]
+                    if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
+                        allowed_end = _other_start - 0.005
             allowed = allowed_end - item["start"]
             if allowed <= 0.02:
                 continue
