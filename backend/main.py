@@ -849,6 +849,35 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     _watch_and_deduct(job_id, uid, "transcribe")
     return {"job_id": job_id}
 
+@app.post("/api/attach_media")
+async def attach_media(request: Request, file: UploadFile = File(...)):
+    """Upload media file for an existing project without transcribing."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    
+    job_id = str(uuid.uuid4())
+    _job_started[job_id] = _time.time()
+    ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
+    dest = UPLOAD_DIR / f"{job_id}{ext}"
+    
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    
+    jobs_progress[job_id] = {
+        "status": "ready",
+        "percent": 100,
+        "status_text": "Media attached",
+        "is_video": ext in VIDEO_EXTS
+    }
+    
+    return {
+        "job_id": job_id,
+        "is_video": ext in VIDEO_EXTS,
+        "duration": 0
+    }
+
+
 @app.post("/api/abandon/{job_id}")
 def abandon_job(job_id: str):
     _abandoned_jobs.add(job_id)
