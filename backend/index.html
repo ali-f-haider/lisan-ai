@@ -57,7 +57,18 @@
             <div id="progressSection" class="hidden">
                 <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
                 <p id="progressText" class="progress-status">Starting...</p>
+            
+            <div id="attachMediaSection" class="hidden" style="margin-top:16px; padding:16px; background:#fef3c7; border:1px solid #fbbf24; border-radius:8px;">
+                <p style="margin:0 0 12px 0; color:#92400e; font-size:14px;">
+                    📼 <strong>Project loaded.</strong> Upload the matching original audio/video file to enable preview, re-speak, emotion detection, auto-fix, and video merge.
+                </p>
+                <input type="file" id="attachMediaFile" accept="audio/*,video/*,.mp3,.wav,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="attachMedia(this)">
+                <button onclick="document.getElementById('attachMediaFile').click()">Choose Media File</button>
+                <div id="attachProgress" class="hidden" style="margin-top:8px;">
+                    <div class="progress-bar"><div class="progress-fill" style="width:100%"></div></div>
+                </div>
             </div>
+</div>
         </div>
         <div class="credits-info-box">
             <div id="usageBox" class="hidden" style="font-size:13px;"></div>

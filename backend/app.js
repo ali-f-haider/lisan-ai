@@ -255,14 +255,55 @@ function loadProjectFile(evt) {
             if (Number(p.total_duration) > 0) totalDuration = Number(p.total_duration);
             isVideoUpload = !!p.is_video;
             renderTable(); renderSpeakerVoices();
-            var s1 = document.getElementById("step1Card"); if (s1) s1.classList.add("hidden");
+            // Step 1 remains visible for media upload
             ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(id => document.getElementById(id).classList.remove("hidden"));
-            notify("success", "Project loaded.");
+            document.getElementById("attachMediaSection").classList.remove("hidden");
+            notify("success", "Project loaded. Please upload the matching audio/video file to enable preview, re-speak, and other functions.");
+            workspaceHasMedia = false;
             fetchUsage(); updateBadges();
         } catch (e) { notify("error", "Load failed: " + e.message); }
     };
     reader.readAsText(f); evt.target.value = "";
 }
+
+
+async function attachMedia(input) {
+    const file = input.files[0];
+    if (!file) return;
+    
+    const form = new FormData();
+    form.append("file", file);
+    
+    document.getElementById("attachProgress").classList.remove("hidden");
+    
+    try {
+        const res = await fetch("/api/attach_media", { method: "POST", body: form });
+        const data = await res.json();
+        
+        if (data.job_id) {
+            currentJobId = data.job_id;
+            isVideoUpload = data.is_video;
+            workspaceHasMedia = true;
+            
+            // Hide the attach section
+            document.getElementById("attachMediaSection").classList.add("hidden");
+            
+            // Show success
+            notify("success", "Media attached successfully. All functions are now enabled.");
+            
+            // Update UI state
+            updateBadges();
+        } else {
+            notify("error", "Failed to attach media: " + (data.error || "Unknown error"));
+        }
+    } catch (e) {
+        notify("error", "Failed to attach media: " + e.message);
+    } finally {
+        document.getElementById("attachProgress").classList.add("hidden");
+        input.value = "";
+    }
+}
+
 
 async function startTranscribe() {
     const file = document.getElementById("audioFile").files[0];
