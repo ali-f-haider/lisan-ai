@@ -334,11 +334,44 @@ def get_packs_from_db():
             headers={"apikey": SUPABASE_SERVICE_KEY})
         with urllib.request.urlopen(req, timeout=5) as r:
             rows = json.load(r)
-        if rows and isinstance(rows[0].get("packs"), dict) and rows[0]["packs"]:
-            return rows[0]["packs"]
+        if not rows:
+            return None
+        packs = rows[0].get("packs")
+        items = []
+        if isinstance(packs, dict):
+            items = list(packs.items())
+        elif isinstance(packs, list):
+            for v in packs:
+                if isinstance(v, dict):
+                    k = v.get("key") or v.get("id") or v.get("name") or v.get("pack")
+                    if k:
+                        items.append((k, v))
+        out = {}
+        for k, v in items:
+            if not isinstance(v, dict):
+                continue
+            amt = None
+            for n in ("amount_usd", "amountUsd", "price_usd", "price", "usd"):
+                if v.get(n) not in (None, ""):
+                    amt = v.get(n); break
+            if amt in (None, "") and v.get("amount_cents") not in (None, ""):
+                amt = float(v["amount_cents"]) / 100.0
+            cr = None
+            for n in ("credits", "credit", "credit_count"):
+                if v.get(n) not in (None, ""):
+                    cr = v.get(n); break
+            try:
+                amt = float(amt); cr = int(cr)
+            except (TypeError, ValueError):
+                continue
+            if amt > 0 and cr > 0:
+                out[str(k).lower()] = {"amount_usd": round(amt, 2), "credits": cr}
+        print(f"[pricing] packs read from DB: {out}")
+        return out or None
     except Exception as e:
-        print("[pricing] packs read failed:", e)
-    return None
+        print(f"[pricing] DB fetch failed: {e}")
+        return None
+
 
 CREDIT_PACKS = {
     "starter":  {"amount_usd": 4.99,  "credits": 500},
@@ -579,13 +612,7 @@ def _watch_and_deduct(job_id, uid, kind):
 # ---------- Stripe ----------
 @app.get("/api/billing/packs")
 def billing_packs():
-    try:
-        data = get_packs() if "get_packs" in globals() else CREDIT_PACKS
-        src = _PACKS_STATE.get("source", "unknown") if "_PACKS_STATE" in globals() else "hardcoded"
-        return {"packs": data, "source": src}
-    except Exception as e:
-        import traceback
-        return JSONResponse({"error": str(e), "trace": traceback.format_exc()}, status_code=500)
+    return {"packs": get_packs_from_db() or CREDIT_PACKS}
 
 @app.post("/api/billing/checkout")
 def billing_checkout(payload: dict, request: Request):
