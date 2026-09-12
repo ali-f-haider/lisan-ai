@@ -279,7 +279,7 @@ async function adjustCredits(uid, sign, idx) {
     method: 'POST',
     body: JSON.stringify({ uid, delta: sign * amount, reason })
   });
-  toast(r.ok ? `Adjusted ${sign * amount} credits` : 'Failed: ' + (r.data.error||''), !r.ok);
+  if (r.ok) { toast(`Adjusted ${sign * amount} credits`); if(r.data.spend_warning) toast('Spend log error: ' + r.data.spend_warning, true); if(r.data.audit_warning) toast('Audit log error: ' + r.data.audit_warning, true); } else { toast('Failed: ' + (r.data.error||''), true); }
   loadUsers();
 }
 
@@ -295,7 +295,7 @@ async function setCredits(uid, idx) {
     method: 'POST',
     body: JSON.stringify({ uid, delta, reason })
   });
-  toast(r.ok ? `Credits set to ${newAmount}` : 'Failed: ' + (r.data.error||''), !r.ok);
+  if (r.ok) { toast(`Credits set to ${newAmount}`); if(r.data.spend_warning) toast('Spend log error: ' + r.data.spend_warning, true); if(r.data.audit_warning) toast('Audit log error: ' + r.data.audit_warning, true); } else { toast('Failed: ' + (r.data.error||''), true); }
   loadUsers();
 }
 

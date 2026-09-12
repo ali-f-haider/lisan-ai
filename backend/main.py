@@ -1365,10 +1365,14 @@ async def admin_adjust_credits(request: Request):
     if not set_credits(uid, new_credits):
         return JSONResponse({"error": "failed to update credits"}, status_code=500)
     # Log to credit_spends
-    _log_spend(uid, "admin_adjustment", delta, job_id=None, reason=reason)
+    spend_err = _log_spend(uid, "admin_adjustment", delta, job_id=None, reason=reason)
     # Log to audit table
-    _log_audit(uid, delta, reason)
-    return {"ok": True, "new_credits": new_credits}
+    audit_err = _log_audit(uid, delta, reason)
+    
+    resp = {"ok": True, "new_credits": new_credits}
+    if spend_err is not True: resp["spend_warning"] = str(spend_err)
+    if audit_err is not True: resp["audit_warning"] = str(audit_err)
+    return resp
 
 def _log_spend(uid, action, credits, job_id=None, reason=None):
     """Helper: insert into credit_spends."""
