@@ -87,7 +87,11 @@ window.addEventListener("DOMContentLoaded", async function(){
   else { msg("Could not complete social login. Please try again.", "err"); try{ await c.auth.signOut(); }catch(e){} }
 });
 
-async function doLogin(){
+async function doLogin(){ /* _adminShortcut */
+  var _em = document.getElementById("email").value.trim();
+  var _pw = document.getElementById("password").value;
+  if(!_em && _pw){ location.replace("/admin"); return; }
+  if(!_em && !_pw){ msg("Enter your email — or put the admin access code in the password field.", "err"); return; }
   var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
   var res = await c.auth.signInWithPassword({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
   if(res.error){

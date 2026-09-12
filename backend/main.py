@@ -188,7 +188,7 @@ PUBLIC_PATHS = frozenset([
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path in PUBLIC_PATHS or path.startswith("/api/auth/"):
+        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
             return await call_next(request)
         if path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".mp4", ".webm")):            return await call_next(request)
         if not _is_logged_in(request):
