@@ -24,6 +24,15 @@ DEAD_SPACE_FLAGS = {}  # segment_id -> True: this line may stretch into the sile
 def friendly_error(e):
     return str(e)
 
+def _emotion_tags(emotion) -> str:
+    """Turn a (possibly multi-tag) 'happy, softly' emotion string into stacked
+    ElevenLabs v3 audio tags '[happy][softly]' — combining tags is officially
+    supported by stacking separate bracket groups, not commas inside one bracket."""
+    parts = [p.strip() for p in str(emotion or "neutral").split(",") if p.strip()]
+    if not parts:
+        parts = ["neutral"]
+    return "".join(f"[{p}]" for p in parts)
+
 def _bake_gain(path: Path, gain_db: float) -> Path:
     """Apply a volume gain to a line file (returns final path, always .wav)."""
     if abs(gain_db) < 0.15:
@@ -297,7 +306,7 @@ def generate_worker(req):
                 voice_id = req.speaker_voices.get(seg.speaker, "").strip() or req.default_voice_id.strip()
                 if not voice_id:
                     raise Exception(f"No voice assigned for speaker: {seg.speaker}")
-                tts_text = f"[{seg.emotion}] {seg.arabic_text}"
+                tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
                 bucket["eleven_chars"] += len(tts_text)
                 response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
                 audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
@@ -497,7 +506,7 @@ def regenerate_line(req):
             eleven_client = ElevenLabs(api_key=api_key)
         bucket = usage_bucket(req.job_id)
         target_duration = max(seg.end - seg.start, 0.5)
-        tts_text = f"[{seg.emotion}] {seg.arabic_text}"
+        tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
         bucket["eleven_chars"] += len(tts_text)
         response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
         audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)

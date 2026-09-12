@@ -1,4 +1,4 @@
-const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding"];
+const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding","slowly","rushed","drawn out","hesitant","stammering","softly","booming","sorrowful","frustrated","annoyed","appalled","awe","regretful","resigned","curious","deadpan","tired"];
 const CREDIT_USD = 0.01;
 const GEMINI_IN_PER_M = 0.30, GEMINI_OUT_PER_M = 2.50;
 const AUDIO_TOKENS_PER_SEC = 258;

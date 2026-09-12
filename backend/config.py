@@ -44,6 +44,12 @@ GEMINI_MODELS = [
 ]
 
 # --- Emotion handling ---
+# Base emotions/styles (kept exactly as before, nothing removed) plus the
+# ElevenLabs v3 audio-tag categories that were missing: pacing/delivery speed
+# ([slowly], [rushed], [drawn out], [hesitant], [stammering]), volume/softness
+# ([softly], [booming]), and additional distinct emotional nuances the v3 docs
+# list as their own tags ([sorrowful], [frustrated], [annoyed], [appalled],
+# [awe], [regretful], [resigned], [curious], [deadpan], [tired]).
 CANONICAL_EMOTIONS = [
     "neutral", "happy", "sad", "angry", "fearful", "surprised", "disgusted",
     "shouting", "whispering", "screaming", "yelling", "crying", "laughing",
@@ -51,11 +57,18 @@ CANONICAL_EMOTIONS = [
     "depressed", "anxious", "confident", "indifferent", "excited", "serious",
     "playful", "terrified", "relieved", "thoughtful", "mocking", "pleading",
     "commanding",
+    # --- pacing / delivery speed ---
+    "slowly", "rushed", "drawn out", "hesitant", "stammering",
+    # --- volume / softness ---
+    "softly", "booming",
+    # --- additional distinct emotional nuances ---
+    "sorrowful", "frustrated", "annoyed", "appalled", "awe", "regretful",
+    "resigned", "curious", "deadpan", "tired",
 ]
 
 EMOTION_SYNONYMS = {
     "joy": "happy", "joyful": "happy", "cheerful": "happy", "glad": "happy",
-    "sorrow": "sad", "sorrowful": "sad", "upset": "sad", "melancholy": "sad",
+    "sorrow": "sad", "upset": "sad", "melancholy": "sad",
     "mad": "angry", "furious": "angry", "irritated": "angry", "rage": "angry",
     "scared": "fearful", "afraid": "fearful", "frightened": "fearful", "terrified": "terrified",
     "shocked": "surprised", "astonished": "surprised", "amazed": "surprised",
@@ -80,4 +93,23 @@ EMOTION_SYNONYMS = {
     "reflective": "thoughtful", "pensive": "thoughtful",
     "begging": "pleading", "imploring": "pleading",
     "authoritative": "commanding", "bossy": "commanding",
+    # --- pacing / delivery speed ---
+    "slow": "slowly", "drawn-out": "drawn out", "elongated": "drawn out",
+    "lingering": "drawn out", "hurried": "rushed", "hasty": "rushed",
+    "quick": "rushed", "stammers": "stammering", "stuttering": "stammering",
+    "hesitantly": "hesitant",
+    # --- volume / softness ---
+    "gentle": "softly", "gentle voice": "softly", "hushed": "softly",
+    "quiet": "softly", "soft": "softly", "loud": "booming", "thunderous": "booming",
+    # --- additional distinct emotional nuances ---
+    "grief-stricken": "sorrowful", "grieving": "sorrowful", "mournful": "sorrowful",
+    "exasperated": "frustrated", "aggravated": "frustrated",
+    "irked": "annoyed", "peeved": "annoyed",
+    "shocked and disgusted": "appalled", "outraged": "appalled",
+    "in awe": "awe", "amazed and awed": "awe", "wonderstruck": "awe",
+    "apologetic": "regretful", "remorseful": "regretful",
+    "defeated": "resigned", "accepting": "resigned",
+    "inquisitive": "curious", "intrigued": "curious",
+    "flat": "deadpan", "flatly": "deadpan", "monotone": "deadpan",
+    "exhausted": "tired", "weary": "tired", "worn out": "tired",
 }

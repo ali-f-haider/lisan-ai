@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import time
 import urllib.request
 import urllib.error
@@ -31,6 +32,34 @@ def normalize_emotion(value):
         if key in text:
             return mapped
     return "neutral"
+
+
+def normalize_emotions(value, min_tags: int = 2, max_tags: int = 3) -> str:
+    """Map Gemini's (possibly multi-tag) style wording onto our canonical list,
+    keeping MULTIPLE tags instead of collapsing everything to a single word.
+    Returns a comma-separated string of canonical tags, e.g. "happy, softly".
+    """
+    if not value:
+        return "neutral"
+    raw_parts = re.split(r"[,+/;]| and ", str(value).lower())
+    tags = []
+    for part in raw_parts:
+        part = part.strip().strip(".!?")
+        if not part:
+            continue
+        tag = normalize_emotion(part)
+        if tag not in tags:
+            tags.append(tag)
+        if len(tags) >= max_tags:
+            break
+    if not tags:
+        return "neutral"
+    # Drop a redundant standalone "neutral" once we already have a real tag
+    if len(tags) > 1 and "neutral" in tags:
+        tags = [t for t in tags if t != "neutral"] or ["neutral"]
+    # If Gemini only gave us one usable tag, don't invent a second one —
+    # min_tags is enforced via the prompt, not by padding here.
+    return ", ".join(tags[:max_tags])
 
 
 def call_gemini(api_key: str, payload: dict, timeout: int = 120):
@@ -102,13 +131,14 @@ Do not add filler words. Be extremely concise to fit the time limit.
 OTHER RULES:
 Translate into clear, natural MSA Arabic suitable for voice dubbing.
 Add full Tashkeel (Arabic diacritics) to every word.
-Detect the emotion or speaking style of each line and use ONLY one tag from this exact list:
+Detect the emotion AND speaking style of each line. You MUST return exactly TWO comma-separated tags per line (never just one) — a primary emotion tag plus a secondary delivery tag (pacing, volume, or manner) that together best describe how the line should be performed. Choose both tags ONLY from this exact list:
 {', '.join(CANONICAL_EMOTIONS)}
+Example: a sad line spoken quietly would be "sad, softly". An urgent, angry line would be "angry, rushed".
 Preserve the core meaning, but prioritize fitting the time limit.
 Return ONLY valid JSON. No explanations.
 Return JSON array:
 [
-{{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral"}}
+{{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral, conversational"}}
 ]
 Segments:
 {json.dumps(segments_for_prompt, ensure_ascii=False)}"""
@@ -132,7 +162,7 @@ Segments:
 
     for item in translated_segments:
         if isinstance(item, dict):
-            item["emotion"] = normalize_emotion(item.get("emotion", ""))
+            item["emotion"] = normalize_emotions(item.get("emotion", ""))
 
     return {"status": "success", "translated_segments": translated_segments}
 
@@ -173,7 +203,9 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
                 prompt = (
                     "Listen to this audio clip carefully. "
                     "What emotion or speaking style is the speaker expressing in their voice tone? "
-                    "You may return up to three comma-separated style tags from this list (example: 'confident, calm'): "
+                    "You MUST return exactly TWO comma-separated style tags (never just one) — "
+                    "a primary emotion plus a secondary delivery trait (pacing, volume, or manner) "
+                    "from this list (example: 'confident, calm' or 'sad, softly'): "
                     + ", ".join(CANONICAL_EMOTIONS) +
                     ". Do not add any other text."
                 )
@@ -197,7 +229,7 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
                     continue
 
                 result_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                emotions_result[seg.segment_id] = normalize_emotion(result_text)
+                emotions_result[seg.segment_id] = normalize_emotions(result_text)
                 jobs_progress[progress_key]["emotions"] = emotions_result.copy()
 
                 try:
