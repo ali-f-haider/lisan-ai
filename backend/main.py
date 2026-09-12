@@ -1540,3 +1540,68 @@ def billing_packs_dynamic():
         }
     return {"packs": keyed, "price_per_min": cfg.get("pricePerMin", 150)}
 
+# TEMPORARY DIAGNOSTIC ROUTE — delete after we fix the bug
+@app.get("/api/admin/test_save")
+async def admin_test_save(request: Request):
+    """Diagnoses why pricing_config saves are failing. Delete after fix."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    
+    import urllib.request as _ur
+    
+    result = {
+        "env": {
+            "SUPABASE_URL_set": bool(SUPABASE_URL),
+            "SUPABASE_SERVICE_KEY_set": bool(SUPABASE_SERVICE_KEY),
+            "url_prefix": SUPABASE_URL[:30] if SUPABASE_URL else None,
+            "key_length": len(SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else 0,
+        }
+    }
+    
+    # Test 1: Can we READ pricing_config?
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config?select=*"
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        result["read_test"] = {"ok": True, "row_count": len(rows) if isinstance(rows, list) else 0, "rows": rows}
+    except Exception as e:
+        err_msg = str(e)
+        err_body = ""
+        if hasattr(e, "read"):
+            try: err_body = e.read().decode()[:500]
+            except: pass
+        result["read_test"] = {"ok": False, "error": err_msg, "body": err_body}
+    
+    # Test 2: Can we WRITE pricing_config (with corrected Prefer header)?
+    try:
+        body = json.dumps({
+            "id": "singleton",
+            "price_per_min": 150,
+            "free_credits": 150,
+            "min_reserve": 150,
+            "max_video_min": 60,
+            "markup": 4.0,
+            "packs": [],
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        }).encode("utf-8")
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config"
+        hdrs = {
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates"  # ← corrected header
+        }
+        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
+        with _ur.urlopen(req, timeout=10) as r:
+            result["write_test"] = {"ok": True, "status": r.status}
+    except Exception as e:
+        err_msg = str(e)
+        err_body = ""
+        if hasattr(e, "read"):
+            try: err_body = e.read().decode()[:500]
+            except: pass
+        result["write_test"] = {"ok": False, "error": err_msg, "body": err_body}
+    
+    return result
