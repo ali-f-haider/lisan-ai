@@ -860,20 +860,33 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
     _job_started[job_id] = _time.time()
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
     dest = UPLOAD_DIR / f"{job_id}{ext}"
-    
+
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
-    
+
+    is_video = ext in VIDEO_EXTS
+    if is_video:
+        # Same vocal/background separation the normal upload path (transcribe_worker)
+        # does for video, so job_background_audio() can find a background track for
+        # this job_id later (e.g. when the user merges). Without this, media attached
+        # here would merge with vocals only, no background music.
+        try:
+            extracted_audio = UPLOAD_DIR / f"{job_id}_audio.wav"
+            ffmpeg_utils.extract_audio_from_video(str(dest), str(extracted_audio))
+            ffmpeg_utils.separate_vocals(str(extracted_audio), str(UPLOAD_DIR / f"{job_id}_separated"))
+        except Exception:
+            pass  # no background track will be found later; merge falls back to vocals-only
+
     jobs_progress[job_id] = {
         "status": "ready",
         "percent": 100,
         "status_text": "Media attached",
-        "is_video": ext in VIDEO_EXTS
+        "is_video": is_video
     }
-    
+
     return {
         "job_id": job_id,
-        "is_video": ext in VIDEO_EXTS,
+        "is_video": is_video,
         "duration": 0
     }
 

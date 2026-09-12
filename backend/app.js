@@ -262,36 +262,100 @@ function loadProjectFile(evt) {
             notify("success", "Project loaded. Please upload the matching audio/video file to enable preview, re-speak, and other functions.");
             workspaceHasMedia = false;
             fetchUsage(); updateBadges();
+            validateClonedVoicesAfterLoad();
         } catch (e) { notify("error", "Load failed: " + e.message); }
     };
     reader.readAsText(f); evt.target.value = "";
+}
+
+// Cloned/custom voices are deleted from the voice account automatically (they're
+// meant to be ephemeral). A project saved before that cleanup still points to those
+// old voice_ids, so after loading a project we re-check each "cloned" speaker against
+// the account's current voice list and clear any that no longer exist — this makes the
+// existing "No voice for: ..." check in generateAudio() catch it before generation,
+// instead of the server erroring out mid-generation with a raw voice_not_found error.
+async function validateClonedVoicesAfterLoad() {
+    var speakersWithClone = Object.keys(clonedBySpeaker || {}).filter(function (sp) { return clonedBySpeaker[sp]; });
+    if (!speakersWithClone.length) return;
+    try {
+        var res = await fetch("/api/voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        var data = await res.json();
+        if (!data || !Array.isArray(data.voices)) return; // couldn't verify right now — leave assignments as-is
+        var validIds = {};
+        data.voices.forEach(function (v) { validIds[v.voice_id] = true; });
+        var invalidSpeakers = [];
+        speakersWithClone.forEach(function (sp) {
+            if (!validIds[clonedBySpeaker[sp]]) {
+                invalidSpeakers.push(sp);
+                delete clonedBySpeaker[sp];
+                delete speakerVoices[sp];
+                delete speakerVoiceNames[sp];
+                delete speakerChoices[sp];
+            }
+        });
+        if (invalidSpeakers.length) {
+            if (typeof renderSpeakerVoices === "function") renderSpeakerVoices();
+            if (typeof updateBadges === "function") updateBadges();
+            notify("error", "🎙️ The cloned voice(s) for " + invalidSpeakers.join(", ") + " no longer exist in your voice account (old cloned voices are removed automatically). Re-clone in Step 3.5 or pick a voice in Step 4 before generating.");
+        }
+    } catch (e) { /* offline or API hiccup — leave assignments as-is rather than block the user */ }
 }
 
 
 async function attachMedia(input) {
     const file = input.files[0];
     if (!file) return;
-    
+
     const form = new FormData();
     form.append("file", file);
-    
-    document.getElementById("attachProgress").classList.remove("hidden");
-    
+
+    const label = document.getElementById("fileUploadText");
+    if (label) {
+        const sizeMB = (file.size / (1024 * 1024)).toFixed(1);
+        label.textContent = file.name + " (" + sizeMB + " MB)";
+    }
+
+    const pf = document.getElementById("progressFill");
+    const pt = document.getElementById("progressText");
+    if (pf) pf.style.width = "0%";
+    if (pt) pt.textContent = "Uploading... 0%";
+    document.getElementById("progressSection").classList.remove("hidden");
+
     try {
-        const res = await fetch("/api/attach_media", { method: "POST", body: form });
-        const data = await res.json();
-        
+        const data = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "/api/attach_media");
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable && pf && pt) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    pf.style.width = pct + "%";
+                    pt.textContent = "Uploading... " + pct + "%";
+                }
+            };
+            xhr.upload.onload = function () {
+                if (pf) pf.style.width = "100%";
+                if (pt) pt.textContent = "Processing media...";
+            };
+            xhr.onload = function () {
+                try { resolve(JSON.parse(xhr.responseText)); }
+                catch (e) { reject(new Error("Bad server response")); }
+            };
+            xhr.onerror = function () { reject(new Error("Network error during upload")); };
+            xhr.send(form);
+        });
+
         if (data.job_id) {
             currentJobId = data.job_id;
             isVideoUpload = data.is_video;
             workspaceHasMedia = true;
-            
+            if (pt) pt.textContent = "Upload complete.";
+
             // Hide the attach section
             document.getElementById("attachMediaSection").classList.add("hidden");
-            
+
             // Show success
             notify("success", "Media attached successfully. All functions are now enabled.");
-            
+
             // Update UI state
             updateBadges();
         } else {
@@ -300,7 +364,7 @@ async function attachMedia(input) {
     } catch (e) {
         notify("error", "Failed to attach media: " + e.message);
     } finally {
-        document.getElementById("attachProgress").classList.add("hidden");
+        document.getElementById("progressSection").classList.add("hidden");
         input.value = "";
     }
 }
@@ -1409,14 +1473,38 @@ async function startTranscribe() {
     const form = new FormData();
     form.append("file", file);
     form.append("speaker_count", speakerCount);
+    const pf = document.getElementById("progressFill");
+    const pt = document.getElementById("progressText");
     document.getElementById("progressSection").classList.remove("hidden");
+    if (pf) pf.style.width = "0%";
+    if (pt) pt.textContent = "Uploading... 0%";
     notify("info", "Uploading and starting transcription...");
     try {
-        const res = await fetch("/api/transcribe", { method: "POST", body: form });
-        const data = await res.json();
+        const data = await new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "/api/transcribe");
+            xhr.upload.onprogress = function (e) {
+                if (e.lengthComputable && pf && pt) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    pf.style.width = pct + "%";
+                    pt.textContent = "Uploading... " + pct + "%";
+                }
+            };
+            xhr.upload.onload = function () {
+                if (pf) pf.style.width = "100%";
+                if (pt) pt.textContent = "Upload complete. Starting...";
+            };
+            xhr.onload = function () {
+                try { resolve(JSON.parse(xhr.responseText)); }
+                catch (e) { reject(new Error("Bad server response")); }
+            };
+            xhr.onerror = function () { reject(new Error("Network error during upload")); };
+            xhr.send(form);
+        });
         currentJobId = data.job_id; originalSegments = [];
         speakerVoices = {}; speakerVoiceNames = {}; speakerChoices = {}; clonedBySpeaker = {};
         voicePools = { male: [], female: [] };
+        if (pt) pt.textContent = "Upload complete. Starting...";
         if (transcribePollTimer) clearInterval(transcribePollTimer);
         transcribePollTimer = setInterval(checkTranscribeProgress, 1000);
     } catch (e) {
@@ -2036,7 +2124,7 @@ function onFileSelected(input) {
         var sizeMB = (f.size / (1024 * 1024)).toFixed(1);
         label.textContent = f.name + " (" + sizeMB + " MB)";
     } else {
-        label.textContent = "Choose File";
+        label.textContent = "Upload File";
     }
 }
 
@@ -2454,7 +2542,7 @@ checkTranscribeProgress = async function () {
         if (data.status === "error") {
             stopFriendlyMessages("progressText");
             clearInterval(transcribePollTimer);
-            if (txt) txt.textContent = "Error — " + (data.error || "Unknown error");
+            if (txt) txt.textContent = "Error — " + friendly(data.error || "Unknown error");
             notify("error", data.error || "Transcription failed.");
         }
 
@@ -2535,7 +2623,7 @@ checkGenerateProgress = async function () {
             var btn2 = document.getElementById("generateButton");
             if (btn2) btn2.disabled = false;
 
-            if (txt) txt.textContent = "Error — " + (data.error || "Unknown error");
+            if (txt) txt.textContent = "Error — " + friendly(data.error || "Unknown error");
             notify("error", data.error || "Audio generation failed.");
         }
 
@@ -2646,7 +2734,7 @@ function resetWorkspace() {
                 !confirm("Choosing a new file will clear the current project (segments, translations, voices). Continue?")) {
                 input.value = "";
                 var fl = document.getElementById("fileUploadText");
-                if (fl) fl.textContent = "Choose File";
+                if (fl) fl.textContent = "Upload File";
                 return;
             }
             resetWorkspace();
@@ -2666,7 +2754,7 @@ function resetWorkspace() {
     btn.onclick = function () {
         resetWorkspace();
         var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
-        var fl = document.getElementById("fileUploadText"); if (fl) fl.textContent = "Choose File";
+        var fl = document.getElementById("fileUploadText"); if (fl) fl.textContent = "Upload File";
         window.scrollTo({ top: 0, behavior: "smooth" });
         notify("info", "Workspace cleared. Upload your next video in Step 1.");
     };
@@ -2681,7 +2769,7 @@ var resultsDownloaded = false;
 
 function resetFileLabel() {
     var fl = document.getElementById("fileUploadText");
-    if (fl) fl.textContent = "Choose File";
+    if (fl) fl.textContent = "Upload File";
 }
 
 function confirmResetSafe() {
@@ -3422,7 +3510,7 @@ async function applyVolumes() {
         box.style.marginTop = "12px";
         box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.<br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
-            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" class="action-btn" style="margin-top:8px;cursor:pointer;">Choose File</label>' +
+            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Upload File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice</button>' +
             '<span id="cvStatus" style="margin-left:10px;font-size:12px;color:#6b7280;"></span>';
         sv.appendChild(box);
@@ -3768,7 +3856,7 @@ window.cleanOldClones = function () {
         ["Clean old cloned voices", "تنظيف الأصوات المستنسخة القديمة"],
         ["📊 Usage", "📊 الاستخدام"],
         ["➕ Buy", "➕ شراء"],
-        ["Choose File", "اختر ملفًا"]
+        ["Upload File", "ارفع ملفًا"]
     ];
     var R = [
         ["Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM", "يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. الحدود: 60 ثانية و400 ميجابايت كحد أقصى"],
@@ -3879,7 +3967,7 @@ window.cleanOldClones = function () {
         if (!box || document.getElementById("cvSpeaker")) return;
         box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.<br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
-            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" class="action-btn" style="margin-top:8px;cursor:pointer;">Choose File</label>' +
+            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Upload File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice</button> ' +
             '<button class="red" id="cvClean" style="margin-top:8px;">🧹 Clean old cloned voices</button>' +
             '<span id="cvStatus" style="margin-left:10px;font-size:12px;color:#6b7280;"></span>';
@@ -4903,4 +4991,58 @@ window.cleanOldClones = function () {
             }
         }, 200);
     });
+})();
+
+// ===== Floating quick-nav between steps (hover the edge tab to jump) =====
+(function () {
+    if (document.getElementById("stepNavWidget")) return;
+
+    var STEPS = [
+        { id: "step1Card", label: "1 · Upload" },
+        { id: "editorSection", label: "2 · Edit Segments" },
+        { id: "voicesSection", label: "3 · Voice Cloning" },
+        { id: "cloneAnalysisSection", label: "3.5 · Choose Speakers" },
+        { id: "speakerVoicesSection", label: "4 · Speaker Voices" },
+        { id: "generateSection", label: "5 · Generate Audio" },
+        { id: "resultSection", label: "6 · Final Result" },
+        { id: "lipsyncSection", label: "7 · Lip-Sync" }
+    ];
+
+    var widget = document.createElement("div");
+    widget.id = "stepNavWidget";
+
+    var panel = document.createElement("div");
+    panel.id = "stepNavPanel";
+
+    var handle = document.createElement("div");
+    handle.id = "stepNavHandle";
+    handle.textContent = "☰";
+    handle.title = "Jump to a step";
+
+    widget.appendChild(panel);
+    widget.appendChild(handle);
+    document.body.appendChild(widget);
+
+    function refreshPanel() {
+        panel.innerHTML = "";
+        var any = false;
+        STEPS.forEach(function (s) {
+            var el = document.getElementById(s.id);
+            if (!el || el.classList.contains("hidden")) return;
+            any = true;
+            var a = document.createElement("a");
+            a.textContent = s.label;
+            a.onclick = function () { el.scrollIntoView({ behavior: "smooth", block: "start" }); };
+            panel.appendChild(a);
+        });
+        if (!any) {
+            var p = document.createElement("span");
+            p.style.cssText = "font-size:12px;color:#6b7280;padding:4px 6px;";
+            p.textContent = "No steps to show yet.";
+            panel.appendChild(p);
+        }
+    }
+
+    widget.addEventListener("mouseenter", refreshPanel);
+    refreshPanel();
 })();
