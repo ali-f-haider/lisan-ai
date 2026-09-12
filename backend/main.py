@@ -1148,24 +1148,20 @@ def _save_pricing_config(config):
         print(f"[admin] pricing_config save error: {ex}")
         return False
 
+class AdminLoginRequest(BaseModel):
+    code: str = ""
+    password: str = ""
+
 @app.post("/api/admin/login")
-async def admin_login(request: Request):
-    """Admin login — verifies code matches APP_PASSWORD env var."""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    code = body.get("code", "") if isinstance(body, dict) else ""
+def admin_login(req: AdminLoginRequest):
+    code = req.code or req.password
     if not code or not APP_PASSWORD:
         return JSONResponse({"error": "admin access disabled"}, status_code=403)
-    # Constant-time comparison
     if not hmac.compare_digest(str(code), str(APP_PASSWORD)):
         return JSONResponse({"error": "invalid code"}, status_code=401)
-    # Generate session token
     token = secrets.token_urlsafe(32)
-    _ADMIN_TOKENS[token] = time.time()
+    _ADMIN_TOKENS[token] = _time.time()
     return {"token": token}
-
 @app.get("/api/admin/overview")
 def admin_overview(request: Request):
     if not _admin_check(request):
