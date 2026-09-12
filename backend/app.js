@@ -35,6 +35,9 @@ function allowedWindowFor(seg) {
 
 function friendly(msg) {
     msg = String(msg || "");
+    if (/voice_add_edit_limit_reached|monthly limit of voice add\/edit/i.test(msg)) {
+        return "🎙️ Voice cloning limit reached: your ElevenLabs account has hit its monthly cap for creating/editing voices. This resets automatically next month, or you can upgrade your ElevenLabs plan to raise the limit. Meanwhile you can skip cloning and pick a numbered studio voice for this speaker in Step 4.";
+    }
     if (/voice_not_found|was not found/i.test(msg)) {
         return "🎙️ The voice assigned to this speaker no longer exists in your connected voice account (old cloned voices were removed). Re-clone it in Step 3.5 or pick a numbered library voice in Step 4, then try again.";
     }
@@ -352,6 +355,8 @@ async function attachMedia(input) {
 
             // Hide the attach section
             document.getElementById("attachMediaSection").classList.add("hidden");
+            // The "no media on server" warning no longer applies now that media is attached
+            if (typeof hideMediaBanner === "function") hideMediaBanner();
 
             // Show success
             notify("success", "Media attached successfully. All functions are now enabled.");
