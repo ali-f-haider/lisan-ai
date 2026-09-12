@@ -4322,6 +4322,7 @@ window.cleanOldClones = function () {
 // ===== OVERLAP CONTROL v2: single flag-aware fade engine + UI updates =====
 (function () {
     window.overlapAllowed = window.overlapAllowed || {};
+    window.deadSpaceAllowed = window.deadSpaceAllowed || {};
     window.customBySpeaker = window.customBySpeaker || {};
 
     // send overlap flags with remix/generate requests
@@ -4336,6 +4337,7 @@ window.cleanOldClones = function () {
                     var obj = JSON.parse(opts.body);
                     if (obj && typeof obj === "object") {
                         obj.overlap_allowed = window.overlapAllowed || {};
+                        obj.dead_space_allowed = window.deadSpaceAllowed || {};
                         opts = Object.assign({}, opts, { body: JSON.stringify(obj) });
                     }
                 }
@@ -4454,7 +4456,7 @@ window.cleanOldClones = function () {
         var thead = document.querySelector("#volumeTable thead");
         if (thead && !thead.dataset.v7) {
             thead.dataset.v7 = "1";
-            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th></th></tr>";
+            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th></th></tr>";
         }
         var tbody = document.querySelector("#volumeTable tbody");
         if (!tbody) return;
@@ -4479,6 +4481,18 @@ window.cleanOldClones = function () {
                 if (btn) btn.textContent = "\uD83D\uDD0A Apply Volumes & Rebuild MP3 \u2022";
             };
             cN.appendChild(cb); tr.appendChild(cN);
+            var cD = document.createElement("td");
+            var cbD = document.createElement("input"); cbD.type = "checkbox";
+            cbD.checked = !!window.deadSpaceAllowed[ln.segment_id];
+            cbD.title = "Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end.";
+            cbD.onchange = function () {
+                if (cbD.checked) window.deadSpaceAllowed[ln.segment_id] = true;
+                else delete window.deadSpaceAllowed[ln.segment_id];
+                if (typeof renderTimeline === "function") renderTimeline();
+                var btn = document.getElementById("applyVolumesBtn");
+                if (btn) btn.textContent = "🔊 Apply Volumes & Rebuild MP3 •";
+            };
+            cD.appendChild(cbD); tr.appendChild(cD);
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "\u25B6"; b1.title = "Play original line";
             b1.onclick = function () { if (window.playOrigLine) window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -4609,7 +4623,7 @@ window.cleanOldClones = function () {
     }
     function fixVolume() {
         var thr = document.querySelector("#volumeTable thead tr");
-        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th></th>"; }
+        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Trim</th><th></th>"; }
         document.querySelectorAll("#volumeSection strong, #volumeSection span").forEach(function (el) { if (/Master trim/i.test(el.textContent || "")) el.textContent = (el.textContent || "").replace(/Master trim[^\(:]*/i, "Master volume"); });
     }
     function fixStep6() {

@@ -100,6 +100,7 @@ class GenerateRequest(BaseModel):
     tempo_mode: str = "excellent"
     duration_mode: str = "exact"
     overlap_allowed: dict = {}
+    dead_space_allowed: dict = {}
     total_duration: float = 0.0
     cloned_voice_ids: List[str] = []
     enhance_background: bool = True
@@ -113,6 +114,7 @@ class RegenerateLineRequest(BaseModel):
     tempo_mode: str = "excellent"
     duration_mode: str = "exact"
     overlap_allowed: dict = {}
+    dead_space_allowed: dict = {}
     total_duration: float = 0.0
 
 class RemixRequest(BaseModel):
@@ -122,6 +124,7 @@ class RemixRequest(BaseModel):
     total_duration: float = 0.0
     duration_mode: str = "exact"
     overlap_allowed: dict = {}
+    dead_space_allowed: dict = {}
 
 class MergeRequest(BaseModel):
     job_id: str
