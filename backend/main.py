@@ -564,7 +564,7 @@ def _watch_and_deduct(job_id, uid, kind):
 # ---------- Stripe ----------
 @app.get("/api/billing/packs")
 def billing_packs():
-    return {"packs": get_packs()}
+    return {"packs": get_packs(), "source": _PACKS_STATE["source"]}
 
 
 @app.post("/api/billing/checkout")
