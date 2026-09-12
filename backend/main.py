@@ -325,6 +325,21 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
+def get_packs_from_db():
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/pricing_config?select=packs&limit=1",
+            headers={"apikey": SUPABASE_SERVICE_KEY})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            rows = json.load(r)
+        if rows and isinstance(rows[0].get("packs"), dict) and rows[0]["packs"]:
+            return rows[0]["packs"]
+    except Exception as e:
+        print("[pricing] packs read failed:", e)
+    return None
+
 CREDIT_PACKS = {
     "starter":  {"amount_usd": 4.99,  "credits": 500},
     "standard": {"amount_usd": 14.99, "credits": 2000},
