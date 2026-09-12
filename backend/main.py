@@ -1226,12 +1226,12 @@ def admin_users(request: Request, q: str = ""):
     return {"users": users}
 
 @app.post("/api/admin/adjust_credits")
-def admin_adjust_credits(request: Request):
+async def admin_adjust_credits(request: Request):
     """Manually grant or deduct credits. Logged to audit."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     try:
-        body = json.loads(request._body.decode("utf-8")) if hasattr(request, "_body") else {}
+        body = await request.json()
     except Exception:
         body = {}
     uid = body.get("uid", "")
@@ -1291,11 +1291,11 @@ def admin_get_pricing(request: Request):
     return _get_pricing_config()
 
 @app.post("/api/admin/pricing")
-def admin_save_pricing(request: Request):
+async def admin_save_pricing(request: Request):
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     try:
-        body = json.loads(request._body.decode("utf-8")) if hasattr(request, "_body") else {}
+        body = await request.json()
     except Exception:
         body = {}
     ok = _save_pricing_config(body)
