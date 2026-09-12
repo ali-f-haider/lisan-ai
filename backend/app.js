@@ -4839,3 +4839,18 @@ window.cleanOldClones = function () {
     }, 500);
 })();
 
+
+
+// ===== AUTO-STRETCH TIMELINE ON WINDOW RESIZE =====
+(function() {
+    let resizeTimer;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimer);
+        // Wait 200ms after user stops resizing to prevent lag
+        resizeTimer = setTimeout(function() {
+            if (typeof renderTimeline === 'function') {
+                renderTimeline();
+            }
+        }, 200);
+    });
+})();
