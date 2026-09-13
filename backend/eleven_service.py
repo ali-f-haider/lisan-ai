@@ -82,14 +82,16 @@ def fetch_voices(api_key: str) -> dict:
 
 def search_voice_library(api_key: str, language=None, accent=None, gender=None, age=None,
                           category=None, high_quality=None, search=None,
-                          voice_type="community", page_size=30) -> dict:
+                          voice_type="community", page_size=30, next_page_token=None) -> dict:
     """Search ElevenLabs' full Voice Library (GET /v2/voices) — separate from
     fetch_voices() above, which only lists voices already in your own account
     (GET /v1/voices). This searches ALL of ElevenLabs' shared/community voices,
     filterable by language, accent, gender, age, and category (pass
     category="professional" or high_quality=True for studio-grade voices only).
     Browsing/searching here never adds anything to your account and never
-    touches your voice add/edit quota — only add_shared_voice() below does that."""
+    touches your voice add/edit quota — only add_shared_voice() below does that.
+    Pass next_page_token (from a previous call's response) to fetch the next
+    page of results."""
     try:
         params = {"page_size": str(min(int(page_size or 30), 100))}
         if voice_type:
@@ -106,6 +108,8 @@ def search_voice_library(api_key: str, language=None, accent=None, gender=None, 
             params["search"] = search
         if high_quality:
             params["high_quality"] = "true"
+        if next_page_token:
+            params["next_page_token"] = next_page_token
         qs = urllib.parse.urlencode(params)
         if language:
             langs = language if isinstance(language, (list, tuple)) else [language]
@@ -134,7 +138,7 @@ def search_voice_library(api_key: str, language=None, accent=None, gender=None, 
                 "public_owner_id": sharing.get("public_owner_id", ""),
                 "is_owner": voice.get("is_owner", False),
             })
-        return {"voices": voices, "has_more": data.get("has_more", False)}
+        return {"voices": voices, "has_more": data.get("has_more", False), "next_page_token": data.get("next_page_token")}
     except urllib.error.HTTPError as e:
         try:
             error_body = e.read().decode(errors="ignore")

@@ -89,7 +89,8 @@ class VoiceLibrarySearchRequest(BaseModel):
     high_quality: bool = False
     search: str = ""
     voice_type: str = "community"
-    page_size: int = 30
+    page_size: int = 6
+    page_token: str = ""
 
 class VoiceLibraryAddRequest(BaseModel):
     public_owner_id: str
@@ -960,7 +961,8 @@ def voice_library_search(req: VoiceLibrarySearchRequest):
         high_quality=req.high_quality or None,
         search=req.search or None,
         voice_type=req.voice_type or "community",
-        page_size=req.page_size or 30,
+        page_size=req.page_size or 6,
+        next_page_token=req.page_token or None,
     )
 
 @app.post("/api/voice_library/add")

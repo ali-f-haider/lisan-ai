@@ -139,24 +139,17 @@
     <button onclick="autoAssignVoices()">🎲 Auto-Assign All<span class="badge" id="badgeAutoAssign"></span></button>
     <button onclick="toggleVoiceLibraryBrowser()">🌐 Browse Voice Library</button>
     <div id="voiceLibraryBrowser" class="hidden" style="margin-top:12px;padding:14px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
-        <p class="note">Search ElevenLabs' full voice library and add good voices to your account. This is separate from cloning — browsing here never uses your cloning quota. Voices you add show up automatically in the picker below.</p>
+        <p class="note">Browse ready-made Arabic voices and pick one for this speaker.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-            <select id="vlLanguage">
-                <option value="ar" selected>Arabic</option>
-                <option value="">Any language</option>
-                <option value="en">English</option>
-            </select>
-            <input id="vlAccent" placeholder="Accent (optional, e.g. gulf, egyptian)" style="width:190px;">
             <select id="vlGender">
                 <option value="">Any gender</option>
                 <option value="male">Male</option>
                 <option value="female">Female</option>
             </select>
-            <label style="display:flex;align-items:center;gap:4px;font-size:13px;white-space:nowrap;"><input type="checkbox" id="vlStudioOnly"> Studio quality only</label>
-            <input id="vlSearchText" placeholder="Search by name/description" style="width:190px;">
             <button class="blue" onclick="searchVoiceLibrary()">🔍 Search</button>
         </div>
         <div id="vlResults"></div>
+        <div id="vlPager" style="margin-top:8px;"></div>
     </div>
     <div style="overflow-x:auto;">
         <table id="speakerVoicesTable">
