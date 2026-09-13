@@ -900,6 +900,16 @@ def abandon_job(job_id: str):
         pass
     return {"ok": True}
 
+# Must be registered BEFORE the generic "/api/progress/{job_id}" route
+# just below -- FastAPI/Starlette matches routes in registration order,
+# so without this ordering a request to "/api/progress/generate" would
+# match {job_id}="generate" on the generic route first and always look up
+# the wrong (nonexistent) "generate" key, returning not_found forever.
+# (This was the actual cause of the frozen Generate progress bar.)
+@app.get("/api/progress/generate")
+def generate_progress(job_id: str = ""):
+    return jobs_progress.get(f"generate_{job_id}", {"status": "not_found"})
+
 @app.get("/api/progress/{job_id}")
 def progress(job_id: str):
     return jobs_progress.get(job_id, {"status": "not_found"})
@@ -1008,15 +1018,10 @@ def generate(req: GenerateRequest, request: Request):
     # each other's progress/result, and credits never get charged against
     # the wrong job's character count.
     jobs_progress[f"generate_{req.job_id}"] = {"status": "processing", "percent": 0, "result": None, "error": None}
-    print(f"[gen-diag] SET req.job_id={req.job_id!r} key='generate_{req.job_id}' all_keys={list(jobs_progress.keys())}", flush=True)
     threading.Thread(target=eleven_service.generate_worker, args=(req,), daemon=True).start()
     _watch_and_deduct(req.job_id, uid, "generate")
     return {"status": "started"}
 
-@app.get("/api/progress/generate")
-def generate_progress(job_id: str = ""):
-    print(f"[gen-diag] LOOKUP job_id={job_id!r} key='generate_{job_id}' present={('generate_' + job_id) in jobs_progress} all_keys={list(jobs_progress.keys())}", flush=True)
-    return jobs_progress.get(f"generate_{job_id}", {"status": "not_found"})
 
 @app.post("/api/regenerate_line")
 def regenerate_line(req: RegenerateLineRequest):
