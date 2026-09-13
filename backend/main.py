@@ -1376,7 +1376,12 @@ def _get_pricing_config():
     return defaults
 
 def _save_pricing_config(config):
-    """Saves pricing config to DB (upsert)."""
+    """Saves pricing config to DB (upsert — creates the singleton row if it
+    doesn't exist yet, updates it if it does). Previously this used PATCH,
+    which only updates an EXISTING row matching id=eq.singleton — if that
+    row had never been created, PATCH silently matched zero rows and
+    returned success without writing anything, so admin edits looked saved
+    but never actually persisted (and public pages kept showing defaults)."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return False  # not in DB, but UI already shows current values
     try:
@@ -1391,18 +1396,19 @@ def _save_pricing_config(config):
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
-        url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton"
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config"
         hdrs = {
             "apikey": SUPABASE_SERVICE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal"
         }
-        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
+        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=10) as r:
             pass
         return True
     except Exception as ex:
-        print(f"[admin] pricing_config save error: {ex}")
+        print(f"[admin] pricing_config save error: {_http_error_detail(ex)}")
         return False
 
 class AdminLoginRequest(BaseModel):
