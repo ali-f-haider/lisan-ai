@@ -474,24 +474,24 @@ body.lang-ar #timelineWrap {
 /* Contact Us icon + popup (shared by landing.html and index.html) */
 .contact-icon-btn {
     position: fixed;
-    top: 70px;
-    left: 20px;
+    bottom: 24px;
+    right: 24px;
     z-index: 40;
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: var(--primary);
-    color: #fff;
+    width: 46px;
+    height: 46px;
+    background: transparent;
+    color: var(--primary);
     border: none;
-    font-size: 20px;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: var(--shadow-lg);
-    transition: transform 0.15s;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.18));
+    transition: transform 0.15s, color 0.15s;
 }
-.contact-icon-btn:hover { transform: scale(1.06); background: var(--primary-light); }
+.contact-icon-btn:hover { transform: scale(1.1); color: var(--primary-light); }
+.contact-icon-btn svg { width: 28px; height: 28px; }
 .modal-overlay {
     position: fixed;
     inset: 0;
