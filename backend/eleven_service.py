@@ -437,9 +437,14 @@ def generate_worker(req):
             if actual_duration <= 0:
                 actual_duration = target_duration
             required_tempo = actual_duration / target_duration
-            if req.tempo_mode == "excellent":
+            # Each line carries its own tempo_mode now (set per-row in the
+            # Step 5.5 table) instead of one global setting for the whole
+            # job — fall back to the request's default only for a segment
+            # saved before this field existed.
+            seg_tempo_mode = getattr(seg, "tempo_mode", "") or req.tempo_mode
+            if seg_tempo_mode == "excellent":
                 min_tempo, max_tempo = 0.95, 1.10
-            elif req.tempo_mode == "good":
+            elif seg_tempo_mode == "good":
                 min_tempo, max_tempo = 0.85, 1.25
             else:
                 min_tempo, max_tempo = 0.75, 1.35
@@ -636,9 +641,13 @@ def regenerate_line(req):
         if actual <= 0:
             actual = target_duration
         required = actual / target_duration
-        if req.tempo_mode == "excellent":
+        # Prefer the segment's own tempo_mode (Step 5.5 per-line setting);
+        # fall back to the request-level value only if the segment predates
+        # that field.
+        seg_tempo_mode = getattr(seg, "tempo_mode", "") or req.tempo_mode
+        if seg_tempo_mode == "excellent":
             min_tempo, max_tempo = 0.95, 1.10
-        elif req.tempo_mode == "good":
+        elif seg_tempo_mode == "good":
             min_tempo, max_tempo = 0.85, 1.25
         else:
             min_tempo, max_tempo = 0.75, 1.35

@@ -248,7 +248,7 @@ function loadProjectFile(evt) {
         try {
             const p = JSON.parse(String(reader.result));
             if (!p || !Array.isArray(p.segments)) throw new Error("Bad project file");
-            segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, words: Array.isArray(s.words) ? s.words : [] }));
+            segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, tempo_mode: s.tempo_mode || "excellent", words: Array.isArray(s.words) ? s.words : [] }));
             originalSegments = Array.isArray(p.original_segments) ? p.original_segments : [];
             speakerVoices = p.speaker_voices || {};
             speakerVoiceNames = p.speaker_voice_names || {};
@@ -454,7 +454,7 @@ function insertSegmentAfter(i) {
     const next = segmentsData[i + 1];
     let start = cur.end, end = start + 3;
     if (next && next.start > start + 0.5) end = next.start;
-    segmentsData.splice(i + 1, 0, { segment_id: "manual_" + Date.now(), start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), speaker: cur.speaker, gender: cur.gender, emotion: cur.emotion, text: "", arabic_text: "", locked: false });
+    segmentsData.splice(i + 1, 0, { segment_id: "manual_" + Date.now(), start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), speaker: cur.speaker, gender: cur.gender, emotion: cur.emotion, text: "", arabic_text: "", locked: false, tempo_mode: cur.tempo_mode || "excellent" });
     renderTable(); renderSpeakerVoices();
     notify("info", "Manual line inserted. Use ✨ Auto-Fix to sync its time.");
 }
@@ -1413,7 +1413,8 @@ async function generateAudio() {
         tts_provider: document.getElementById("ttsProvider").value,
         gemini_voice: document.getElementById("geminiVoice").value,
         speaker_voices: speakerVoices,
-        tempo_mode: document.getElementById("tempoMode").value,
+        // No single global tempo_mode anymore — each segment in `segments`
+        // now carries its own tempo_mode (set per-row in the Step 5.5 table).
         duration_mode: document.getElementById("durationMode").value,
         total_duration: totalDuration,
         cloned_voice_ids: window.clonedVoiceIds || []
@@ -1442,7 +1443,7 @@ async function regenerateLine(i, btn) {
                 segment: seg,
                 segments: segmentsData,
                 voice_id: voice_id,
-                tempo_mode: document.getElementById("tempoMode").value,
+                tempo_mode: seg.tempo_mode || "excellent",
                 duration_mode: document.getElementById("durationMode").value,
                 total_duration: totalDuration
             })
@@ -2324,7 +2325,11 @@ async function renderSpeakerVoices() {
         var sel = document.createElement("select"); sel.style.width = "100%";
         if (clonedBySpeaker[name]) { var o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o); }
         var addGroup = function(g, label) {
-            (voicePools[g] || []).slice(0, 8).forEach(function(p, i) {
+            // No cap here — list every voice in the pool (used to stop at 8
+            // per gender, which silently hid the rest of the account's
+            // voices from this dropdown even though Browse Voice Library
+            // could show them all).
+            (voicePools[g] || []).forEach(function(p, i) {
                 var o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
             });
         };
@@ -2410,6 +2415,22 @@ function toggleVoiceLibraryBrowser() {
     }
 }
 
+function maskedVoiceList() {
+    // Builds ONE ordered, name-masked list using the exact same voicePools
+    // (and the exact same "Male voice N" / "Female voice N" numbering) that
+    // the Step 4 dropdown's addGroup() uses — so voice #N shown here in
+    // Browse is always the same voice as option #N in the dropdown, and the
+    // real account voice name is never shown in Browse.
+    var out = [];
+    (voicePools.male || []).forEach(function (v, i) {
+        out.push({ label: "🎲 Male voice " + (i + 1), preview_url: v.preview_url || "", age: v.age || "", use_case: v.use_case || "" });
+    });
+    (voicePools.female || []).forEach(function (v, i) {
+        out.push({ label: "🎲 Female voice " + (i + 1), preview_url: v.preview_url || "", age: v.age || "", use_case: v.use_case || "" });
+    });
+    return out;
+}
+
 async function searchVoiceLibrary(page) {
     var box = document.getElementById("vlResults");
     var pager = document.getElementById("vlPager");
@@ -2419,25 +2440,25 @@ async function searchVoiceLibrary(page) {
     if (pager) pager.innerHTML = "";
     try {
         var ok = await ensureVoicePools();
-        if (!ok || !availableVoices.length) { box.innerHTML = "<p class='note'>Could not load voices right now. Please try again.</p>"; return; }
+        var list = maskedVoiceList();
+        if (!ok || !list.length) { box.innerHTML = "<p class='note'>Could not load voices right now. Please try again.</p>"; return; }
         vlPage = page || 0;
         var pageSize = 6;
         var start = vlPage * pageSize;
-        var pageVoices = availableVoices.slice(start, start + pageSize);
+        var pageVoices = list.slice(start, start + pageSize);
         if (!pageVoices.length) { box.innerHTML = "<p class='note'>No voices found.</p>"; return; }
         var html = "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'>";
         pageVoices.forEach(function (v) {
-            var g = (v.gender || "").toLowerCase() === "female" ? "Female" : "Male";
-            var desc = [v.category, v.accent, v.age, v.use_case].filter(Boolean).join(", ");
+            var desc = [v.age, v.use_case].filter(Boolean).join(", ");
             html += "<div style='display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;text-align:center;'>"
                 + "<button type='button' class='btn-sm' onclick='playPreview(" + JSON.stringify(v.preview_url || "") + ", this)'" + (v.preview_url ? "" : " disabled") + " style='min-width:40px;'>▶</button>"
-                + "<div><strong>" + (v.name || "Voice") + "</strong><br><span class='note' style='font-size:11px;'>" + g + (desc ? " · " + desc : "") + "</span></div>"
+                + "<div><strong>" + v.label + "</strong>" + (desc ? "<br><span class='note' style='font-size:11px;'>" + desc + "</span>" : "") + "</div>"
                 + "</div>";
         });
         html += "</div>";
         box.innerHTML = html;
         var hasPrev = vlPage > 0;
-        var hasNext = start + pageSize < availableVoices.length;
+        var hasNext = start + pageSize < list.length;
         var nav = "";
         if (hasPrev) nav += "<a href='javascript:void(0)' onclick='searchVoiceLibrary(" + (vlPage - 1) + ")'>← Prev 6</a>&nbsp;&nbsp;";
         if (hasNext) nav += "<a href='javascript:void(0)' onclick='searchVoiceLibrary(" + (vlPage + 1) + ")'>Next 6 →</a>";
@@ -2656,6 +2677,7 @@ checkTranscribeProgress = async function () {
                 s.start = Number(Number(s.start).toFixed(2));
                 s.end = Number(Number(s.end).toFixed(2));
                 s.locked = false;
+                s.tempo_mode = s.tempo_mode || "excellent";
             });
             remapDefaultSpeakerLabels();
 
@@ -3078,8 +3100,12 @@ function openBuyModal() {
     modal.style.display = "flex";
     fetch("/api/billing/packs").then(function (r) { return r.json(); }).then(function (data) {
         wrap.innerHTML = "";
-        ["starter", "standard", "pro", "business"].forEach(function (key) {
-            var p = data.packs && data.packs[key];
+        // Loop over whatever pack keys the admin panel actually defines,
+        // instead of a fixed ["starter","standard","pro","business"] list —
+        // that hardcoded list silently hid any pack with a different key
+        // (including a 5th pack) even though it existed on the backend.
+        Object.keys(data.packs || {}).forEach(function (key) {
+            var p = data.packs[key];
             if (!p) return;
             var b = document.createElement("button");
             b.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:10px;border:2px solid #e5e7eb;background:#fff;cursor:pointer;font-family:inherit;";
@@ -4604,7 +4630,7 @@ window.cleanOldClones = function () {
         var thead = document.querySelector("#volumeTable thead");
         if (thead && !thead.dataset.v7) {
             thead.dataset.v7 = "1";
-            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th></tr>";
+            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th title='How much this line may be sped up or slowed down to fit its slot'>Time Stretch</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th></tr>";
         }
         var tbody = document.querySelector("#volumeTable tbody");
         if (!tbody) return;
@@ -4641,6 +4667,15 @@ window.cleanOldClones = function () {
                 if (btn) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
             };
             cD.appendChild(cbD); tr.appendChild(cD);
+            var cT = document.createElement("td");
+            var selT = document.createElement("select");
+            selT.title = "How much this line's Arabic audio may be sped up or slowed down to fit its slot.";
+            [["excellent", "Excellent (Recommended)"], ["good", "Good"], ["maximum", "Maximum"]].forEach(function (opt) {
+                var o = document.createElement("option"); o.value = opt[0]; o.textContent = opt[1]; selT.appendChild(o);
+            });
+            selT.value = seg.tempo_mode || "excellent";
+            selT.onchange = function () { seg.tempo_mode = selT.value; };
+            cT.appendChild(selT); tr.appendChild(cT);
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "\u25B6"; b1.title = "Play original line";
             b1.onclick = function () { if (window.playOrigLine) window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -4771,7 +4806,7 @@ window.cleanOldClones = function () {
     }
     function fixVolume() {
         var thr = document.querySelector("#volumeTable thead tr");
-        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th>"; }
+        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th title='How much this line may be sped up or slowed down to fit its slot'>Time Stretch</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th>"; }
         document.querySelectorAll("#volumeSection strong, #volumeSection span").forEach(function (el) { if (/Master trim/i.test(el.textContent || "")) el.textContent = (el.textContent || "").replace(/Master trim[^\(:]*/i, "Master volume"); });
     }
     function fixStep6() {
@@ -5302,6 +5337,77 @@ window.cleanOldClones = function () {
                 var g = timelineScale();
                 if (g) { var m = ensurePlayhead(g.wrap); m.style.display = "block"; m.style.left = Math.max(0, au.currentTime * g.scale) + "px"; }
             }
+            return r;
+        };
+    }
+})();
+
+// ===== TIMELINE: overlay showing each line's actual Arabic audio duration =====
+// vs its slot — the timeline block's own width is always the segment's
+// original slot (end - start); this draws a translucent fill inside the
+// block for however much of that slot the actually-generated Arabic audio
+// takes up, and, when the Arabic audio is LONGER than the slot, a dashed
+// extension past the block's right edge showing by how much. Only appears
+// once a line has been generated (needs window._lineDurations, populated
+// after Step 5 Generate completes).
+(function () {
+    if (window._timelineDubDurationV1) return; window._timelineDubDurationV1 = true;
+
+    function drawDubDurationOverlay() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData || !segmentsData.length) return;
+        wrap.querySelectorAll(".dubDurFill, .dubDurOverflow").forEach(function (el) { el.remove(); });
+        var total = (typeof totalDuration === "number" && totalDuration > 0) ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var scale = (wrap.clientWidth || 900) / total;
+        var divs = wrap.querySelectorAll("div");
+        var any = false;
+        for (var i = 0; i < divs.length; i++) {
+            var b = divs[i];
+            var st = b.getAttribute("style") || "";
+            if (st.indexOf("cursor") === -1 || st.indexOf("grab") === -1) continue;
+            var num = parseInt(b.textContent, 10);
+            if (!num || num < 1 || num > segmentsData.length) continue;
+            var seg = segmentsData[num - 1];
+            if (!seg || !(seg.arabic_text || "").trim()) continue;
+            var dubDur = (window._lineDurations || {})[seg.segment_id] || 0;
+            if (dubDur <= 0) continue;
+            any = true;
+            var slot = Math.max(seg.end - seg.start, 0.01);
+            var blockW = b.offsetWidth || Math.max(8, slot * scale);
+            var fillW = Math.max(0, Math.min(dubDur, slot) / slot * blockW);
+            var fill = document.createElement("div");
+            fill.className = "dubDurFill";
+            fill.style.cssText = "position:absolute;left:0;top:0;bottom:0;width:" + fillW + "px;background:rgba(255,255,255,0.32);border-right:1px solid rgba(255,255,255,0.65);pointer-events:none;z-index:3;";
+            fill.title = "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
+            b.appendChild(fill);
+            var overflowPx = Math.max(0, (dubDur - slot) * scale);
+            if (overflowPx > 1) {
+                var lane = b.parentElement;
+                if (lane) {
+                    var ov = document.createElement("div");
+                    ov.className = "dubDurOverflow";
+                    ov.style.cssText = "position:absolute;top:" + b.offsetTop + "px;height:" + b.offsetHeight + "px;left:" + (b.offsetLeft + blockW) + "px;width:" + overflowPx + "px;background:rgba(34,211,238,0.5);border:1px dashed #0891b2;border-radius:0 4px 4px 0;pointer-events:none;z-index:3;";
+                    ov.title = "Arabic audio runs " + (dubDur - slot).toFixed(2) + "s past its slot (" + dubDur.toFixed(2) + "s total)";
+                    lane.appendChild(ov);
+                }
+            }
+        }
+        if (any && !document.getElementById("timelineLegendDub")) {
+            var leg = document.createElement("div");
+            leg.id = "timelineLegendDub";
+            leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:4px;font-size:11px;color:#64748b;";
+            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:16px;height:12px;background:linear-gradient(90deg, rgba(226,232,240,0.9) 0 60%, #42a5f5 60% 100%);border:1px solid #94a3b8;border-radius:3px;display:inline-block;"></span>Arabic audio length (within slot)</span>'
+                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#22d3ee;border:1px dashed #0891b2;border-radius:3px;display:inline-block;"></span>Arabic audio runs past its slot</span>';
+            var after = document.getElementById("timelineLegendFinal") || wrap;
+            if (after && after.parentNode) after.parentNode.insertBefore(leg, after.nextSibling);
+        }
+    }
+
+    if (typeof renderTimeline === "function") {
+        var _rtDub = renderTimeline;
+        renderTimeline = function () {
+            var r = _rtDub.apply(this, arguments);
+            drawDubDurationOverlay();
             return r;
         };
     }

@@ -10,6 +10,10 @@ class Segment(BaseModel):
     emotion: str = "neutral"
     text: str = ""
     arabic_text: str = ""
+    # Per-line time-stretch limit (excellent/good/maximum) — set from the
+    # Step 5.5 table (one per segment). Replaces the old single Step 5
+    # dropdown that applied the same limit to every line in the job.
+    tempo_mode: str = "excellent"
 
 class GenerateRequest(BaseModel):
     job_id: str = ""
