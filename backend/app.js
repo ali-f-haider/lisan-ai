@@ -463,6 +463,44 @@ function cleanUnusedSpeakerVoices() {
     const active = new Set(segmentsData.map(s => s.speaker));
     Object.keys(speakerVoices).forEach(n => { if (!active.has(n)) { delete speakerVoices[n]; delete speakerVoiceNames[n]; delete speakerChoices[n]; delete clonedBySpeaker[n]; } });
 }
+
+// ===== Step 1.5 speaker count/names -> Step 2 dropdown options =====
+// Pure helper: reads the two Step 1.5 inputs and returns the name list they imply
+// (named speakers first, then "Speaker N" for any remaining count). Does NOT look
+// at segmentsData, so it's safe to call before or after transcription.
+function computeSpeakerNamesFromInputs() {
+    var namesRaw = (document.getElementById("speakerNames") || {}).value || "";
+    var names = namesRaw.split(",").map(function(s) { return s.trim(); }).filter(Boolean);
+    var countRaw = (document.getElementById("speakerCount") || {}).value;
+    var count = parseInt(countRaw, 10) || 0;
+    var n = Math.max(count, names.length);
+    var list = [];
+    for (var idx = 0; idx < n; idx++) list.push(names[idx] || ("Speaker " + (idx + 1)));
+    return list;
+}
+// Used to populate the Step 2 Speaker dropdown: the Step 1.5 list, plus any speaker
+// name already present in the current segments (covers Load Project, or a count
+// smaller than what was actually detected) so no existing value is ever orphaned.
+function getSpeakerOptionsList() {
+    var list = computeSpeakerNamesFromInputs();
+    (segmentsData || []).forEach(function(s) { if (s.speaker && list.indexOf(s.speaker) === -1) list.push(s.speaker); });
+    return list.length ? list : ["Speaker 1"];
+}
+// Called once right after transcription returns. The backend labels segments with
+// its own default "Speaker 1", "Speaker 2", ... — this renames those (and only
+// those; anything already renamed is left alone) to match the names typed in
+// Step 1.5, in order.
+function remapDefaultSpeakerLabels() {
+    var list = computeSpeakerNamesFromInputs();
+    if (!list.length) return;
+    (segmentsData || []).forEach(function(s) {
+        var m = /^Speaker (\d+)$/.exec(s.speaker || "");
+        if (m) {
+            var idx = parseInt(m[1], 10) - 1;
+            if (list[idx]) s.speaker = list[idx];
+        }
+    });
+}
 function updateSpeakerName(i, newName) {
     newName = newName.trim() || `Speaker ${i + 1}`;
     const old = segmentsData[i].speaker;
@@ -2134,10 +2172,12 @@ function refreshCredits() {
 // ===== FILE UPLOAD LABEL =====
 function onFileSelected(input) {
     var label = document.getElementById("fileUploadText");
+    var step15 = document.getElementById("step1_5Card");
     if (input.files && input.files[0]) {
         var f = input.files[0];
         var sizeMB = (f.size / (1024 * 1024)).toFixed(1);
         label.textContent = f.name + " (" + sizeMB + " MB)";
+        if (step15) step15.classList.remove("hidden");
     } else {
         label.textContent = "Upload File";
     }
@@ -2191,7 +2231,10 @@ function createRow(seg, i) {
     var numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
     var startCell = mk("td"); var si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = function() { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
     var endCell = mk("td"); var ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = function() { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    var spCell = mk("td"); var spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = function() { updateSpeakerName(i, spI.value); }; spCell.appendChild(spI); row.appendChild(spCell);
+    var spCell = mk("td"); var spS = mk("select"); spS.style.width = "100%";
+    getSpeakerOptionsList().forEach(function(nm) { var o = mk("option"); o.value = nm; o.textContent = nm; o.selected = (seg.speaker === nm); spS.appendChild(o); });
+    spS.onchange = function() { updateSpeakerName(i, spS.value); };
+    spCell.appendChild(spS); row.appendChild(spCell);
     var gCell = mk("td"); var gS = mk("select"); ["male", "female"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = function() { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
     var eCell = mk("td");
     var eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
@@ -2355,8 +2398,6 @@ function toggleVoiceLibraryBrowser() {
     var wasHidden = el.classList.contains("hidden");
     el.classList.toggle("hidden");
     if (wasHidden) {
-        var g = document.getElementById("vlGender");
-        if (g) g.value = "";
         vlNextToken = null;
         searchVoiceLibrary(null);
     } else {
@@ -2371,14 +2412,12 @@ async function searchVoiceLibrary(pageToken) {
     stopPreview();
     box.innerHTML = "<p class='note'>Loading voices...</p>";
     if (pager) pager.innerHTML = "";
-    var gender = document.getElementById("vlGender").value;
     try {
         var res = await fetch("/api/voice_library/search", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 language: ["ar"],
-                gender: gender,
                 high_quality: true,
                 voice_type: "community",
                 page_size: 6,
@@ -2389,7 +2428,7 @@ async function searchVoiceLibrary(pageToken) {
         if (data.error) { box.innerHTML = "<p class='note'>Could not load voices right now. Please try again.</p>"; return; }
         var voices = data.voices || [];
         if (!voices.length) { box.innerHTML = "<p class='note'>No voices found.</p>"; return; }
-        var html = "";
+        var html = "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'>";
         var counts = { male: 0, female: 0 };
         voices.forEach(function (v) {
             var lab = v.labels || {};
@@ -2397,12 +2436,12 @@ async function searchVoiceLibrary(pageToken) {
             counts[g]++;
             var label = (g === "female" ? "Female" : "Male") + " voice " + counts[g];
             var desc = [lab.age, lab.use_case].filter(Boolean).join(", ");
-            html += "<div style='display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid #e5e7eb;flex-wrap:wrap;'>"
-                + "<button type='button' class='btn-sm' onclick='playPreview(" + JSON.stringify(v.preview_url || "") + ", this)'" + (v.preview_url ? "" : " disabled") + " style='min-width:36px;'>▶</button>"
-                + "<div style='flex:1;min-width:160px;'><strong>" + label + "</strong>" + (desc ? "<br><span class='note'>" + desc + "</span>" : "") + "</div>"
-                + "<button class='blue' onclick='addLibraryVoice(" + JSON.stringify(v.voice_id) + "," + JSON.stringify(v.public_owner_id || "") + "," + JSON.stringify(label) + ")'>Select Voice</button>"
+            html += "<div style='display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;text-align:center;'>"
+                + "<button type='button' class='btn-sm' onclick='playPreview(" + JSON.stringify(v.preview_url || "") + ", this)'" + (v.preview_url ? "" : " disabled") + " style='min-width:40px;'>▶</button>"
+                + "<div><strong>" + label + "</strong>" + (desc ? "<br><span class='note' style='font-size:11px;'>" + desc + "</span>" : "") + "</div>"
                 + "</div>";
         });
+        html += "</div>";
         box.innerHTML = html;
         vlNextToken = data.next_page_token || null;
         if (pager) pager.innerHTML = vlNextToken ? "<a href='javascript:void(0)' onclick='searchVoiceLibrary(" + JSON.stringify(vlNextToken) + ")'>Next 6 →</a>" : "";
@@ -2432,23 +2471,6 @@ function playPreview(url, btn) {
     audio.play();
     btn.textContent = "⏸";
     vlCurrentPreviewBtn = btn;
-}
-
-async function addLibraryVoice(voice_id, public_owner_id, label) {
-    if (!public_owner_id) { notify("error", "This voice can't be selected right now. Please try another one."); return; }
-    try {
-        var res = await fetch("/api/voice_library/add", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ public_owner_id: public_owner_id, voice_id: voice_id, new_name: label })
-        });
-        var data = await res.json();
-        if (data.error) { notify("error", "Could not select this voice. Please try another one."); return; }
-        notify("success", "\"" + label + "\" selected. It's now available in the list below.");
-        voicePools = { male: [], female: [] };
-        await ensureVoicePools();
-        renderSpeakerVoices();
-    } catch (e) { notify("error", "Could not select this voice. Please try another one."); }
 }
 
 // ===== TIMELINE WITH RULER + OVERLAP PREVENTION =====
@@ -2638,6 +2660,7 @@ checkTranscribeProgress = async function () {
                 s.end = Number(Number(s.end).toFixed(2));
                 s.locked = false;
             });
+            remapDefaultSpeakerLabels();
 
             originalSegments = JSON.parse(JSON.stringify(segmentsData));
             totalDuration = data.full_duration || 0;
@@ -2841,8 +2864,10 @@ function resetWorkspace() {
     var gp = document.getElementById("genProgress"); if (gp) gp.classList.add("hidden");
     var ep = document.getElementById("emotionProgress"); if (ep) ep.classList.add("hidden");
 
-    // Reset speaker count + badges
+    // Reset speaker count/names + badges, and hide Step 1.5 until a new file is chosen
     var sc = document.getElementById("speakerCount"); if (sc) sc.value = "";
+    var sn = document.getElementById("speakerNames"); if (sn) sn.value = "";
+    var s15 = document.getElementById("step1_5Card"); if (s15) s15.classList.add("hidden");
     if (typeof updateBadges === "function") updateBadges();
 }
 
@@ -2866,13 +2891,14 @@ function resetWorkspace() {
     };
 })();
 
-// "Dub Another Video" button injected into Step 6
+// "Dub Another Video" button injected into Step 6 (right side of the action row
+// with Fine-Tune Timeline / Merge; fixDub() below relocates it into the video
+// download row instead once a video has actually been merged).
 (function () {
-    var target = document.getElementById("resultSection");
+    var target = document.getElementById("dubAnotherVideoSlot") || document.getElementById("resultSection");
     if (!target) return;
     var btn = document.createElement("button");
     btn.className = "blue";
-    btn.style.marginTop = "16px";
     btn.textContent = "🆕 Dub Another Video";
     btn.onclick = function () {
         resetWorkspace();
@@ -5183,4 +5209,102 @@ window.cleanOldClones = function () {
 
     widget.addEventListener("mouseenter", refreshPanel);
     refreshPanel();
+})();
+
+// ===== TIMELINE: Arabic-text tooltips + playhead marker synced to the results player =====
+(function () {
+    if (window._timelineTipPlayheadV1) return; window._timelineTipPlayheadV1 = true;
+
+    // --- Arabic text tooltip on each segment block ---
+    function applySegmentTooltips() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData || !segmentsData.length) return;
+        var divs = wrap.querySelectorAll("div");
+        for (var i = 0; i < divs.length; i++) {
+            var b = divs[i];
+            var st = b.getAttribute("style") || "";
+            if (st.indexOf("cursor") === -1 || st.indexOf("grab") === -1) continue;
+            var num = parseInt(b.textContent, 10);
+            if (!num || num < 1 || num > segmentsData.length) continue;
+            var seg = segmentsData[num - 1];
+            if (!seg) continue;
+            var txt = (seg.arabic_text || "").trim();
+            b.title = txt ? ("Line " + num + ": " + txt) : ("Line " + num + ": drag to shift");
+        }
+    }
+
+    // --- Playhead marker: follows the Step 6 results <audio> element ---
+    function timelineScale() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData || !segmentsData.length) return null;
+        var total = (typeof totalDuration === "number" && totalDuration > 0) ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        return { wrap: wrap, scale: (wrap.clientWidth || 900) / total };
+    }
+    function ensurePlayhead(wrap) {
+        var m = document.getElementById("timelinePlayhead");
+        if (!m) {
+            m = document.createElement("div");
+            m.id = "timelinePlayhead";
+            m.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:#ef4444;z-index:20;pointer-events:none;display:none;box-shadow:0 0 4px rgba(239,68,68,0.8);";
+            wrap.appendChild(m);
+        } else if (m.parentNode !== wrap) {
+            wrap.appendChild(m);
+        }
+        return m;
+    }
+    var phRaf = null;
+    function tickPlayhead(audio) {
+        var g = timelineScale();
+        if (!g) { phRaf = null; return; }
+        var m = ensurePlayhead(g.wrap);
+        m.style.left = Math.max(0, audio.currentTime * g.scale) + "px";
+        if (audio.paused || audio.ended) { phRaf = null; return; }
+        phRaf = requestAnimationFrame(function () { tickPlayhead(audio); });
+    }
+    function attachPlayhead(audio) {
+        if (!audio || audio.dataset.playheadHooked) return;
+        audio.dataset.playheadHooked = "1";
+        audio.addEventListener("play", function () {
+            var g = timelineScale(); if (!g) return;
+            ensurePlayhead(g.wrap).style.display = "block";
+            if (phRaf) cancelAnimationFrame(phRaf);
+            tickPlayhead(audio);
+        });
+        audio.addEventListener("pause", function () { if (phRaf) { cancelAnimationFrame(phRaf); phRaf = null; } });
+        audio.addEventListener("ended", function () {
+            if (phRaf) { cancelAnimationFrame(phRaf); phRaf = null; }
+            var m = document.getElementById("timelinePlayhead");
+            if (m) m.style.display = "none";
+        });
+        audio.addEventListener("seeked", function () {
+            var g = timelineScale(); if (!g) return;
+            var m = ensurePlayhead(g.wrap);
+            m.style.left = Math.max(0, audio.currentTime * g.scale) + "px";
+        });
+    }
+    function scanForPlayer() {
+        var au = document.querySelector("#audioResults audio");
+        if (au) attachPlayhead(au);
+    }
+    scanForPlayer();
+    var audioResultsEl = document.getElementById("audioResults");
+    if (audioResultsEl && typeof MutationObserver !== "undefined") {
+        new MutationObserver(scanForPlayer).observe(audioResultsEl, { childList: true, subtree: true });
+    }
+
+    // Both the tooltip pass and the playhead re-attach need to run after every
+    // timeline render (renderTimeline wipes #timelineWrap's contents each time).
+    if (typeof renderTimeline === "function") {
+        var _rtTipPh = renderTimeline;
+        renderTimeline = function () {
+            var r = _rtTipPh.apply(this, arguments);
+            applySegmentTooltips();
+            var au = document.querySelector("#audioResults audio");
+            if (au && !au.paused) {
+                var g = timelineScale();
+                if (g) { var m = ensurePlayhead(g.wrap); m.style.display = "block"; m.style.left = Math.max(0, au.currentTime * g.scale) + "px"; }
+            }
+            return r;
+        };
+    }
 })();

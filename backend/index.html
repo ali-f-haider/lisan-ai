@@ -48,16 +48,8 @@
                 </div>
             </div>
             <br>
-            <label>Number of speakers</label>
-            <input type="number" id="speakerCount" min="1" placeholder="Example: 5">
-            <br>
-            <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>
-            <button class="green" onclick="document.getElementById('projectFileStep1').click()" style="margin-left:8px;">📂 Load Project</button>
+            <button class="green" onclick="document.getElementById('projectFileStep1').click()">📂 Load Project</button>
             <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
-            <div id="progressSection" class="hidden">
-                <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
-                <p id="progressText" class="progress-status">Starting...</p>
-            </div>
 
             <div id="attachMediaSection" class="hidden" style="margin-top:16px; padding:16px; background:#fef3c7; border:1px solid #fbbf24; border-radius:8px;">
                 <p style="margin:0 0 12px 0; color:#92400e; font-size:14px;">
@@ -77,6 +69,23 @@
     </div>
 </div>
 
+<div class="card hidden" id="step1_5Card">
+    <h3>Step 1.5: Speaker Setup</h3>
+    <p class="note">Tell us how many speakers are in the file, and optionally their names. This fills the Speaker dropdown in Step 2.</p>
+    <label>Number of speakers</label>
+    <input type="number" id="speakerCount" min="1" placeholder="Example: 3">
+    <br><br>
+    <label>Speaker names (comma separated, optional)</label>
+    <input type="text" id="speakerNames" placeholder="Example: Ali, Sara">
+    <p class="note">If you give fewer names than the number of speakers, the rest are labeled "Speaker 3", "Speaker 4", etc.</p>
+    <br>
+    <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>
+    <div id="progressSection" class="hidden">
+        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <p id="progressText" class="progress-status">Starting...</p>
+    </div>
+</div>
+
 <div id="editorSection" class="card hidden">
     <h3>Step 2: Edit Segments</h3>
     <button class="blue" onclick="document.getElementById('subsFile').click()">📥 Import SRT/SBV<span class="badge" id="badgeImport"></span></button>
@@ -84,8 +93,6 @@
     <button class="blue" onclick="exportSRT()">📤 SRT<span class="badge" id="badgeSRT"></span></button>
     <button class="blue" onclick="exportSBV()">📤 SBV<span class="badge" id="badgeSBV"></span></button>
     <button class="green" onclick="saveProject()">💾 Save Project<span class="badge" id="badgeSave"></span></button>
-    <button class="green" onclick="document.getElementById('projectFile').click()">📂 Load Project<span class="badge" id="badgeLoad"></span></button>
-    <input type="file" id="projectFile" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
     <br><br>
     <button class="purple" onclick="autoTranslate()">Auto Translate to Arabic<span class="badge" id="badgeTranslate"></span></button>
     <button class="purple" onclick="addTashkeel()">🔤 Add Tashkeel Only<span class="badge" id="badgeTashkeel"></span></button>
@@ -140,18 +147,11 @@
     <button onclick="autoAssignVoices()">🎲 Auto-Assign All<span class="badge" id="badgeAutoAssign"></span></button>
     <button onclick="toggleVoiceLibraryBrowser()">🌐 Browse Voice Library</button>
     <div id="voiceLibraryBrowser" class="hidden" style="margin-top:12px;padding:14px;border:1px solid #e5e7eb;border-radius:10px;background:#f9fafb;">
-        <p class="note">Browse ready-made Arabic voices and pick one for this speaker.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-            <select id="vlGender">
-                <option value="">Any gender</option>
-                <option value="male">Male</option>
-                <option value="female">Female</option>
-            </select>
-            <button class="blue" onclick="searchVoiceLibrary()">🔍 Search</button>
-        </div>
+        <p class="note">Listen to ready-made Arabic voices below. To use one, select it from the dropdown in the table.</p>
         <div id="vlResults"></div>
         <div id="vlPager" style="margin-top:8px;"></div>
     </div>
+    <p class="note">👉 Select a voice for each speaker from the dropdown below.</p>
     <div style="overflow-x:auto;">
         <table id="speakerVoicesTable">
             <thead><tr><th style="width:30%">Speaker</th><th>Voice</th></tr></thead>
@@ -200,17 +200,19 @@
         ⚠️ <strong>Download your files now!</strong> Generated audio and video are temporary and will be lost when the session ends.
     </div>
     <div id="audioResults"></div>
-    <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
+    <div id="resultActionsRow" style="display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px;margin:12px 0;">
+        <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
+        <div id="mergeSection" class="hidden">
+            <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video<span class="badge" id="badgeMerge"></span></button>
+            <p class="note">Combines the dubbed Arabic audio with the original background music and video.</p>
+        </div>
+        <div id="dubAnotherVideoSlot" style="margin-left:auto;"></div>
+    </div>
     <div id="timelineSection" class="hidden">
         <p class="note">Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.</p>
         <div id="timelineWrap" style="position:relative;background:#1e293b;border-radius:8px;overflow:hidden;margin:10px 0;"></div>
         <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>
         <button class="blue" onclick="resetTimeline()">↩️ Reset Offsets</button>
-    </div>
-    <div id="mergeSection" class="hidden">
-        <br>
-        <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video<span class="badge" id="badgeMerge"></span></button>
-        <p class="note">Combines the dubbed Arabic audio with the original background music and video.</p>
     </div>
     <div id="videoResults" class="hidden"></div>
 </div>
