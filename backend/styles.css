@@ -371,17 +371,18 @@ audio, video {
 .file-upload-area:hover { background: var(--primary-light); transform: translateY(-1px); }
 #fileUploadLabel { display: flex; align-items: center; gap: 8px; }
 
-/* Step 1: keep the upload button and the Load Project button the same
-   size regardless of how long the selected filename is */
+/* Step 1: stack the upload button and the Load Project button vertically
+   so they always render the exact same width, regardless of how long the
+   selected filename is (horizontally, browsers size each by its own text
+   content, which made them look mismatched) */
 #step1UploadRow .file-upload-area,
 #step1UploadRow > button.green {
-    min-width: 190px;
-    max-width: 260px;
+    width: 100%;
     box-sizing: border-box;
     justify-content: center;
 }
 #step1UploadRow #fileUploadText {
-    max-width: 190px;
+    max-width: calc(100% - 30px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
