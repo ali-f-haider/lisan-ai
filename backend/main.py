@@ -1546,13 +1546,22 @@ def _log_spend(uid, action, credits, job_id=None, reason=None):
     """Helper: insert into credit_spends. Returns True on success, or the
     error string on failure (previously this always returned None either
     way, which made the admin UI's 'Spend log error: None' warning show up
-    on every adjustment regardless of whether it actually failed)."""
+    on every adjustment regardless of whether it actually failed).
+
+    Note: credit_spends has no 'reason' column (that lives in credit_audit,
+    which is where manual admin adjustments are meant to record it) -- the
+    'reason' param here is accepted but intentionally NOT written to
+    credit_spends, since sending an unknown column made Supabase reject the
+    whole insert with 400 Bad Request. job_id is only included when set, so
+    a NULL-vs-omitted mismatch can't trip up the column's constraints."""
     import urllib.request as _ur
-    body = json.dumps({
+    row = {
         "uid": uid, "action": action, "credits": credits,
-        "job_id": job_id, "reason": reason,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    }).encode("utf-8")
+    }
+    if job_id:
+        row["job_id"] = job_id
+    body = json.dumps(row).encode("utf-8")
     url = f"{SUPABASE_URL}/rest/v1/credit_spends"
     hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
     try:
