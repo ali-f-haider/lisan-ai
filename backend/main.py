@@ -1131,7 +1131,35 @@ def segment_audio(job_id: str, segment_id: str):
 
 @app.post("/api/cleanup_voices")
 def cleanup_voices(payload: dict = {}):
-    return eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, payload.get("keep", []))
+    result = eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, payload.get("keep", []))
+    # Also remove this job's downloadable voice sample file(s), if any — same
+    # "session end" moment as the ElevenLabs-side voice cleanup above.
+    job_id = payload.get("job_id") or ""
+    if job_id:
+        try:
+            safe_job = "".join(c for c in job_id if c.isalnum() or c in "_-")
+            for p in OUTPUT_DIR.glob(f"voice_sample_{safe_job}_*.wav"):
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return result
+
+@app.get("/api/download_voice_sample/{job_id}/{speaker}")
+def download_voice_sample(job_id: str, speaker: str):
+    """Serves the isolated voice sample used to create a speaker's clone —
+    NOT the ElevenLabs voice model itself (ElevenLabs does not allow exporting
+    cloned voices at all). This is the reference recording assembled from the
+    user's own video before upload, kept only until this job's cleanup_voices
+    call (new project / reset / explicit cleanup)."""
+    safe_speaker = "".join(c for c in speaker if c.isalnum()).strip() or "speaker"
+    safe_job = "".join(c for c in job_id if c.isalnum() or c in "_-")
+    p = OUTPUT_DIR / f"voice_sample_{safe_job}_{safe_speaker}.wav"
+    if not p.exists():
+        return JSONResponse({"error": "This voice sample is no longer available."}, status_code=404)
+    return FileResponse(p, media_type="audio/wav", filename=f"{speaker}_voice_sample.wav")
 
 @app.post("/api/upload_custom_voice")
 async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):

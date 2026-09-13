@@ -316,6 +316,22 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
             if response.status == 200:
                 data = json.loads(response.data.decode())
                 cloned_voices[speaker] = data["voice_id"]
+                # Keep the reference sample so the user can download it this
+                # session. ElevenLabs does not allow exporting the cloned voice
+                # model itself (confirmed via their own docs) — this is the
+                # isolated voice sample assembled from the user's own video
+                # that was used to CREATE the clone, which is the closest real,
+                # downloadable asset, and matches what ElevenLabs' own help
+                # center recommends keeping for any future re-cloning. It gets
+                # deleted by cleanup_voices below (called on session/project
+                # end), same as the ElevenLabs-side voice itself.
+                try:
+                    sample_path = OUTPUT_DIR / f"voice_sample_{job_id}_{safe_speaker}.wav"
+                    if concat_file != sample_path:
+                        concat_file.replace(sample_path)
+                    concat_file = None  # prevent the cleanup below from deleting it
+                except Exception:
+                    pass
             else:
                 raise Exception(f"API error {response.status}: {response.data.decode(errors='ignore')}")
         except Exception as e:

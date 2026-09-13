@@ -1293,11 +1293,21 @@ async function confirmCloning() {
         const cloned = data.cloned_voices || {};
         window.clonedVoiceIds = [];
         let ok = 0;
+        let resultsHtml = "";
         Object.keys(cloned).forEach(speaker => {
             const vid = cloned[speaker];
-            if (!vid.startsWith("ERROR")) { clonedBySpeaker[speaker] = vid; speakerChoices[speaker] = "clone"; window.clonedVoiceIds.push(vid); applyChoice(speaker); ok++; }
+            if (!vid.startsWith("ERROR")) {
+                clonedBySpeaker[speaker] = vid; speakerChoices[speaker] = "clone"; window.clonedVoiceIds.push(vid); applyChoice(speaker); ok++;
+                resultsHtml += "<div style='display:flex;align-items:center;gap:10px;padding:6px 0;flex-wrap:wrap;'>"
+                    + "<span>✅ " + speaker + " cloned.</span>"
+                    + "<a href='/api/download_voice_sample/" + encodeURIComponent(currentJobId) + "/" + encodeURIComponent(speaker) + "' download><button type='button' class='btn-sm' style='cursor:pointer;'>⬇ Download voice sample</button></a>"
+                    + "<span class='note'>(available for this session only)</span>"
+                    + "</div>";
+            }
             else notify("error", speaker + ": " + vid);
         });
+        const resultsBox = document.getElementById("cloneResultsBox");
+        if (resultsBox) resultsBox.innerHTML = resultsHtml;
         renderSpeakerVoices();
         notify("success", `Voices cloned successfully! ${ok} speaker(s) assigned to their cloned voices.`);
         (data.warnings || []).forEach(w => notify("info", "⚠️ " + w));
@@ -3911,7 +3921,7 @@ window.uploadCustomVoice = function () {
 window.cleanOldClones = function () {
     if (!confirm("Delete ALL old cloned/custom voices from your voice account, except the ones this project is using right now?")) return;
     var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
-    fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep }) })
+    fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep, job_id: currentJobId }) })
         .then(function (r) { return r.json(); })
         .then(function (d) { notify("success", "🧹 Removed " + (d.deleted || 0) + " old cloned voice(s)." + ((d.errors || []).length ? " (" + d.errors.length + " errors)" : "")); })
         .catch(function (e) { notify("error", e.message); });
@@ -3926,7 +3936,7 @@ window.cleanOldClones = function () {
         var p = orig.apply(this, arguments);
         Promise.resolve(p).then(function () {
             var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
-            if (keep.length) fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep }) }).catch(function () {});
+            if (keep.length) fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep, job_id: currentJobId }) }).catch(function () {});
         });
         return p;
     };
@@ -4097,7 +4107,7 @@ window.cleanOldClones = function () {
     // 🧹 now removes ALL app-created clones (they must be ephemeral)
     window.cleanOldClones = function () {
         if (!confirm("Delete ALL cloned/custom voices from your voice account (including this project's)? Cloning again will re-create only what you need.")) return;
-        fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [] }) })
+        fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId }) })
             .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, st: r.status, d: d }; }); })
             .then(function (out) {
                 if (!out.ok) { notify("error", "Cleanup endpoint not found (status " + out.st + ") — redeploy main.py with the /api/cleanup_voices block."); return; }
@@ -4112,7 +4122,7 @@ window.cleanOldClones = function () {
         var _rw = resetWorkspace;
         resetWorkspace = function () {
             var r = _rw.apply(this, arguments);
-            fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [] }) }).catch(function () {});
+            fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId }) }).catch(function () {});
             return r;
         };
     }
