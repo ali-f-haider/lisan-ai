@@ -2179,7 +2179,7 @@ function onFileSelected(input) {
         label.textContent = f.name + " (" + sizeMB + " MB)";
         if (step15) step15.classList.remove("hidden");
     } else {
-        label.textContent = "Upload File";
+        label.textContent = "Upload Media";
     }
 }
 
@@ -2882,7 +2882,7 @@ function resetWorkspace() {
                 !confirm("Choosing a new file will clear the current project (segments, translations, voices). Continue?")) {
                 input.value = "";
                 var fl = document.getElementById("fileUploadText");
-                if (fl) fl.textContent = "Upload File";
+                if (fl) fl.textContent = "Upload Media";
                 return;
             }
             resetWorkspace();
@@ -2891,19 +2891,20 @@ function resetWorkspace() {
     };
 })();
 
-// "Dub Another Video" button injected into Step 6 (right side of the action row
-// with Fine-Tune Timeline / Merge; fixDub() below relocates it into the video
-// download row instead once a video has actually been merged).
+// "Dub Another Video" button injected into Step 6 (fixDub() below relocates it
+// into the video download row, next to the two download links, once a video
+// has actually been merged; for audio-only results it stays at the end here).
 (function () {
-    var target = document.getElementById("dubAnotherVideoSlot") || document.getElementById("resultSection");
+    var target = document.getElementById("resultSection");
     if (!target) return;
     var btn = document.createElement("button");
     btn.className = "blue";
+    btn.style.marginTop = "16px";
     btn.textContent = "🆕 Dub Another Video";
     btn.onclick = function () {
         resetWorkspace();
         var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
-        var fl = document.getElementById("fileUploadText"); if (fl) fl.textContent = "Upload File";
+        var fl = document.getElementById("fileUploadText"); if (fl) fl.textContent = "Upload Media";
         window.scrollTo({ top: 0, behavior: "smooth" });
         notify("info", "Workspace cleared. Upload your next video in Step 1.");
     };
@@ -2918,7 +2919,7 @@ var resultsDownloaded = false;
 
 function resetFileLabel() {
     var fl = document.getElementById("fileUploadText");
-    if (fl) fl.textContent = "Upload File";
+    if (fl) fl.textContent = "Upload Media";
 }
 
 function confirmResetSafe() {
@@ -4006,7 +4007,7 @@ window.cleanOldClones = function () {
         ["Clean old cloned voices", "تنظيف الأصوات المستنسخة القديمة"],
         ["📊 Usage", "📊 الاستخدام"],
         ["➕ Buy", "➕ شراء"],
-        ["Upload File", "ارفع ملفًا"]
+        ["Upload Media", "ارفع الوسائط"]
     ];
     var R = [
         ["Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM", "يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. الحدود: 60 ثانية و400 ميجابايت كحد أقصى"],

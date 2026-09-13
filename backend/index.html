@@ -40,16 +40,17 @@
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
             <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
-            <div class="file-upload-area" onclick="document.getElementById('audioFile').click()">
-                <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
-                <div id="fileUploadLabel">
-                    <span style="font-size:24px;">📁</span>
-                    <span id="fileUploadText">Upload File</span>
+            <div style="display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-top:8px;">
+                <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">
+                    <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
+                    <div id="fileUploadLabel">
+                        <span style="font-size:16px;">📁</span>
+                        <span id="fileUploadText">Upload Media</span>
+                    </div>
                 </div>
+                <button class="green" onclick="document.getElementById('projectFileStep1').click()">📂 Load Project</button>
+                <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
             </div>
-            <br>
-            <button class="green" onclick="document.getElementById('projectFileStep1').click()">📂 Load Project</button>
-            <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
 
             <div id="attachMediaSection" class="hidden" style="margin-top:16px; padding:16px; background:#fef3c7; border:1px solid #fbbf24; border-radius:8px;">
                 <p style="margin:0 0 12px 0; color:#92400e; font-size:14px;">
@@ -200,19 +201,17 @@
         ⚠️ <strong>Download your files now!</strong> Generated audio and video are temporary and will be lost when the session ends.
     </div>
     <div id="audioResults"></div>
-    <div id="resultActionsRow" style="display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px;margin:12px 0;">
-        <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
-        <div id="mergeSection" class="hidden">
-            <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video<span class="badge" id="badgeMerge"></span></button>
-            <p class="note">Combines the dubbed Arabic audio with the original background music and video.</p>
-        </div>
-        <div id="dubAnotherVideoSlot" style="margin-left:auto;"></div>
-    </div>
+    <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
     <div id="timelineSection" class="hidden">
         <p class="note">Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.</p>
         <div id="timelineWrap" style="position:relative;background:#1e293b;border-radius:8px;overflow:hidden;margin:10px 0;"></div>
         <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>
         <button class="blue" onclick="resetTimeline()">↩️ Reset Offsets</button>
+    </div>
+    <div id="mergeSection" class="hidden">
+        <br>
+        <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video<span class="badge" id="badgeMerge"></span></button>
+        <p class="note">Combines the dubbed Arabic audio with the original background music and video.</p>
     </div>
     <div id="videoResults" class="hidden"></div>
 </div>
