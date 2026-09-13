@@ -25,6 +25,8 @@
     </div>
 </div>
 
+<button type="button" class="contact-icon-btn" id="appContactIconBtn" title="Contact Us" aria-label="Contact Us">✉️</button>
+
 <div style="text-align:center;padding:24px 20px 0;">
     <div style="display:inline-flex;align-items:center;gap:16px;">
         <img src="/logo.png" alt="Lisan AI" style="height:64px;">
@@ -40,7 +42,7 @@
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
             <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
-            <div style="display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-top:8px;">
+            <div id="step1UploadRow" style="display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;margin-top:8px;">
                 <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">
                     <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
                     <div id="fileUploadLabel">
@@ -214,24 +216,39 @@
     <p class="note">Lip-sync is not available in this build. It will return as a local or premium provider option in a future update.</p>
 </div>
 
-<div class="card" id="contactCard">
-    <h3>Contact Us</h3>
-    <p class="note">Questions, feedback, or need help? Send us a message and we'll get back to you by email.</p>
-    <form id="appContactForm" onsubmit="return submitAppContact(event)">
-        <label for="appCName">Name (optional)</label>
-        <input type="text" id="appCName" maxlength="100">
-        <label for="appCEmail">Email</label>
-        <input type="email" id="appCEmail" required maxlength="200">
-        <label for="appCMessage">Message</label>
-        <textarea id="appCMessage" required maxlength="5000"></textarea>
-        <input type="text" id="appCHp" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">
-        <br><br>
-        <button type="submit" class="green" id="appContactSubmit">Send Message</button>
-    </form>
-    <p id="appContactStatus" class="note" style="display:none;margin-top:12px;"></p>
+<div class="modal-overlay hidden" id="appContactModal">
+    <div class="modal-box">
+        <button type="button" class="modal-close" id="appContactModalClose" aria-label="Close">✕</button>
+        <h3>Contact Us</h3>
+        <p class="note">Questions, feedback, or need help? Send us a message and we'll get back to you by email.</p>
+        <form id="appContactForm" onsubmit="return submitAppContact(event)">
+            <label for="appCName">Name (optional)</label>
+            <input type="text" id="appCName" maxlength="100">
+            <label for="appCEmail">Email</label>
+            <input type="email" id="appCEmail" required maxlength="200">
+            <label for="appCMessage">Message</label>
+            <textarea id="appCMessage" required maxlength="5000"></textarea>
+            <input type="text" id="appCHp" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;">
+            <br><br>
+            <button type="submit" class="green" id="appContactSubmit">Send Message</button>
+        </form>
+        <p id="appContactStatus" class="note" style="display:none;margin-top:12px;"></p>
+    </div>
 </div>
 
 <script>
+(function () {
+    var icon = document.getElementById("appContactIconBtn");
+    var modal = document.getElementById("appContactModal");
+    var closeBtn = document.getElementById("appContactModalClose");
+    if (!icon || !modal) return;
+    function openModal() { modal.classList.remove("hidden"); }
+    function closeModal() { modal.classList.add("hidden"); }
+    icon.addEventListener("click", openModal);
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+    modal.addEventListener("click", function (e) { if (e.target === modal) closeModal(); });
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.classList.contains("hidden")) closeModal(); });
+})();
 function submitAppContact(e) {
     e.preventDefault();
     var statusEl = document.getElementById("appContactStatus");

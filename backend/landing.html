@@ -46,7 +46,13 @@ ul.points{max-width:640px;margin:14px auto 0;list-style:none;font-size:14px;colo
 ul.points li{margin:6px 0;padding-left:22px;position:relative}
 ul.points li:before{content:"✓";position:absolute;left:0;color:var(--green);font-weight:800}
 .trust{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted);padding:18px 0 8px}
-.contact-box{max-width:520px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.contact-icon-btn{position:fixed;top:70px;left:20px;z-index:40;width:48px;height:48px;border-radius:50%;background:var(--indigo);color:#fff;border:none;font-size:20px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.18);transition:transform .15s}
+.contact-icon-btn:hover{transform:scale(1.06);background:#243192}
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-box{background:#fff;border-radius:16px;padding:28px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;padding:4px 8px;border-radius:6px}
+.modal-close:hover{background:#f1f5f9;color:var(--ink)}
+.contact-box{max-width:520px;margin:0 auto}
 .contact-box label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin:12px 0 6px}
 .contact-box label:first-child{margin-top:0}
 .contact-box input,.contact-box textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
@@ -79,6 +85,8 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
     <a href="/login">Start free</a>
   </nav>
 </div>
+
+<button type="button" class="contact-icon-btn" id="contactIconBtn" title="Contact Us" aria-label="Contact Us">✉️</button>
 
 <div class="hero">
   <h1>Dub any video into Arabic — automatically</h1>
@@ -148,23 +156,26 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
   </div>
 </section>
 
-<section class="wrap">
-  <h2>Contact Us</h2>
-  <p style="text-align:center;color:var(--muted);max-width:520px;margin:0 auto 18px;">Questions, feedback, or need help? Send us a message and we'll get back to you by email.</p>
-  <form class="contact-box" id="contactForm">
-    <label for="cName">Name (optional)</label>
-    <input type="text" id="cName" name="name" maxlength="100">
-    <label for="cEmail">Email</label>
-    <input type="email" id="cEmail" name="email" required maxlength="200">
-    <label for="cMessage">Message</label>
-    <textarea id="cMessage" name="message" required maxlength="5000"></textarea>
-    <input class="hp" type="text" id="cHp" name="hp" tabindex="-1" autocomplete="off">
-    <div style="text-align:center;">
-      <button type="submit" class="cta" id="contactSubmit">Send Message</button>
-    </div>
-    <div id="contactStatus"></div>
-  </form>
-</section>
+<div class="modal-overlay hidden" id="contactModal">
+  <div class="modal-box">
+    <button type="button" class="modal-close" id="contactModalClose" aria-label="Close">✕</button>
+    <h2 style="margin-bottom:8px;">Contact Us</h2>
+    <p style="text-align:center;color:var(--muted);margin:0 auto 18px;">Questions, feedback, or need help? Send us a message and we'll get back to you by email.</p>
+    <form class="contact-box" id="contactForm">
+      <label for="cName">Name (optional)</label>
+      <input type="text" id="cName" name="name" maxlength="100">
+      <label for="cEmail">Email</label>
+      <input type="email" id="cEmail" name="email" required maxlength="200">
+      <label for="cMessage">Message</label>
+      <textarea id="cMessage" name="message" required maxlength="5000"></textarea>
+      <input class="hp" type="text" id="cHp" name="hp" tabindex="-1" autocomplete="off">
+      <div style="text-align:center;">
+        <button type="submit" class="cta" id="contactSubmit">Send Message</button>
+      </div>
+      <div id="contactStatus"></div>
+    </form>
+  </div>
+</div>
 
 <footer>
   <div class="fwrap">
@@ -207,6 +218,19 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
   v.onerror = function () { v.remove(); }; // Keeps text placeholder if video is missing
   v.onloadeddata = function () { slot.innerHTML = ""; slot.appendChild(v); };
 });
+// Contact icon opens/closes the popup
+(function () {
+  var icon = document.getElementById("contactIconBtn");
+  var modal = document.getElementById("contactModal");
+  var closeBtn = document.getElementById("contactModalClose");
+  if (!icon || !modal) return;
+  function open() { modal.classList.remove("hidden"); }
+  function close() { modal.classList.add("hidden"); }
+  icon.addEventListener("click", open);
+  if (closeBtn) closeBtn.addEventListener("click", close);
+  modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+})();
 // Contact form submit handler
 (function () {
   var form = document.getElementById("contactForm");

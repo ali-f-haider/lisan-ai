@@ -371,6 +371,24 @@ audio, video {
 .file-upload-area:hover { background: var(--primary-light); transform: translateY(-1px); }
 #fileUploadLabel { display: flex; align-items: center; gap: 8px; }
 
+/* Step 1: keep the upload button and the Load Project button the same
+   size regardless of how long the selected filename is */
+#step1UploadRow .file-upload-area,
+#step1UploadRow > button.green {
+    min-width: 190px;
+    max-width: 260px;
+    box-sizing: border-box;
+    justify-content: center;
+}
+#step1UploadRow #fileUploadText {
+    max-width: 190px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: middle;
+}
+
 /* Credits info box */
 .credits-info-box {
     width: 300px; flex-shrink: 0; padding: 14px;
@@ -451,3 +469,61 @@ body.lang-ar table,
 body.lang-ar #timelineWrap {
     direction: ltr;
 }
+
+/* Contact Us icon + popup (shared by landing.html and index.html) */
+.contact-icon-btn {
+    position: fixed;
+    top: 70px;
+    left: 20px;
+    z-index: 40;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: var(--shadow-lg);
+    transition: transform 0.15s;
+}
+.contact-icon-btn:hover { transform: scale(1.06); background: var(--primary-light); }
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.modal-box {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 28px;
+    max-width: 480px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: var(--shadow-lg);
+}
+.modal-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    background: none;
+    border: none;
+    font-size: 20px;
+    line-height: 1;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    margin: 0;
+}
+.modal-close:hover { background: #f1f5f9; color: var(--text); }

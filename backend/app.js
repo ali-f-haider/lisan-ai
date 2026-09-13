@@ -1740,10 +1740,13 @@ function onFileSelected(input) {
     if (input.files && input.files[0]) {
         var f = input.files[0];
         var sizeMB = (f.size / (1024 * 1024)).toFixed(1);
-        label.textContent = f.name + " (" + sizeMB + " MB)";
+        var fullText = f.name + " (" + sizeMB + " MB)";
+        label.textContent = fullText;
+        label.title = fullText; // full name on hover -- text may be truncated visually
         if (step15) step15.classList.remove("hidden");
     } else {
         label.textContent = "Upload Media";
+        label.title = "";
     }
 }
 
