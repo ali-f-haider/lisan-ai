@@ -5405,23 +5405,28 @@ window.cleanOldClones = function () {
 
 // ===== TIMELINE: overlay showing each line's actual Arabic audio duration =====
 // vs its slot — the timeline block's own width is always the segment's
-// original slot (end - start); this draws a translucent fill inside the
-// block for however much of that slot the actually-generated Arabic audio
-// takes up, and, when the Arabic audio is LONGER than the slot, a dashed
-// extension past the block's right edge showing by how much. Only appears
-// once a line has been generated (needs window._lineDurations, populated
-// after Step 5 Generate completes).
+// original slot (end - start). This draws ONE continuous bar per line: it
+// starts aligned with the block's own left edge, is tinted lighter for
+// however much of the slot the actually-generated Arabic audio fills, and,
+// only when the audio is LONGER than the slot, continues past the block's
+// right edge in a darker shade for the extra length — a single element, not
+// two separate pieces, so there is nothing that can visually double up.
+// Only appears once a line has been generated (needs window._lineDurations,
+// populated after Step 5 Generate completes).
 (function () {
-    if (window._timelineDubDurationV1) return; window._timelineDubDurationV1 = true;
+    if (window._timelineDubDurationV2) return; window._timelineDubDurationV2 = true;
+    // A stray element from the earlier two-piece version (dubDurFill /
+    // dubDurOverflow) would be exactly the "doubled" look reported — make
+    // sure none linger from before this rewrite.
+    document.querySelectorAll(".dubDurFill, .dubDurOverflow").forEach(function (el) { el.remove(); });
 
-    // Nodes are kept and UPDATED in place (never blindly removed + recreated)
+    // Bars are kept and UPDATED in place (never blindly removed + recreated)
     // whenever the numbers haven't actually changed. renderTimeline() gets
     // re-invoked constantly for unrelated reasons (any DOM change anywhere
     // on the page retriggers a 300ms watchdog that calls it again), and a
     // blind remove-then-recreate every single time was itself a DOM mutation
-    // that retriggered that same watchdog — a self-feeding loop that showed
-    // up as the overlay blinking / briefly appearing doubled. Only touching
-    // the DOM when a value actually differs breaks that loop.
+    // that retriggered that same watchdog. Only touching the DOM when a
+    // value actually differs breaks that loop.
     window._dubOverlayNodes = window._dubOverlayNodes || {};
     function drawDubDurationOverlay() {
         var wrap = document.getElementById("timelineWrap");
@@ -5441,63 +5446,52 @@ window.cleanOldClones = function () {
             if (!seg || !(seg.arabic_text || "").trim()) continue;
             var dubDur = (window._lineDurations || {})[seg.segment_id] || 0;
             if (dubDur <= 0) continue;
+            var lane = b.parentElement;
+            if (!lane) continue;
             any = true;
             seen[seg.segment_id] = true;
             var slot = Math.max(seg.end - seg.start, 0.01);
             var blockW = b.offsetWidth || Math.max(8, slot * scale);
-            var fillW = Math.max(0, Math.min(dubDur, slot) / slot * blockW);
+            var totalPx = Math.max(blockW, dubDur * scale);
+            var hasOverflow = (totalPx - blockW) > 1;
+            if (!hasOverflow) totalPx = blockW;
 
-            var nodes = window._dubOverlayNodes[seg.segment_id];
-            if (nodes && (!nodes.fill.isConnected || nodes.fill.parentNode !== b)) {
-                try { nodes.fill.remove(); } catch (e) {}
-                try { if (nodes.ov) nodes.ov.remove(); } catch (e) {}
-                nodes = null;
+            var bar = window._dubOverlayNodes[seg.segment_id];
+            if (bar && (!bar.isConnected || bar.parentNode !== lane)) {
+                try { bar.remove(); } catch (e) {}
+                bar = null;
             }
-            var fill = nodes && nodes.fill;
-            if (!fill) {
-                fill = document.createElement("div");
-                fill.className = "dubDurFill";
-                fill.style.cssText = "position:absolute;left:0;top:0;bottom:0;pointer-events:none;z-index:3;background:rgba(34,197,94,0.35);border-right:1px solid rgba(21,128,61,0.85);";
-                b.appendChild(fill);
+            if (!bar) {
+                bar = document.createElement("div");
+                bar.className = "dubDurBar";
+                bar.style.cssText = "position:absolute;pointer-events:none;z-index:3;border-radius:0 4px 4px 0;";
+                lane.appendChild(bar);
+                window._dubOverlayNodes[seg.segment_id] = bar;
             }
-            var fillWStr = fillW + "px";
-            if (fill.style.width !== fillWStr) fill.style.width = fillWStr;
-            var fillTitle = "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
-            if (fill.title !== fillTitle) fill.title = fillTitle;
-
-            var overflowPx = Math.max(0, (dubDur - slot) * scale);
-            var ov = nodes && nodes.ov;
-            if (overflowPx > 1) {
-                var lane = b.parentElement;
-                if (lane) {
-                    if (!ov || ov.parentNode !== lane) {
-                        if (ov) { try { ov.remove(); } catch (e) {} }
-                        ov = document.createElement("div");
-                        ov.className = "dubDurOverflow";
-                        ov.style.cssText = "position:absolute;pointer-events:none;z-index:3;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:0 4px 4px 0;";
-                        lane.appendChild(ov);
-                    }
-                    var topStr = b.offsetTop + "px", hStr = b.offsetHeight + "px", leftStr = (b.offsetLeft + blockW) + "px", wStr2 = overflowPx + "px";
-                    if (ov.style.top !== topStr) ov.style.top = topStr;
-                    if (ov.style.height !== hStr) ov.style.height = hStr;
-                    if (ov.style.left !== leftStr) ov.style.left = leftStr;
-                    if (ov.style.width !== wStr2) ov.style.width = wStr2;
-                    var ovTitle = "Arabic audio runs " + (dubDur - slot).toFixed(2) + "s past its slot (" + dubDur.toFixed(2) + "s total)";
-                    if (ov.title !== ovTitle) ov.title = ovTitle;
-                }
-            } else if (ov) {
-                try { ov.remove(); } catch (e) {}
-                ov = null;
+            var topStr = b.offsetTop + "px", hStr = b.offsetHeight + "px", leftStr = b.offsetLeft + "px", wStr = totalPx + "px";
+            if (bar.style.top !== topStr) bar.style.top = topStr;
+            if (bar.style.height !== hStr) bar.style.height = hStr;
+            if (bar.style.left !== leftStr) bar.style.left = leftStr;
+            if (bar.style.width !== wStr) bar.style.width = wStr;
+            var bg;
+            if (hasOverflow) {
+                var pct = Math.max(0, Math.min(100, (blockW / totalPx) * 100));
+                var p1 = Math.max(0, pct - 0.4).toFixed(2), p2 = Math.min(100, pct + 0.4).toFixed(2);
+                bg = "linear-gradient(90deg, rgba(34,197,94,0.35) 0%, rgba(34,197,94,0.35) " + p1 + "%, #15803d " + p1 + "%, #15803d " + p2 + "%, rgba(34,197,94,0.6) " + p2 + "%, rgba(34,197,94,0.6) 100%)";
+            } else {
+                bg = "rgba(34,197,94,0.35)";
             }
-            window._dubOverlayNodes[seg.segment_id] = { fill: fill, ov: ov };
+            if (bar.style.background !== bg) bar.style.background = bg;
+            var title = hasOverflow
+                ? "Arabic audio: " + dubDur.toFixed(2) + "s — fills its " + slot.toFixed(2) + "s slot and runs " + (dubDur - slot).toFixed(2) + "s past it"
+                : "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
+            if (bar.title !== title) bar.title = title;
         }
-        // Drop overlay nodes for segments that no longer qualify (deleted,
+        // Drop overlay bars for segments that no longer qualify (deleted,
         // no longer generated, etc.) so they don't linger.
         Object.keys(window._dubOverlayNodes).forEach(function (sid) {
             if (seen[sid]) return;
-            var n = window._dubOverlayNodes[sid];
-            try { if (n.fill) n.fill.remove(); } catch (e) {}
-            try { if (n.ov) n.ov.remove(); } catch (e) {}
+            try { window._dubOverlayNodes[sid].remove(); } catch (e) {}
             delete window._dubOverlayNodes[sid];
         });
         if (any && !document.getElementById("timelineLegendDub")) {
@@ -5513,11 +5507,11 @@ window.cleanOldClones = function () {
 
     // Live drag-sync: the block's own left/width update instantly during a
     // drag (mousemove writes box.style.left directly, without a full
-    // renderTimeline() call). .dubDurFill is a CHILD of the block, so it
-    // already tracks for free. .dubDurOverflow is a SIBLING positioned via
-    // one-time-computed offsetLeft, so without this it only catches up on
-    // mouseup. This watches each block's style attribute and redraws the
-    // overlay on every animation frame while a drag is in progress — the
+    // renderTimeline() call). The bar is a SIBLING of the block (never a
+    // child — the block clips its children, which would cut off the part
+    // that runs past its edge), so it needs an explicit redraw to track the
+    // block while dragging. This watches each block's style attribute and
+    // redraws on every animation frame while a drag is in progress — the
     // same pattern already used above for the fade-overlay hooks (hook8/
     // hook9 + sched8/sched9). drawDubDurationOverlay() never writes to a
     // block's own style, so there's no feedback-loop risk.
