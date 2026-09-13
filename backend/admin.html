@@ -276,12 +276,15 @@ async function loadUsers() {
 async function adjustCredits(uid, sign, idx) {
   const u = usersCache[idx];
   const reason = prompt(`Reason for ${sign>0?'granting':'deducting'} credits to ${u.display_name||u.email||uid.slice(0,8)}:`);
-  if (!reason) return;
-  const amount = parseInt(prompt(`How many credits to ${sign>0?'grant':'deduct'}?`));
-  if (!amount || amount <= 0) return;
+  if (reason === null) return; // user clicked Cancel — no action, no message needed
+  if (!reason.trim()) { toast('Reason is required. Please click + Grant / − Deduct again and type a reason.', true); return; }
+  const amountRaw = prompt(`How many credits to ${sign>0?'grant':'deduct'}?`);
+  if (amountRaw === null) return; // user clicked Cancel — no action, no message needed
+  const amount = parseInt(amountRaw);
+  if (!amount || amount <= 0) { toast(`"${amountRaw}" is not a valid number of credits. Please try again and type a number like 5.`, true); return; }
   const r = await api('/api/admin/adjust_credits', {
     method: 'POST',
-    body: JSON.stringify({ uid, delta: sign * amount, reason })
+    body: JSON.stringify({ uid, delta: sign * amount, reason: reason.trim() })
   });
   if (r.ok) { toast(`Adjusted ${sign * amount} credits`); if(r.data.spend_warning) toast('Spend log error: ' + r.data.spend_warning, true); if(r.data.audit_warning) toast('Audit log error: ' + r.data.audit_warning, true); } else { toast('Failed: ' + (r.data.error||''), true); }
   loadUsers();
@@ -289,15 +292,18 @@ async function adjustCredits(uid, sign, idx) {
 
 async function setCredits(uid, idx) {
   const u = usersCache[idx];
-  const newAmount = parseInt(prompt(`Set credits for ${u.display_name||u.email||uid.slice(0,8)} to:`, u.credits));
-  if (isNaN(newAmount)) return;
+  const newAmountRaw = prompt(`Set credits for ${u.display_name||u.email||uid.slice(0,8)} to:`, u.credits);
+  if (newAmountRaw === null) return; // user clicked Cancel — no action, no message needed
+  const newAmount = parseInt(newAmountRaw);
+  if (isNaN(newAmount)) { toast(`"${newAmountRaw}" is not a valid number. Please try again and type a number.`, true); return; }
   const delta = newAmount - u.credits;
-  if (delta === 0) return;
+  if (delta === 0) { toast('No change — that is already the current credit amount.'); return; }
   const reason = prompt(`Reason for setting credits to ${newAmount}:`);
-  if (!reason) return;
+  if (reason === null) return; // user clicked Cancel — no action, no message needed
+  if (!reason.trim()) { toast('Reason is required. Please click Set again and type a reason.', true); return; }
   const r = await api('/api/admin/adjust_credits', {
     method: 'POST',
-    body: JSON.stringify({ uid, delta, reason })
+    body: JSON.stringify({ uid, delta, reason: reason.trim() })
   });
   if (r.ok) { toast(`Credits set to ${newAmount}`); if(r.data.spend_warning) toast('Spend log error: ' + r.data.spend_warning, true); if(r.data.audit_warning) toast('Audit log error: ' + r.data.audit_warning, true); } else { toast('Failed: ' + (r.data.error||''), true); }
   loadUsers();
