@@ -381,13 +381,21 @@ audio, video {
     box-sizing: border-box;
     justify-content: center;
 }
+/* #fileUploadLabel must actually stretch across the button before a
+   percentage max-width on the text span inside it means anything --
+   otherwise it shrinks to fit "Upload Media" and truncates that too */
+#step1UploadRow #fileUploadLabel {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: center;
+}
 #step1UploadRow #fileUploadText {
-    max-width: calc(100% - 30px);
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    display: inline-block;
-    vertical-align: middle;
 }
 
 /* Credits info box */
