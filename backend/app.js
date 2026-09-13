@@ -174,14 +174,14 @@ async function addTashkeel() {
     }
 }
 
-function stopPreview() {
+function stopRowPreview() {
     if (previewAudio) { try { previewAudio.pause(); } catch (e) {} previewAudio = null; }
     if (previewBtnCurrent) { previewBtnCurrent.textContent = "▶"; previewBtnCurrent = null; }
 }
 function previewRow(i, btn) {
     if (!currentJobId) { notify("error", "Transcribe or load a project first."); return; }
-    if (previewAudio && previewBtnCurrent === btn) { stopPreview(); return; }
-    stopPreview();
+    if (previewAudio && previewBtnCurrent === btn) { stopRowPreview(); return; }
+    stopRowPreview();
     const seg = segmentsData[i];
     let playStart = seg.start, playEnd = seg.end;
     if (!seg.locked && originalSegments.length > 0) {
@@ -197,10 +197,10 @@ function previewRow(i, btn) {
     }
     const a = new Audio(`/api/source/${currentJobId}`);
     previewAudio = a; previewBtnCurrent = btn; btn.textContent = "⏸";
-    const startPlaying = () => { try { a.currentTime = Math.max(0, playStart); } catch (e) {} a.play().catch(err => { notify("error", "Preview playback failed: " + err.message); stopPreview(); }); };
+    const startPlaying = () => { try { a.currentTime = Math.max(0, playStart); } catch (e) {} a.play().catch(err => { notify("error", "Preview playback failed: " + err.message); stopRowPreview(); }); };
     if (a.readyState >= 1) startPlaying(); else a.addEventListener("loadedmetadata", startPlaying, { once: true });
-    a.addEventListener("timeupdate", () => { if (a.currentTime >= playEnd) stopPreview(); });
-    a.addEventListener("error", () => { notify("error", "Preview unavailable: source audio not found."); stopPreview(); }, { once: true });
+    a.addEventListener("timeupdate", () => { if (a.currentTime >= playEnd) stopRowPreview(); });
+    a.addEventListener("error", () => { notify("error", "Preview unavailable: source audio not found."); stopRowPreview(); }, { once: true });
 }
 
 function secFromStamp(t) { const m = String(t).trim().match(/(\d+):(\d+):(\d+)[,.](\d+)/); if (!m) return 0; return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]) + parseInt(m[4]) / 1000; }
@@ -422,27 +422,6 @@ function renderTable() {
     tbody.innerHTML = "";
     segmentsData.forEach((seg, i) => tbody.appendChild(createRow(seg, i)));
     updateBadges();
-}
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    const mk = (tag) => document.createElement(tag);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; si.value = seg.end; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-    const eCell = mk("td"); const eS = mk("select"); EMOTIONS.forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.emotion === v); eS.appendChild(o); }); eS.onchange = () => { segmentsData[i].emotion = eS.value; updateBadges(); }; eCell.appendChild(eS); row.appendChild(eCell);
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only (current Arabic text, emotion & voice), then rebuild the mix"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line from Auto-Fix, Translate and Tashkeel"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
 }
 function toggleLock(i) {
     segmentsData[i].locked = !segmentsData[i].locked;
@@ -858,7 +837,7 @@ async function generateAudio() {
     } catch (e) { notify("error", e.message); document.getElementById("generateButton").disabled = false; }
 }
 async function checkGenerateProgress() {
-    const res = await fetch("/api/progress/generate");
+    const res = await fetch("/api/progress/generate?job_id=" + encodeURIComponent(currentJobId || ""));
     const data = await res.json();
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("genProgressFill");
@@ -957,56 +936,6 @@ function resetTimeline() {
     renderTimeline();
     notify("info", "Offsets reset.");
 }
-function renderTimeline() {
-    const wrap = document.getElementById("timelineWrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!segmentsData.length) return;
-    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
-    const W = wrap.clientWidth || 900;
-    const scale = W / total;
-    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    speakers.forEach(spk => {
-        const lane = document.createElement("div");
-        lane.style.cssText = "position:relative;height:34px;border-bottom:1px solid #37474f;";
-        const lab = document.createElement("span");
-        lab.textContent = spk;
-        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#90a4ae;font-size:11px;z-index:5;pointer-events:none;";
-        lane.appendChild(lab);
-        segmentsData.forEach((seg, i) => {
-            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            const box = document.createElement("div");
-            const left = Math.max(0, (seg.start + off) * scale);
-            const width = Math.max(8, (seg.end - seg.start) * scale);
-            box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;";
-            box.title = "Line " + (i + 1) + ": drag to shift";
-            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            box.onmousedown = function (ev) {
-                ev.preventDefault();
-                const startX = ev.clientX;
-                const startOff = off;
-                const move = function (e2) {
-                    let no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    no = Math.max(-seg.start, Math.min(total - seg.end, no));
-                    segmentOffsets[seg.segment_id] = no;
-                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
-                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
-                };
-                const up = function () {
-                    document.removeEventListener("mousemove", move);
-                    document.removeEventListener("mouseup", up);
-                    renderTimeline();
-                };
-                document.addEventListener("mousemove", move);
-                document.addEventListener("mouseup", up);
-            };
-            lane.appendChild(box);
-        });
-        wrap.appendChild(lane);
-    });
-}
 async function confirmTimeline() {
     const offs = {};
     Object.keys(segmentOffsets).forEach(k => { if (Math.abs(segmentOffsets[k]) > 0.001) offs[k] = segmentOffsets[k]; });
@@ -1075,27 +1004,6 @@ async function startTranscribe() {
     transcribePollTimer = setInterval(checkTranscribeProgress, 1000);
 }
 
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    const mk = (tag) => document.createElement(tag);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-    const eCell = mk("td"); const eS = mk("select"); EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.emotion === v); eS.appendChild(o); }); eS.onchange = () => { segmentsData[i].emotion = eS.value; updateBadges(); }; eCell.appendChild(eS); row.appendChild(eCell);
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only (current Arabic text, emotion & voice), then rebuild the mix"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line from Auto-Fix, Translate and Tashkeel"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
-}
 
 (function addNumberColumnAndStyleSuggestions() {
     const tr = document.querySelector("#segmentsTable thead tr");
@@ -1123,28 +1031,6 @@ function createRow(seg, i) {
     }
 })();
 
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    const mk = (tag) => document.createElement(tag);
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.textContent = i + 1; row.appendChild(numCell);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-    const eCell = mk("td"); const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.title = "Speaking style — combine tags if you want, e.g. 'confident and calm'"; eI.onchange = () => { segmentsData[i].emotion = (eI.value || "neutral").trim(); updateBadges(); }; eCell.appendChild(eI); row.appendChild(eCell);
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only (current Arabic text, style & voice), then rebuild the mix"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line from Auto-Fix, Translate and Tashkeel"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
-}
 
 async function checkEmotionProgress() {
     if (!currentJobId) return;
@@ -1201,34 +1087,6 @@ function sanitizeStyle(v) {
     return kept.join(", ");
 }
 
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    const mk = (tag) => document.createElement(tag);
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.textContent = i + 1; row.appendChild(numCell);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-    const eCell = mk("td"); const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags: confident, calm"; eI.title = "Speaking style — multiple tags from the list, comma separated"; eI.onchange = () => {
-        const clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official style list were removed. Style is now: '" + clean + "'.");
-        eI.value = clean;
-        segmentsData[i].emotion = clean;
-        updateBadges();
-    }; eCell.appendChild(eI); row.appendChild(eCell);
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only (current Arabic text, style & voice), then rebuild the mix"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line from Auto-Fix, Translate and Tashkeel"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
-}
 
 async function checkEmotionProgress() {
     if (!currentJobId) return;
@@ -1524,49 +1382,6 @@ async function restretchLine(seg) {
     }
 }
 
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    const mk = (tag) => document.createElement(tag);
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.textContent = i + 1; row.appendChild(numCell);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-
-    const eCell = mk("td");
-    const eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
-    const eS = mk("select");
-    const blank = mk("option"); blank.value = ""; blank.textContent = "＋ add…"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    eS.title = "Pick a style tag to add it (you can combine several)";
-    eS.onchange = () => {
-        if (!eS.value) return;
-        const merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
-        const clean = sanitizeStyle(merged) || "neutral";
-        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
-    };
-    const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags: confident, calm"; eI.title = "Speaking style — multiple tags from the list, comma separated"; eI.style.flex = "1"; eI.style.minWidth = "90px";
-    eI.onchange = () => {
-        const clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official style list were removed. Style is now: '" + clean + "'.");
-        eI.value = clean; seg.emotion = clean; updateBadges();
-    };
-    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
-
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only (current Arabic text, style & voice), then rebuild the mix"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line from Auto-Fix, Translate and Tashkeel"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
-}
 
 async function startTranscribe() {
     const file = document.getElementById("audioFile").files[0];
@@ -1655,7 +1470,7 @@ checkTranscribeProgress = async function() {
 
 const _origCheckGen = checkGenerateProgress;
 checkGenerateProgress = async function() {
-    const res = await fetch("/api/progress/generate");
+    const res = await fetch("/api/progress/generate?job_id=" + encodeURIComponent(currentJobId || ""));
     const data = await res.json();
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("genProgressFill");
@@ -1681,61 +1496,6 @@ checkGenerateProgress = async function() {
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
 };
 
-// --- Alternating row colors per speaker group ---
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    // Alternate background by speaker group
-    const prevSpeaker = i > 0 ? segmentsData[i - 1].speaker : null;
-    if (seg.speaker !== prevSpeaker) {
-        // Count how many speaker-group transitions before this index
-        let groupIdx = 0;
-        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j-1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-    } else {
-        // Same speaker as previous → inherit
-        let groupIdx = 0;
-        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j-1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-    }
-    const mk = (tag) => document.createElement(tag);
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.textContent = i + 1; row.appendChild(numCell);
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-    const eCell = mk("td");
-    const eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
-    const eS = mk("select");
-    const blank = mk("option"); blank.value = ""; blank.textContent = "＋ add…"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    eS.title = "Pick a style tag to add it (you can combine several)";
-    eS.onchange = () => {
-        if (!eS.value) return;
-        const merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
-        const clean = sanitizeStyle(merged) || "neutral";
-        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
-    };
-    const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags: confident, calm"; eI.title = "Speaking style — multiple tags from the list, comma separated"; eI.style.flex = "1"; eI.style.minWidth = "90px";
-    eI.onchange = () => {
-        const clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official style list were removed. Style is now: '" + clean + "'.");
-        eI.value = clean; seg.emotion = clean; updateBadges();
-    };
-    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio for this line"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak THIS line only"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked: Auto-Fix, Translate and Tashkeel skip this line" : "Lock this line"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-    return row;
-}
 
 // --- Fix clone analysis table population ---
 async function analyzeSpeakers() {
@@ -1769,92 +1529,6 @@ async function analyzeSpeakers() {
     notify("success", "Review the guidance. Speakers marked ❌ are unchecked automatically.");
 }
 
-// --- Timeline with ruler + overlap prevention ---
-function renderTimeline() {
-    const wrap = document.getElementById("timelineWrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!segmentsData.length) return;
-    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
-    const W = wrap.clientWidth || 900;
-    const scale = W / total;
-
-    // Time ruler
-    const ruler = document.createElement("div");
-    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
-    const step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
-    for (let t = 0; t <= total; t += step) {
-        const mark = document.createElement("div");
-        mark.style.cssText = `position:absolute;left:${t * scale}px;top:0;height:100%;border-left:1px solid #475569;`;
-        const label = document.createElement("span");
-        label.textContent = t + "s";
-        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
-        mark.appendChild(label);
-        ruler.appendChild(mark);
-    }
-    wrap.appendChild(ruler);
-
-    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    speakers.forEach((spk, li) => {
-        const lane = document.createElement("div");
-        lane.style.cssText = `position:relative;height:34px;border-bottom:1px solid #334155;background:${li % 2 === 0 ? "#1e293b" : "#1a2332"};`;
-        const lab = document.createElement("span");
-        lab.textContent = spk;
-        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
-        lane.appendChild(lab);
-        segmentsData.forEach((seg, i) => {
-            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            const box = document.createElement("div");
-            const left = Math.max(0, (seg.start + off) * scale);
-            const width = Math.max(8, (seg.end - seg.start) * scale);
-            box.style.cssText = `position:absolute;left:${left}px;top:4px;width:${width}px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;`;
-            box.title = "Line " + (i + 1) + ": drag to shift";
-            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            box.onmousedown = function (ev) {
-                ev.preventDefault();
-                const startX = ev.clientX;
-                const startOff = off;
-                // Find neighbors in same speaker lane for overlap prevention
-                const sameLane = segmentsData.filter((s, idx) => idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim());
-                const move = function (e2) {
-                    let no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    const newStart = seg.start + no;
-                    const newEnd = seg.end + no;
-                    // Clamp to timeline bounds
-                    if (newStart < 0) no = -seg.start;
-                    if (newEnd > total) no = total - seg.end;
-                    // Prevent overlap with neighbors
-                    for (const nb of sameLane) {
-                        const nbOff = segmentOffsets[nb.segment_id] || 0;
-                        const nbStart = nb.start + nbOff;
-                        const nbEnd = nb.end + nbOff;
-                        const testStart = seg.start + no;
-                        const testEnd = seg.end + no;
-                        if (testStart < nbEnd && testEnd > nbStart) {
-                            // Overlap detected — clamp
-                            if (no > startOff) { no = nbStart - seg.end; } // pushing right → stop at neighbor start
-                            else { no = nbEnd - seg.start; } // pushing left → stop at neighbor end
-                        }
-                    }
-                    segmentOffsets[seg.segment_id] = no;
-                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
-                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
-                };
-                const up = function () {
-                    document.removeEventListener("mousemove", move);
-                    document.removeEventListener("mouseup", up);
-                    renderTimeline();
-                };
-                document.addEventListener("mousemove", move);
-                document.addEventListener("mouseup", up);
-            };
-            lane.appendChild(box);
-        });
-        wrap.appendChild(lane);
-    });
-}
 
 // ===== FIXED: Progress text (no double bar) =====
 const _origCheckTranscribe2 = checkTranscribeProgress;
@@ -1886,7 +1560,7 @@ checkTranscribeProgress = async function() {
 
 const _origCheckGen2 = checkGenerateProgress;
 checkGenerateProgress = async function() {
-    const res = await fetch("/api/progress/generate");
+    const res = await fetch("/api/progress/generate?job_id=" + encodeURIComponent(currentJobId || ""));
     const data = await res.json();
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("genProgressFill");
@@ -1910,74 +1584,6 @@ checkGenerateProgress = async function() {
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
 };
 
-// ===== FIXED: Table row creation (no duplicate # column, aligned fields) =====
-function createRow(seg, i) {
-    const row = document.createElement("tr");
-    if (seg.locked) row.className = "locked";
-    // Alternating background by speaker group
-    if (!seg.locked) {
-        let groupIdx = 0;
-        for (let j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
-    }
-
-    const mk = (tag) => document.createElement(tag);
-
-    // # column
-    const numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
-
-    // Start
-    const startCell = mk("td"); const si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = () => { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
-
-    // End
-    const endCell = mk("td"); const ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = () => { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
-
-    // Speaker
-    const spCell = mk("td"); const spI = mk("input"); spI.type = "text"; spI.value = seg.speaker; spI.onchange = () => updateSpeakerName(i, spI.value); spCell.appendChild(spI); row.appendChild(spCell);
-
-    // Gender
-    const gCell = mk("td"); const gS = mk("select"); ["male", "female"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = () => { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
-
-    // Style / Emotion (dropdown + textbox)
-    const eCell = mk("td");
-    const eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
-    const eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
-    const blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(v => { const o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
-    eS.title = "Pick a style tag to add it";
-    eS.onchange = () => {
-        if (!eS.value) return;
-        const merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
-        const clean = sanitizeStyle(merged) || "neutral";
-        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
-    };
-    const eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.title = "Speaking style — multiple tags, comma separated"; eI.style.flex = "1"; eI.style.minWidth = "80px";
-    eI.onchange = () => {
-        const clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official list were removed. Style: '" + clean + "'.");
-        eI.value = clean; seg.emotion = clean; updateBadges();
-    };
-    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
-
-    // English
-    const enCell = mk("td"); const enT = mk("textarea"); enT.value = seg.text; enT.onchange = () => { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
-
-    // Arabic
-    const arCell = mk("td"); const arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = () => { segmentsData[i].arabic_text = arT.value; updateBadges(); }; arCell.appendChild(arT); row.appendChild(arCell);
-
-    // Actions
-    const aCell = mk("td");
-    const pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = () => previewRow(i, pb);
-    const rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = () => regenerateLine(i, rb);
-    const ib = mk("button"); ib.className = "action-btn"; ib.textContent = "Insert"; ib.onclick = () => insertSegmentAfter(i);
-    const db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = () => deleteSegment(i);
-    const lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = () => toggleLock(i);
-    aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    row.appendChild(aCell);
-
-    return row;
-}
 
 // ===== FIXED: Remove duplicate # column injection =====
 (function removeDuplicateNumCol() {
@@ -2022,86 +1628,6 @@ async function analyzeSpeakers() {
     notify("success", "Review the guidance below. Speakers marked ❌ are unchecked automatically.");
 }
 
-// ===== FIXED: Timeline with ruler + overlap prevention =====
-function renderTimeline() {
-    const wrap = document.getElementById("timelineWrap");
-    if (!wrap) return;
-    wrap.innerHTML = "";
-    if (!segmentsData.length) return;
-    const total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(s => s.end).concat([1]));
-    const W = wrap.clientWidth || 900;
-    const scale = W / total;
-
-    // Time ruler
-    const ruler = document.createElement("div");
-    ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
-    const step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
-    for (let t = 0; t <= total; t += step) {
-        const mark = document.createElement("div");
-        mark.style.cssText = `position:absolute;left:${t * scale}px;top:0;height:100%;border-left:1px solid #475569;`;
-        const label = document.createElement("span");
-        label.textContent = t + "s";
-        label.style.cssText = "position:absolute;left:3px;top:3px;color:#94a3b8;font-size:10px;white-space:nowrap;";
-        mark.appendChild(label);
-        ruler.appendChild(mark);
-    }
-    wrap.appendChild(ruler);
-
-    const speakers = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
-    speakers.forEach((spk, li) => {
-        const lane = document.createElement("div");
-        lane.style.cssText = `position:relative;height:34px;border-bottom:1px solid #334155;background:${li % 2 === 0 ? "#1e293b" : "#1a2332"};`;
-        const lab = document.createElement("span");
-        lab.textContent = spk;
-        lab.style.cssText = "position:absolute;left:4px;top:9px;color:#64748b;font-size:11px;z-index:5;pointer-events:none;";
-        lane.appendChild(lab);
-        segmentsData.forEach((seg, i) => {
-            if ((seg.speaker || "Speaker 1") !== spk || !(seg.arabic_text || "").trim()) return;
-            const off = segmentOffsets[seg.segment_id] || 0;
-            const box = document.createElement("div");
-            const left = Math.max(0, (seg.start + off) * scale);
-            const width = Math.max(8, (seg.end - seg.start) * scale);
-            box.style.cssText = `position:absolute;left:${left}px;top:4px;width:${width}px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;`;
-            box.title = "Line " + (i + 1) + ": drag to shift";
-            box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
-            box.onmousedown = function (ev) {
-                ev.preventDefault();
-                const startX = ev.clientX;
-                const startOff = off;
-                const sameLane = segmentsData.filter((s, idx) => idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim());
-                const move = function (e2) {
-                    let no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    if (seg.start + no < 0) no = -seg.start;
-                    if (seg.end + no > total) no = total - seg.end;
-                    for (const nb of sameLane) {
-                        const nbOff = segmentOffsets[nb.segment_id] || 0;
-                        const nbStart = nb.start + nbOff;
-                        const nbEnd = nb.end + nbOff;
-                        const testStart = seg.start + no;
-                        const testEnd = seg.end + no;
-                        if (testStart < nbEnd && testEnd > nbStart) {
-                            if (no > startOff) { no = nbStart - seg.end; }
-                            else { no = nbEnd - seg.start; }
-                        }
-                    }
-                    segmentOffsets[seg.segment_id] = no;
-                    box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
-                    box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
-                };
-                const up = function () {
-                    document.removeEventListener("mousemove", move);
-                    document.removeEventListener("mouseup", up);
-                    renderTimeline();
-                };
-                document.addEventListener("mousemove", move);
-                document.addEventListener("mouseup", up);
-            };
-            lane.appendChild(box);
-        });
-        wrap.appendChild(lane);
-    });
-}
 
 // ===== FIX: Step 4 speaker voices table population =====
 async function renderSpeakerVoices() {
@@ -2203,27 +1729,7 @@ async function autoAssignVoices() {
     }).catch(function() {});
 })();
 
-function doLogout() {
-    fetch("/api/logout", { method: "POST" }).then(function() {
-        // Also clear Supabase session if available
-        if (typeof window.supabase !== "undefined" && window.__SUPABASE_URL) {
-            try {
-                var sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || "");
-                sb.auth.signOut();
-            } catch(e) {}
-        }
-        window.location.href = "/login";
-    }).catch(function() {
-        window.location.href = "/login";
-    });
-}
 
-function refreshCredits() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
-        var credNum = document.getElementById("creditsNum");
-        if (credNum && !data.is_guest) credNum.textContent = data.credits;
-    }).catch(function() {});
-}
 
 
 
@@ -2257,8 +1763,17 @@ function onFileSelected(input) {
 
 function doLogout() {
     fetch("/api/logout", { method: "POST" }).then(function() {
+        // Also clear Supabase session if available
+        if (typeof window.supabase !== "undefined" && window.__SUPABASE_URL) {
+            try {
+                var sb = window.supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || "");
+                sb.auth.signOut();
+            } catch(e) {}
+        }
         window.location.href = "/login";
-    }).catch(function() { window.location.href = "/login"; });
+    }).catch(function() {
+        window.location.href = "/login";
+    });
 }
 
 function refreshCredits() {
@@ -2780,7 +2295,7 @@ checkTranscribeProgress = async function () {
 // ===== SAFE GENERATE PROGRESS OVERRIDE =====
 checkGenerateProgress = async function () {
     try {
-        var res = await fetch("/api/progress/generate?t=" + Date.now());
+        var res = await fetch("/api/progress/generate?t=" + Date.now() + "&job_id=" + encodeURIComponent(currentJobId || ""));
         var data = await res.json();
 
         if (!data || data.status === "not_found") return;
@@ -3582,7 +3097,7 @@ async function applyVolumes() {
     checkGenerateProgress = async function () {
         await orig();
         try {
-            var r = await fetch("/api/progress/generate?t=" + Date.now());
+            var r = await fetch("/api/progress/generate?t=" + Date.now() + "&job_id=" + encodeURIComponent(currentJobId || ""));
             var d = await r.json();
             if (d && d.status === "done" && d.result && Array.isArray(d.result.lines) && d.result.lines.length) {
                 var sig = currentJobId + ":" + d.result.lines.length;
@@ -4830,7 +4345,7 @@ window.cleanOldClones = function () {
         checkGenerateProgress = async function () {
             await _cg7.apply(this, arguments);
             try {
-                var r = await fetch("/api/progress/generate?t=" + Date.now());
+                var r = await fetch("/api/progress/generate?t=" + Date.now() + "&job_id=" + encodeURIComponent(currentJobId || ""));
                 var d = await r.json();
                 if (d && d.status === "done" && d.result && Array.isArray(d.result.lines)) {
                     window._lineDurations = window._lineDurations || {};

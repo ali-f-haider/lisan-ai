@@ -378,8 +378,13 @@ def generate_worker(req):
     global DEAD_SPACE_FLAGS
     OVERLAP_FLAGS = dict(getattr(req, 'overlap_allowed', None) or {})
     DEAD_SPACE_FLAGS = dict(getattr(req, 'dead_space_allowed', None) or {})
+    # Keyed by job_id (not a single shared "generate" slot) so concurrent
+    # generate jobs — two users, or two tabs — never clobber each other's
+    # progress/result. Must match the key main.py's /api/generate and
+    # /api/progress/generate use.
+    _pk = f"generate_{req.job_id}"
     try:
-        jobs_progress["generate"] = {"status": "processing", "percent": 0, "result": None, "error": None}
+        jobs_progress[_pk] = {"status": "processing", "percent": 0, "result": None, "error": None}
         total_segments = len(req.segments)
         if total_segments == 0:
             raise Exception("No segments found.")
@@ -486,11 +491,11 @@ def generate_worker(req):
             generated_files.append({"file": stretched_filename, "sid": seg.segment_id, "start": seg.start,
                                     "end": seg.end, "speaker": seg.speaker, "duration": stretched_duration,
                                     "tempo_warning": needs_warning})
-            jobs_progress["generate"]["percent"] = int(((i + 1) / total_segments) * 90)
+            jobs_progress[_pk]["percent"] = int(((i + 1) / total_segments) * 90)
         if not generated_files:
             raise Exception("No Arabic text found.")
         USER_GAINS[req.job_id] = {lm["segment_id"]: float(lm["auto_gain_db"]) for lm in lines_meta}
-        jobs_progress["generate"]["percent"] = 92
+        jobs_progress[_pk]["percent"] = 92
         generated_files.sort(key=lambda item: item["start"])
         max_segment_end = max(item["end"] for item in generated_files)
         max_played_end = max(item["start"] + item["duration"] for item in generated_files)
@@ -543,9 +548,9 @@ def generate_worker(req):
                   "segments_generated": len(adjusted_files), "tempo_warnings": warning_count,
                   "duration_cuts": cut_count, "final_duration": round(final_duration, 2),
                   "eleven_credits_used": bucket["eleven_chars"], "lines": lines_meta}
-        jobs_progress["generate"].update({"status": "done", "percent": 100, "result": result, "error": None})
+        jobs_progress[_pk].update({"status": "done", "percent": 100, "result": result, "error": None})
     except Exception as e:
-        jobs_progress["generate"] = {"status": "error", "percent": 0, "error": str(e), "result": None}
+        jobs_progress[_pk] = {"status": "error", "percent": 0, "error": str(e), "result": None}
 
 def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None, dead_space_flags=None):
     global OVERLAP_FLAGS

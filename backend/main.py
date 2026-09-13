@@ -567,7 +567,7 @@ def _watch_and_deduct(job_id, uid, kind):
                 st = j.get("status")
                 result = {}
             else:
-                g = jobs_progress.get("generate")
+                g = jobs_progress.get(f"generate_{job_id}")
                 if g is None:
                     return
                 st = g.get("status")
@@ -990,14 +990,18 @@ def generate(req: GenerateRequest, request: Request):
         return JSONResponse({"error": f"Insufficient credits ({bal} left). Generation costs 1 credit per ~60 characters. Use ➕ Buy."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
-    jobs_progress["generate"] = {"status": "processing", "percent": 0, "result": None, "error": None}
+    # Keyed by job_id (not a single shared "generate" slot) so two jobs
+    # running at the same time — two users, or two tabs — never overwrite
+    # each other's progress/result, and credits never get charged against
+    # the wrong job's character count.
+    jobs_progress[f"generate_{req.job_id}"] = {"status": "processing", "percent": 0, "result": None, "error": None}
     threading.Thread(target=eleven_service.generate_worker, args=(req,), daemon=True).start()
     _watch_and_deduct(req.job_id, uid, "generate")
     return {"status": "started"}
 
 @app.get("/api/progress/generate")
-def generate_progress():
-    return jobs_progress.get("generate", {"status": "not_found"})
+def generate_progress(job_id: str = ""):
+    return jobs_progress.get(f"generate_{job_id}", {"status": "not_found"})
 
 @app.post("/api/regenerate_line")
 def regenerate_line(req: RegenerateLineRequest):
