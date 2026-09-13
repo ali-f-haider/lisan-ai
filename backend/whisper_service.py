@@ -19,10 +19,34 @@ from ffmpeg_utils import (
 # (the "calm CPU but 3-4x slower" bug).
 torch.set_num_threads(4)
 
-# Loaded once at import. cpu_threads=2 so Whisper shares the CPU
-# peacefully with speaker detection running in parallel.
-model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE,
-                     compute_type=WHISPER_COMPUTE, cpu_threads=2)
+# Loaded lazily on first use, and released after each job, instead of
+# staying resident in RAM for the entire lifetime of the process --
+# large-v3 is a big model and most of the time nobody is transcribing.
+_model = None
+_model_lock = threading.Lock()
+
+
+def _get_model():
+    """Load the Whisper model on first use (thread-safe), and reuse it
+    for the rest of this job. cpu_threads=2 so Whisper shares the CPU
+    peacefully with speaker detection running in parallel."""
+    global _model
+    with _model_lock:
+        if _model is None:
+            _model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE,
+                                  compute_type=WHISPER_COMPUTE, cpu_threads=2)
+        return _model
+
+
+def _release_model():
+    """Drop the loaded Whisper model so its memory is freed once a job's
+    transcription step is done -- it isn't needed again until the next
+    job requests it via _get_model()."""
+    global _model
+    with _model_lock:
+        _model = None
+    import gc
+    gc.collect()
 
 
 def split_segment(segment, max_duration=15.0):
@@ -283,7 +307,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         # ...Whisper gets core #2 (cpu_threads=1 at model init)
         jobs_progress[job_id]["status_text"] = "Transcribing audio (speakers detected in background)..."
-        segments_gen, info = model.transcribe(
+        segments_gen, info = _get_model().transcribe(
             str(audio_path),
             beam_size=5,
             language="en",
@@ -295,9 +319,15 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         raw_segments = []
         span = 55 if diar_thread is not None else 75
-        for segment in segments_gen:
-            raw_segments.append(segment)
-            jobs_progress[job_id]["percent"] = min(15 + int((segment.end / total_duration) * span), 15 + span)
+        try:
+            for segment in segments_gen:
+                raw_segments.append(segment)
+                jobs_progress[job_id]["percent"] = min(15 + int((segment.end / total_duration) * span), 15 + span)
+        finally:
+            # Free the Whisper model's RAM now that decoding is done -- it's
+            # not needed again until the next job (speaker detection above
+            # runs on a separate pyannote pipeline, not this model).
+            _release_model()
 
         # ---------- Wait for speaker detection (max 5 min) with live timer ----------
         if diar_thread is not None:
