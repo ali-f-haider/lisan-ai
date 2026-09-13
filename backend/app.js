@@ -5364,14 +5364,23 @@ window.cleanOldClones = function () {
 (function () {
     if (window._timelineDubDurationV1) return; window._timelineDubDurationV1 = true;
 
+    // Nodes are kept and UPDATED in place (never blindly removed + recreated)
+    // whenever the numbers haven't actually changed. renderTimeline() gets
+    // re-invoked constantly for unrelated reasons (any DOM change anywhere
+    // on the page retriggers a 300ms watchdog that calls it again), and a
+    // blind remove-then-recreate every single time was itself a DOM mutation
+    // that retriggered that same watchdog — a self-feeding loop that showed
+    // up as the overlay blinking / briefly appearing doubled. Only touching
+    // the DOM when a value actually differs breaks that loop.
+    window._dubOverlayNodes = window._dubOverlayNodes || {};
     function drawDubDurationOverlay() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData || !segmentsData.length) return;
-        wrap.querySelectorAll(".dubDurFill, .dubDurOverflow").forEach(function (el) { el.remove(); });
         var total = (typeof totalDuration === "number" && totalDuration > 0) ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
         var scale = (wrap.clientWidth || 900) / total;
         var divs = wrap.querySelectorAll("div");
         var any = false;
+        var seen = {};
         for (var i = 0; i < divs.length; i++) {
             var b = divs[i];
             var st = b.getAttribute("style") || "";
@@ -5383,26 +5392,64 @@ window.cleanOldClones = function () {
             var dubDur = (window._lineDurations || {})[seg.segment_id] || 0;
             if (dubDur <= 0) continue;
             any = true;
+            seen[seg.segment_id] = true;
             var slot = Math.max(seg.end - seg.start, 0.01);
             var blockW = b.offsetWidth || Math.max(8, slot * scale);
             var fillW = Math.max(0, Math.min(dubDur, slot) / slot * blockW);
-            var fill = document.createElement("div");
-            fill.className = "dubDurFill";
-            fill.style.cssText = "position:absolute;left:0;top:0;bottom:0;width:" + fillW + "px;background:rgba(34,197,94,0.35);border-right:1px solid rgba(21,128,61,0.85);pointer-events:none;z-index:3;";
-            fill.title = "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
-            b.appendChild(fill);
+
+            var nodes = window._dubOverlayNodes[seg.segment_id];
+            if (nodes && (!nodes.fill.isConnected || nodes.fill.parentNode !== b)) {
+                try { nodes.fill.remove(); } catch (e) {}
+                try { if (nodes.ov) nodes.ov.remove(); } catch (e) {}
+                nodes = null;
+            }
+            var fill = nodes && nodes.fill;
+            if (!fill) {
+                fill = document.createElement("div");
+                fill.className = "dubDurFill";
+                fill.style.cssText = "position:absolute;left:0;top:0;bottom:0;pointer-events:none;z-index:3;background:rgba(34,197,94,0.35);border-right:1px solid rgba(21,128,61,0.85);";
+                b.appendChild(fill);
+            }
+            var fillWStr = fillW + "px";
+            if (fill.style.width !== fillWStr) fill.style.width = fillWStr;
+            var fillTitle = "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
+            if (fill.title !== fillTitle) fill.title = fillTitle;
+
             var overflowPx = Math.max(0, (dubDur - slot) * scale);
+            var ov = nodes && nodes.ov;
             if (overflowPx > 1) {
                 var lane = b.parentElement;
                 if (lane) {
-                    var ov = document.createElement("div");
-                    ov.className = "dubDurOverflow";
-                    ov.style.cssText = "position:absolute;top:" + b.offsetTop + "px;height:" + b.offsetHeight + "px;left:" + (b.offsetLeft + blockW) + "px;width:" + overflowPx + "px;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:0 4px 4px 0;pointer-events:none;z-index:3;";
-                    ov.title = "Arabic audio runs " + (dubDur - slot).toFixed(2) + "s past its slot (" + dubDur.toFixed(2) + "s total)";
-                    lane.appendChild(ov);
+                    if (!ov || ov.parentNode !== lane) {
+                        if (ov) { try { ov.remove(); } catch (e) {} }
+                        ov = document.createElement("div");
+                        ov.className = "dubDurOverflow";
+                        ov.style.cssText = "position:absolute;pointer-events:none;z-index:3;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:0 4px 4px 0;";
+                        lane.appendChild(ov);
+                    }
+                    var topStr = b.offsetTop + "px", hStr = b.offsetHeight + "px", leftStr = (b.offsetLeft + blockW) + "px", wStr2 = overflowPx + "px";
+                    if (ov.style.top !== topStr) ov.style.top = topStr;
+                    if (ov.style.height !== hStr) ov.style.height = hStr;
+                    if (ov.style.left !== leftStr) ov.style.left = leftStr;
+                    if (ov.style.width !== wStr2) ov.style.width = wStr2;
+                    var ovTitle = "Arabic audio runs " + (dubDur - slot).toFixed(2) + "s past its slot (" + dubDur.toFixed(2) + "s total)";
+                    if (ov.title !== ovTitle) ov.title = ovTitle;
                 }
+            } else if (ov) {
+                try { ov.remove(); } catch (e) {}
+                ov = null;
             }
+            window._dubOverlayNodes[seg.segment_id] = { fill: fill, ov: ov };
         }
+        // Drop overlay nodes for segments that no longer qualify (deleted,
+        // no longer generated, etc.) so they don't linger.
+        Object.keys(window._dubOverlayNodes).forEach(function (sid) {
+            if (seen[sid]) return;
+            var n = window._dubOverlayNodes[sid];
+            try { if (n.fill) n.fill.remove(); } catch (e) {}
+            try { if (n.ov) n.ov.remove(); } catch (e) {}
+            delete window._dubOverlayNodes[sid];
+        });
         if (any && !document.getElementById("timelineLegendDub")) {
             var leg = document.createElement("div");
             leg.id = "timelineLegendDub";
