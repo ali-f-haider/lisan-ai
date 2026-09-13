@@ -1457,6 +1457,17 @@ async function regenerateLine(i, btn) {
         const usd = lineCostUsd(seg.arabic_text, seg.emotion);
         const cr = Math.max(1, usdToCredits(usd));
         notify("success", `Line ${i + 1} re-spoken: ${data.stretched_duration}s into a ${data.target}s window. Cost ≈ ${cr} credits ($${usd.toFixed(4)}). Final mix rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
+        // Keep the timeline's Arabic-audio-duration overlay in sync: a bulk
+        // Generate refreshes window._lineDurations via checkGenerateProgress,
+        // but re-speaking a single line here never did, so the overlay kept
+        // showing the stale (or no) duration after changing this line's Time
+        // Stretch setting and re-speaking it. Update it here and force a
+        // redraw so the change is visible immediately.
+        if (data.stretched_duration) {
+            window._lineDurations = window._lineDurations || {};
+            window._lineDurations[seg.segment_id] = data.stretched_duration;
+        }
+        if (typeof renderTimeline === "function") renderTimeline();
         const au = document.querySelector("#audioResults audio");
         if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         fetchUsage();
@@ -5377,7 +5388,7 @@ window.cleanOldClones = function () {
             var fillW = Math.max(0, Math.min(dubDur, slot) / slot * blockW);
             var fill = document.createElement("div");
             fill.className = "dubDurFill";
-            fill.style.cssText = "position:absolute;left:0;top:0;bottom:0;width:" + fillW + "px;background:rgba(255,255,255,0.32);border-right:1px solid rgba(255,255,255,0.65);pointer-events:none;z-index:3;";
+            fill.style.cssText = "position:absolute;left:0;top:0;bottom:0;width:" + fillW + "px;background:rgba(34,197,94,0.35);border-right:1px solid rgba(21,128,61,0.85);pointer-events:none;z-index:3;";
             fill.title = "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
             b.appendChild(fill);
             var overflowPx = Math.max(0, (dubDur - slot) * scale);
@@ -5386,7 +5397,7 @@ window.cleanOldClones = function () {
                 if (lane) {
                     var ov = document.createElement("div");
                     ov.className = "dubDurOverflow";
-                    ov.style.cssText = "position:absolute;top:" + b.offsetTop + "px;height:" + b.offsetHeight + "px;left:" + (b.offsetLeft + blockW) + "px;width:" + overflowPx + "px;background:rgba(34,211,238,0.5);border:1px dashed #0891b2;border-radius:0 4px 4px 0;pointer-events:none;z-index:3;";
+                    ov.style.cssText = "position:absolute;top:" + b.offsetTop + "px;height:" + b.offsetHeight + "px;left:" + (b.offsetLeft + blockW) + "px;width:" + overflowPx + "px;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:0 4px 4px 0;pointer-events:none;z-index:3;";
                     ov.title = "Arabic audio runs " + (dubDur - slot).toFixed(2) + "s past its slot (" + dubDur.toFixed(2) + "s total)";
                     lane.appendChild(ov);
                 }
@@ -5396,11 +5407,39 @@ window.cleanOldClones = function () {
             var leg = document.createElement("div");
             leg.id = "timelineLegendDub";
             leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:4px;font-size:11px;color:#64748b;";
-            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:16px;height:12px;background:linear-gradient(90deg, rgba(226,232,240,0.9) 0 60%, #42a5f5 60% 100%);border:1px solid #94a3b8;border-radius:3px;display:inline-block;"></span>Arabic audio length (within slot)</span>'
-                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#22d3ee;border:1px dashed #0891b2;border-radius:3px;display:inline-block;"></span>Arabic audio runs past its slot</span>';
+            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:16px;height:12px;background:linear-gradient(90deg, rgba(34,197,94,0.55) 0 60%, rgba(34,197,94,0.15) 60% 100%);border:1px solid #15803d;border-radius:3px;display:inline-block;"></span>Arabic audio length (within slot)</span>'
+                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:3px;display:inline-block;"></span>Arabic audio runs past its slot</span>';
             var after = document.getElementById("timelineLegendFinal") || wrap;
             if (after && after.parentNode) after.parentNode.insertBefore(leg, after.nextSibling);
         }
+    }
+
+    // Live drag-sync: the block's own left/width update instantly during a
+    // drag (mousemove writes box.style.left directly, without a full
+    // renderTimeline() call). .dubDurFill is a CHILD of the block, so it
+    // already tracks for free. .dubDurOverflow is a SIBLING positioned via
+    // one-time-computed offsetLeft, so without this it only catches up on
+    // mouseup. This watches each block's style attribute and redraws the
+    // overlay on every animation frame while a drag is in progress — the
+    // same pattern already used above for the fade-overlay hooks (hook8/
+    // hook9 + sched8/sched9). drawDubDurationOverlay() never writes to a
+    // block's own style, so there's no feedback-loop risk.
+    var pendDub = false;
+    function scheduleDubDraw() {
+        if (pendDub) return;
+        pendDub = true;
+        requestAnimationFrame(function () { pendDub = false; drawDubDurationOverlay(); });
+    }
+    function hookDubBlocks() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || typeof MutationObserver === "undefined") return;
+        wrap.querySelectorAll("div").forEach(function (b) {
+            var st = b.getAttribute("style") || "";
+            if (st.indexOf("cursor") > -1 && st.indexOf("grab") > -1 && !b.dataset.hookDub) {
+                b.dataset.hookDub = "1";
+                new MutationObserver(scheduleDubDraw).observe(b, { attributes: true, attributeFilter: ["style"] });
+            }
+        });
     }
 
     if (typeof renderTimeline === "function") {
@@ -5408,6 +5447,7 @@ window.cleanOldClones = function () {
         renderTimeline = function () {
             var r = _rtDub.apply(this, arguments);
             drawDubDurationOverlay();
+            hookDubBlocks();
             return r;
         };
     }
