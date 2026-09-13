@@ -88,7 +88,7 @@ class VoiceLibrarySearchRequest(BaseModel):
     category: str = ""
     high_quality: bool = False
     search: str = ""
-    voice_type: str = "community"
+    voice_type: str = ""
     page_size: int = 6
     page_token: str = ""
 
@@ -960,7 +960,7 @@ def voice_library_search(req: VoiceLibrarySearchRequest):
         category=req.category or None,
         high_quality=req.high_quality or None,
         search=req.search or None,
-        voice_type=req.voice_type or "community",
+        voice_type=req.voice_type or None,
         page_size=req.page_size or 6,
         next_page_token=req.page_token or None,
     )

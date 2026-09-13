@@ -2419,7 +2419,6 @@ async function searchVoiceLibrary(pageToken) {
             body: JSON.stringify({
                 language: ["ar"],
                 high_quality: true,
-                voice_type: "community",
                 page_size: 6,
                 page_token: pageToken || ""
             })
