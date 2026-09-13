@@ -1425,7 +1425,10 @@ async def admin_adjust_credits(request: Request):
     return resp
 
 def _log_spend(uid, action, credits, job_id=None, reason=None):
-    """Helper: insert into credit_spends."""
+    """Helper: insert into credit_spends. Returns True on success, or the
+    error string on failure (previously this always returned None either
+    way, which made the admin UI's 'Spend log error: None' warning show up
+    on every adjustment regardless of whether it actually failed)."""
     import urllib.request as _ur
     body = json.dumps({
         "uid": uid, "action": action, "credits": credits,
@@ -1437,11 +1440,16 @@ def _log_spend(uid, action, credits, job_id=None, reason=None):
     try:
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=5) as r: pass
+        return True
     except Exception as ex:
         print(f"[admin] log_spend error: {ex}")
+        return str(ex)
 
 def _log_audit(target_uid, delta, reason):
-    """Helper: insert into credit_audit."""
+    """Helper: insert into credit_audit. Returns True on success, or the
+    error string on failure (same missing-return bug as _log_spend above —
+    this previously always returned None, masking real insert failures such
+    as the credit_audit table not existing in Supabase)."""
     import urllib.request as _ur
     body = json.dumps({
         "admin": "admin", "target_uid": target_uid, "delta": delta,
@@ -1453,8 +1461,10 @@ def _log_audit(target_uid, delta, reason):
     try:
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=5) as r: pass
+        return True
     except Exception as ex:
         print(f"[admin] log_audit error: {ex}")
+        return str(ex)
 
 @app.get("/api/admin/pricing")
 def admin_get_pricing(request: Request):
