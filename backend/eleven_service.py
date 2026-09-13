@@ -68,7 +68,10 @@ def fetch_voices(api_key: str) -> dict:
         for voice in data.get("voices", []):
             labels = voice.get("labels") or {}
             voices.append({"voice_id": voice.get("voice_id"), "name": voice.get("name", "Unnamed"),
-                           "gender": labels.get("gender", ""), "category": voice.get("category", "")})
+                           "gender": labels.get("gender", ""), "category": voice.get("category", ""),
+                           "preview_url": voice.get("preview_url", ""),
+                           "accent": labels.get("accent", ""), "age": labels.get("age", ""),
+                           "use_case": labels.get("use_case", "")})
         return {"voices": voices}
     except urllib.error.HTTPError as e:
         try:

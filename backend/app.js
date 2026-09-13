@@ -2389,8 +2389,13 @@ async function autoAssignVoices() {
     notify("success", "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
 }
 
-// ===== VOICE LIBRARY BROWSER (browse ready-made Arabic studio voices, 6 at a time) =====
-var vlNextToken = null;
+// ===== VOICE LIBRARY BROWSER (preview the SAME voices offered in the Step 4 =====
+// dropdown below — this used to search ElevenLabs' external shared-voice
+// marketplace with its own filters, which is a different, much smaller pool
+// than the account voices the dropdown lists. Now both read from the same
+// ensureVoicePools()/availableVoices data (from /api/voices), so the two
+// lists can never drift apart again.
+var vlPage = 0;
 
 function toggleVoiceLibraryBrowser() {
     var el = document.getElementById("voiceLibraryBrowser");
@@ -2398,14 +2403,14 @@ function toggleVoiceLibraryBrowser() {
     var wasHidden = el.classList.contains("hidden");
     el.classList.toggle("hidden");
     if (wasHidden) {
-        vlNextToken = null;
-        searchVoiceLibrary(null);
+        vlPage = 0;
+        searchVoiceLibrary(0);
     } else {
         stopPreview();
     }
 }
 
-async function searchVoiceLibrary(pageToken) {
+async function searchVoiceLibrary(page) {
     var box = document.getElementById("vlResults");
     var pager = document.getElementById("vlPager");
     if (!box) return;
@@ -2413,37 +2418,30 @@ async function searchVoiceLibrary(pageToken) {
     box.innerHTML = "<p class='note'>Loading voices...</p>";
     if (pager) pager.innerHTML = "";
     try {
-        var res = await fetch("/api/voice_library/search", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                language: ["ar"],
-                high_quality: true,
-                page_size: 6,
-                page_token: pageToken || ""
-            })
-        });
-        var data = await res.json();
-        if (data.error) { box.innerHTML = "<p class='note'>Could not load voices right now. Please try again.</p>"; return; }
-        var voices = data.voices || [];
-        if (!voices.length) { box.innerHTML = "<p class='note'>No voices found.</p>"; return; }
+        var ok = await ensureVoicePools();
+        if (!ok || !availableVoices.length) { box.innerHTML = "<p class='note'>Could not load voices right now. Please try again.</p>"; return; }
+        vlPage = page || 0;
+        var pageSize = 6;
+        var start = vlPage * pageSize;
+        var pageVoices = availableVoices.slice(start, start + pageSize);
+        if (!pageVoices.length) { box.innerHTML = "<p class='note'>No voices found.</p>"; return; }
         var html = "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'>";
-        var counts = { male: 0, female: 0 };
-        voices.forEach(function (v) {
-            var lab = v.labels || {};
-            var g = (lab.gender || "").toLowerCase() === "female" ? "female" : "male";
-            counts[g]++;
-            var label = (g === "female" ? "Female" : "Male") + " voice " + counts[g];
-            var desc = [lab.age, lab.use_case].filter(Boolean).join(", ");
+        pageVoices.forEach(function (v) {
+            var g = (v.gender || "").toLowerCase() === "female" ? "Female" : "Male";
+            var desc = [v.category, v.accent, v.age, v.use_case].filter(Boolean).join(", ");
             html += "<div style='display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;text-align:center;'>"
                 + "<button type='button' class='btn-sm' onclick='playPreview(" + JSON.stringify(v.preview_url || "") + ", this)'" + (v.preview_url ? "" : " disabled") + " style='min-width:40px;'>▶</button>"
-                + "<div><strong>" + label + "</strong>" + (desc ? "<br><span class='note' style='font-size:11px;'>" + desc + "</span>" : "") + "</div>"
+                + "<div><strong>" + (v.name || "Voice") + "</strong><br><span class='note' style='font-size:11px;'>" + g + (desc ? " · " + desc : "") + "</span></div>"
                 + "</div>";
         });
         html += "</div>";
         box.innerHTML = html;
-        vlNextToken = data.next_page_token || null;
-        if (pager) pager.innerHTML = vlNextToken ? "<a href='javascript:void(0)' onclick='searchVoiceLibrary(" + JSON.stringify(vlNextToken) + ")'>Next 6 →</a>" : "";
+        var hasPrev = vlPage > 0;
+        var hasNext = start + pageSize < availableVoices.length;
+        var nav = "";
+        if (hasPrev) nav += "<a href='javascript:void(0)' onclick='searchVoiceLibrary(" + (vlPage - 1) + ")'>← Prev 6</a>&nbsp;&nbsp;";
+        if (hasNext) nav += "<a href='javascript:void(0)' onclick='searchVoiceLibrary(" + (vlPage + 1) + ")'>Next 6 →</a>";
+        if (pager) pager.innerHTML = nav;
     } catch (e) { box.innerHTML = "<p class='note'>Could not load voices right now. Please try again.</p>"; }
 }
 
