@@ -2336,6 +2336,71 @@ async function autoAssignVoices() {
     notify("success", "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
 }
 
+// ===== VOICE LIBRARY BROWSER (search ElevenLabs' full library, not just My Voices) =====
+function toggleVoiceLibraryBrowser() {
+    var el = document.getElementById("voiceLibraryBrowser");
+    if (el) el.classList.toggle("hidden");
+}
+
+async function searchVoiceLibrary() {
+    var box = document.getElementById("vlResults");
+    if (!box) return;
+    box.innerHTML = "<p class='note'>Searching...</p>";
+    var lang = document.getElementById("vlLanguage").value;
+    var accent = document.getElementById("vlAccent").value.trim();
+    var gender = document.getElementById("vlGender").value;
+    var studioOnly = document.getElementById("vlStudioOnly").checked;
+    var searchText = document.getElementById("vlSearchText").value.trim();
+    try {
+        var res = await fetch("/api/voice_library/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                language: lang ? [lang] : [],
+                accent: accent,
+                gender: gender,
+                high_quality: studioOnly,
+                search: searchText,
+                voice_type: "community",
+                page_size: 30
+            })
+        });
+        var data = await res.json();
+        if (data.error) { box.innerHTML = "<p style='color:#dc2626'>" + friendly(data.error) + "</p>"; return; }
+        var voices = data.voices || [];
+        if (!voices.length) { box.innerHTML = "<p class='note'>No voices found. Try different filters.</p>"; return; }
+        var html = "";
+        voices.forEach(function (v) {
+            var lab = v.labels || {};
+            var meta = [lab.gender, lab.age, lab.accent, lab.language].filter(Boolean).join(", ");
+            if (v.recording_quality === "studio") meta += (meta ? ", " : "") + "studio";
+            html += "<div style='display:flex;align-items:center;gap:10px;padding:8px;border-bottom:1px solid #e5e7eb;flex-wrap:wrap;'>"
+                + "<div style='flex:1;min-width:160px;'><strong>" + (v.name || "Unnamed") + "</strong><br><span class='note'>" + meta + "</span></div>"
+                + (v.preview_url ? "<audio controls src='" + v.preview_url + "' style='height:32px;'></audio>" : "")
+                + "<button class='blue' onclick='addLibraryVoice(" + JSON.stringify(v.voice_id) + "," + JSON.stringify(v.public_owner_id || "") + "," + JSON.stringify(v.name || "Voice") + ")'>➕ Add to My Voices</button>"
+                + "</div>";
+        });
+        box.innerHTML = html;
+    } catch (e) { box.innerHTML = "<p style='color:#dc2626'>" + e.message + "</p>"; }
+}
+
+async function addLibraryVoice(voice_id, public_owner_id, name) {
+    if (!public_owner_id) { notify("error", "This voice is missing an owner id and can't be added automatically. Try adding it from the ElevenLabs website instead."); return; }
+    try {
+        var res = await fetch("/api/voice_library/add", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ public_owner_id: public_owner_id, voice_id: voice_id, new_name: name })
+        });
+        var data = await res.json();
+        if (data.error) { notify("error", data.error); return; }
+        notify("success", "Added \"" + name + "\" to your voices. Check your ElevenLabs subscription page to confirm this didn't use your voice add/edit quota.");
+        voicePools = { male: [], female: [] };
+        await ensureVoicePools();
+        renderSpeakerVoices();
+    } catch (e) { notify("error", e.message); }
+}
+
 // ===== TIMELINE WITH RULER + OVERLAP PREVENTION =====
 function renderTimeline() {
     var wrap = document.getElementById("timelineWrap");

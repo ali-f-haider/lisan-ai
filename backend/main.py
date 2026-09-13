@@ -80,6 +80,22 @@ class CloneRequest(BaseModel):
     segments: List[Segment]
     speakers_to_clone: List[str] = []
 
+class VoiceLibrarySearchRequest(BaseModel):
+    language: List[str] = []
+    accent: str = ""
+    gender: str = ""
+    age: str = ""
+    category: str = ""
+    high_quality: bool = False
+    search: str = ""
+    voice_type: str = "community"
+    page_size: int = 30
+
+class VoiceLibraryAddRequest(BaseModel):
+    public_owner_id: str
+    voice_id: str
+    new_name: str = "Voice"
+
 class TranslateRequest(BaseModel):
     job_id: str = ""
     segments: List[Segment]
@@ -922,6 +938,32 @@ def source(job_id: str):
 @app.post("/api/voices")
 def voices(payload: dict = {}):
     return eleven_service.fetch_voices(ELEVENLABS_API_KEY)
+
+@app.post("/api/voice_library/search")
+def voice_library_search(req: VoiceLibrarySearchRequest):
+    """Search ElevenLabs' full Voice Library (not just your own account) —
+    filterable by language, accent, gender, age, and studio/professional
+    quality. Pure search: never adds anything to your account, never touches
+    your voice add/edit quota."""
+    return eleven_service.search_voice_library(
+        ELEVENLABS_API_KEY,
+        language=req.language or None,
+        accent=req.accent or None,
+        gender=req.gender or None,
+        age=req.age or None,
+        category=req.category or None,
+        high_quality=req.high_quality or None,
+        search=req.search or None,
+        voice_type=req.voice_type or "community",
+        page_size=req.page_size or 30,
+    )
+
+@app.post("/api/voice_library/add")
+def voice_library_add(req: VoiceLibraryAddRequest):
+    """One-time import of a Voice Library voice into your account. Whether this
+    counts against your monthly voice add/edit quota is not documented by
+    ElevenLabs — check your subscription page's counter after your first use."""
+    return eleven_service.add_shared_voice(ELEVENLABS_API_KEY, req.public_owner_id, req.voice_id, req.new_name)
 
 @app.post("/api/analyze_speakers")
 def analyze_speakers(req: AnalyzeRequest):

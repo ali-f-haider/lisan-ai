@@ -2,6 +2,7 @@ import json
 import base64
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 import urllib3
 from elevenlabs.client import ElevenLabs
@@ -77,6 +78,102 @@ def fetch_voices(api_key: str) -> dict:
         return {"error": f"ElevenLabs API error {e.code}: {error_body}"}
     except Exception as e:
         return {"error": str(e)}
+
+
+def search_voice_library(api_key: str, language=None, accent=None, gender=None, age=None,
+                          category=None, high_quality=None, search=None,
+                          voice_type="community", page_size=30) -> dict:
+    """Search ElevenLabs' full Voice Library (GET /v2/voices) — separate from
+    fetch_voices() above, which only lists voices already in your own account
+    (GET /v1/voices). This searches ALL of ElevenLabs' shared/community voices,
+    filterable by language, accent, gender, age, and category (pass
+    category="professional" or high_quality=True for studio-grade voices only).
+    Browsing/searching here never adds anything to your account and never
+    touches your voice add/edit quota — only add_shared_voice() below does that."""
+    try:
+        params = {"page_size": str(min(int(page_size or 30), 100))}
+        if voice_type:
+            params["voice_type"] = voice_type
+        if category:
+            params["category"] = category
+        if gender:
+            params["gender"] = gender
+        if age:
+            params["age"] = age
+        if accent:
+            params["accent"] = accent
+        if search:
+            params["search"] = search
+        if high_quality:
+            params["high_quality"] = "true"
+        qs = urllib.parse.urlencode(params)
+        if language:
+            langs = language if isinstance(language, (list, tuple)) else [language]
+            qs += "".join(f"&language={urllib.parse.quote(str(l))}" for l in langs if l)
+        url = f"https://api.elevenlabs.io/v2/voices?{qs}"
+        request = urllib.request.Request(url, headers={"xi-api-key": api_key})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.load(response)
+        voices = []
+        for voice in data.get("voices", []):
+            labels = voice.get("labels") or {}
+            sharing = voice.get("sharing") or {}
+            voices.append({
+                "voice_id": voice.get("voice_id"),
+                "name": voice.get("name", "Unnamed"),
+                "category": voice.get("category", ""),
+                "recording_quality": voice.get("recording_quality", ""),
+                "labels": {
+                    "gender": labels.get("gender", ""),
+                    "accent": labels.get("accent", ""),
+                    "language": labels.get("language", ""),
+                    "age": labels.get("age", ""),
+                    "use_case": labels.get("use_case", ""),
+                },
+                "preview_url": voice.get("preview_url", ""),
+                "public_owner_id": sharing.get("public_owner_id", ""),
+                "is_owner": voice.get("is_owner", False),
+            })
+        return {"voices": voices, "has_more": data.get("has_more", False)}
+    except urllib.error.HTTPError as e:
+        try:
+            error_body = e.read().decode(errors="ignore")
+        except Exception:
+            error_body = str(e)
+        return {"error": f"ElevenLabs API error {e.code}: {error_body}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def add_shared_voice(api_key: str, public_owner_id: str, voice_id: str, new_name: str) -> dict:
+    """Import one Voice Library voice found via search_voice_library() into your
+    own ElevenLabs account (POST /v1/voices/add/{public_owner_id}/{voice_id}).
+    This is a ONE-TIME action per voice you choose to keep — after this succeeds,
+    the voice behaves exactly like any other account voice and shows up via
+    fetch_voices() / your app's normal Step 4 voice pools from then on, with no
+    need to add it again. NOTE: ElevenLabs' own docs do not state whether this
+    counts against your monthly voice add/edit quota (the same 290/month limit
+    cloning uses) — check your ElevenLabs subscription page's counter before and
+    after your first real add here to confirm."""
+    try:
+        if not public_owner_id or not voice_id:
+            return {"error": "This voice is missing an owner id and can't be added automatically — try adding it from the ElevenLabs website instead."}
+        url = f"https://api.elevenlabs.io/v1/voices/add/{public_owner_id}/{voice_id}"
+        body = json.dumps({"new_name": new_name or "Voice"}).encode("utf-8")
+        request = urllib.request.Request(url, data=body, method="POST",
+                                          headers={"xi-api-key": api_key, "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.load(response)
+        return {"voice_id": data.get("voice_id"), "status": "success"}
+    except urllib.error.HTTPError as e:
+        try:
+            error_body = e.read().decode(errors="ignore")
+        except Exception:
+            error_body = str(e)
+        return {"error": f"ElevenLabs API error {e.code}: {error_body}"}
+    except Exception as e:
+        return {"error": str(e)}
+
 
 def record_gemini(job_id, data):
     if not isinstance(data, dict):
