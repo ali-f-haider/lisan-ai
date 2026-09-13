@@ -346,133 +346,62 @@ SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
-def get_packs_from_db():
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return None
-    try:
-        req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/pricing_config?select=packs&limit=1",
-            headers={"apikey": SUPABASE_SERVICE_KEY})
-        with urllib.request.urlopen(req, timeout=5) as r:
-            rows = json.load(r)
-        if not rows:
-            return None
-        packs = rows[0].get("packs")
-        items = []
-        if isinstance(packs, dict):
-            items = list(packs.items())
-        elif isinstance(packs, list):
-            for v in packs:
-                if isinstance(v, dict):
-                    k = v.get("key") or v.get("id") or v.get("name") or v.get("pack")
-                    if k:
-                        items.append((k, v))
-        out = {}
-        for k, v in items:
-            if not isinstance(v, dict):
-                continue
-            amt = None
-            for n in ("amount_usd", "amountUsd", "price_usd", "price", "usd"):
-                if v.get(n) not in (None, ""):
-                    amt = v.get(n); break
-            if amt in (None, "") and v.get("amount_cents") not in (None, ""):
-                amt = float(v["amount_cents"]) / 100.0
-            cr = None
-            for n in ("credits", "credit", "credit_count"):
-                if v.get(n) not in (None, ""):
-                    cr = v.get(n); break
-            try:
-                amt = float(amt); cr = int(cr)
-            except (TypeError, ValueError):
-                continue
-            if amt > 0 and cr > 0:
-                out[str(k).lower()] = {"amount_usd": round(amt, 2), "credits": cr}
-        print(f"[pricing] packs read from DB: {out}")
-        return out or None
-    except Exception as e:
-        print(f"[pricing] DB fetch failed: {e}")
-        return None
+# ---- Credit packs: ONE default list + ONE keying helper, shared by every ----
+# endpoint that returns packs (get_packs() for checkout, billing_packs_dynamic()
+# for the landing page / buy modal, and _get_pricing_config()'s defaults).
+# Each pack carries its own explicit "key" (e.g. "starter") set by admin.html —
+# that key is what the public site and Stripe checkout use to identify the
+# pack. Older packs saved before this field existed have no "key" yet; for
+# those only, _pack_dict_key() derives one from the name the same way the
+# old code always did, so nothing on the live site changes until you re-save
+# that pack in admin (at which point its real key gets stored permanently).
+DEFAULT_PACKS = [
+    {"key": "starter",  "name": "Starter",  "credits": 1500,  "price_usd": 15.0,  "bonus_pct": 0,  "stripe_link": ""},
+    {"key": "standard", "name": "Standard", "credits": 4000,  "price_usd": 35.0,  "bonus_pct": 14, "stripe_link": ""},
+    {"key": "pro",      "name": "Pro",      "credits": 10000, "price_usd": 75.0,  "bonus_pct": 33, "stripe_link": ""},
+    {"key": "business", "name": "Studio",   "credits": 25000, "price_usd": 150.0, "bonus_pct": 66, "stripe_link": ""},
+]
 
+def _pack_dict_key(p):
+    """The dict key a pack shows up under publicly. Prefers the pack's own
+    explicit 'key' field; only derives one from the name (old behavior) when
+    a pack was saved before 'key' existed."""
+    explicit = str(p.get("key") or "").strip().lower()
+    if explicit:
+        return explicit
+    name = (p.get("name") or "").strip()
+    if not name:
+        return ""
+    key = name.lower().split()[0]
+    if key in ("studio", "business"):
+        key = "business"
+    return key
 
-CREDIT_PACKS = {
-    "starter":  {"amount_usd": 4.99,  "credits": 500},
-    "standard": {"amount_usd": 14.99, "credits": 2000},
-    "pro":      {"amount_usd": 39.99, "credits": 6000},
-    "business": {"amount_usd": 99.99, "credits": 20000},
-}
-
-# ---- DB-backed packs (admin-editable via pricing_config.packs), fallback + 60s cache ----
-_PACKS_CACHE = {"ts": 0.0, "data": None}
-
-def _norm_pack(v):
-    if not isinstance(v, dict):
-        return None
-    amt = float(v.get("amount_usd") or v.get("amountUsd") or v.get("price") or v.get("usd") or 0)
-    cr = int(v.get("credits") or v.get("credit") or 0)
-    if amt > 0 and cr > 0:
-        return {"amount_usd": round(amt, 2), "credits": cr}
-    return None
-
-def _load_packs_from_db():
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return None
-    try:
-        req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/pricing_config?select=packs&limit=1",
-            headers={"apikey": SUPABASE_SERVICE_KEY,
-                     "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
-        with urllib.request.urlopen(req, timeout=8) as r:
-            rows = json.load(r)
-        if not rows:
-            return None
-        packs = rows[0].get("packs")
-        out = {}
-        if isinstance(packs, dict):
-            for k, v in packs.items():
-                np = _norm_pack(v)
-                if np:
-                    out[k] = np
-        elif isinstance(packs, list):
-            for v in packs:
-                np = _norm_pack(v)
-                if np:
-                    k = v.get("key") or v.get("id") or v.get("name")
-                    if k:
-                        out[str(k).lower()] = np
-        return out or None
-    except Exception as e:
-        print("[pricing] packs DB read failed, using built-in defaults:", e)
-        return None
-
-def get_packs():
-    """Returns credit packs keyed by pack_key (starter, standard, pro, business).
-    Reads from pricing_config table — admin panel is the single source of truth."""
-    cfg = _get_pricing_config()
-    packs_array = cfg.get("packs", [])
-    # Fallback defaults if DB is empty
-    if not packs_array:
-        packs_array = [
-            {"name": "Starter", "credits": 1500, "price_usd": 15.0, "bonus_pct": 0, "stripe_link": ""},
-            {"name": "Standard", "credits": 4000, "price_usd": 35.0, "bonus_pct": 14, "stripe_link": ""},
-            {"name": "Pro", "credits": 10000, "price_usd": 75.0, "bonus_pct": 33, "stripe_link": ""},
-            {"name": "Studio", "credits": 25000, "price_usd": 150.0, "bonus_pct": 66, "stripe_link": ""}
-        ]
+def _keyed_packs(packs_array):
+    """Maps the admin's pack array into the {key: {...}} structure the buy
+    modal and landing page expect."""
     keyed = {}
     for p in packs_array:
-        name = (p.get("name") or "").strip()
-        if not name:
+        if not isinstance(p, dict):
             continue
-        key = name.lower().split()[0]
-        # Keep backward-compat with old keys (business vs studio)
-        if key in ("studio", "business"):
-            key = "business"
+        key = _pack_dict_key(p)
+        if not key:
+            continue
         keyed[key] = {
-            "credits": int(p.get("credits", 0)),
-            "amount_usd": float(p.get("price_usd", 0)),
-            "bonus_pct": int(p.get("bonus_pct", 0)),
-            "stripe_link": p.get("stripe_link", "")
+            "name": p.get("name", "") or key.capitalize(),
+            "credits": int(p.get("credits", 0) or 0),
+            "amount_usd": float(p.get("price_usd", 0) or 0),
+            "bonus_pct": int(p.get("bonus_pct", 0) or 0),
+            "stripe_link": p.get("stripe_link", "") or ""
         }
     return keyed
+
+def get_packs():
+    """Returns credit packs keyed by each pack's own key (see _keyed_packs).
+    Reads from pricing_config table — admin panel is the single source of truth."""
+    cfg = _get_pricing_config()
+    packs_array = cfg.get("packs") or DEFAULT_PACKS
+    return _keyed_packs(packs_array)
 
 
 _session_users = {}   # our cookie token -> supabase user id
@@ -658,9 +587,6 @@ def _watch_and_deduct(job_id, uid, kind):
 
 # ---------- Stripe ----------
 
-def billing_packs():
-    return {"packs": get_packs_from_db() or CREDIT_PACKS}
-
 @app.post("/api/billing/checkout")
 def billing_checkout(payload: dict, request: Request):
     if not stripe or not STRIPE_SECRET_KEY:
@@ -682,7 +608,7 @@ def billing_checkout(payload: dict, request: Request):
             line_items=[{
                 "price_data": {
                     "currency": "usd",
-                    "product_data": {"name": f"Lisan AI {pack_key.capitalize()} Pack - {pack['credits']} credits"},
+                    "product_data": {"name": f"Lisan AI {pack.get('name') or pack_key.capitalize()} Pack - {pack['credits']} credits"},
                     "unit_amount": int(round(pack["amount_usd"] * 100)),
                 },
                 "quantity": 1,
@@ -1047,6 +973,13 @@ def regenerate_line(req: RegenerateLineRequest):
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     return eleven_service.regenerate_line(req)
 
+@app.post("/api/restretch_line")
+def restretch_line(req: RegenerateLineRequest):
+    # Pure editing action for the Step 5.5 Time Stretch dropdown: re-warps the
+    # line's already-generated audio to its current setting, no TTS call and
+    # no ElevenLabs key needed.
+    return eleven_service.restretch_line(req)
+
 @app.post("/api/remix_audio")
 def remix_audio(req: RemixRequest):
     return eleven_service.remix_with_offsets(req)
@@ -1345,12 +1278,7 @@ def _get_pricing_config():
         "minReserve": 150,
         "maxVideoMin": 60,
         "markup": 4.0,
-        "packs": [
-            {"name": "Starter", "credits": 1500, "price_usd": 15, "bonus_pct": 0, "stripe_link": ""},
-            {"name": "Standard", "credits": 4000, "price_usd": 35, "bonus_pct": 14, "stripe_link": ""},
-            {"name": "Pro", "credits": 10000, "price_usd": 75, "bonus_pct": 33, "stripe_link": ""},
-            {"name": "Studio", "credits": 25000, "price_usd": 150, "bonus_pct": 66, "stripe_link": ""}
-        ]
+        "packs": DEFAULT_PACKS
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -1723,37 +1651,14 @@ def public_pricing():
 
 @app.get("/api/billing/packs")
 def billing_packs_dynamic():
-    """Returns credit packs from pricing_config (managed by admin panel).
-    Maps the admin array structure into the keyed structure the buy modal expects."""
+    """Returns credit packs from pricing_config (managed by admin panel),
+    keyed by each pack's own 'key' field — see _keyed_packs(). This is what
+    the landing page and the in-app buy modal both fetch to render pack
+    cards, and both now loop over whatever keys come back here instead of
+    a fixed list, so any number of packs with any keys will show up."""
     cfg = _get_pricing_config()
-    packs_array = cfg.get("packs", [])
-    # Default fallback if DB is empty
-    if not packs_array:
-        packs_array = [
-            {"name": "Starter", "credits": 1500, "price_usd": 15.0, "bonus_pct": 0, "stripe_link": ""},
-            {"name": "Standard", "credits": 4000, "price_usd": 35.0, "bonus_pct": 14, "stripe_link": ""},
-            {"name": "Pro", "credits": 10000, "price_usd": 75.0, "bonus_pct": 33, "stripe_link": ""},
-            {"name": "Studio", "credits": 25000, "price_usd": 150.0, "bonus_pct": 66, "stripe_link": ""}
-        ]
-    # Map array → keyed dict (lowercase name as key)
-    # The buy modal iterates ["starter","standard","pro","business"]
-    # so we map by lowercased first word of the pack name
-    keyed = {}
-    for p in packs_array:
-        name = (p.get("name") or "").strip()
-        if not name:
-            continue
-        key = name.lower().split()[0]
-        # Keep backward-compat with old keys (business vs studio)
-        if key in ("studio", "business"):
-            key = "business"
-        keyed[key] = {
-            "credits": int(p.get("credits", 0)),
-            "amount_usd": float(p.get("price_usd", 0)),
-            "bonus_pct": int(p.get("bonus_pct", 0)),
-            "stripe_link": p.get("stripe_link", "")
-        }
-    return {"packs": keyed, "price_per_min": cfg.get("pricePerMin", 150)}
+    packs_array = cfg.get("packs") or DEFAULT_PACKS
+    return {"packs": _keyed_packs(packs_array), "price_per_min": cfg.get("pricePerMin", 150)}
 
 # TEMPORARY DIAGNOSTIC ROUTE — delete after we fix the bug
 @app.get("/api/admin/test_save")

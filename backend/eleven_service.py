@@ -683,6 +683,58 @@ def regenerate_line(req):
     except Exception as e:
         return {"error": friendly_error(e)}
 
+def restretch_line(req):
+    """Pure editing operation: re-apply the line's CURRENT Time Stretch
+    setting to its already-generated raw audio and rebuild the mix — no new
+    TTS call, no voice credits spent. This is what the Step 5.5 Time Stretch
+    dropdown uses (it only changes how the existing take is time-warped to
+    fit its slot); regenerate_line() above is for when the line needs to be
+    re-spoken from scratch (new text, emotion, voice, or a changed time
+    span from Step 2)."""
+    try:
+        seg = req.segment
+        if not (seg.arabic_text or "").strip():
+            return {"error": "This line has no Arabic text yet."}
+        raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
+        if not raw_path.exists():
+            raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.wav"
+        if not raw_path.exists():
+            return {"error": "not_generated"}
+        target_duration = max(seg.end - seg.start, 0.5)
+        actual = get_media_duration(raw_path)
+        if actual <= 0:
+            actual = target_duration
+        required = actual / target_duration
+        seg_tempo_mode = getattr(seg, "tempo_mode", "") or req.tempo_mode
+        if seg_tempo_mode == "excellent":
+            min_tempo, max_tempo = 0.95, 1.10
+        elif seg_tempo_mode == "good":
+            min_tempo, max_tempo = 0.85, 1.25
+        else:
+            min_tempo, max_tempo = 0.75, 1.35
+        warning = False
+        if required < min_tempo:
+            tempo = 1.0
+        elif required > max_tempo:
+            tempo = max_tempo
+            warning = True
+        else:
+            tempo = required
+        stretched = OUTPUT_DIR / f"{seg.segment_id}_stretched.wav"
+        cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
+        if abs(tempo - 1.0) > 0.02:
+            cmd += ["-filter:a", f"atempo={tempo:.6f}"]
+        cmd += ["-acodec", "pcm_s16le", str(stretched)]
+        run_ffmpeg(cmd)
+        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None))
+        return {"status": "success",
+                "stretched_duration": round(get_media_duration(stretched), 2),
+                "target": round(target_duration, 2),
+                "tempo_warning": warning,
+                "mix": mix}
+    except Exception as e:
+        return {"error": friendly_error(e)}
+
 def remix_with_offsets(req):
     """Rebuild final_dubbed.mp3 applying per-segment time offsets AND Step 5.5 volume gains."""
     global OVERLAP_FLAGS

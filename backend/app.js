@@ -1478,6 +1478,52 @@ async function regenerateLine(i, btn) {
     }
 }
 
+// Pure editing action for the Step 5.5 Time Stretch dropdown: re-warps this
+// line's ALREADY-GENERATED audio to the newly picked setting instantly — no
+// new TTS call, no ElevenLabs credits spent, unlike regenerateLine() above
+// (which re-speaks the line from scratch and is for when the text, emotion,
+// voice, or the Step 2 time span itself changes). Silently does nothing if
+// the line hasn't been generated yet, so picking a setting ahead of time
+// doesn't produce a confusing error.
+async function restretchLine(seg) {
+    if (!seg || !(seg.arabic_text || "").trim()) return;
+    try {
+        const res = await fetch("/api/restretch_line", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                job_id: currentJobId || "",
+                segment: seg,
+                segments: segmentsData,
+                tempo_mode: seg.tempo_mode || "excellent",
+                duration_mode: document.getElementById("durationMode").value,
+                total_duration: totalDuration
+            })
+        });
+        let data = null;
+        try { data = await res.json(); } catch (e) { data = null; }
+        if (!data || data.status !== "success") {
+            if (data && data.error && data.error !== "not_generated") notify("error", "Time Stretch update failed: " + data.error);
+            return;
+        }
+        if (data.stretched_duration) {
+            window._lineDurations = window._lineDurations || {};
+            window._lineDurations[seg.segment_id] = data.stretched_duration;
+        }
+        if (typeof renderTimeline === "function") renderTimeline();
+        if (window.VOL_NODES && window.VOL_NODES[seg.segment_id]) {
+            try { window.VOL_NODES[seg.segment_id].a.pause(); } catch (e) {}
+            delete window.VOL_NODES[seg.segment_id];
+        }
+        const au = document.querySelector("#audioResults audio");
+        if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        const idx = segmentsData.indexOf(seg);
+        notify("success", `Line ${idx + 1} re-stretched: ${data.stretched_duration}s into a ${data.target}s window.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
+    } catch (e) {
+        // Quiet auto-apply on a dropdown change — don't nag on a network hiccup.
+    }
+}
+
 function createRow(seg, i) {
     const row = document.createElement("tr");
     if (seg.locked) row.className = "locked";
@@ -4685,7 +4731,11 @@ window.cleanOldClones = function () {
                 var o = document.createElement("option"); o.value = opt[0]; o.textContent = opt[1]; selT.appendChild(o);
             });
             selT.value = seg.tempo_mode || "excellent";
-            selT.onchange = function () { seg.tempo_mode = selT.value; };
+            selT.onchange = function () {
+                seg.tempo_mode = selT.value;
+                selT.disabled = true;
+                Promise.resolve(restretchLine(seg)).then(function () { selT.disabled = false; }, function () { selT.disabled = false; });
+            };
             cT.appendChild(selT); tr.appendChild(cT);
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "\u25B6"; b1.title = "Play original line";
