@@ -73,12 +73,13 @@ button.btn-success:hover { background: #15803d; }
         <div class="metric"><div class="label">Paying Users</div><div class="value" id="mPaying">—</div></div>
         <div class="metric"><div class="label">Credits Outstanding</div><div class="value" id="mCredits">—</div></div>
         <div class="metric"><div class="label">Revenue (all-time)</div><div class="value" id="mRevenue">—</div></div>
+        <div class="metric"><div class="label">Minutes Generated (this month)</div><div class="value" id="mMinutes">—</div></div>
       </div>
       <div class="card">
         <h3>📈 Recent Jobs (last 24h)</h3>
         <table>
-          <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Credits</th><th>Status</th></tr></thead>
-          <tbody id="recentJobs"><tr><td colspan="5" class="muted">Loading...</td></tr></tbody>
+          <thead><tr><th>Time</th><th>User</th><th>Action</th><th>Credits</th><th>Minutes</th><th>Status</th></tr></thead>
+          <tbody id="recentJobs"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -89,8 +90,8 @@ button.btn-success:hover { background: #15803d; }
         <h3>👥 User Management</h3>
         <input class="search" id="userSearch" placeholder="Search by name, email, or UID..." oninput="loadUsers()">
         <table>
-          <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
-          <tbody id="usersTable"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+          <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Minutes Generated</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
+          <tbody id="usersTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -239,11 +240,13 @@ async function loadOverview() {
   document.getElementById('mPaying').textContent = r.data.paying_users;
   document.getElementById('mCredits').textContent = r.data.credits_outstanding;
   document.getElementById('mRevenue').textContent = '$' + r.data.revenue_usd.toFixed(2);
+  document.getElementById('mMinutes').textContent = (r.data.minutes_generated_this_month ?? 0).toFixed(1);
   let html = '';
   r.data.recent_jobs.forEach(j => {
-    html += `<tr><td>${j.created_at}</td><td>${j.user_name||j.uid.slice(0,8)}</td><td>${j.action}</td><td>${j.credits}</td><td>${j.status||'—'}</td></tr>`;
+    const mins = (j.generated_seconds !== null && j.generated_seconds !== undefined) ? (j.generated_seconds / 60).toFixed(1) : '—';
+    html += `<tr><td>${j.created_at}</td><td>${j.user_name||j.uid.slice(0,8)}</td><td>${j.action}</td><td>${j.credits}</td><td>${mins}</td><td>${j.status||'—'}</td></tr>`;
   });
-  document.getElementById('recentJobs').innerHTML = html || '<tr><td colspan="5" class="muted">No recent jobs</td></tr>';
+  document.getElementById('recentJobs').innerHTML = html || '<tr><td colspan="6" class="muted">No recent jobs</td></tr>';
 }
 
 async function loadUsers() {
@@ -257,6 +260,7 @@ async function loadUsers() {
       <td>${u.display_name || u.email || '(no name)'}<br><span class="muted">${u.email||''}</span></td>
       <td><code style="font-size:11px;">${u.id.slice(0,8)}...</code></td>
       <td><strong>${u.credits}</strong></td>
+      <td>${(u.minutes_generated ?? 0).toFixed(1)}</td>
       <td>${u.is_guest ? 'Yes' : 'No'}</td>
       <td>${u.created_at||'—'}</td>
       <td>
@@ -266,7 +270,7 @@ async function loadUsers() {
       </td>
     </tr>`;
   });
-  document.getElementById('usersTable').innerHTML = html || '<tr><td colspan="6" class="muted">No users found</td></tr>';
+  document.getElementById('usersTable').innerHTML = html || '<tr><td colspan="7" class="muted">No users found</td></tr>';
 }
 
 async function adjustCredits(uid, sign, idx) {

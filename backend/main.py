@@ -640,7 +640,12 @@ def _watch_and_deduct(job_id, uid, kind):
                 1, math.ceil(gemini_usd / 0.01)
             )
 
-        new_balance = deduct_credits(uid, amount, kind, job_id)
+        # Duration (seconds) of the actual dubbed audio produced by this job —
+        # only meaningful for "generate" (merge/transcribe don't produce new
+        # generated audio). Recorded to credit_spends for the admin dashboard's
+        # generated-minutes tracking.
+        gen_seconds = result.get("final_duration") if kind == "generate" else None
+        new_balance = deduct_credits(uid, amount, kind, job_id, gen_seconds)
 
         _job_charges[job_id] = {
             "credits_charged": amount,
@@ -1156,11 +1161,18 @@ def account_page():
 
 
 # ===== USAGE RECORDING: log every credit deduction to credit_spends =====
-def _record_spend(uid, action, credits, job_id=None):
+def _record_spend(uid, action, credits, job_id=None, generated_seconds=None):
     try:
+        body = {"uid": uid, "action": action, "job_id": job_id, "credits": credits}
+        # generated_seconds: duration (seconds) of the final dubbed audio this
+        # spend represents — only set for "generate" jobs. Requires the
+        # credit_spends table to have a generated_seconds numeric column
+        # (see the ALTER TABLE note this was introduced with).
+        if generated_seconds is not None:
+            body["generated_seconds"] = round(float(generated_seconds), 2)
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/credit_spends",
-            data=json.dumps({"uid": uid, "action": action, "job_id": job_id, "credits": credits}).encode("utf-8"),
+            data=json.dumps(body).encode("utf-8"),
             headers={"apikey": SUPABASE_SERVICE_KEY, "Content-Type": "application/json", "Prefer": "return=minimal"},
             method="POST")
         urllib.request.urlopen(req, timeout=5)
@@ -1173,13 +1185,14 @@ try:
         amt = a[1] if len(a) > 1 else k.get("amount", k.get("credits"))
         act = a[2] if len(a) > 2 else k.get("action", "deduction")
         jid = a[3] if len(a) > 3 else k.get("job_id")
+        gsec = a[4] if len(a) > 4 else k.get("generated_seconds")
         # _od (the original deduct_credits) only ever took (uid, amount) — call it
         # with exactly that, never with the extra action/job_id tracking args,
         # or it raises "takes 2 positional arguments but 4 were given" and the
         # real credit deduction never happens.
         r = _od(uid, amt)
         try:
-            _record_spend(uid, act or "deduction", amt, jid)
+            _record_spend(uid, act or "deduction", amt, jid, gsec)
         except Exception:
             pass
         return r
@@ -1376,6 +1389,33 @@ def admin_login(req: AdminLoginRequest):
     token = secrets.token_urlsafe(32)
     _ADMIN_TOKENS[token] = _time.time()
     return {"token": token}
+def _get_generated_minutes():
+    """Aggregate generated-audio duration from credit_spends (action='generate'
+    rows carry a generated_seconds field — see _record_spend). Returns
+    (per_user_seconds: {uid: total_seconds_all_time}, this_month_seconds: float).
+    Requires credit_spends to have a generated_seconds numeric column."""
+    import urllib.request as _ur
+    per_user = {}
+    month_total = 0.0
+    now = time.gmtime()
+    month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?action=eq.generate&select=uid,generated_seconds,created_at&limit=5000&order=created_at.desc"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r) or []
+    except Exception:
+        rows = []
+    for row in rows:
+        secs = float(row.get("generated_seconds") or 0)
+        uid = row.get("uid") or ""
+        if uid:
+            per_user[uid] = per_user.get(uid, 0.0) + secs
+        if (row.get("created_at") or "") >= month_start:
+            month_total += secs
+    return per_user, month_total
+
 @app.get("/api/admin/overview")
 def admin_overview(request: Request):
     if not _admin_check(request):
@@ -1407,13 +1447,16 @@ def admin_overview(request: Request):
     orders = _fetch_rows("credit_orders", 1000)
     revenue = sum(o.get("credits", 0) for o in orders) / 100.0  # 100 cr = $1
     recent_jobs = _fetch_rows("credit_spends", 20)
+    _per_user_secs, _month_secs = _get_generated_minutes()
     return {
         "total_users": total_users,
         "paying_users": paying_users,
         "credits_outstanding": credits_outstanding,
         "revenue_usd": revenue,
+        "minutes_generated_this_month": round(_month_secs / 60.0, 1),
         "recent_jobs": [{"created_at": j.get("created_at",""), "uid": j.get("uid",""), "user_name": "",
-                         "action": j.get("action",""), "credits": j.get("credits",0), "status": "done"} for j in recent_jobs]
+                         "action": j.get("action",""), "credits": j.get("credits",0), "status": "done",
+                         "generated_seconds": j.get("generated_seconds")} for j in recent_jobs]
     }
 
 @app.get("/api/admin/users")
@@ -1433,6 +1476,9 @@ def admin_users(request: Request, q: str = ""):
     if q:
         ql = q.lower()
         users = [u for u in users if ql in (str(u.get("display_name","")) + str(u.get("email","")) + str(u.get("id",""))).lower()]
+    per_user_secs, _ = _get_generated_minutes()
+    for u in users:
+        u["minutes_generated"] = round(per_user_secs.get(u.get("id", ""), 0.0) / 60.0, 1)
     return {"users": users}
 
 @app.post("/api/admin/adjust_credits")
