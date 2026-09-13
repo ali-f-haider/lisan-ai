@@ -34,6 +34,12 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # behavior), so nothing breaks until you choose to set a distinct one.
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "") or APP_PASSWORD
 
+# --- Contact form (optional; the /api/contact endpoint still validates
+# and rate-limits input without this, it just won't actually deliver mail
+# until you set RESEND_API_KEY) ---
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+CONTACT_TO_EMAIL = os.environ.get("CONTACT_TO_EMAIL", "contact@lisanai.org")
+
 # --- Local processing settings ---
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")

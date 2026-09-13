@@ -46,6 +46,17 @@ ul.points{max-width:640px;margin:14px auto 0;list-style:none;font-size:14px;colo
 ul.points li{margin:6px 0;padding-left:22px;position:relative}
 ul.points li:before{content:"✓";position:absolute;left:0;color:var(--green);font-weight:800}
 .trust{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted);padding:18px 0 8px}
+.contact-box{max-width:520px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
+.contact-box label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin:12px 0 6px}
+.contact-box label:first-child{margin-top:0}
+.contact-box input,.contact-box textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
+.contact-box input:focus,.contact-box textarea:focus{outline:none;border-color:var(--indigo)}
+.contact-box textarea{resize:vertical;min-height:100px}
+.contact-box .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.contact-box button{margin-top:16px}
+#contactStatus{margin-top:12px;font-size:13px;text-align:center;min-height:16px}
+#contactStatus.ok{color:var(--green)}
+#contactStatus.err{color:#dc2626}
 footer{border-top:1px solid var(--line);padding:30px 22px;background:#fff}
 .fwrap{max-width:1000px;margin:0 auto;display:flex;flex-wrap:wrap;gap:18px;align-items:center}
 footer img{height:28px}
@@ -137,6 +148,24 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
   </div>
 </section>
 
+<section class="wrap">
+  <h2>Contact Us</h2>
+  <p style="text-align:center;color:var(--muted);max-width:520px;margin:0 auto 18px;">Questions, feedback, or need help? Send us a message and we'll get back to you by email.</p>
+  <form class="contact-box" id="contactForm">
+    <label for="cName">Name (optional)</label>
+    <input type="text" id="cName" name="name" maxlength="100">
+    <label for="cEmail">Email</label>
+    <input type="email" id="cEmail" name="email" required maxlength="200">
+    <label for="cMessage">Message</label>
+    <textarea id="cMessage" name="message" required maxlength="5000"></textarea>
+    <input class="hp" type="text" id="cHp" name="hp" tabindex="-1" autocomplete="off">
+    <div style="text-align:center;">
+      <button type="submit" class="cta" id="contactSubmit">Send Message</button>
+    </div>
+    <div id="contactStatus"></div>
+  </form>
+</section>
+
 <footer>
   <div class="fwrap">
     <img src="/logo.png" alt="">
@@ -178,6 +207,50 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
   v.onerror = function () { v.remove(); }; // Keeps text placeholder if video is missing
   v.onloadeddata = function () { slot.innerHTML = ""; slot.appendChild(v); };
 });
+// Contact form submit handler
+(function () {
+  var form = document.getElementById("contactForm");
+  if (!form) return;
+  var statusEl = document.getElementById("contactStatus");
+  var btn = document.getElementById("contactSubmit");
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    statusEl.className = "";
+    statusEl.textContent = "";
+    var payload = {
+      name: document.getElementById("cName").value,
+      email: document.getElementById("cEmail").value,
+      message: document.getElementById("cMessage").value,
+      hp: document.getElementById("cHp").value
+    };
+    btn.disabled = true;
+    var prevText = btn.textContent;
+    btn.textContent = "Sending…";
+    fetch("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
+      .then(function (res) {
+        if (res.ok && res.body && res.body.ok) {
+          statusEl.className = "ok";
+          statusEl.textContent = "Message sent — we'll get back to you by email.";
+          form.reset();
+        } else {
+          statusEl.className = "err";
+          statusEl.textContent = (res.body && res.body.error) || "Something went wrong. Please email contact@lisanai.org directly.";
+        }
+      })
+      .catch(function () {
+        statusEl.className = "err";
+        statusEl.textContent = "Network error. Please email contact@lisanai.org directly.";
+      })
+      .finally(function () {
+        btn.disabled = false;
+        btn.textContent = prevText;
+      });
+  });
+})();
 </script>
 </body>
 </html>

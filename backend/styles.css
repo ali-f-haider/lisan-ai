@@ -95,7 +95,7 @@ h1 {
 }
 
 /* Inputs */
-input[type="text"], input[type="number"], input[type="password"], select, textarea {
+input[type="text"], input[type="number"], input[type="password"], input[type="email"], select, textarea {
     width: 100%;
     padding: 10px 14px;
     border: 1.5px solid var(--border);

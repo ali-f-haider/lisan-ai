@@ -16,7 +16,8 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, UPLOAD_DIR, OUTPUT_DIR,
-                    GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD)
+                    GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
+                    RESEND_API_KEY, CONTACT_TO_EMAIL)
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -161,6 +162,12 @@ class TashkeelItem(BaseModel):
 class TashkeelRequest(BaseModel):
     items: List[TashkeelItem]
 
+class ContactRequest(BaseModel):
+    name: str = ""
+    email: str
+    message: str
+    hp: str = ""  # honeypot -- real visitors never see or fill this field
+
 # ==================== AUTH ====================
 
 _sessions = set()
@@ -203,7 +210,7 @@ def _is_logged_in(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
-    "/api/billing/packs", "/api/billing/checkout"
+    "/api/billing/packs", "/api/billing/checkout", "/api/contact"
 , "/help.html", "/admin"])
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -227,6 +234,12 @@ app.add_middleware(AuthMiddleware)
 _login_fails: Dict[str, List[float]] = {}
 LOGIN_MAX_ATTEMPTS = 8
 LOGIN_WINDOW_SEC = 300  # 5 minutes
+
+# --- Same idea, for the public /api/contact form: stop it being used to
+# mass-spam CONTACT_TO_EMAIL. ---
+_contact_attempts: Dict[str, List[float]] = {}
+CONTACT_MAX_ATTEMPTS = 5
+CONTACT_WINDOW_SEC = 3600  # 1 hour
 
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for", "")
@@ -1697,6 +1710,65 @@ def billing_packs_dynamic():
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
     return {"packs": _keyed_packs(packs_array), "price_per_min": cfg.get("pricePerMin", 150)}
+@app.post("/api/contact")
+def contact_form(req: ContactRequest, request: Request):
+    """Public contact form (landing page + in-app) -- emails
+    CONTACT_TO_EMAIL via Resend. No auth required; rate-limited per IP."""
+    if req.hp:
+        # Honeypot field a real visitor never sees or fills in --
+        # pretend success and do nothing, so bots get no signal.
+        return {"ok": True}
+
+    ip = _client_ip(request)
+    now = time.time()
+    attempts = [t for t in _contact_attempts.get(ip, []) if now - t < CONTACT_WINDOW_SEC]
+    if len(attempts) >= CONTACT_MAX_ATTEMPTS:
+        return JSONResponse({"ok": False, "error": "Too many messages sent. Please try again later."}, status_code=429)
+
+    name = (req.name or "").strip()[:100]
+    email = (req.email or "").strip()[:200]
+    message = (req.message or "").strip()[:5000]
+
+    if not email or "@" not in email or "." not in email.split("@")[-1] or " " in email:
+        return JSONResponse({"ok": False, "error": "Please enter a valid email address."}, status_code=400)
+    if not message:
+        return JSONResponse({"ok": False, "error": "Please enter a message."}, status_code=400)
+
+    if not RESEND_API_KEY:
+        print("[contact] RESEND_API_KEY not set -- cannot send contact email")
+        return JSONResponse({"ok": False, "error": "Contact form is not set up yet. Please email us directly."}, status_code=503)
+
+    attempts.append(now)
+    _contact_attempts[ip] = attempts
+
+    subject = f"Lisan AI contact form: {name or email}"
+    body_text = f"From: {name or '(no name given)'} <{email}>\n\n{message}"
+    payload = json.dumps({
+        "from": "Lisan AI Contact <onboarding@resend.dev>",
+        "to": [CONTACT_TO_EMAIL],
+        "reply_to": email,
+        "subject": subject,
+        "text": body_text,
+    }).encode("utf-8")
+    try:
+        contact_req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(contact_req, timeout=10) as r:
+            if r.status not in (200, 201):
+                raise RuntimeError(f"Resend returned status {r.status}")
+        return {"ok": True}
+    except Exception as ex:
+        print(f"[contact] Resend send failed: {ex}")
+        return JSONResponse({"ok": False, "error": "Message could not be sent. Please email us directly."}, status_code=502)
+
+
 
 # TEMPORARY DIAGNOSTIC ROUTE — delete after we fix the bug
 @app.get("/api/admin/test_save")
