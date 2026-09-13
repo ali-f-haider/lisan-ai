@@ -597,8 +597,9 @@ def _watch_and_deduct(job_id, uid, kind):
         if job_id in _abandoned_jobs:
             return  # user switched videos — never charge for abandoned work
 
+        cfg = _get_pricing_config()
         if kind == "transcribe":
-            amount = 3
+            amount = int(cfg.get("transcribeCredits", 3))
         else:
             chars = int(result.get("eleven_credits_used", 0) or 0)
             b = usage_bucket(job_id)
@@ -610,7 +611,11 @@ def _watch_and_deduct(job_id, uid, kind):
                 + int(b.get("gemini_out", 0)) / 1e6 * 2.50
             )
 
-            amount = math.ceil(chars / 60) + max(
+            chars_per_credit = int(cfg.get("charsPerCredit", 60))
+            if chars_per_credit <= 0:
+                chars_per_credit = 60
+
+            amount = math.ceil(chars / chars_per_credit) + max(
                 1, math.ceil(gemini_usd / 0.01)
             )
 
@@ -829,8 +834,9 @@ def enhance_progress(job_id: str):
 async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(2), hf_token: str = Form("")):
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
-    if bal is not None and bal < 5:
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs 3 credits. Use ➕ Buy to get a pack."}, status_code=402)
+    transcribe_cost = int(_get_pricing_config().get("transcribeCredits", 3))
+    if bal is not None and bal < transcribe_cost:
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use ➕ Buy to get a pack."}, status_code=402)
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
@@ -1009,8 +1015,13 @@ def tashkeel(req: TashkeelRequest):
 def generate(req: GenerateRequest, request: Request):
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
+    # 20 here is a rough "don't even start" safety floor, not the actual
+    # price -- the real per-job cost depends on how much text gets
+    # generated and is only known once the job finishes (see
+    # _watch_and_deduct below, which reads the real configured rate).
     if bal is not None and bal < 20:
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Generation costs 1 credit per ~60 characters. Use ➕ Buy."}, status_code=402)
+        chars_per_credit = int(_get_pricing_config().get("charsPerCredit", 60))
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Generation costs 1 credit per ~{chars_per_credit} characters. Use ➕ Buy."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
     # Keyed by job_id (not a single shared "generate" slot) so two jobs
@@ -1043,10 +1054,14 @@ def remix_audio(req: RemixRequest):
 def merge_video(req: MergeRequest, request: Request):
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
-    if bal is not None and bal < 1:
-        return JSONResponse({"error": "Insufficient credits (merge costs 1 credit). Use ➕ Buy."}, status_code=402)
+    merge_cost = int(_get_pricing_config().get("mergeCredits", 1))
+    if merge_cost <= 0:
+        merge_cost = 1
+    if bal is not None and bal < merge_cost:
+        plural = "s" if merge_cost != 1 else ""
+        return JSONResponse({"error": f"Insufficient credits (merge costs {merge_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
     if uid:
-        deduct_credits(uid, 1, "merge", req.job_id)
+        deduct_credits(uid, merge_cost, "merge", req.job_id)
 
     video = find_job_video(req.job_id)
     dub = OUTPUT_DIR / "final_dubbed.mp3"
@@ -1333,6 +1348,12 @@ def _get_pricing_config():
         "minReserve": 150,
         "maxVideoMin": 60,
         "markup": 4.0,
+        # Real per-step charges -- these are the ones actually read by
+        # _watch_and_deduct() and /api/merge_video below. (pricePerMin above
+        # is display-only right now; it is NOT used to compute any charge.)
+        "transcribeCredits": 3,
+        "mergeCredits": 1,
+        "charsPerCredit": 60,
         "packs": DEFAULT_PACKS
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -1352,6 +1373,9 @@ def _get_pricing_config():
                 "minReserve": row.get("min_reserve", defaults["minReserve"]),
                 "maxVideoMin": row.get("max_video_min", defaults["maxVideoMin"]),
                 "markup": row.get("markup", defaults["markup"]),
+                "transcribeCredits": row.get("transcribe_credits", defaults["transcribeCredits"]),
+                "mergeCredits": row.get("merge_credits", defaults["mergeCredits"]),
+                "charsPerCredit": row.get("chars_per_credit", defaults["charsPerCredit"]),
                 "packs": row.get("packs", defaults["packs"])
             }
     except Exception as ex:
@@ -1376,6 +1400,9 @@ def _save_pricing_config(config):
             "min_reserve": config.get("minReserve", 150),
             "max_video_min": config.get("maxVideoMin", 60),
             "markup": config.get("markup", 4.0),
+            "transcribe_credits": config.get("transcribeCredits", 3),
+            "merge_credits": config.get("mergeCredits", 1),
+            "chars_per_credit": config.get("charsPerCredit", 60),
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
