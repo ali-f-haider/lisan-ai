@@ -1542,6 +1542,21 @@ async def admin_adjust_credits(request: Request):
     if audit_err is not True: resp["audit_warning"] = str(audit_err)
     return resp
 
+def _http_error_detail(ex):
+    """str(HTTPError) only ever gives 'HTTP Error 400: Bad Request' -- it drops
+    the actual response body, which is where Supabase/PostgREST puts the real
+    reason (e.g. which column or constraint). Read that body when present so
+    failures are diagnosable from the toast instead of guessed at blindly."""
+    detail = str(ex)
+    try:
+        if hasattr(ex, "read"):
+            body = ex.read().decode("utf-8", errors="ignore")
+            if body:
+                detail = f"{detail} — {body}"
+    except Exception:
+        pass
+    return detail
+
 def _log_spend(uid, action, credits, job_id=None, reason=None):
     """Helper: insert into credit_spends. Returns True on success, or the
     error string on failure (previously this always returned None either
@@ -1569,8 +1584,9 @@ def _log_spend(uid, action, credits, job_id=None, reason=None):
         with _ur.urlopen(req, timeout=5) as r: pass
         return True
     except Exception as ex:
-        print(f"[admin] log_spend error: {ex}")
-        return str(ex)
+        detail = _http_error_detail(ex)
+        print(f"[admin] log_spend error: {detail}")
+        return detail
 
 def _log_audit(target_uid, delta, reason):
     """Helper: insert into credit_audit. Returns True on success, or the
@@ -1590,8 +1606,9 @@ def _log_audit(target_uid, delta, reason):
         with _ur.urlopen(req, timeout=5) as r: pass
         return True
     except Exception as ex:
-        print(f"[admin] log_audit error: {ex}")
-        return str(ex)
+        detail = _http_error_detail(ex)
+        print(f"[admin] log_audit error: {detail}")
+        return detail
 
 @app.get("/api/admin/pricing")
 def admin_get_pricing(request: Request):
