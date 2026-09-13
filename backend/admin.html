@@ -131,9 +131,10 @@ button.btn-success:hover { background: #15803d; }
 
       <div class="card">
         <h3>💳 Credit Packs</h3>
+        <p class="muted" style="font-size:12px;margin-bottom:8px;">Key is the pack's permanent public ID — it's what the landing page, buy modal and Stripe checkout use to identify this pack. Renaming the pack is safe and never changes its key. Leave Key blank on a new pack and it will be generated from the name when you save.</p>
         <table>
-          <thead><tr><th>Name</th><th>Credits</th><th>Price (USD)</th><th>Bonus %</th><th>Stripe Link</th><th>Actions</th></tr></thead>
-          <tbody id="packsTable"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+          <thead><tr><th>Key</th><th>Name</th><th>Credits</th><th>Price (USD)</th><th>Bonus %</th><th>Stripe Link</th><th>Actions</th></tr></thead>
+          <tbody id="packsTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
         </table>
         <div style="margin-top:14px;display:flex;gap:10px;"><button class="btn" onclick="addPack()">+ Add Pack</button><button class="btn" onclick="savePricing()" style="background:#2e7d32">💾 Save Packs</button></div>
       </div>
@@ -182,6 +183,13 @@ button.btn-success:hover { background: #15803d; }
 <script>
 let ADMIN_TOKEN = sessionStorage.getItem('adminToken') || '';
 let usersCache = [];
+
+// Escapes any DB-sourced string (display_name, email, action, reason, ...)
+// before it goes into an innerHTML template — those values are user-editable
+// data, not trusted markup, so they must never be inserted raw.
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 async function api(path, opts={}) {
   const res = await fetch(path, {
@@ -244,7 +252,7 @@ async function loadOverview() {
   let html = '';
   r.data.recent_jobs.forEach(j => {
     const mins = (j.generated_seconds !== null && j.generated_seconds !== undefined) ? (j.generated_seconds / 60).toFixed(1) : '—';
-    html += `<tr><td>${j.created_at}</td><td>${j.user_name||j.uid.slice(0,8)}</td><td>${j.action}</td><td>${j.credits}</td><td>${mins}</td><td>${j.status||'—'}</td></tr>`;
+    html += `<tr><td>${escapeHtml(j.created_at)}</td><td>${escapeHtml(j.user_name)||j.uid.slice(0,8)}</td><td>${escapeHtml(j.action)}</td><td>${j.credits}</td><td>${mins}</td><td>${escapeHtml(j.status)||'—'}</td></tr>`;
   });
   document.getElementById('recentJobs').innerHTML = html || '<tr><td colspan="6" class="muted">No recent jobs</td></tr>';
 }
@@ -257,7 +265,7 @@ async function loadUsers() {
   let html = '';
   usersCache.forEach((u, i) => {
     html += `<tr>
-      <td>${u.display_name || u.email || '(no name)'}<br><span class="muted">${u.email||''}</span></td>
+      <td>${escapeHtml(u.display_name || u.email || '(no name)')}<br><span class="muted">${escapeHtml(u.email||'')}</span></td>
       <td><code style="font-size:11px;">${u.id.slice(0,8)}...</code></td>
       <td><strong>${u.credits}</strong></td>
       <td>${(u.minutes_generated ?? 0).toFixed(1)}</td>
@@ -309,6 +317,15 @@ async function setCredits(uid, idx) {
   loadUsers();
 }
 
+function slugifyPackKey(name) {
+  // Mirrors the backend's fallback key derivation (main.py _pack_dict_key)
+  // so a legacy pack with no saved key shows the SAME key here that the
+  // live site is already using for it, instead of something different.
+  const word = (name || '').trim().toLowerCase().split(/\s+/)[0] || '';
+  if (word === 'studio') return 'business';
+  return word.replace(/[^a-z0-9_]/g, '');
+}
+
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
@@ -317,7 +334,9 @@ async function loadPricing() {
   });
   let html = '';
   r.data.packs.forEach((p, i) => {
+    const key = p.key || slugifyPackKey(p.name);
     html += `<tr>
+      <td><input value="${key}" data-idx="${i}" data-field="key" style="width:110px" title="Permanent public ID — used by the landing page, buy modal and Stripe checkout"></td>
       <td><input value="${p.name}" data-idx="${i}" data-field="name"></td>
       <td><input type="number" value="${p.credits}" data-idx="${i}" data-field="credits" style="width:100px"></td>
       <td><input type="number" step="0.01" value="${p.price_usd}" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
@@ -326,27 +345,39 @@ async function loadPricing() {
       <td><button class="btn-sm btn-danger" onclick="deletePack(${i})">Delete</button></td>
     </tr>`;
   });
-  document.getElementById('packsTable').innerHTML = html || '<tr><td colspan="6" class="muted">No packs</td></tr>';
+  document.getElementById('packsTable').innerHTML = html || '<tr><td colspan="7" class="muted">No packs</td></tr>';
 }
 
 async function savePricing() {
   // Build packs fresh from the input fields (don't trust cached state)
   const packs = [];
+  const seenKeys = {};
+  let dupeKey = null;
   const rows = document.querySelectorAll('#packsTable tr');
   rows.forEach((tr) => {
     const inputs = tr.querySelectorAll('input');
-    if (inputs.length < 5) return;
+    if (inputs.length < 6) return;
+    const name = inputs[1].value || '';
+    const key = (inputs[0].value || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '') || slugifyPackKey(name);
     const pack = {
-      name: inputs[0].value || '',
-      credits: parseInt(inputs[1].value) || 0,
-      price_usd: parseFloat(inputs[2].value) || 0,
-      bonus_pct: parseInt(inputs[3].value) || 0,
-      stripe_link: inputs[4].value || ''
+      key: key,
+      name: name,
+      credits: parseInt(inputs[2].value) || 0,
+      price_usd: parseFloat(inputs[3].value) || 0,
+      bonus_pct: parseInt(inputs[4].value) || 0,
+      stripe_link: inputs[5].value || ''
     };
     if (pack.name || pack.credits || pack.price_usd) {
+      if (key && seenKeys[key]) dupeKey = key;
+      seenKeys[key] = true;
       packs.push(pack);
     }
   });
+
+  if (dupeKey) {
+    toast(`Two packs both use the key "${dupeKey}" — give each pack a unique Key before saving (a duplicate would make one of them overwrite the other on the live site).`, true);
+    return;
+  }
 
   // Read the pricing config inputs
   const update = {
@@ -383,7 +414,8 @@ function addPack() {
   const tbody = document.getElementById('packsTable');
   const i = tbody.querySelectorAll('tr').length;
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td><input value="New Pack" data-idx="${i}" data-field="name"></td>
+  tr.innerHTML = `<td><input value="" placeholder="auto" data-idx="${i}" data-field="key" style="width:110px" title="Leave blank to auto-generate from the name"></td>
+    <td><input value="New Pack" data-idx="${i}" data-field="name"></td>
     <td><input type="number" value="1500" data-idx="${i}" data-field="credits" style="width:100px"></td>
     <td><input type="number" step="0.01" value="15" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
     <td><input type="number" value="0" data-idx="${i}" data-field="bonus_pct" style="width:80px"></td>
@@ -402,7 +434,7 @@ async function loadAudit() {
   let html = '';
   r.data.audit.forEach(a => {
     const sign = a.delta > 0 ? '+' : '';
-    html += `<tr><td>${a.created_at}</td><td>${a.admin}</td><td>${a.target_uid.slice(0,8)}...</td><td style="color:${a.delta>0?'#16a34a':'#dc2626'}">${sign}${a.delta}</td><td>${a.reason}</td></tr>`;
+    html += `<tr><td>${escapeHtml(a.created_at)}</td><td>${escapeHtml(a.admin)}</td><td>${a.target_uid.slice(0,8)}...</td><td style="color:${a.delta>0?'#16a34a':'#dc2626'}">${sign}${a.delta}</td><td>${escapeHtml(a.reason)}</td></tr>`;
   });
   document.getElementById('auditTable').innerHTML = html || '<tr><td colspan="5" class="muted">No adjustments yet</td></tr>';
 }

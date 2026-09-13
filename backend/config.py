@@ -29,6 +29,10 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+# Separate admin-panel password. If ADMIN_PASSWORD isn't set in the
+# environment, admin login falls back to APP_PASSWORD (the previous
+# behavior), so nothing breaks until you choose to set a distinct one.
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "") or APP_PASSWORD
 
 # --- Local processing settings ---
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")

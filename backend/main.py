@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, UPLOAD_DIR, OUTPUT_DIR,
-                    GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD)
+                    GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD)
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -220,6 +220,32 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(AuthMiddleware)
 
+# --- Simple in-memory brute-force guard for password-based login endpoints.
+# Resets on process restart and is per-instance (fine for a single Railway
+# worker); it isn't meant to be a full WAF, just to stop unthrottled password
+# guessing against /api/login and /api/admin/login. ---
+_login_fails: Dict[str, List[float]] = {}
+LOGIN_MAX_ATTEMPTS = 8
+LOGIN_WINDOW_SEC = 300  # 5 minutes
+
+def _client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+def _login_rate_limited(request: Request) -> bool:
+    """True if this client has too many recent failed attempts."""
+    ip = _client_ip(request)
+    now = time.time()
+    attempts = [t for t in _login_fails.get(ip, []) if now - t < LOGIN_WINDOW_SEC]
+    _login_fails[ip] = attempts
+    return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+def _record_login_fail(request: Request):
+    ip = _client_ip(request)
+    _login_fails.setdefault(ip, []).append(time.time())
+
 # ==================== DEBUG ====================
 @app.get("/api/user/info")
 def user_info(request: Request):
@@ -279,7 +305,9 @@ def demo_after():
 
 
 @app.get("/debug-keys")
-def debug_keys():
+def debug_keys(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
     return {
         "SUPABASE_URL": SUPABASE_URL[:25] + "..." if SUPABASE_URL else "EMPTY",
         "SUPABASE_ANON_KEY": SUPABASE_ANON_KEY[:25] + "..." if SUPABASE_ANON_KEY else "EMPTY",
@@ -310,12 +338,15 @@ def auth_check(request: Request):
 
 
 @app.post("/api/login")
-def login_legacy(req: LoginRequest, response: Response):
-    if APP_PASSWORD and req.password == APP_PASSWORD:
+def login_legacy(req: LoginRequest, response: Response, request: Request):
+    if _login_rate_limited(request):
+        return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
+    if APP_PASSWORD and hmac.compare_digest(str(req.password), str(APP_PASSWORD)):
         tok = secrets.token_hex(32)
         _sessions.add(tok)
         response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
         return {"ok": True}
+    _record_login_fail(request)
     return {"ok": False}
 
 
@@ -1344,11 +1375,14 @@ class AdminLoginRequest(BaseModel):
     password: str = ""
 
 @app.post("/api/admin/login")
-def admin_login(req: AdminLoginRequest):
+def admin_login(req: AdminLoginRequest, request: Request):
+    if _login_rate_limited(request):
+        return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
     code = req.code or req.password
-    if not code or not APP_PASSWORD:
+    if not code or not ADMIN_PASSWORD:
         return JSONResponse({"error": "admin access disabled"}, status_code=403)
-    if not hmac.compare_digest(str(code), str(APP_PASSWORD)):
+    if not hmac.compare_digest(str(code), str(ADMIN_PASSWORD)):
+        _record_login_fail(request)
         return JSONResponse({"error": "invalid code"}, status_code=401)
     token = secrets.token_urlsafe(32)
     _ADMIN_TOKENS[token] = _time.time()
