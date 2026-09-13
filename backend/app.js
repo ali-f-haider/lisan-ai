@@ -3687,6 +3687,10 @@ window.cleanOldClones = function () {
             document.documentElement.lang = (lang === "ar") ? "ar" : "en";
             var lb = document.getElementById("langBtn");
             if (lb) lb.textContent = (lang === "en") ? "🌐 عربي" : "🌐 English";
+            var subAr = document.getElementById("subtitleAr");
+            if (subAr) subAr.style.display = (lang === "ar") ? "" : "none";
+            var helpAr = document.getElementById("helpArPart");
+            if (helpAr) helpAr.style.display = (lang === "ar") ? "" : "none";
         } catch (e) { console.error("applyLang:", e); }
     }
     window.applyLang = applyLang;

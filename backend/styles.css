@@ -136,6 +136,8 @@ button, .action-btn {
     border-radius: 8px;
     font-size: 14px;
     font-weight: 600;
+    font-family: inherit;
+    line-height: inherit;
     cursor: pointer;
     transition: all 0.2s;
     display: inline-flex;
@@ -437,4 +439,15 @@ audio, video {
 }
 @media (max-width: 768px) {
     #stepNavWidget { display: none; }
+}
+
+/* RTL mirror for Arabic mode — tables and the timeline use JS-computed pixel
+   positions and numeric/time columns that must stay left-to-right, so they're
+   explicitly excluded from the mirror. */
+body.lang-ar {
+    direction: rtl;
+}
+body.lang-ar table,
+body.lang-ar #timelineWrap {
+    direction: ltr;
 }
