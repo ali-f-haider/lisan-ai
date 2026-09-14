@@ -4549,7 +4549,20 @@ window.cleanOldClones = function () {
     document.addEventListener("change", onChg, true);
     snap();
     // ---- FADE v8: fade is the block's own striped tail; cross-speaker only ----
+    // DISABLED: draw9() below (v4, "fixed widths") replaced this with an
+    // equivalent cross-speaker fade tail on a FIXED-width block. Both used to
+    // run on every renderTimeline() AND both kept writing their own formula
+    // into the block's own style.width -- draw8 grows the block to the real
+    // audio duration, draw9 sizes it to the English text length. Since each
+    // one's write is a mutation the other's MutationObserver (hook8/hook9)
+    // is watching, they kept re-triggering each other forever: the block
+    // (and the green Arabic-audio-length overlay, which reads the block's
+    // live width) flickered between the two widths. Left as a no-op rather
+    // than deleted, since sched8/hook8/the renderTimeline wrap below still
+    // reference draw8() -- this keeps all of that harmless without touching
+    // the unrelated fixStep2/fixLockAll/fixVolume/etc. in this same IIFE.
     function draw8() {
+        return;
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData.length) return;
         wrap.querySelectorAll(".fadeFinal").forEach(function (f) { f.remove(); });
@@ -4609,6 +4622,11 @@ window.cleanOldClones = function () {
     var pend8 = false;
     function sched8() { if (pend8) return; pend8 = true; requestAnimationFrame(function () { pend8 = false; draw8(); }); }
     function hook8() {
+        // DISABLED alongside draw8() above -- see that function's comment.
+        // Left as a no-op (never installs the observer) rather than deleted,
+        // since it's still called from the renderTimeline wrap below and
+        // from the 300ms document-body watchdog further down.
+        return;
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || typeof MutationObserver === "undefined") return;
         wrap.querySelectorAll("div").forEach(function (b) {
