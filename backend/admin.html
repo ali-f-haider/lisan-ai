@@ -146,6 +146,11 @@ button.btn-success:hover { background: #15803d; }
           <input type="number" id="charsPerCredit" style="width:120px;" step="5" min="1" max="1000">
           <span class="muted">Lower = more expensive (e.g. 30 charges twice as many credits as 60 for the same text)</span>
         </div>
+        <div class="form-group">
+          <label>Clone voices (flat credits per job)</label>
+          <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
+          <span class="muted">Current default: 5</span>
+        </div>
         <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
       </div>
 
@@ -349,7 +354,7 @@ function slugifyPackKey(name) {
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['pricePerMin','freeCredits','minReserve','maxVideoMin','markup','transcribeCredits','mergeCredits','charsPerCredit'].forEach(k => {
+  ['pricePerMin','freeCredits','minReserve','maxVideoMin','markup','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   let html = '';
@@ -409,6 +414,7 @@ async function savePricing() {
     transcribeCredits: parseInt(document.getElementById('transcribeCredits')?.value || '3'),
     mergeCredits: parseInt(document.getElementById('mergeCredits')?.value || '1'),
     charsPerCredit: parseInt(document.getElementById('charsPerCredit')?.value || '60'),
+    cloneCredits: parseInt(document.getElementById('cloneCredits')?.value || '5'),
     packs: packs
   };
 

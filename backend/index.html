@@ -203,6 +203,10 @@
     <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
     <div id="timelineSection" class="hidden">
         <p class="note">Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.</p>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#94a3b8;margin-bottom:6px;cursor:pointer;">
+            <input type="checkbox" id="toggleArabicOverlay" onchange="window._hideArabicDubOverlay = !this.checked; if (typeof renderTimeline === 'function') renderTimeline();" checked>
+            Show Arabic audio length overlay
+        </label>
         <div id="timelineWrap" style="position:relative;background:#1e293b;border-radius:8px;overflow:hidden;margin:10px 0;"></div>
         <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>
         <button class="blue" onclick="resetTimeline()">↩️ Reset Offsets</button>

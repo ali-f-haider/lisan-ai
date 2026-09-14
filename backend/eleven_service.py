@@ -487,7 +487,14 @@ def generate_worker(req):
                                "start": seg.start, "end": seg.end,
                                "orig_db": round(orig_db, 1) if orig_db is not None else None,
                                "dub_db": round(dub_db, 1) if dub_db is not None else None,
-                               "auto_gain_db": round(auto_gain, 1), "duration": round(stretched_duration, 3)})
+                               "auto_gain_db": round(auto_gain, 1), "duration": round(stretched_duration, 3),
+                               # Both filled in below, once the final mix is
+                               # built -- tempo_warning is known now, but
+                               # "trimmed" (this line's audio didn't fit its
+                               # slot even after stretching, so the final mix
+                               # cut it short) isn't known until the overlap/
+                               # dead-space pass right before mixing.
+                               "tempo_warning": needs_warning, "trimmed": False})
             generated_files.append({"file": stretched_filename, "sid": seg.segment_id, "start": seg.start,
                                     "end": seg.end, "speaker": seg.speaker, "duration": stretched_duration,
                                     "tempo_warning": needs_warning})
@@ -520,13 +527,22 @@ def generate_worker(req):
                     allowed_end = _other_start - 0.005
             allowed_duration = allowed_end - item["start"]
             if allowed_duration <= 0.02:
+                item["trimmed"] = True  # no room at all -- dropped from the mix entirely
                 continue
             if item["duration"] > allowed_duration + 0.02:
                 cut_count += 1
+                item["trimmed"] = True
             item["allowed_duration"] = min(item["duration"], allowed_duration)
             adjusted_files.append(item)
         if not adjusted_files:
             raise Exception("No generated segments fit.")
+        # Carry the tempo/trim warnings back onto lines_meta (the per-line
+        # data the Step 5.5 table actually renders) so the UI can flag which
+        # rows need attention -- these were only known on generated_files,
+        # a separate list built for the mixing step above.
+        _trimmed_by_sid = {f.get("sid"): bool(f.get("trimmed")) for f in generated_files}
+        for _lm in lines_meta:
+            _lm["trimmed"] = _trimmed_by_sid.get(_lm["segment_id"], False)
         inputs = ["-f", "lavfi", "-t", str(final_duration), "-i", "anullsrc=r=44100:cl=stereo"]
         filter_parts = []
         active_gen = dict(USER_GAINS.get(req.job_id or "", {}))
@@ -594,13 +610,18 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
                 allowed_end = _other_start - 0.005
         allowed = allowed_end - item["start"]
         if allowed <= 0.02:
+            item["trimmed"] = True  # no room at all -- dropped from the mix entirely
             continue
         if item["duration"] > allowed + 0.02:
             cuts += 1
+            item["trimmed"] = True
         item["allowed_duration"] = min(item["duration"], allowed)
         adjusted.append(item)
     if not adjusted:
         raise Exception("No lines fit the timeline.")
+    # Same "who's still cut/trimmed after this rebuild" list as
+    # remix_with_offsets, for the Step 5.5 table's needs-attention marks.
+    trimmed_segment_ids = [it["sid"] for it in items if it.get("trimmed")]
     inputs = ["-f", "lavfi", "-t", str(final_duration), "-i", "anullsrc=r=44100:cl=stereo"]
     filter_parts = []
     for idx, item in enumerate(adjusted):
@@ -617,7 +638,7 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     output_file = OUTPUT_DIR / "final_dubbed.mp3"
     run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
     return {"segments_generated": len(adjusted), "duration_cuts": cuts,
-            "final_duration": round(final_duration, 2)}
+            "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}
 
 def regenerate_line(req):
     """Re-speak ONE segment with TTS, stretch it into its window, volume-match it, then rebuild the mix."""
@@ -787,13 +808,19 @@ def remix_with_offsets(req):
                     allowed_end = _other_start - 0.005
             allowed = allowed_end - item["start"]
             if allowed <= 0.02:
+                item["trimmed"] = True  # no room at all -- dropped from the mix entirely
                 continue
             if item["duration"] > allowed + 0.02:
                 cuts += 1
+                item["trimmed"] = True
             item["allowed_duration"] = min(item["duration"], allowed)
             adjusted.append(item)
         if not adjusted:
             return {"error": "No lines fit the timeline."}
+        # Which lines are still cut/trimmed after this rebuild -- lets the
+        # Step 5.5 table clear a line's "needs attention" mark the moment
+        # the user's offset/overlap/dead-space change actually fixes it.
+        trimmed_segment_ids = [it["sid"] for it in items if it.get("trimmed")]
         inputs = ["-f", "lavfi", "-t", str(final_duration), "-i", "anullsrc=r=44100:cl=stereo"]
         filter_parts = []
         for idx, item in enumerate(adjusted):
@@ -810,7 +837,7 @@ def remix_with_offsets(req):
         output_file = OUTPUT_DIR / "final_dubbed.mp3"
         run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
         return {"status": "success", "segments_generated": len(adjusted), "duration_cuts": cuts,
-                "final_duration": round(final_duration, 2)}
+                "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}
     except Exception as e:
         return {"error": friendly_error(e)}
 

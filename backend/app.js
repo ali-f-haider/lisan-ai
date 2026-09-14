@@ -6,6 +6,11 @@ const VOICE_USD_PER_1K_CHARS = 0.18;
 const GEMINI_TEXT_MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
 const COIN_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9"/><path d="M14.5 9.5c0-1-1.1-1.6-2.5-1.6s-2.5.6-2.5 1.6 1.1 1.6 2.5 1.6 2.5.6 2.5 1.6-1.1 1.6-2.5 1.6-2.5-.6-2.5-1.6"/></svg>`;
 const NOTIFY_AUTO_CLOSE_MS = 10000;
+// Timeline blocks are sized by how much English text a line has, not by its
+// timespan (seg.end - seg.start) -- this constant converts character count
+// into an "equivalent duration" at a typical speaking rate, so it can still
+// be multiplied by the timeline's normal pixels-per-second scale.
+const ENGLISH_CHARS_PER_SEC = 15;
 
 let segmentsData = [], originalSegments = [];
 let speakerVoices = {}, speakerVoiceNames = {};
@@ -87,8 +92,25 @@ function setBadge(id, credits) {
     const el = document.getElementById(id);
     if (el) el.innerHTML = `${COIN_SVG}<strong>${credits}</strong>`;
 }
+// Real per-step charges from the server's own pricing config (admin-editable) --
+// these fall back to the current server defaults until /api/pricing answers, so
+// the badges below are never wrong even before that fetch completes.
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5 };
+async function loadRealPricing() {
+    try {
+        const res = await fetch("/api/pricing");
+        if (res.ok) {
+            const d = await res.json();
+            if (typeof d.transcribeCredits === "number") window._realPricing.transcribeCredits = d.transcribeCredits;
+            if (typeof d.mergeCredits === "number") window._realPricing.mergeCredits = d.mergeCredits;
+            if (typeof d.charsPerCredit === "number") window._realPricing.charsPerCredit = d.charsPerCredit;
+            if (typeof d.cloneCredits === "number") window._realPricing.cloneCredits = d.cloneCredits;
+        }
+    } catch (e) {}
+    updateBadges();
+}
 function updateBadges() {
-    setBadge("badgeTranscribe", 0);
+    setBadge("badgeTranscribe", window._realPricing.transcribeCredits);
     setBadge("badgeImport", 0);
     setBadge("badgeSRT", 0);
     setBadge("badgeSBV", 0);
@@ -100,9 +122,12 @@ function updateBadges() {
     setBadge("badgeAutoFix", 0);
     setBadge("badgeAutoAssign", 0);
     setBadge("badgePrepareClone", 0);
-    setBadge("badgeClone", 0);
+    setBadge("badgeClone", window._realPricing.cloneCredits);
     setBadge("badgeGenerate", usdToCredits(generateEstimateUsd()));
-    setBadge("badgeMerge", 0);
+    setBadge("badgeMerge", window._realPricing.mergeCredits);
+    // Step 5.5's "Apply changes & rebuild MP3" only re-mixes with ffmpeg (no TTS
+    // call), so it's free -- shown explicitly rather than left with no badge.
+    setBadge("badgeApplyVolumes", 0);
 }
 async function fetchUsage() {
     const box = document.getElementById("usageBox");
@@ -959,7 +984,7 @@ async function confirmTimeline() {
     } catch (e) { notify("error", e.message); }
 }
 
-window.addEventListener('DOMContentLoaded', updateBadges);
+window.addEventListener('DOMContentLoaded', loadRealPricing);
 
 const MAX_UPLOAD_BYTES = 400 * 1024 * 1024;
 const MAX_DURATION_SEC = 60.5;
@@ -1326,6 +1351,17 @@ async function regenerateLine(i, btn) {
             window._lineDurations[seg.segment_id] = data.stretched_duration;
         }
         if (typeof renderTimeline === "function") renderTimeline();
+        // Keep the Step 5.5 table's "needs attention" marking in sync with what
+        // actually happened to this line and to the mix as a whole -- the mark
+        // clears itself the moment these flags say the issue is gone.
+        var _vln = (window._volumeLines || []).find(function (v) { return v.segment_id === seg.segment_id; });
+        if (_vln) _vln.tempo_warning = !!data.tempo_warning;
+        if (data.mix && Array.isArray(data.mix.trimmed_segment_ids)) {
+            var _trimmedNow = {};
+            data.mix.trimmed_segment_ids.forEach(function (sid) { _trimmedNow[sid] = true; });
+            (window._volumeLines || []).forEach(function (ln) { ln.trimmed = !!_trimmedNow[ln.segment_id]; });
+        }
+        if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
         const au = document.querySelector("#audioResults audio");
         if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         fetchUsage();
@@ -1373,6 +1409,17 @@ async function restretchLine(seg) {
             try { window.VOL_NODES[seg.segment_id].a.pause(); } catch (e) {}
             delete window.VOL_NODES[seg.segment_id];
         }
+        // Same needs-attention sync as regenerateLine() -- keeps the Step 5.5
+        // table's warning mark accurate (and auto-clearing) after a pure
+        // Time Stretch re-warp too, not just a full re-speak.
+        var _vln2 = (window._volumeLines || []).find(function (v) { return v.segment_id === seg.segment_id; });
+        if (_vln2) _vln2.tempo_warning = !!data.tempo_warning;
+        if (data.mix && Array.isArray(data.mix.trimmed_segment_ids)) {
+            var _trimmedNow2 = {};
+            data.mix.trimmed_segment_ids.forEach(function (sid) { _trimmedNow2[sid] = true; });
+            (window._volumeLines || []).forEach(function (ln) { ln.trimmed = !!_trimmedNow2[ln.segment_id]; });
+        }
+        if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
         const au = document.querySelector("#audioResults audio");
         if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         const idx = segmentsData.indexOf(seg);
@@ -2103,9 +2150,10 @@ function renderTimeline() {
             var off = segmentOffsets[seg.segment_id] || 0;
             var box = document.createElement("div");
             var left = Math.max(0, (seg.start + off) * scale);
-            var width = Math.max(8, (seg.end - seg.start) * scale);
+            var engLen = (seg.text || "").length;
+            var width = Math.max(8, (engLen / ENGLISH_CHARS_PER_SEC) * scale);
             box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;";
-            box.title = "Line " + (i + 1) + ": drag to shift";
+            box.title = "Line " + (i + 1) + ": drag to shift (" + engLen + " English characters)";
             box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
             box.onmousedown = function(ev) {
                 ev.preventDefault();
@@ -2974,7 +3022,7 @@ var volOrigAudio = null;
     card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3>' +
         '<p class="note">Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.</p>' +
         '<div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style="min-width:130px">Volume</th><th></th></tr></thead><tbody></tbody></table></div>' +
-        '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3</button> ' +
+        '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3<span class="badge" id="badgeApplyVolumes"></span></button> ' +
         '<button id="resetVolumesBtn" class="blue">↺ Reset All Sliders</button>';
     res.parentNode.insertBefore(card, res);
     document.getElementById("applyVolumesBtn").onclick = applyVolumes;
@@ -3468,6 +3516,16 @@ async function applyVolumes() {
             if (!data || data.status !== "success") { notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "server error")); return; }
             var cuts = (data.duration_cuts || 0);
             notify("success", "Final MP3 rebuilt" + (cuts > 0 ? " — " + cuts + " line(s) still trimmed." : " — no lines were trimmed."));
+            // Refresh the Step 5.5 table's needs-attention marks from this rebuild's
+            // real result -- a line's mark clears itself the instant it's no longer
+            // in trimmed_segment_ids (e.g. the user allowed dead space / overlap, or
+            // loosened Time Stretch, and this rebuild fixed it).
+            if (Array.isArray(data.trimmed_segment_ids)) {
+                var _trimmedNow3 = {};
+                data.trimmed_segment_ids.forEach(function (sid) { _trimmedNow3[sid] = true; });
+                (window._volumeLines || []).forEach(function (ln) { ln.trimmed = !!_trimmedNow3[ln.segment_id]; });
+                if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
+            }
             var au = document.querySelector("#audioResults audio");
             if (au) { au.pause(); au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
             btn.textContent = "🔊 Apply changes & rebuild MP3";
@@ -4217,8 +4275,17 @@ window.cleanOldClones = function () {
         (lines || []).forEach(function (ln, i) {
             var seg = segmentsData.find(function (s) { return s.segment_id === ln.segment_id; }) || {};
             var tr = document.createElement("tr");
+            // Needs-attention mark: driven straight off this line's current data,
+            // so it disappears on its own the next time this table is rebuilt
+            // (after Apply/Regenerate/Time-Stretch) once ln.trimmed and
+            // ln.tempo_warning are both no longer true -- no separate clear step.
+            var needsAttention = !!(ln.trimmed || ln.tempo_warning);
+            var warnMsg = ln.trimmed
+                ? "This line's Arabic audio is cut short in the final mix \u2014 it doesn't fit its slot even after stretching. Try a looser Time Stretch, allow overlap/dead space for it, or shorten the line."
+                : "This line needed the maximum Time Stretch setting to fit its slot.";
+            if (needsAttention) { tr.style.background = "rgba(245,158,11,0.14)"; tr.title = warnMsg; }
             function td(html) { var c = document.createElement("td"); c.innerHTML = html; tr.appendChild(c); return c; }
-            td(String(i + 1));
+            td((needsAttention ? '<span title="' + warnMsg.replace(/"/g, "'") + '" style="margin-right:4px;">\u26A0\uFE0F</span>' : "") + String(i + 1));
             td(ln.speaker || seg.speaker || "");
             var full = (seg.arabic_text || seg.text || "");
             td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
@@ -4573,7 +4640,13 @@ window.cleanOldClones = function () {
             var off = segmentOffsets[seg.segment_id] || 0;
             var cs = seg.start + off;
             var slot = seg.end - seg.start;
-            var slotPx = Math.max(8, slot * scale);
+            // Block width follows the English line length (same formula as the base
+            // renderTimeline), not the Step 2 table's timespan -- this IIFE runs last
+            // among the fade-overlay wrappers, so its own width assertion is what
+            // actually sticks; keep `slot` below for the audio-duration/collision math,
+            // which is about real time positions and is unaffected by visual width.
+            var engLen = (seg.text || "").length;
+            var slotPx = Math.max(8, (engLen / ENGLISH_CHARS_PER_SEC) * scale);
             var wStr = slotPx + "px";
             if (b.style.width !== wStr) b.style.width = wStr;
             var want = (window.overlapAllowed && window.overlapAllowed[seg.segment_id]) ? "inset 0 0 0 2px #22c55e" : "";
@@ -4953,6 +5026,16 @@ window.cleanOldClones = function () {
     function drawDubDurationOverlay() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData || !segmentsData.length) return;
+        if (window._hideArabicDubOverlay) {
+            // Toggle is off -- drop any bars/legend already drawn and stop.
+            Object.keys(window._dubOverlayNodes).forEach(function (sid) {
+                try { window._dubOverlayNodes[sid].remove(); } catch (e) {}
+                delete window._dubOverlayNodes[sid];
+            });
+            var leg0 = document.getElementById("timelineLegendDub");
+            if (leg0) leg0.remove();
+            return;
+        }
         var total = (typeof totalDuration === "number" && totalDuration > 0) ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
         var scale = (wrap.clientWidth || 900) / total;
         var divs = wrap.querySelectorAll("div");

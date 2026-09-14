@@ -972,7 +972,17 @@ def analyze_speakers(req: AnalyzeRequest):
     return {"analysis": analysis}
 
 @app.post("/api/clone")
-def clone(req: CloneRequest):
+def clone(req: CloneRequest, request: Request):
+    uid = _current_uid(request)
+    bal = get_credits(uid) if uid else None
+    clone_cost = int(_get_pricing_config().get("cloneCredits", 5))
+    if clone_cost <= 0:
+        clone_cost = 5
+    if bal is not None and bal < clone_cost:
+        plural = "s" if clone_cost != 1 else ""
+        return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
+    if uid:
+        deduct_credits(uid, clone_cost, "clone", req.job_id)
     return eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
 
 @app.post("/api/translate")
@@ -1354,6 +1364,7 @@ def _get_pricing_config():
         "transcribeCredits": 3,
         "mergeCredits": 1,
         "charsPerCredit": 60,
+        "cloneCredits": 5,
         "packs": DEFAULT_PACKS
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -1376,6 +1387,7 @@ def _get_pricing_config():
                 "transcribeCredits": row.get("transcribe_credits", defaults["transcribeCredits"]),
                 "mergeCredits": row.get("merge_credits", defaults["mergeCredits"]),
                 "charsPerCredit": row.get("chars_per_credit", defaults["charsPerCredit"]),
+                "cloneCredits": row.get("clone_credits", defaults["cloneCredits"]),
                 "packs": row.get("packs", defaults["packs"])
             }
     except Exception as ex:
@@ -1403,6 +1415,7 @@ def _save_pricing_config(config):
             "transcribe_credits": config.get("transcribeCredits", 3),
             "merge_credits": config.get("mergeCredits", 1),
             "chars_per_credit": config.get("charsPerCredit", 60),
+            "clone_credits": config.get("cloneCredits", 5),
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
@@ -1726,12 +1739,19 @@ def admin_page(request: Request):
 # ============================================================
 @app.get("/api/pricing")
 def public_pricing():
-    """Returns the user-facing pricing config (packs + per-minute rate).
-    No auth required — used by the buy-credits modal."""
+    """Returns the user-facing pricing config (packs + per-minute rate),
+    plus the real per-step charges (transcribeCredits/mergeCredits/
+    charsPerCredit/cloneCredits) so the app's own credit badges can show
+    what a button actually costs instead of a guessed or hardcoded number.
+    No auth required — these are prices, not secrets."""
     cfg = _get_pricing_config()
     return {
         "pricePerMin": cfg.get("pricePerMin", 150),
-        "packs": cfg.get("packs", [])
+        "packs": cfg.get("packs", []),
+        "transcribeCredits": cfg.get("transcribeCredits", 3),
+        "mergeCredits": cfg.get("mergeCredits", 1),
+        "charsPerCredit": cfg.get("charsPerCredit", 60),
+        "cloneCredits": cfg.get("cloneCredits", 5)
     }
 
 @app.get("/api/billing/packs")
