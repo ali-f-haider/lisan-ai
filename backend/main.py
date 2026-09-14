@@ -1798,6 +1798,13 @@ def contact_form(req: ContactRequest, request: Request):
             if r.status not in (200, 201):
                 raise RuntimeError(f"Resend returned status {r.status}")
         return {"ok": True}
+    except urllib.error.HTTPError as ex:
+        try:
+            err_body = ex.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = "(could not read response body)"
+        print(f"[contact] Resend send failed: HTTP {ex.code} -- {err_body}")
+        return JSONResponse({"ok": False, "error": "Message could not be sent. Please email us directly."}, status_code=502)
     except Exception as ex:
         print(f"[contact] Resend send failed: {ex}")
         return JSONResponse({"ok": False, "error": "Message could not be sent. Please email us directly."}, status_code=502)
