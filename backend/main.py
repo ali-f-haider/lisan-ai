@@ -1791,6 +1791,10 @@ def contact_form(req: ContactRequest, request: Request):
             headers={
                 "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json",
+                # Resend sits behind Cloudflare, which blocks Python's default
+                # "Python-urllib/3.x" User-Agent as a bot signature (Cloudflare
+                # error 1010). A normal-looking User-Agent avoids that block.
+                "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
             },
             method="POST",
         )
