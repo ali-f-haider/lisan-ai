@@ -19,6 +19,23 @@ from ffmpeg_utils import (
 # (the "calm CPU but 3-4x slower" bug).
 torch.set_num_threads(4)
 
+
+def _trim_memory():
+    """Ask glibc to actually hand freed heap memory back to the OS.
+
+    Dropping a Python/PyTorch object and calling gc.collect() frees it at
+    the application level, but glibc's malloc keeps that freed space inside
+    the process (to reuse later) instead of returning it to the OS -- so
+    Railway's memory graph can keep showing the old high-water mark even
+    though nothing is actually using that RAM anymore. malloc_trim(0) forces
+    glibc to release what it can. Safe no-op if it's ever unavailable."""
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
 # Loaded lazily on first use, and released after each job, instead of
 # staying resident in RAM for the entire lifetime of the process --
 # large-v3 is a big model and most of the time nobody is transcribing.
@@ -47,6 +64,7 @@ def _release_model():
         _model = None
     import gc
     gc.collect()
+    _trim_memory()
 
 
 def _release_diarization_pipeline(hf_token):
@@ -58,6 +76,7 @@ def _release_diarization_pipeline(hf_token):
     diarization_pipelines.pop(hf_token, None)
     import gc
     gc.collect()
+    _trim_memory()
 
 
 def split_segment(segment, max_duration=15.0):
