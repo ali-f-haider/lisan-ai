@@ -785,7 +785,37 @@ def _gemini_text(prompt: str):
 
 @app.get("/")
 def landing():
-    return FileResponse(BASE_DIR / "landing.html")
+    # If a GA4 Measurement ID is set in the admin panel, inject Google's
+    # own standard gtag.js snippet directly into <head> server-side, on
+    # the raw HTML -- not via a client-side fetch-then-inject like the
+    # first version of this did. Google's own automated "tag not detected"
+    # checker (and most bot/crawler-based checks) reads the page source
+    # without waiting for an extra async round-trip, so a tag that only
+    # appears after a follow-up JS fetch can look "not installed" even
+    # though it works for real visitors. Injecting it straight into the
+    # HTML response matches exactly what Google's install instructions
+    # ask for ("put this code after <head> in every page") and is
+    # reliably detectable.
+    html = (BASE_DIR / "landing.html").read_text(encoding="utf-8")
+    import re as _re
+    ga_id = (_get_pricing_config().get("gaMeasurementId") or "").strip()
+    # Only accept a well-formed GA4 ID (e.g. "G-NBWB2VYYE4") -- this value
+    # gets embedded directly into raw HTML/JS below with no escaping, so
+    # validating the shape here (rather than trusting whatever is in the
+    # DB) is what keeps that safe.
+    if _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga_id):
+        snippet = (
+            "<!-- Google tag (gtag.js) -->\n"
+            f'<script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>\n'
+            "<script>\n"
+            "  window.dataLayer = window.dataLayer || [];\n"
+            "  function gtag(){dataLayer.push(arguments);}\n"
+            "  gtag('js', new Date());\n"
+            f"  gtag('config', '{ga_id}');\n"
+            "</script>\n"
+        )
+        html = html.replace("<head>", "<head>\n" + snippet, 1)
+    return HTMLResponse(html)
 
 @app.get("/app")
 def home():
@@ -1380,9 +1410,9 @@ def _get_pricing_config():
         "charsPerCredit": 60,
         "cloneCredits": 5,
         # Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"), set from
-        # the admin panel. Empty string = analytics off. Public pages read
-        # this via /api/public/analytics and only load GA once it's set, so
-        # nothing is tracked until the admin turns it on.
+        # the admin panel. Empty string = analytics off. The landing() route
+        # below injects Google's gtag.js snippet server-side into the page
+        # only when this is set, so nothing is tracked until admin turns it on.
         "gaMeasurementId": "",
         "packs": DEFAULT_PACKS
     }
@@ -1424,7 +1454,15 @@ def _save_pricing_config(config):
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return False  # not in DB, but UI already shows current values
     try:
+        import re as _re
         import urllib.request as _ur
+        # Accept either the bare Measurement ID ("G-NBWB2VYYE4") or the
+        # whole <script> snippet Google's setup page tells you to paste --
+        # pull just the "G-..." ID out of whatever was typed in, so pasting
+        # Google's full install snippet into this one field still works.
+        _raw_ga = (config.get("gaMeasurementId") or "").strip()
+        _ga_match = _re.search(r"G-[A-Za-z0-9]{4,20}", _raw_ga)
+        _clean_ga = _ga_match.group(0) if _ga_match else _raw_ga
         body = json.dumps({
             "id": "singleton",
             "price_per_min": config.get("pricePerMin", 150),
@@ -1436,7 +1474,7 @@ def _save_pricing_config(config):
             "merge_credits": config.get("mergeCredits", 1),
             "chars_per_credit": config.get("charsPerCredit", 60),
             "clone_credits": config.get("cloneCredits", 5),
-            "ga_measurement_id": (config.get("gaMeasurementId") or "").strip(),
+            "ga_measurement_id": _clean_ga,
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
@@ -1785,16 +1823,6 @@ def billing_packs_dynamic():
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
     return {"packs": _keyed_packs(packs_array), "price_per_min": cfg.get("pricePerMin", 150)}
-
-@app.get("/api/public/analytics")
-def public_analytics():
-    """Public, no-auth: just the GA4 Measurement ID, if the admin has set
-    one in the pricing panel. Empty string means analytics is off. The
-    landing page fetches this and only loads Google Analytics when it gets
-    back a real ID -- nothing is ever tracked until this is deliberately
-    turned on here."""
-    cfg = _get_pricing_config()
-    return {"gaMeasurementId": cfg.get("gaMeasurementId", "")}
 
 @app.post("/api/contact")
 def contact_form(req: ContactRequest, request: Request):

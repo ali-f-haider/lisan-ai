@@ -211,21 +211,13 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
 </footer>
 
 <script>
-// Google Analytics 4 — only loads if the admin has set a Measurement ID
-// in the admin panel (Pricing > Analytics). Nothing is tracked otherwise.
-fetch("/api/public/analytics").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
-  var gaId = d && d.gaMeasurementId;
-  if (!gaId) return;
-  var s = document.createElement("script");
-  s.async = true;
-  s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(gaId);
-  document.head.appendChild(s);
-  window.dataLayer = window.dataLayer || [];
-  function gtag() { window.dataLayer.push(arguments); }
-  window.gtag = gtag;
-  gtag("js", new Date());
-  gtag("config", gaId);
-}).catch(function () {});
+// Google Analytics 4: now injected server-side (see the landing() route in
+// main.py) directly into <head>, only when a Measurement ID is set in the
+// admin panel -- not loaded from here anymore. Doing it server-side, as a
+// literal <script> tag present in the page's raw HTML, is what makes it
+// reliably detectable by Google's own "tag not detected" checker (a tag
+// that only appears after a follow-up client-side fetch can look
+// uninstalled to automated checks even though it works for real visitors).
 // Fill pack cards from the live pricing endpoint when it is publicly reachable
 fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
   if (!d || !d.packs) return;
