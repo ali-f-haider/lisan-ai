@@ -1778,7 +1778,7 @@ def contact_form(req: ContactRequest, request: Request):
     subject = f"Lisan AI contact form: {name or email}"
     body_text = f"From: {name or '(no name given)'} <{email}>\n\n{message}"
     payload = json.dumps({
-        "from": "Lisan AI Contact <onboarding@resend.dev>",
+        "from": "Lisan AI Contact <contact@lisanai.org>",
         "to": [CONTACT_TO_EMAIL],
         "reply_to": email,
         "subject": subject,
