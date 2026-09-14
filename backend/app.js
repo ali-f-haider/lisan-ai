@@ -2168,19 +2168,28 @@ function renderTimeline() {
                 ev.preventDefault();
                 var startX = ev.clientX;
                 var startOff = off;
+                // Collision must be checked against this block's actual VISUAL
+                // width (time-equivalent), not seg.end - seg.start -- since the
+                // block is now sized by English text length, its rendered width
+                // no longer matches its timespan. Checking against the timespan
+                // (as this used to) let a wide block's blue box visually run into
+                // the next block even while "respecting" a collision limit that
+                // no longer matched what was on screen.
+                var widthTime = width / scale;
                 var sameLane = segmentsData.filter(function(s, idx) { return idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
                 var move = function(e2) {
                     var no = startOff + (e2.clientX - startX) / scale;
                     no = Math.max(-2, Math.min(2, no));
                     if (seg.start + no < 0) no = -seg.start;
-                    if (seg.end + no > total) no = total - seg.end;
+                    if (seg.start + no + widthTime > total) no = total - widthTime - seg.start;
                     for (var k = 0; k < sameLane.length; k++) {
                         var nb = sameLane[k];
                         var nbOff = segmentOffsets[nb.segment_id] || 0;
+                        var nbWidthTime = Math.max(8 / scale, ((nb.text || "").length) / ENGLISH_CHARS_PER_SEC);
                         var nbStart = nb.start + nbOff;
-                        var nbEnd = nb.end + nbOff;
-                        if (seg.start + no < nbEnd && seg.end + no > nbStart) {
-                            if (no > startOff) { no = nbStart - seg.end; } else { no = nbEnd - seg.start; }
+                        var nbEnd = nbStart + nbWidthTime;
+                        if (seg.start + no < nbEnd && seg.start + no + widthTime > nbStart) {
+                            if (no > startOff) { no = nbStart - widthTime - seg.start; } else { no = nbEnd - seg.start; }
                         }
                     }
                     segmentOffsets[seg.segment_id] = no;
