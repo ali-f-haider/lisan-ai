@@ -49,6 +49,17 @@ def _release_model():
     gc.collect()
 
 
+def _release_diarization_pipeline(hf_token):
+    """Drop the cached pyannote diarization pipeline for this token so its
+    memory is freed once this job's speaker-detection step is done. Unlike
+    the Whisper model, this pipeline used to stay in `diarization_pipelines`
+    for the entire lifetime of the process once any job used speaker
+    detection -- that's a major reason idle memory usage kept climbing."""
+    diarization_pipelines.pop(hf_token, None)
+    import gc
+    gc.collect()
+
+
 def split_segment(segment, max_duration=15.0):
     """Fallback splitter used when diarization is unavailable."""
     text = segment.text.strip()
@@ -354,6 +365,11 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             if speaker_count and len(speaker_label_map) < int(speaker_count):
                 warning = (warning + " | " if warning else "") + \
                     f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+
+            # Free the diarization pipeline's RAM now that speaker detection
+            # is done for this job -- it isn't needed again until the next
+            # job that requests speaker detection.
+            _release_diarization_pipeline(hf_token)
 
         jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
         jobs_progress[job_id]["percent"] = 90
