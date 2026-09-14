@@ -155,6 +155,16 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
+        <h3>📊 Analytics</h3>
+        <div class="form-group">
+          <label>Google Analytics 4 Measurement ID</label>
+          <input type="text" id="gaMeasurementId" style="width:220px;" placeholder="G-XXXXXXXXXX">
+          <span class="muted">Paste your GA4 Measurement ID to turn on visitor tracking on the public landing page (lisanai.org). Leave blank to keep it off — nothing is tracked until this is set. Get a free ID at analytics.google.com.</span>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
+      </div>
+
+      <div class="card">
         <h3>💳 Credit Packs</h3>
         <p class="muted" style="font-size:12px;margin-bottom:8px;">Key is the pack's permanent public ID — it's what the landing page, buy modal and Stripe checkout use to identify this pack. Renaming the pack is safe and never changes its key. Leave Key blank on a new pack and it will be generated from the name when you save.</p>
         <table>
@@ -354,7 +364,7 @@ function slugifyPackKey(name) {
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['pricePerMin','freeCredits','minReserve','maxVideoMin','markup','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits'].forEach(k => {
+  ['pricePerMin','freeCredits','minReserve','maxVideoMin','markup','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','gaMeasurementId'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   let html = '';
@@ -415,6 +425,7 @@ async function savePricing() {
     mergeCredits: parseInt(document.getElementById('mergeCredits')?.value || '1'),
     charsPerCredit: parseInt(document.getElementById('charsPerCredit')?.value || '60'),
     cloneCredits: parseInt(document.getElementById('cloneCredits')?.value || '5'),
+    gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs
   };
 

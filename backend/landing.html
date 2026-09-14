@@ -6,6 +6,17 @@
 <title>Lisan AI — English to Arabic AI Dubbing</title>
 <meta name="description" content="Lisan AI — English to Arabic video dubbing with voice cloning, emotion styles and manual fine-tuning. Pay-as-you-go credits, no subscriptions.">
 <link rel="icon" type="image/png" href="/logo.png">
+<!-- Open Graph / social share preview (Facebook, LinkedIn, WhatsApp, Slack, etc.) -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://lisanai.org/">
+<meta property="og:title" content="Lisan AI — English to Arabic AI Dubbing">
+<meta property="og:description" content="AI-powered English to Arabic video dubbing with voice cloning, emotion styles and manual fine-tuning. Pay-as-you-go credits, no subscriptions.">
+<meta property="og:image" content="https://lisanai.org/logo.png">
+<!-- Twitter/X card -->
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Lisan AI — English to Arabic AI Dubbing">
+<meta name="twitter:description" content="AI-powered English to Arabic video dubbing with voice cloning, emotion styles and manual fine-tuning.">
+<meta name="twitter:image" content="https://lisanai.org/logo.png">
 <style>
 :root{--indigo:#1a237e;--green:#059669;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--bg:#f9fafb}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -200,6 +211,21 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
 </footer>
 
 <script>
+// Google Analytics 4 — only loads if the admin has set a Measurement ID
+// in the admin panel (Pricing > Analytics). Nothing is tracked otherwise.
+fetch("/api/public/analytics").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+  var gaId = d && d.gaMeasurementId;
+  if (!gaId) return;
+  var s = document.createElement("script");
+  s.async = true;
+  s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(gaId);
+  document.head.appendChild(s);
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { window.dataLayer.push(arguments); }
+  window.gtag = gtag;
+  gtag("js", new Date());
+  gtag("config", gaId);
+}).catch(function () {});
 // Fill pack cards from the live pricing endpoint when it is publicly reachable
 fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
   if (!d || !d.packs) return;

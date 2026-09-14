@@ -1379,6 +1379,11 @@ def _get_pricing_config():
         "mergeCredits": 1,
         "charsPerCredit": 60,
         "cloneCredits": 5,
+        # Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"), set from
+        # the admin panel. Empty string = analytics off. Public pages read
+        # this via /api/public/analytics and only load GA once it's set, so
+        # nothing is tracked until the admin turns it on.
+        "gaMeasurementId": "",
         "packs": DEFAULT_PACKS
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -1402,6 +1407,7 @@ def _get_pricing_config():
                 "mergeCredits": row.get("merge_credits", defaults["mergeCredits"]),
                 "charsPerCredit": row.get("chars_per_credit", defaults["charsPerCredit"]),
                 "cloneCredits": row.get("clone_credits", defaults["cloneCredits"]),
+                "gaMeasurementId": row.get("ga_measurement_id", defaults["gaMeasurementId"]),
                 "packs": row.get("packs", defaults["packs"])
             }
     except Exception as ex:
@@ -1430,6 +1436,7 @@ def _save_pricing_config(config):
             "merge_credits": config.get("mergeCredits", 1),
             "chars_per_credit": config.get("charsPerCredit", 60),
             "clone_credits": config.get("cloneCredits", 5),
+            "ga_measurement_id": (config.get("gaMeasurementId") or "").strip(),
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
@@ -1778,6 +1785,17 @@ def billing_packs_dynamic():
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
     return {"packs": _keyed_packs(packs_array), "price_per_min": cfg.get("pricePerMin", 150)}
+
+@app.get("/api/public/analytics")
+def public_analytics():
+    """Public, no-auth: just the GA4 Measurement ID, if the admin has set
+    one in the pricing panel. Empty string means analytics is off. The
+    landing page fetches this and only loads Google Analytics when it gets
+    back a real ID -- nothing is ever tracked until this is deliberately
+    turned on here."""
+    cfg = _get_pricing_config()
+    return {"gaMeasurementId": cfg.get("gaMeasurementId", "")}
+
 @app.post("/api/contact")
 def contact_form(req: ContactRequest, request: Request):
     """Public contact form (landing page + in-app) -- emails
