@@ -121,12 +121,14 @@ function updateBadges() {
     setBadge("badgeEmotions", usdToCredits(emotionsEstimateUsd()));
     setBadge("badgeAutoFix", 0);
     // Step 4: Auto-Assign and Browse Voice Library only pick/preview existing
-    // studio voices -- no new voice is created, so both are free. Uploading a
-    // custom voice DOES create one (same ElevenLabs quota as Clone), so it
-    // carries the same cloneCredits price as the Clone button below.
+    // studio voices -- no new voice is created, so both are free. Choosing a
+    // file is just a local file picker (no server call, no cost) -- only
+    // clicking "Upload as this speaker's voice" actually creates a voice
+    // (same ElevenLabs quota as Clone), so only THAT button carries the
+    // cloneCredits price. (Both used to show the same badge, which read as
+    // two separate 5-credit charges for one action.)
     setBadge("badgeAutoAssign", 0);
     setBadge("badgeVoiceLibrary", 0);
-    setBadge("badgeCvFile", window._realPricing.cloneCredits);
     setBadge("badgeCvUpload", window._realPricing.cloneCredits);
     setBadge("badgePrepareClone", 0);
     setBadge("badgeClone", window._realPricing.cloneCredits);
@@ -3313,7 +3315,7 @@ async function applyVolumes() {
         box.style.marginTop = "12px";
         box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.<br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
-            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Upload File<span class="badge" id="badgeCvFile"></span></label>' +
+            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Choose File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice<span class="badge" id="badgeCvUpload"></span></button>' +
             '<span id="cvStatus" style="margin-left:10px;font-size:12px;color:#6b7280;"></span>';
         sv.appendChild(box);
@@ -3786,7 +3788,7 @@ window.cleanOldClones = function () {
         if (!box || document.getElementById("cvSpeaker")) return;
         box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.<br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
-            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Upload File<span class="badge" id="badgeCvFile"></span></label>' +
+            '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Choose File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice<span class="badge" id="badgeCvUpload"></span></button> ' +
             '<button class="red" id="cvClean" style="margin-top:8px;">🧹 Clean old cloned voices</button>' +
             '<span id="cvStatus" style="margin-left:10px;font-size:12px;color:#6b7280;"></span>';
