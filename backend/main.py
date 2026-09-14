@@ -1182,6 +1182,19 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     if not nm.endswith((".mp3", ".wav")): return {"error": "Only MP3 or WAV files are allowed."}
     data = await file.read()
     if len(data) > 10 * 1024 * 1024: return {"error": "File too large (max 10 MB / 20 seconds)."}
+    # Uploading a custom voice hits the same ElevenLabs POST /v1/voices/add
+    # endpoint -- and the same paid voice-creation quota -- as "Clone Selected
+    # Voices" in /api/clone above, so charge it the same admin-configurable
+    # price (cloneCredits). Checked up front so a low balance is rejected
+    # before spending the ElevenLabs quota; actually deducted only after the
+    # voice is created, so a rejected/too-long clip never gets charged.
+    clone_cost = int(_get_pricing_config().get("cloneCredits", 5))
+    if clone_cost <= 0:
+        clone_cost = 5
+    bal = get_credits(uid)
+    if bal is not None and bal < clone_cost:
+        plural = "s" if clone_cost != 1 else ""
+        return JSONResponse({"error": f"Insufficient credits (creating a custom voice costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
     import uuid as _u
     tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
     tmp.write_bytes(data)
@@ -1191,6 +1204,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
         try: tmp.unlink()
         except Exception: pass
     if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
+    deduct_credits(uid, clone_cost, "custom_voice", job_id or "")
     return {"status": "success", "voice_id": res}
 
 def account_summary(request: Request):

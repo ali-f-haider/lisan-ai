@@ -147,9 +147,9 @@ button.btn-success:hover { background: #15803d; }
           <span class="muted">Lower = more expensive (e.g. 30 charges twice as many credits as 60 for the same text)</span>
         </div>
         <div class="form-group">
-          <label>Clone voices (flat credits per job)</label>
+          <label>Clone / upload custom voice (flat credits per action)</label>
           <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Current default: 5</span>
+          <span class="muted">Current default: 5 — charged for both "Clone Selected Voices" (Step 3.5) and "Upload as this speaker's voice" (Step 4), since both create a new voice via the same paid ElevenLabs quota.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
       </div>
