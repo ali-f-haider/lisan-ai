@@ -4364,9 +4364,22 @@ window.cleanOldClones = function () {
     };
 
     // THE single fade engine: glued to blocks, live during drag, honors overlap flags
+    // DISABLED: this predates draw9() below (v4), which draws the same
+    // cross-speaker fade indicator but correctly SKIPS same-speaker
+    // neighbors (`if ((q.speaker...) === (seg.speaker...)) return;`). This
+    // function never had that check, so it was flagging a line as
+    // "faded/trimmed" just because another line by the SAME speaker started
+    // after it -- not an actual overlap between two different speakers.
+    // It also drew its fade box as a free-floating child of the LANE (not
+    // clipped to the block, unlike draw9's), which is why it could render
+    // on top of the green Arabic-audio-length overlay. Left as a no-op
+    // rather than deleted, since schedule7/the renderTimeline wrap and the
+    // (unrelated, still-needed) checkGenerateProgress wrap further below
+    // both still reference it.
     var pending7 = false;
     function schedule7() { if (pending7) return; pending7 = true; requestAnimationFrame(function () { pending7 = false; draw7(); }); }
     function draw7() {
+        return;
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData.length) return;
         wrap.querySelectorAll(".segFadeOv, .fadeOv7").forEach(function (f) { f.remove(); });
