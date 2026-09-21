@@ -1842,7 +1842,6 @@ def _get_pricing_config():
         "freeCredits": 150,
         "minReserve": 150,
         "maxVideoMin": 60,
-        "markup": 4.0,
         # Real per-step charges -- these are the ones actually read by
         # _watch_and_deduct() and /api/merge_video below.
         "transcribeCredits": 3,
@@ -1871,7 +1870,6 @@ def _get_pricing_config():
                 "freeCredits": row.get("free_credits", defaults["freeCredits"]),
                 "minReserve": row.get("min_reserve", defaults["minReserve"]),
                 "maxVideoMin": row.get("max_video_min", defaults["maxVideoMin"]),
-                "markup": row.get("markup", defaults["markup"]),
                 "transcribeCredits": row.get("transcribe_credits", defaults["transcribeCredits"]),
                 "mergeCredits": row.get("merge_credits", defaults["mergeCredits"]),
                 "charsPerCredit": row.get("chars_per_credit", defaults["charsPerCredit"]),
@@ -1907,7 +1905,6 @@ def _save_pricing_config(config):
             "free_credits": config.get("freeCredits", 150),
             "min_reserve": config.get("minReserve", 150),
             "max_video_min": config.get("maxVideoMin", 60),
-            "markup": config.get("markup", 4.0),
             "transcribe_credits": config.get("transcribeCredits", 3),
             "merge_credits": config.get("mergeCredits", 1),
             "chars_per_credit": config.get("charsPerCredit", 60),
