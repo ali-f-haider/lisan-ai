@@ -105,11 +105,6 @@ button.btn-success:hover { background: #15803d; }
         <h3>💰 Pricing Configuration</h3>
         <p class="muted" style="margin-bottom:16px;">Changes take effect immediately for all new jobs.</p>
         <div class="form-group">
-          <label>Credits per minute of audio/video</label>
-          <input type="number" id="pricePerMin" style="width:120px;" step="10" min="50" max="500">
-          <span class="muted">Recommended: 150 (= $1.50/min at 100 cr/$)</span>
-        </div>
-        <div class="form-group">
           <label>Free credits on signup</label>
           <input type="number" id="freeCredits" style="width:120px;" step="50" min="0" max="1000">
           <span class="muted">Recommended: 150 (enough for 1 minute trial)</span>
@@ -378,7 +373,7 @@ function slugifyPackKey(name) {
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['pricePerMin','freeCredits','minReserve','maxVideoMin','markup','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','gaMeasurementId'].forEach(k => {
+  ['freeCredits','minReserve','maxVideoMin','markup','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','gaMeasurementId'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   let html = '';
@@ -430,7 +425,6 @@ async function savePricing() {
 
   // Read the pricing config inputs
   const update = {
-    pricePerMin: parseInt(document.getElementById('pricePerMin')?.value || '150'),
     freeCredits: parseInt(document.getElementById('freeCredits')?.value || '150'),
     minReserve: parseInt(document.getElementById('minReserve')?.value || '150'),
     maxVideoMin: parseInt(document.getElementById('maxVideoMin')?.value || '60'),

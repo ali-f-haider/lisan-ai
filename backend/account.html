@@ -31,36 +31,107 @@
 <div id="userBar">
   <div style="display:flex;align-items:center;gap:10px;">
     <img src="/logo.png" style="height:30px;" alt="">
-    <strong style="color:#1a237e;">Lisan AI — My Usage</strong>
+    <strong id="pageTitle" style="color:#1a237e;">Lisan AI — My Usage</strong>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
-    <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">0</span> credits</span>
-    <button class="btn-logout" onclick="location.href='/app'">← Back to App</button>
-    <button class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
+    <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">0</span> <span id="creditsWord">credits</span></span>
+    <button id="backBtn" class="btn-logout" onclick="location.href='/app'">← Back to App</button>
+    <button id="logoutBtn" class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
   </div>
 </div>
 <div class="card">
-  <h3>💰 Current balance</h3>
+  <h3 id="balanceHeading">💰 Current balance</h3>
   <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
-  <p class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
+  <p id="balanceNote" class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
 </div>
 <div class="card">
-  <h3>🎬 Your Finished Files</h3>
-  <p class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
-  <div id="myJobsList"><p style="color:#6b7280;">Loading…</p></div>
+  <h3 id="filesHeading">🎬 Your Finished Files</h3>
+  <p id="filesNote" class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
+  <div id="myJobsList"><p style="color:#6b7280;" id="loadingText">Loading…</p></div>
 </div>
 <div class="card">
-  <h3>🛒 Credit purchases</h3>
-  <table id="purchasesTable"><thead><tr><th>Date</th><th>Credits</th><th>Stripe session</th></tr></thead><tbody></tbody></table>
+  <h3 id="purchasesHeading">🛒 Credit purchases</h3>
+  <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPCredits">Credits</th><th id="thPSession">Stripe session</th></tr></thead><tbody></tbody></table>
 </div>
 <div class="card">
-  <h3>📉 Credit consumption</h3>
-  <table id="spendsTable"><thead><tr><th>Date</th><th>Action</th><th>Job</th><th>Credits</th></tr></thead><tbody></tbody></table>
+  <h3 id="spendsHeading">📉 Credit consumption</h3>
+  <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
 </div>
 <script>
+// Follows the main app's language choice -- this page has no toggle of its
+// own, it just reads the same "lisan_lang" localStorage key app.js writes
+// on /app, and renders once in that language on load. If main app is set to
+// Arabic, this page shows Arabic; if English, this page shows English.
+var LANG = (localStorage.getItem("lisan_lang") === "ar") ? "ar" : "en";
+
+var T = {
+  en: {
+    title: "Lisan AI — My Usage", credits: "credits", back: "← Back to App", logout: "Log Out",
+    balanceHeading: "💰 Current balance",
+    balanceNote: "100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.",
+    filesHeading: "🎬 Your Finished Files",
+    filesNote: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
+    loading: "Loading…",
+    purchasesHeading: "🛒 Credit purchases", thPDate: "Date", thPCredits: "Credits", thPSession: "Stripe session",
+    spendsHeading: "📉 Credit consumption", thSDate: "Date", thSAction: "Action", thSJob: "Job", thSCredits: "Credits",
+    noPurchases: "No purchases yet.", noSpends: "No consumption recorded yet.",
+    expiringSoon: "expiring soon", expiresOneDay: "expires in 1 day",
+    expiresDays: function (n) { return "expires in " + n + " days"; },
+    nothingYet: "Nothing here yet — files you generate will show up here for 30 days.",
+    couldntLoad: "Couldn't load your files right now.",
+    dlVideo: "⬇️ Download Video", dlLipsync: "⬇️ Download Lip-Synced Video", dlMp3: "⬇️ Download MP3",
+    del: "🗑️ Delete", deduction: "deduction",
+    confirmDelete: "Delete this file permanently? This can't be undone.",
+    deleteFailed: "Couldn't delete this file. Please try again."
+  },
+  ar: {
+    title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
+    balanceHeading: "💰 الرصيد الحالي",
+    balanceNote: "100 ائتمان = 1.00 دولار · التفريغ 3 · التوليد ≈ الأحرف/60 · الدمج 1. الائتمانات لا تنتهي صلاحيتها.",
+    filesHeading: "🎬 ملفاتك الجاهزة",
+    filesNote: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    loading: "جارٍ التحميل…",
+    purchasesHeading: "🛒 مشتريات الائتمان", thPDate: "التاريخ", thPCredits: "الائتمانات", thPSession: "جلسة Stripe",
+    spendsHeading: "📉 استهلاك الائتمان", thSDate: "التاريخ", thSAction: "الإجراء", thSJob: "المهمة", thSCredits: "الائتمانات",
+    noPurchases: "لا توجد مشتريات بعد.", noSpends: "لم يُسجَّل أي استهلاك بعد.",
+    expiringSoon: "تنتهي صلاحيته قريبًا", expiresOneDay: "تنتهي صلاحيته خلال يوم واحد",
+    expiresDays: function (n) { return "تنتهي صلاحيته خلال " + n + " يومًا"; },
+    nothingYet: "لا يوجد شيء هنا بعد — ستظهر الملفات التي تولّدها هنا لمدة 30 يومًا.",
+    couldntLoad: "تعذّر تحميل ملفاتك الآن.",
+    dlVideo: "⬇️ تنزيل الفيديو", dlLipsync: "⬇️ تنزيل الفيديو المتزامن مع الشفاه", dlMp3: "⬇️ تنزيل MP3",
+    del: "🗑️ حذف", deduction: "خصم",
+    confirmDelete: "حذف هذا الملف نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.",
+    deleteFailed: "تعذّر حذف هذا الملف. حاول مرة أخرى."
+  }
+}[LANG];
+
+(function applyStaticText() {
+  document.documentElement.lang = (LANG === "ar") ? "ar" : "en";
+  document.body.classList.toggle("lang-ar", LANG === "ar");
+  document.title = T.title;
+  document.getElementById("pageTitle").textContent = T.title;
+  document.getElementById("creditsWord").textContent = T.credits;
+  document.getElementById("backBtn").firstChild.nodeValue = T.back;
+  document.getElementById("logoutBtn").textContent = T.logout;
+  document.getElementById("balanceHeading").textContent = T.balanceHeading;
+  document.getElementById("balanceNote").textContent = T.balanceNote;
+  document.getElementById("filesHeading").textContent = T.filesHeading;
+  document.getElementById("filesNote").innerHTML = T.filesNote;
+  document.getElementById("loadingText").textContent = T.loading;
+  document.getElementById("purchasesHeading").textContent = T.purchasesHeading;
+  document.getElementById("thPDate").textContent = T.thPDate;
+  document.getElementById("thPCredits").textContent = T.thPCredits;
+  document.getElementById("thPSession").textContent = T.thPSession;
+  document.getElementById("spendsHeading").textContent = T.spendsHeading;
+  document.getElementById("thSDate").textContent = T.thSDate;
+  document.getElementById("thSAction").textContent = T.thSAction;
+  document.getElementById("thSJob").textContent = T.thSJob;
+  document.getElementById("thSCredits").textContent = T.thSCredits;
+})();
+
 fetch("/api/user/info").then(function(r){return r.json();}).then(function(d){
   document.getElementById("creditsNum").textContent = d.credits;
-  document.getElementById("balanceLine").textContent = d.credits + " credits";
+  document.getElementById("balanceLine").textContent = d.credits + " " + T.credits;
 }).catch(function(){});
 fetch("/api/account/summary").then(function(r){return r.json();}).then(function(d){
   var pt = document.querySelector("#purchasesTable tbody");
@@ -69,14 +140,14 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
     tr.innerHTML = "<td>" + (p.created_at||"").slice(0,16).replace("T"," ") + "</td><td style='color:#059669;font-weight:700;'>+" + p.credits + "</td><td style='font-size:11px;color:#6b7280;'>" + (p.session_id||"").slice(0,24) + "…</td>";
     pt.appendChild(tr);
   });
-  if (!(d.purchases || []).length) pt.innerHTML = '<tr><td colspan="3" style="color:#6b7280;">No purchases yet.</td></tr>';
+  if (!(d.purchases || []).length) pt.innerHTML = '<tr><td colspan="3" style="color:#6b7280;">' + T.noPurchases + '</td></tr>';
   var st = document.querySelector("#spendsTable tbody");
   (d.spends || []).forEach(function(s){
     var tr = document.createElement("tr");
-    tr.innerHTML = "<td>" + (s.created_at||"").slice(0,16).replace("T"," ") + "</td><td>" + (s.action||"deduction") + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id||"") + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
+    tr.innerHTML = "<td>" + (s.created_at||"").slice(0,16).replace("T"," ") + "</td><td>" + (s.action||T.deduction) + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id||"") + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
     st.appendChild(tr);
   });
-  if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">No consumption recorded yet.</td></tr>';
+  if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">' + T.noSpends + '</td></tr>';
 }).catch(function(){});
 
 function fmtDate(iso) {
@@ -92,16 +163,16 @@ function daysUntil(iso) {
   try {
     var ms = new Date(iso).getTime() - Date.now();
     var days = Math.ceil(ms / 86400000);
-    if (days <= 0) return "expiring soon";
-    if (days === 1) return "expires in 1 day";
-    return "expires in " + days + " days";
+    if (days <= 0) return T.expiringSoon;
+    if (days === 1) return T.expiresOneDay;
+    return T.expiresDays(days);
   } catch (e) { return ""; }
 }
 
 function renderMyJobs(jobs) {
   var list = document.getElementById("myJobsList");
   if (!jobs.length) {
-    list.innerHTML = '<p style="color:#6b7280;">Nothing here yet — files you generate will show up here for 30 days.</p>';
+    list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet + '</p>';
     return;
   }
   list.innerHTML = "";
@@ -113,17 +184,17 @@ function renderMyJobs(jobs) {
     var preview = "";
     if (j.has_video) {
       preview += '<video controls src="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/video"></video>';
-      buttons += '<a href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/video" download="dubbed_video.mp4">⬇️ Download Video</a>';
+      buttons += '<a href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/video" download="dubbed_video.mp4">' + T.dlVideo + '</a>';
     }
     if (j.has_lipsync) {
       preview += '<video controls src="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/lipsync"></video>';
-      buttons += '<a href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/lipsync" download="lipsync_video.mp4">⬇️ Download Lip-Synced Video</a>';
+      buttons += '<a href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/lipsync" download="lipsync_video.mp4">' + T.dlLipsync + '</a>';
     }
     if (j.has_audio) {
       preview += '<audio controls src="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/audio"></audio>';
-      buttons += '<a class="blue" href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/audio" download="dubbed_audio.mp3">⬇️ Download MP3</a>';
+      buttons += '<a class="blue" href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/audio" download="dubbed_audio.mp3">' + T.dlMp3 + '</a>';
     }
-    buttons += '<a class="btn-danger" onclick="deleteMyJob(\'' + j.job_id.replace(/'/g, "") + '\')">🗑️ Delete</a>';
+    buttons += '<a class="btn-danger" onclick="deleteMyJob(\'' + j.job_id.replace(/'/g, "") + '\')">' + T.del + '</a>';
     item.innerHTML =
       '<div class="job-meta"><span class="job-date">' + fmtDate(j.created_at) + '</span>' +
       '<span class="job-expiry">' + daysUntil(j.expires_at) + '</span></div>' +
@@ -137,20 +208,20 @@ function loadMyJobs() {
   fetch("/api/my_jobs").then(function (r) { return r.json(); }).then(function (d) {
     renderMyJobs(d.jobs || []);
   }).catch(function () {
-    document.getElementById("myJobsList").innerHTML = '<p style="color:#6b7280;">Couldn\'t load your files right now.</p>';
+    document.getElementById("myJobsList").innerHTML = '<p style="color:#6b7280;">' + T.couldntLoad + '</p>';
   });
 }
 
 function deleteMyJob(jobId) {
-  if (!confirm("Delete this file permanently? This can't be undone.")) return;
+  if (!confirm(T.confirmDelete)) return;
   fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function () {
     var el = document.getElementById("job-" + jobId);
     if (el) el.remove();
     var list = document.getElementById("myJobsList");
     if (list && !list.children.length) {
-      list.innerHTML = '<p style="color:#6b7280;">Nothing here yet — files you generate will show up here for 30 days.</p>';
+      list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet + '</p>';
     }
-  }).catch(function () { alert("Couldn't delete this file. Please try again."); });
+  }).catch(function () { alert(T.deleteFailed); });
 }
 
 loadMyJobs();

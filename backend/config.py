@@ -38,6 +38,13 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # behavior), so nothing breaks until you choose to set a distinct one.
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "") or APP_PASSWORD
 
+# Sentry error monitoring: reports unhandled exceptions from the live server
+# so problems surface immediately instead of waiting for a user to report a
+# bug. Reads SENTRY_DSN from the environment if it's set on Railway (so the
+# DSN can be rotated without a code change); falls back to the project's
+# current DSN so monitoring works even before that env var is added.
+SENTRY_DSN = os.environ.get("SENTRY_DSN", "https://c5cc9438122a8fbbefd5ce57dfcb30b2@o4512124657926144.ingest.de.sentry.io/4512124665856080")
+
 # --- Contact form (optional; the /api/contact endpoint still validates
 # and rate-limits input without this, it just won't actually deliver mail
 # until you set RESEND_API_KEY) ---

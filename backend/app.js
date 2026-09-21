@@ -1015,7 +1015,7 @@ async function startTranscribe() {
     const file = document.getElementById("audioFile").files[0];
     if (!file) { notify("error", "Choose an audio or video file."); return; }
     if (file.size > MAX_UPLOAD_BYTES) {
-        notify("error", "File too large (" + (file.size / 1073741824).toFixed(2) + " GB). The limit is 1.5 GB — a 1-minute 4K clip is only ≈0.5–0.8 GB.");
+        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.");
         return;
     }
     const dur = await probeFileDuration(file);
@@ -1443,7 +1443,7 @@ async function startTranscribe() {
     const file = document.getElementById("audioFile").files[0];
     if (!file) { notify("error", "Choose an audio or video file first."); return; }
     if (file.size > MAX_UPLOAD_BYTES) {
-        notify("error", "File too large (" + (file.size / 1073741824).toFixed(2) + " GB). The limit is 1.5 GB — a 1-minute 4K clip is only ≈0.5–0.8 GB.");
+        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.");
         return;
     }
     const dur = await probeFileDuration(file);

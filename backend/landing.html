@@ -34,7 +34,7 @@ a:hover{text-decoration:underline}
 .hero h1{color:var(--indigo);font-size:38px;line-height:1.2;margin-bottom:14px}
 .hero p{max-width:640px;margin:0 auto 10px;color:var(--muted);font-size:17px}
 .hero .ar{direction:rtl;font-size:18px;color:#334155;margin-bottom:26px}
-.cta{display:inline-block;background:var(--green);color:#fff;font-weight:800;font-size:17px;padding:14px 34px;border-radius:12px;border:none;cursor:pointer}
+.cta{display:inline-block;text-align:center;background:var(--green);color:#fff;font-weight:800;font-size:17px;padding:14px 34px;border-radius:12px;border:none;cursor:pointer}
 .cta:hover{filter:brightness(1.06);text-decoration:none}
 section{padding:44px 0}
 h2{color:var(--indigo);font-size:26px;margin-bottom:18px;text-align:center}
@@ -45,7 +45,7 @@ h2{color:var(--indigo);font-size:26px;margin-bottom:18px;text-align:center}
 .card .ico{font-size:26px;margin-bottom:8px}
 .stepnum{display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--indigo);color:#fff;font-weight:800;align-items:center;justify-content:center;margin-bottom:10px}
 .videos{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.videos .slot{background:#0f172a;border-radius:16px;min-height:220px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;overflow:hidden}
+.videos .slot{background:#0f172a;border-radius:16px;min-height:220px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;overflow:hidden;text-align:center;padding:10px}
 .videos video{width:100%;border-radius:16px}
 .pricing{background:var(--bg);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .packs{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin:18px 0}
@@ -85,6 +85,23 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
 .legal a{color:var(--muted);text-decoration:underline}
 .copy{max-width:1000px;margin:10px auto 0;font-size:12px;color:var(--muted)}
 @media(max-width:720px){.videos{grid-template-columns:1fr}.hero h1{font-size:30px}}
+/* Arabic translation lines stacked under the English text throughout the
+   page (no language toggle -- both languages are always visible). */
+.ar2{display:block;direction:rtl;unicode-bidi:isolate;font-weight:500;color:#5b6b85;margin-top:4px;line-height:1.5;font-size:.85em}
+.hero h1 .ar2{color:#3949ab;font-weight:800;font-size:20px;margin-top:10px}
+.hero p .ar2{color:#94a3b8;font-size:15px;font-weight:400}
+h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
+h3 .ar2{color:#64748b;font-weight:700;margin-top:3px}
+.card p .ar2{color:#9ca3af}
+.cta .ar2{color:#eafff3;font-size:13px;margin-top:3px;font-weight:700}
+.bar nav a .ar2, footer nav a .ar2{font-size:11px;margin-top:2px;font-weight:600}
+ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
+.trust span .ar2{font-size:11px;margin-top:3px}
+.legal a .ar2{font-size:11px}
+.videos .slot .ar2{color:#cbd5e1;font-size:12px;margin-top:4px}
+.contact-box label .ar2{font-size:11px;margin-top:2px;color:#94a3b8;font-weight:500}
+.pack .k .ar2, .pack .c .ar2, .pack .n .ar2, .pack .p .ar2{font-size:.75em;margin-top:2px;color:inherit;font-weight:600}
+#contactStatus .ar2{margin-top:4px}
 </style>
 </head>
 <body>
@@ -93,101 +110,101 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
   <img src="/logo.png" alt="Lisan AI logo">
   <span class="brand">Lisan AI</span>
   <nav>
-    <a href="/help">Help &amp; FAQ</a>
-    <a href="/login">Log in</a>
-    <a href="/login">Start free</a>
+    <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
+    <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
+    <a href="/login">Start free<span class="ar2">ابدأ مجانًا</span></a>
   </nav>
 </div>
 
-<button type="button" class="contact-icon-btn" id="contactIconBtn" title="Contact Us" aria-label="Contact Us">
+<button type="button" class="contact-icon-btn" id="contactIconBtn" title="Contact Us · تواصل معنا" aria-label="Contact Us · تواصل معنا">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
   </svg>
 </button>
 
 <div class="hero">
-  <h1>Dub any video into Arabic — automatically</h1>
+  <h1>Dub any video into Arabic — automatically<span class="ar2">دبلج أي فيديو إلى العربية — تلقائيًا</span></h1>
   <p>AI transcription, translation, speaker detection and voice cloning in one flow. Your speakers, their voices, perfect timing.</p>
-  <p class="ar">دبلجة عربية آلية — بأصوات تشبه الأصل وبمزامنة دقيقة</p>
+  <p class="ar">نسخ صوتي وترجمة وتمييز للمتحدثين واستنساخ للصوت بالذكاء الاصطناعي في تدفق واحد. أصوات متحدثيك، بتوقيت مثالي.</p>
   <div style="display:flex;justify-content:center;margin:8px 0 4px;">
-    <a class="cta" href="/login">🚀 Start Dubbing Free</a>
+    <a class="cta" href="/login">🚀 Start Dubbing Free<span class="ar2">🚀 ابدأ الدبلجة مجانًا</span></a>
   </div>
 </div>
 
 <section class="wrap">
-  <h2>Our Videos — Before / After</h2>
-  
-  <h3 style="text-align:center; color:#475569; margin-bottom:12px; font-size:18px;">Example 1</h3>
+  <h2>Our Videos — Before / After<span class="ar2">فيديوهاتنا — قبل / بعد</span></h2>
+
+  <h3 style="text-align:center; color:#475569; margin-bottom:12px; font-size:18px;">Example 1<span class="ar2">مثال 1</span></h3>
   <div class="videos">
-    <div class="slot" id="slot1Before">Before — original English (Example 1)</div>
-    <div class="slot" id="slot1After">After — Arabic dub (Example 1)</div>
+    <div class="slot" id="slot1Before">Before — original English (Example 1)<span class="ar2">قبل — الأصل بالإنجليزية (مثال 1)</span></div>
+    <div class="slot" id="slot1After">After — Arabic dub (Example 1)<span class="ar2">بعد — الدبلجة العربية (مثال 1)</span></div>
   </div>
 
-  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 2 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span></h3>
+  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 2 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span><span class="ar2">مثال 2 <span style="font-size:.8em;font-weight:normal;">(قريبًا)</span></span></h3>
   <div class="videos">
-    <div class="slot" id="slot2Before">Before — original English (Example 2)</div>
-    <div class="slot" id="slot2After">After — Arabic dub (Example 2)</div>
+    <div class="slot" id="slot2Before">Before — original English (Example 2)<span class="ar2">قبل — الأصل بالإنجليزية (مثال 2)</span></div>
+    <div class="slot" id="slot2After">After — Arabic dub (Example 2)<span class="ar2">بعد — الدبلجة العربية (مثال 2)</span></div>
   </div>
 
-  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 3 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span></h3>
+  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 3 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span><span class="ar2">مثال 3 <span style="font-size:.8em;font-weight:normal;">(قريبًا)</span></span></h3>
   <div class="videos">
-    <div class="slot" id="slot3Before">Before — original English (Example 3)</div>
-    <div class="slot" id="slot3After">After — Arabic dub (Example 3)</div>
+    <div class="slot" id="slot3Before">Before — original English (Example 3)<span class="ar2">قبل — الأصل بالإنجليزية (مثال 3)</span></div>
+    <div class="slot" id="slot3After">After — Arabic dub (Example 3)<span class="ar2">بعد — الدبلجة العربية (مثال 3)</span></div>
   </div>
 </section>
 
 <section class="wrap">
-  <h2>How it works</h2>
+  <h2>How it works<span class="ar2">كيف يعمل</span></h2>
   <div class="grid">
-    <div class="card"><span class="stepnum">1</span><h3>Upload</h3><p>Drop a video or audio clip (up to 60 s). We transcribe it and detect who speaks when.</p></div>
-    <div class="card"><span class="stepnum">2</span><h3>Edit &amp; choose voices</h3><p>Fix text, translate to Arabic, add tashkeel and emotions. Clone each speaker's own voice or pick studio voices.</p></div>
-    <div class="card"><span class="stepnum">3</span><h3>Generate &amp; download</h3><p>Lip-timed Arabic audio mixed with the original background, merged back into your video. Download instantly.</p></div>
+    <div class="card"><span class="stepnum">1</span><h3>Upload<span class="ar2">ارفع الملف</span></h3><p>Drop a video or audio clip (up to 60 s). We transcribe it and detect who speaks when.<span class="ar2">ارفع مقطع فيديو أو صوت (حتى 60 ثانية). سنفرّغه نصيًا ونحدد من يتحدث ومتى.</span></p></div>
+    <div class="card"><span class="stepnum">2</span><h3>Edit &amp; choose voices<span class="ar2">حرّر واختر الأصوات</span></h3><p>Fix text, translate to Arabic, add tashkeel and emotions. Clone each speaker's own voice or pick studio voices.<span class="ar2">صحّح النص، ترجمه إلى العربية، وأضف التشكيل والمشاعر. استنسخ صوت كل متحدث أو اختر أصواتًا جاهزة.</span></p></div>
+    <div class="card"><span class="stepnum">3</span><h3>Generate &amp; download<span class="ar2">ولّد الملف وحمّله</span></h3><p>Lip-timed Arabic audio mixed with the original background, merged back into your video. Download instantly.<span class="ar2">صوت عربي متزامن مع الشفاه ومدمج مع الخلفية الأصلية، ثم مدمج مجددًا في فيديوك. حمّله فورًا.</span></p></div>
   </div>
 </section>
 
 <section class="wrap">
-  <h2>What you get</h2>
+  <h2>What you get<span class="ar2">ماذا ستحصل عليه</span></h2>
   <div class="grid">
-    <div class="card"><div class="ico">🎭</div><h3>Speaker detection</h3><p>Knows who talks when — each line gets the right speaker automatically.</p></div>
-    <div class="card"><div class="ico">🎙️</div><h3>Voice cloning</h3><p>Clone each speaker's own voice from the video, with honest quality guidance.</p></div>
-    <div class="card"><div class="ico">💫</div><h3>Emotions &amp; styles</h3><p>30+ speaking styles, detected from the original voice or set by you per line.</p></div>
-    <div class="card"><div class="ico">🔤</div><h3>Tashkeel</h3><p>Full Arabic diacritics for natural, correct pronunciation — one click.</p></div>
-    <div class="card"><div class="ico">🎚️</div><h3>Timeline fine-tune</h3><p>Drag lines on a visual timeline to align audio with lip movement.</p></div>
-    <div class="card"><div class="ico">🎧</div><h3>Background kept</h3><p>Original music &amp; sounds separated, optionally enhanced, and mixed back in.</p></div>
+    <div class="card"><div class="ico">🎭</div><h3>Speaker detection<span class="ar2">تمييز المتحدثين</span></h3><p>Knows who talks when — each line gets the right speaker automatically.<span class="ar2">يعرف من يتحدث ومتى — يحصل كل سطر على المتحدث الصحيح تلقائيًا.</span></p></div>
+    <div class="card"><div class="ico">🎙️</div><h3>Voice cloning<span class="ar2">استنساخ الصوت</span></h3><p>Clone each speaker's own voice from the video, with honest quality guidance.<span class="ar2">استنسخ صوت كل متحدث من الفيديو، مع إرشادات واضحة حول الجودة.</span></p></div>
+    <div class="card"><div class="ico">💫</div><h3>Emotions &amp; styles<span class="ar2">المشاعر والأساليب</span></h3><p>30+ speaking styles, detected from the original voice or set by you per line.<span class="ar2">أكثر من 30 أسلوب كلام، يُكتشف من الصوت الأصلي أو تحدده أنت لكل سطر.</span></p></div>
+    <div class="card"><div class="ico">🔤</div><h3>Tashkeel<span class="ar2">التشكيل</span></h3><p>Full Arabic diacritics for natural, correct pronunciation — one click.<span class="ar2">تشكيل عربي كامل لنطق طبيعي وصحيح — بنقرة واحدة.</span></p></div>
+    <div class="card"><div class="ico">🎚️</div><h3>Timeline fine-tune<span class="ar2">ضبط الخط الزمني</span></h3><p>Drag lines on a visual timeline to align audio with lip movement.<span class="ar2">اسحب الأسطر على خط زمني مرئي لمزامنة الصوت مع حركة الشفاه.</span></p></div>
+    <div class="card"><div class="ico">🎧</div><h3>Background kept<span class="ar2">الحفاظ على الخلفية الصوتية</span></h3><p>Original music &amp; sounds separated, optionally enhanced, and mixed back in.<span class="ar2">تُفصل الموسيقى والأصوات الأصلية، ويمكن تحسينها، ثم تُمزج مجددًا.</span></p></div>
   </div>
 </section>
 
 <section class="pricing">
   <div class="wrap">
-    <h2>Simple pay-as-you-go credits</h2>
-    <p style="text-align:center;color:var(--muted);max-width:640px;margin:0 auto;">No subscriptions. No monthly fees. Buy a pack once, use it whenever you want — credits never expire.</p>
+    <h2>Simple pay-as-you-go credits<span class="ar2">رصيد بسيط بالدفع حسب الاستخدام</span></h2>
+    <p style="text-align:center;color:var(--muted);max-width:640px;margin:0 auto;">No subscriptions. No monthly fees. Buy a pack once, use it whenever you want — credits never expire.<span class="ar2" style="max-width:640px;margin:4px auto 0;">بلا اشتراكات. بلا رسوم شهرية. اشترِ باقة مرة واحدة واستخدمها متى شئت — الرصيد لا تنتهي صلاحيته.</span></p>
     <div class="packs" id="packCards">
-      <div class="pack"><div class="k">Packs</div><div class="p">from $4.99</div><div class="c">one-time purchase</div><div class="n">exact sizes inside the app under ➕ Buy</div></div>
+      <div class="pack"><div class="k">Packs<span class="ar2">باقات</span></div><div class="p">from $4.99<span class="ar2">ابتداءً من 4.99$</span></div><div class="c">one-time purchase<span class="ar2">شراء لمرة واحدة</span></div><div class="n">exact sizes inside the app under ➕ Buy<span class="ar2">الأحجام الدقيقة داخل التطبيق ضمن ➕ شراء</span></div></div>
     </div>
     <ul class="points">
-      <li>100 credits = $1.00.</li>
-      <li>Secure one-time checkout by Stripe — no recurring charges, ever.</li>
+      <li>100 credits = $1.00.<span class="ar2">100 رصيد = 1.00$.</span></li>
+      <li>Secure one-time checkout by Stripe — no recurring charges, ever.<span class="ar2">دفع آمن لمرة واحدة عبر Stripe — بلا رسوم متكررة أبدًا.</span></li>
     </ul>
-    <div style="text-align:center;margin-top:22px;"><a class="cta" href="/login">Create your free account</a></div>
-    <div class="trust"><span>🔒 Login-protected projects</span><span>⏳ Finished files kept 30 days in your account</span><span>💳 Secure payments by Stripe</span></div>
+    <div style="text-align:center;margin-top:22px;"><a class="cta" href="/login">Create your free account<span class="ar2">أنشئ حسابك المجاني</span></a></div>
+    <div class="trust"><span>🔒 Login-protected projects<span class="ar2">🔒 مشاريع محمية بتسجيل الدخول</span></span><span>⏳ Finished files kept 30 days in your account<span class="ar2">⏳ تُحفظ الملفات الجاهزة 30 يومًا في حسابك</span></span><span>💳 Secure payments by Stripe<span class="ar2">💳 مدفوعات آمنة عبر Stripe</span></span></div>
   </div>
 </section>
 
 <div class="modal-overlay hidden" id="contactModal">
   <div class="modal-box">
     <button type="button" class="modal-close" id="contactModalClose" aria-label="Close">✕</button>
-    <h2 style="margin-bottom:8px;">Contact Us</h2>
-    <p style="text-align:center;color:var(--muted);margin:0 auto 18px;">Questions, feedback, or need help? Send us a message and we'll get back to you by email.</p>
+    <h2 style="margin-bottom:8px;">Contact Us<span class="ar2">تواصل معنا</span></h2>
+    <p style="text-align:center;color:var(--muted);margin:0 auto 18px;">Questions, feedback, or need help? Send us a message and we'll get back to you by email.<span class="ar2" style="margin:4px auto 0;">أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنعاود التواصل معك عبر البريد الإلكتروني.</span></p>
     <form class="contact-box" id="contactForm">
-      <label for="cName">Name (optional)</label>
+      <label for="cName">Name (optional)<span class="ar2">الاسم (اختياري)</span></label>
       <input type="text" id="cName" name="name" maxlength="100">
-      <label for="cEmail">Email</label>
+      <label for="cEmail">Email<span class="ar2">البريد الإلكتروني</span></label>
       <input type="email" id="cEmail" name="email" required maxlength="200">
-      <label for="cMessage">Message</label>
+      <label for="cMessage">Message<span class="ar2">الرسالة</span></label>
       <textarea id="cMessage" name="message" required maxlength="5000"></textarea>
       <input class="hp" type="text" id="cHp" name="hp" tabindex="-1" autocomplete="off">
       <div style="text-align:center;">
-        <button type="submit" class="cta" id="contactSubmit">Send Message</button>
+        <button type="submit" class="cta" id="contactSubmit"><span>Send Message</span><span class="ar2">إرسال الرسالة</span></button>
       </div>
       <div id="contactStatus"></div>
     </form>
@@ -199,13 +216,13 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
     <img src="/logo.png" alt="">
     <span class="brand">Lisan AI</span>
     <nav>
-      <a href="/help">Help &amp; FAQ / المساعدة والأسئلة الشائعة</a>
-      <a href="mailto:contact@lisanai.org">Contact</a>
-      <a href="/login">Log in</a>
+      <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
+      <a href="mailto:contact@lisanai.org">Contact<span class="ar2">تواصل</span></a>
+      <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
     </nav>
   </div>
   <div class="legal">
-    <a href="/terms">Terms of Service</a> · <a href="/privacy">Privacy Policy</a>
+    <a href="/terms">Terms of Service<span class="ar2" style="display:inline;font-size:11px;">· شروط الخدمة</span></a> · <a href="/privacy">Privacy Policy<span class="ar2" style="display:inline;font-size:11px;">· سياسة الخصوصية</span></a>
   </div>
   <div class="copy">© 2025 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div>
 </footer>
@@ -219,12 +236,13 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
 // that only appears after a follow-up client-side fetch can look
 // uninstalled to automated checks even though it works for real visitors).
 // Fill pack cards from the live pricing endpoint when it is publicly reachable
+var PACK_NAME_AR = {starter: "أساسية", standard: "قياسية", pro: "احترافية", business: "أعمال"};
 fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
   if (!d || !d.packs) return;
   var box = document.getElementById("packCards"); var html = "";
   ["starter","standard","pro","business"].forEach(function (k) {
     var p = d.packs[k]; if (!p) return;
-    html += '<div class="pack"><div class="k">' + k + '</div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits</div><div class="n">one-time · never expires</div></div>';
+    html += '<div class="pack"><div class="k">' + k + '<span class="ar2">' + (PACK_NAME_AR[k] || k) + '</span></div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits<span class="ar2">' + p.credits.toLocaleString() + ' رصيد</span></div><div class="n">one-time · never expires<span class="ar2">لمرة واحدة · لا تنتهي صلاحيته</span></div></div>';
   });
   if (html) box.innerHTML = html;
 }).catch(function () {});
@@ -272,8 +290,8 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
       hp: document.getElementById("cHp").value
     };
     btn.disabled = true;
-    var prevText = btn.textContent;
-    btn.textContent = "Sending…";
+    var prevHTML = btn.innerHTML;
+    btn.innerHTML = '<span>Sending…</span><span class="ar2">...جارٍ الإرسال</span>';
     fetch("/api/contact", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -282,20 +300,23 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
       .then(function (res) {
         if (res.ok && res.body && res.body.ok) {
           statusEl.className = "ok";
-          statusEl.textContent = "Message sent — we'll get back to you by email.";
+          statusEl.innerHTML = "Message sent — we'll get back to you by email.<span class=\"ar2\">تم إرسال الرسالة — سنعاود التواصل معك عبر البريد الإلكتروني.</span>";
           form.reset();
+        } else if (res.body && res.body.error) {
+          statusEl.className = "err";
+          statusEl.textContent = res.body.error;
         } else {
           statusEl.className = "err";
-          statusEl.textContent = (res.body && res.body.error) || "Something went wrong. Please email contact@lisanai.org directly.";
+          statusEl.innerHTML = "Something went wrong. Please email contact@lisanai.org directly.<span class=\"ar2\">حدث خطأ ما. يرجى مراسلتنا مباشرة على contact@lisanai.org.</span>";
         }
       })
       .catch(function () {
         statusEl.className = "err";
-        statusEl.textContent = "Network error. Please email contact@lisanai.org directly.";
+        statusEl.innerHTML = "Network error. Please email contact@lisanai.org directly.<span class=\"ar2\">خطأ في الشبكة. يرجى مراسلتنا مباشرة على contact@lisanai.org.</span>";
       })
       .finally(function () {
         btn.disabled = false;
-        btn.textContent = prevText;
+        btn.innerHTML = prevHTML;
       });
   });
 })();

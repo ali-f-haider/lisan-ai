@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
-                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION)
+                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN)
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -26,6 +26,17 @@ import eleven_service
 import ffmpeg_utils
 import lipsync_service
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
+
+# Sentry: reports unhandled exceptions from the live server automatically.
+# Wrapped in try/except so a missing package or bad DSN never takes the app
+# down -- monitoring is a nice-to-have, not something that should be able to
+# break dubbing jobs.
+try:
+    if SENTRY_DSN:
+        import sentry_sdk
+        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.1, send_default_pii=False)
+except Exception as _sentry_ex:
+    print(f"[sentry] init skipped: {_sentry_ex}")
 
 app = FastAPI()
 
@@ -278,10 +289,16 @@ def user_info(request: Request):
         email = user_data.get("email", "User")
         display_name = email.split("@")[0] if email else "User"
         
-        # Read credits securely via service key (bypasses RLS issues)
+        # Read credits securely via service key (bypasses RLS issues). A
+        # None here means no profile row exists yet for this user -- this
+        # fallback shows the admin-configured starting balance (freeCredits)
+        # instead of a hardcoded number, though the real balance a new user
+        # ends up with is whatever Supabase grants when it creates their
+        # profile row (outside this codebase) -- keep the two in sync by
+        # eye if you change freeCredits in the admin panel.
         credits = get_credits(user_id)
         if credits is None:
-            credits = 100
+            credits = int(_get_pricing_config().get("freeCredits", 100))
             
         try:
             prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name"
@@ -1072,6 +1089,23 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     dest = UPLOAD_DIR / f"{job_id}{ext}"
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
+    # Server-side duration cap (maxVideoMin, admin-configurable). The
+    # client already blocks long clips in its own UI, but that check runs
+    # in JavaScript and can't be trusted -- anyone posting directly to this
+    # endpoint bypasses it entirely, so this is the only enforcement that
+    # actually matters.
+    dur = None
+    try:
+        dur = ffmpeg_utils.get_media_duration(dest)
+    except Exception as _dur_ex:
+        print(f"[transcribe] duration probe failed, allowing upload through: {_dur_ex}")
+    if dur is not None:
+        max_video_min = float(_get_pricing_config().get("maxVideoMin", 60))
+        if max_video_min > 0 and dur > max_video_min * 60:
+            try: dest.unlink()
+            except Exception: pass
+            _job_started.pop(job_id, None)
+            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. The limit is {int(max_video_min * 60)} seconds — please trim it first."}, status_code=413)
     jobs_progress[job_id] = {"status": "processing", "percent": 0,
                              "status_text": "Upload done, starting transcription...",
                              "is_video": ext in VIDEO_EXTS}
@@ -1254,11 +1288,13 @@ def tashkeel(req: TashkeelRequest):
 def generate(req: GenerateRequest, request: Request):
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
-    # 20 here is a rough "don't even start" safety floor, not the actual
-    # price -- the real per-job cost depends on how much text gets
-    # generated and is only known once the job finishes (see
-    # _watch_and_deduct below, which reads the real configured rate).
-    if bal is not None and bal < 20:
+    # minReserve (admin-configurable, "💰 Pricing Configuration") is a rough
+    # "don't even start" safety floor, not the actual price -- the real
+    # per-job cost depends on how much text gets generated and is only known
+    # once the job finishes (see _watch_and_deduct below, which reads the
+    # real configured rate).
+    min_reserve = int(_get_pricing_config().get("minReserve", 20))
+    if bal is not None and bal < min_reserve:
         chars_per_credit = int(_get_pricing_config().get("charsPerCredit", 60))
         return JSONResponse({"error": f"Insufficient credits ({bal} left). Generation costs 1 credit per ~{chars_per_credit} characters. Use ➕ Buy."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
@@ -1449,7 +1485,10 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
 def account_summary(request: Request):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "login required"}, status_code=401)
-    return {"credits": get_credits(uid) or 100, "purchases": [], "spends": []}
+    credits = get_credits(uid)
+    if credits is None:
+        credits = int(_get_pricing_config().get("freeCredits", 100))
+    return {"credits": credits, "purchases": [], "spends": []}
 
 @app.get("/account")
 def account_page():
@@ -1722,14 +1761,12 @@ def _get_pricing_config():
     # Uses Supabase service key to read from a `pricing_config` table
     # If table doesn't exist or is empty, returns defaults
     defaults = {
-        "pricePerMin": 150,
         "freeCredits": 150,
         "minReserve": 150,
         "maxVideoMin": 60,
         "markup": 4.0,
         # Real per-step charges -- these are the ones actually read by
-        # _watch_and_deduct() and /api/merge_video below. (pricePerMin above
-        # is display-only right now; it is NOT used to compute any charge.)
+        # _watch_and_deduct() and /api/merge_video below.
         "transcribeCredits": 3,
         "mergeCredits": 1,
         "charsPerCredit": 60,
@@ -1753,7 +1790,6 @@ def _get_pricing_config():
         if rows and isinstance(rows, list) and len(rows) > 0:
             row = rows[0]
             return {
-                "pricePerMin": row.get("price_per_min", defaults["pricePerMin"]),
                 "freeCredits": row.get("free_credits", defaults["freeCredits"]),
                 "minReserve": row.get("min_reserve", defaults["minReserve"]),
                 "maxVideoMin": row.get("max_video_min", defaults["maxVideoMin"]),
@@ -1790,7 +1826,6 @@ def _save_pricing_config(config):
         _clean_ga = _ga_match.group(0) if _ga_match else _raw_ga
         body = json.dumps({
             "id": "singleton",
-            "price_per_min": config.get("pricePerMin", 150),
             "free_credits": config.get("freeCredits", 150),
             "min_reserve": config.get("minReserve", 150),
             "max_video_min": config.get("maxVideoMin", 60),
@@ -2160,14 +2195,13 @@ def admin_page(request: Request):
 # ============================================================
 @app.get("/api/pricing")
 def public_pricing():
-    """Returns the user-facing pricing config (packs + per-minute rate),
-    plus the real per-step charges (transcribeCredits/mergeCredits/
-    charsPerCredit/cloneCredits) so the app's own credit badges can show
-    what a button actually costs instead of a guessed or hardcoded number.
+    """Returns the user-facing pricing config (packs), plus the real
+    per-step charges (transcribeCredits/mergeCredits/charsPerCredit/
+    cloneCredits) so the app's own credit badges can show what a button
+    actually costs instead of a guessed or hardcoded number.
     No auth required — these are prices, not secrets."""
     cfg = _get_pricing_config()
     return {
-        "pricePerMin": cfg.get("pricePerMin", 150),
         "packs": cfg.get("packs", []),
         "transcribeCredits": cfg.get("transcribeCredits", 3),
         "mergeCredits": cfg.get("mergeCredits", 1),
@@ -2184,7 +2218,7 @@ def billing_packs_dynamic():
     a fixed list, so any number of packs with any keys will show up."""
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
-    return {"packs": _keyed_packs(packs_array), "price_per_min": cfg.get("pricePerMin", 150)}
+    return {"packs": _keyed_packs(packs_array)}
 
 @app.post("/api/contact")
 def contact_form(req: ContactRequest, request: Request):

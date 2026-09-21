@@ -19,3 +19,4 @@ pyannote.audio==3.1.1
 transformers==4.38.2
 huggingface-hub==0.21.4
 stripe>=11.0.0,<13.0.0
+sentry-sdk>=2.0.0
