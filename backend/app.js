@@ -3318,7 +3318,7 @@ async function applyVolumes() {
         box.id = "customVoiceBox";
         box.className = "note";
         box.style.marginTop = "12px";
-        box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.<br>' +
+        box.innerHTML = '<span id="customVoiceNote"><strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.</span><br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
             '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Choose File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice<span class="badge" id="badgeCvUpload"></span></button>' +
@@ -3685,7 +3685,6 @@ window.cleanOldClones = function () {
         ["Upload as this speaker's voice", "رفعه كصوت لهذا المتحدث"],
         ["🧹 Clean old cloned voices", "🧹 تنظيف الأصوات المستنسخة القديمة"],
         ["➕ Buy", "➕ شراء"],
-        ["Upload Media", "ارفع الوسائط"],
         // Second pass: Step 1.5 header, a batch of buttons/labels that had no
         // entry at all yet, and the Contact Us modal's controls.
         ["Step 1.5: Speaker Setup", "الخطوة 1.5: إعداد المتحدثين"],
@@ -3737,6 +3736,17 @@ window.cleanOldClones = function () {
         volumeMatchNote: {
             en: 'Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.',
             ar: 'تمت مطابقة مستوى كل سطر عربي تلقائيًا مع صوت المتحدث الأصلي (انظر عمود <strong>Auto</strong>). شغّل 🔊 السطر المدبلج، واضبطه بالمنزلق (−6...+6 ديسيبل مع معاينة مباشرة)، ثم طبّق لإعادة بناء ملف MP3 النهائي. تكرار توليد الصوت يعيد الإزاحات إلى القيم التلقائية.'
+        },
+        customVoiceNote: {
+            // This note lives inside the same box as a <select>, <input> and
+            // <button> that JS populates/binds separately (speaker dropdown,
+            // file picker, upload button). Translating the whole box via
+            // innerHTML would wipe the select's options and detach the
+            // button's click handler on every language toggle, so only this
+            // wrapped span is swapped -- the interactive controls next to it
+            // are never touched.
+            en: '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.',
+            ar: '<strong>📤 استخدم مقطع صوتك الخاص:</strong> اختر متحدثًا وارفع مقطع MP3/WAV (بحد أقصى 20 ثانية) يتحدث فيه ذلك الشخص معظم الوقت. المقطع لا يُحلَّل — محرك الصوت يستخرج منه الصوت الغالب، لذا فإن وجود موسيقى أو أصوات أخرى فيه سيقلل الجودة.'
         }
     };
     // R-array keys below are now the FULL exact text of each plain (no
@@ -3760,7 +3770,25 @@ window.cleanOldClones = function () {
         ["Questions, feedback, or need help? Send us a message and we'll get back to you by email.", "أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنرد عليك بالبريد الإلكتروني."],
         ["Applies DSP filters: removes rumble + adds crispness with high-shelf boost. Instant processing, no ML artifacts.", "يطبّق مرشحات معالجة رقمية: يزيل الضجيج المنخفض ويضيف وضوحًا بتعزيز الترددات العالية. معالجة فورية دون تشويش ناتج عن الذكاء الاصطناعي."],
         ["✨ Enhance Background Audio", "✨ تحسين جودة الصوت الخلفي"],
-        ["Show Arabic audio length overlay", "إظهار طبقة مدة الصوت العربي"]
+        ["Show Arabic audio length overlay", "إظهار طبقة مدة الصوت العربي"],
+        // "Upload Media" is a <span>, which tagAll() always matches against R
+        // (only H3/BUTTON/A/LABEL use P) -- it was mistakenly added to P in
+        // an earlier pass, so it was never actually being looked up and never
+        // translated. Belongs here instead.
+        ["Upload Media", "ارفع الوسائط"],
+        // Third pass: the one-line subtitles injected under each step
+        // heading (the SUBS object further down), and the Step 6 timeline
+        // legend (three short labels next to color swatches -- each is the
+        // *entire* text of its <span>, so a plain R-array match is safe here
+        // even though the swatch markup comes before the label in the DOM).
+        ["Fix timings, edit text, translate, and protect lines with 🔒.", "أصلح التوقيت، حرّر النص، ترجم، واحمِ الأسطر بـ 🔒."],
+        ["Optional: clone each speaker's own voice from the video.", "اختياري: استنسخ صوت كل متحدث من الفيديو."],
+        ["See how much clean speech each speaker has before cloning.", "اطّلع على مقدار الكلام الواضح المتوفر لكل متحدث قبل الاستنساخ."],
+        ["Assign a cloned or studio voice to every speaker.", "عيّن صوتًا مستنسخًا أو من الاستوديو لكل متحدث."],
+        ["Generate the final Arabic audio with emotions and exact timing.", "ولّد الصوت العربي النهائي بالمشاعر والتوقيت الدقيق."],
+        ["kept", "محتفظ به"],
+        ["faded / trimmed", "تلاشٍ / تقليم"],
+        ["overlap allowed", "يُسمح بالتداخل"]
     ];
     var N = [
         ["Transcription complete.", "اكتملت التفريغة."],
@@ -3880,7 +3908,7 @@ window.cleanOldClones = function () {
     function repairCvBox() {
         var box = document.getElementById("customVoiceBox");
         if (!box || document.getElementById("cvSpeaker")) return;
-        box.innerHTML = '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.<br>' +
+        box.innerHTML = '<span id="customVoiceNote"><strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.</span><br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
             '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Choose File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice<span class="badge" id="badgeCvUpload"></span></button> ' +
