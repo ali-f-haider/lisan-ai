@@ -202,7 +202,62 @@ def _synclabs_lipsync(upload_path: Path, audio_path: Path, sync_key: str, model:
         raw_video.write_bytes(resp.read())
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key):
+# VEED Lip Sync 2.0, hosted on fal.ai -- full-frame video-to-video dubbing,
+# billed per second of output video (see lipsyncCreditsPerSec in the admin
+# pricing panel for what that costs the user). Uses fal's own Python client
+# (fal-client, in requirements.txt) rather than hand-rolled HTTP: it handles
+# auth, the file upload step, and the submit/poll/result queue flow, and was
+# confirmed to install cleanly alongside this project's other pinned
+# dependencies before adding it.
+FAL_VEED_LIPSYNC_MODEL = "veed/lipsync/v2"
+
+
+def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: Path, progress: dict):
+    import fal_client
+
+    client = fal_client.SyncClient(key=fal_key)
+
+    progress["message"] = "Uploading to fal.ai (VEED Lip Sync)..."
+    video_url = client.upload_file(str(upload_path))
+    audio_url = client.upload_file(str(audio_path))
+    progress["percent"] = 15
+
+    progress["message"] = "Submitting to VEED Lip Sync..."
+    handle = client.submit(
+        FAL_VEED_LIPSYNC_MODEL,
+        arguments={"video_url": video_url, "audio_url": audio_url},
+    )
+    progress["generation_id"] = handle.request_id
+    progress["percent"] = 20
+
+    completed = None
+    for _ in range(240):  # up to ~20 minutes at 5s intervals
+        time.sleep(5)
+        status = handle.status()
+        if isinstance(status, fal_client.Queued):
+            progress["message"] = f"VEED: queued (position {status.position})"
+        elif isinstance(status, fal_client.InProgress):
+            progress["message"] = "VEED: processing..."
+            progress["percent"] = min(85, progress["percent"] + 2)
+        elif isinstance(status, fal_client.Completed):
+            if status.error:
+                raise Exception(f"VEED lip-sync failed: {status.error}")
+            completed = status
+            break
+    if completed is None:
+        raise Exception(f"Timed out (~20 min). Request ID: {handle.request_id}")
+
+    progress["message"] = "Downloading result..."
+    result = handle.get()
+    video_obj = result.get("video") if isinstance(result, dict) else None
+    video_url_out = video_obj.get("url") if isinstance(video_obj, dict) else None
+    if not video_url_out:
+        raise Exception(f"Unexpected response from VEED: {json.dumps(result)[:400]}")
+    with urllib.request.urlopen(video_url_out, timeout=600) as resp:
+        raw_video.write_bytes(resp.read())
+
+
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key=""):
     key = f"lipsync_{job_id}"
     upload_path = None
     try:
@@ -225,6 +280,9 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key):
             if provider == "synclabs":
                 if not sync_key: raise Exception("Missing Sync Labs API key.")
                 _synclabs_lipsync(upload_path, dubbed_audio, sync_key, model, raw_video, jobs_progress[key], job_id)
+            elif provider == "veed":
+                if not fal_key: raise Exception("Missing fal.ai API key.")
+                _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
             else:
                 if not eleven_key: raise Exception("Missing ElevenLabs API key.")
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])

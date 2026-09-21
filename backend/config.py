@@ -53,6 +53,9 @@ R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
 R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
 R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "")
 
+# --- fal.ai (hosts the VEED Lip Sync 2.0 model used for Step 7 lip-sync) ---
+FAL_API_KEY = os.environ.get("FAL_API_KEY", "")
+
 # --- Contact form (optional; the /api/contact endpoint still validates
 # and rate-limits input without this, it just won't actually deliver mail
 # until you set RESEND_API_KEY) ---

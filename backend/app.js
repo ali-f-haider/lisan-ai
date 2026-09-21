@@ -19,7 +19,7 @@ let voicePools = { male: [], female: [] };
 let availableVoices = [];
 let segmentOffsets = {};
 let currentJobId = null, totalDuration = 0, isVideoUpload = false;
-let transcribePollTimer = null, generatePollTimer = null, emotionPollTimer = null;
+let transcribePollTimer = null, generatePollTimer = null, emotionPollTimer = null, lipsyncPollTimer = null;
 let previewAudio = null, previewBtnCurrent = null;
 window.clonedVoiceIds = [];
 
@@ -95,7 +95,7 @@ function setBadge(id, credits) {
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
-window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5 };
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, lipsyncCreditsPerSec: 10 };
 async function loadRealPricing() {
     try {
         const res = await fetch("/api/pricing");
@@ -105,6 +105,7 @@ async function loadRealPricing() {
             if (typeof d.mergeCredits === "number") window._realPricing.mergeCredits = d.mergeCredits;
             if (typeof d.charsPerCredit === "number") window._realPricing.charsPerCredit = d.charsPerCredit;
             if (typeof d.cloneCredits === "number") window._realPricing.cloneCredits = d.cloneCredits;
+            if (typeof d.lipsyncCreditsPerSec === "number") window._realPricing.lipsyncCreditsPerSec = d.lipsyncCreditsPerSec;
         }
     } catch (e) {}
     updateBadges();
@@ -137,6 +138,10 @@ function updateBadges() {
     // Step 5.5's "Apply changes & rebuild MP3" only re-mixes with ffmpeg (no TTS
     // call), so it's free -- shown explicitly rather than left with no badge.
     setBadge("badgeApplyVolumes", 0);
+    // Lip-sync is billed per second of video, not a flat fee, so it doesn't use
+    // the coin-badge pattern -- just update the rate shown in Step 7's note.
+    var lsRate = document.getElementById("lipsyncRateNote");
+    if (lsRate) lsRate.textContent = window._realPricing.lipsyncCreditsPerSec;
 }
 async function fetchUsage() {
     const box = document.getElementById("usageBox");
@@ -887,7 +892,7 @@ async function checkGenerateProgress() {
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); var _lsEl = document.getElementById("lipsyncSection"); if (_lsEl) _lsEl.classList.remove("hidden"); }
         fetchUsage(); updateBadges();
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
@@ -915,6 +920,92 @@ async function mergeVideo() {
             </div>`;
         notify("success", "Video merged successfully!");
     } catch (e) { document.getElementById("mergeButton").disabled = false; notify("error", e.message); }
+}
+
+async function runLipsync() {
+    if (!currentJobId) { notify("error", "No job found."); return; }
+    const btn = document.getElementById("lipsyncButton");
+    if (btn) btn.disabled = true;
+    const resultsEl = document.getElementById("lipsyncResults");
+    if (resultsEl) { resultsEl.classList.add("hidden"); resultsEl.innerHTML = ""; }
+    const progEl = document.getElementById("lipsyncProgress");
+    if (progEl) progEl.classList.remove("hidden");
+    const fill0 = document.getElementById("lipsyncProgressFill");
+    const txt0 = document.getElementById("lipsyncProgressText");
+    if (fill0) fill0.style.width = "5%";
+    if (txt0) txt0.textContent = "Starting...";
+    notify("info", "Starting lip-sync — this re-processes the full video and can take a few minutes...");
+    try {
+        const res = await fetch("/api/lipsync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: currentJobId })
+        });
+        let data = null;
+        try { data = await res.json(); } catch (e) { data = null; }
+        if (!res.ok || !data || data.status !== "started") {
+            const msg = (data && data.error) || ("Server error " + res.status);
+            notify("error", "Lip-sync failed to start: " + msg);
+            if (progEl) progEl.classList.add("hidden");
+            if (btn) btn.disabled = false;
+            if (res.status === 402) openBuyModal();
+            return;
+        }
+        window._lipsyncCost = data.credits_charged || 0;
+        if (lipsyncPollTimer) clearInterval(lipsyncPollTimer);
+        lipsyncPollTimer = setInterval(checkLipsyncProgress, 1500);
+    } catch (e) {
+        notify("error", e.message);
+        if (progEl) progEl.classList.add("hidden");
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function checkLipsyncProgress() {
+    if (!currentJobId) return;
+    try {
+        const res = await fetch("/api/progress/lipsync/" + encodeURIComponent(currentJobId) + "?t=" + Date.now());
+        const data = await res.json();
+        if (!data || data.status === "not_found") return;
+        const fill = document.getElementById("lipsyncProgressFill");
+        const txt = document.getElementById("lipsyncProgressText");
+        const percent = safePercent(data.percent, 5);
+        if (fill) fill.style.width = percent + "%";
+        if (txt) txt.textContent = percent + "% — " + (data.message || "Processing...");
+        if (data.status === "done") {
+            clearInterval(lipsyncPollTimer);
+            lipsyncPollTimer = null;
+            const btn = document.getElementById("lipsyncButton");
+            if (btn) btn.disabled = false;
+            if (fill) fill.style.width = "100%";
+            if (txt) txt.textContent = "100% — Lip-sync complete.";
+            const videoFile = (data.result && data.result.video) || (currentJobId + "_final_lipsync.mp4");
+            const costNote = window._lipsyncCost ? (" Cost: " + window._lipsyncCost + " credits.") : "";
+            const resultsEl = document.getElementById("lipsyncResults");
+            if (resultsEl) {
+                resultsEl.classList.remove("hidden");
+                resultsEl.innerHTML =
+                    '<h4>🎭 Lip-Synced Video:</h4>' +
+                    '<video controls src="/api/download/' + encodeURIComponent(videoFile) + '?cache=' + Date.now() + '"></video>' +
+                    '<div class="download-buttons"><a href="/api/download/' + encodeURIComponent(videoFile) + '?cache=' + Date.now() + '" download="final_lipsync.mp4">⬇️ Download Lip-Synced Video (MP4)</a></div>';
+            }
+            notify("success", "Lip-sync complete." + costNote);
+            fetchUsage();
+            if (typeof updateBadges === "function") updateBadges();
+            if (typeof refreshCredits === "function") refreshCredits();
+        }
+        if (data.status === "error") {
+            clearInterval(lipsyncPollTimer);
+            lipsyncPollTimer = null;
+            const btn = document.getElementById("lipsyncButton");
+            if (btn) btn.disabled = false;
+            const progEl = document.getElementById("lipsyncProgress");
+            if (progEl) progEl.classList.add("hidden");
+            notify("error", "Lip-sync failed: " + (data.error || "Unknown error"));
+        }
+    } catch (e) {
+        console.error("Lip-sync progress check failed:", e);
+    }
 }
 
 async function regenerateLine(i, btn) {
@@ -1546,7 +1637,7 @@ checkGenerateProgress = async function() {
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); var _lsEl = document.getElementById("lipsyncSection"); if (_lsEl) _lsEl.classList.remove("hidden"); }
         fetchUsage(); updateBadges();
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
@@ -1634,7 +1725,7 @@ checkGenerateProgress = async function() {
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
+        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); var _lsEl = document.getElementById("lipsyncSection"); if (_lsEl) _lsEl.classList.remove("hidden"); }
         fetchUsage(); updateBadges();
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
@@ -2413,6 +2504,8 @@ checkGenerateProgress = async function () {
 
             if (isVideoUpload) {
                 document.getElementById("mergeSection").classList.remove("hidden");
+                var lsEl2415 = document.getElementById("lipsyncSection");
+                if (lsEl2415) lsEl2415.classList.remove("hidden");
             }
 
             fetchUsage();
@@ -2813,6 +2906,7 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
     guard("startTranscribe", 0, "Not enough credits — transcription costs 3 credits.");
     guard("generateAudio", 20, "Not enough credits — generation costs 1 credit per ~60 characters.");
     guard("mergeVideo", 1, "Not enough credits — merging costs 1 credit.");
+    guard("runLipsync", 1, "Not enough credits — lip-sync is billed per second of video.");
 })();
 
 // ===== ADD-ON: guard voice cloning on loaded projects (no media on server) =====
@@ -3704,7 +3798,10 @@ window.cleanOldClones = function () {
         ["Name (optional)", "الاسم (اختياري)"],
         ["Email", "البريد الإلكتروني"],
         ["Message", "الرسالة"],
-        ["Send Message", "إرسال الرسالة"]
+        ["Send Message", "إرسال الرسالة"],
+        // Step 7: Lip-Sync (VEED Lip Sync 2.0 via fal.ai)
+        ["Step 7: Lip-Sync (Premium)", "الخطوة 7: مزامنة الشفاه (مميزة)"],
+        ["🎭 Lip-Sync Video", "🎭 مزامنة الشفاه"]
     ];
     // Any note/paragraph whose text is broken up by inline tags (<strong>,
     // <br>, <a>) is handled here via a full innerHTML swap, not through the
@@ -3749,6 +3846,16 @@ window.cleanOldClones = function () {
             // are never touched.
             en: '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.',
             ar: '<strong>📤 استخدم مقطع صوتك الخاص:</strong> اختر متحدثًا وارفع مقطع MP3/WAV (بحد أقصى 20 ثانية) يتحدث فيه ذلك الشخص معظم الوقت. المقطع لا يُحلَّل — محرك الصوت يستخرج منه الصوت الغالب، لذا فإن وجود موسيقى أو أصوات أخرى فيه سيقلل الجودة.'
+        },
+        lipsyncNote: {
+            // Contains an inline <strong id="lipsyncRateNote"> that
+            // updateBadges() overwrites with the real per-second rate --
+            // going through BANNERS (full innerHTML swap) rather than the
+            // R-array (which only ever touches a leading text node) so the
+            // embedded tag survives the swap; both language variants keep
+            // the exact same id inside so getElementById keeps finding it.
+            en: 'Matches the mouth movements in your video to the new Arabic audio, using a premium third-party AI service. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video.',
+            ar: 'تُطابق حركة الشفاه في فيديوك مع الصوت العربي الجديد، باستخدام خدمة ذكاء اصطناعي مدفوعة من جهة خارجية. تُعيد هذه الخطوة معالجة فيديوك المدبلج النهائي بالكامل وتكلّف <strong id="lipsyncRateNote">10</strong> رصيد لكل ثانية من الفيديو.'
         }
     };
     // Plain textContent swaps for elements tagAll() never reaches: table
@@ -3849,6 +3956,7 @@ window.cleanOldClones = function () {
         [" — transcription costs 3 credits.", " — تكلفة النسخ 3 أرصدة."],
         [" — generation costs 1 credit per ~60 characters.", " — تكلفة التوليد رصيد واحد لكل ~60 حرفًا."],
         [" — merging costs 1 credit.", " — تكلفة الدمج رصيد واحد."],
+        [" — lip-sync is billed per second of video.", " — تُحتسب مزامنة الشفاه لكل ثانية من الفيديو."],
         ["Upload failed:", "فشل الرفع:"],
         ["Rebuild failed:", "فشل إعادة البناء:"],
         // The specific "X failed: " entries below must stay ABOVE the
@@ -3866,6 +3974,8 @@ window.cleanOldClones = function () {
         ["Transcribe failed: ", "فشل التفريغ: "],
         ["Regenerate failed: ", "فشلت إعادة التوليد: "],
         ["Credit sync failed: ", "فشلت مزامنة الرصيد: "],
+        ["Lip-sync failed to start: ", "فشل بدء مزامنة الشفاه: "],
+        ["Lip-sync failed: ", "فشلت مزامنة الشفاه: "],
         ["failed:", "فشل:"],
         ["Workspace cleared.", "تم مسح مساحة العمل."],
         ["Uploading and starting transcription...", "جارٍ الرفع وبدء التفريغة..."],
@@ -3911,6 +4021,8 @@ window.cleanOldClones = function () {
         ["No job found.", "لم يُعثر على مهمة."],
         ["No job.", "لا توجد مهمة."],
         ["Merging dubbed audio with video and background music...", "جارٍ دمج الصوت المدبلج مع الفيديو وموسيقى الخلفية..."],
+        ["Starting lip-sync — this re-processes the full video and can take a few minutes...", "جارٍ بدء مزامنة الشفاه — تُعاد معالجة الفيديو الكامل وقد يستغرق ذلك بضع دقائق..."],
+        ["Lip-sync complete.", "اكتملت مزامنة الشفاه."],
         ["This line has no Arabic text yet.", "هذا السطر لا يحتوي نصًا عربيًا بعد."],
         ["Offsets reset.", "أُعيدت الإزاحات."],
         ["No offsets to apply — drag some blocks first.", "لا توجد إزاحات لتطبيقها — اسحب بعض الكتل أولاً."],
@@ -3960,6 +4072,8 @@ window.cleanOldClones = function () {
         ["Preview plays matched audio ", "تعرض المعاينة الصوت المطابق "],
         ["(row shows ", "(الصف يعرض "],
         [" (balance: ", " (الرصيد: "],
+        [" Cost: ", " التكلفة: "],
+        [" credits.", " رصيد."],
         [" speaker(s) assigned to their cloned voices.", " متحدثًا تم تعيين صوته المستنسخ."],
         [" segments translated. Locked lines untouched.", " مقطعًا مُترجَمًا. الأسطر المقفلة لم تُمس."],
         [" segments updated.", " مقطعًا مُحدَّثًا."],

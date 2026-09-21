@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
-                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN)
+                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY)
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -179,7 +179,7 @@ class MergeRequest(BaseModel):
 
 class LipSyncRequest(BaseModel):
     job_id: str
-    provider: str = "synclabs"
+    provider: str = "veed"
     model: str = "lipsync-2"
     sync_key: str = ""
 
@@ -1450,13 +1450,42 @@ def merge_video(req: MergeRequest, request: Request):
 def lipsync(req: LipSyncRequest, request: Request):
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    uid = _current_uid(request)
+
+    video_path = find_job_video(req.job_id)
+    if video_path is None:
+        return JSONResponse({"error": "Original video not found."}, status_code=404)
+
+    # Lip-sync (VEED Lip Sync 2.0 via fal.ai) is billed per second of video,
+    # not a flat fee, so the charge has to be computed from the real video
+    # duration -- unlike the maxVideoMin check in /api/transcribe, a failed
+    # probe here fails CLOSED (blocks the request) rather than falling back
+    # to some default duration, since guessing wrong here means charging
+    # the wrong amount for a real, meaningful cost.
+    try:
+        dur = ffmpeg_utils.get_media_duration(video_path)
+    except Exception as _dur_ex:
+        print(f"[lipsync] duration probe failed: {_dur_ex}")
+        dur = None
+    if not dur or dur <= 0:
+        return JSONResponse({"error": "Could not determine this video's length. Please try again."}, status_code=500)
+
+    per_sec = float(_get_pricing_config().get("lipsyncCreditsPerSec", 10))
+    lipsync_cost = max(1, round(dur * per_sec))
+
+    bal = get_credits(uid) if uid else None
+    if bal is not None and bal < lipsync_cost:
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use ➕ Buy."}, status_code=402)
+    if uid:
+        deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
+
     jobs_progress[f"lipsync_{req.job_id}"] = {"status": "processing", "percent": 5,
                                               "message": "Preparing...", "error": None,
                                               "result": None, "generation_id": None}
     threading.Thread(target=lipsync_service.lipsync_worker,
-                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key),
+                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY),
                      daemon=True).start()
-    return {"status": "started"}
+    return {"status": "started", "credits_charged": lipsync_cost if uid else 0}
 
 @app.get("/api/progress/lipsync/{job_id}")
 def lipsync_progress(job_id: str):
@@ -1848,6 +1877,12 @@ def _get_pricing_config():
         "mergeCredits": 1,
         "charsPerCredit": 60,
         "cloneCredits": 5,
+        # Lip-sync (Step 7, VEED Lip Sync 2.0 via fal.ai) is billed per
+        # second of the source video, not a flat fee -- fal.ai charges this
+        # app $0.07/sec, so the default of 10 credits/sec (= $0.10/sec at
+        # 100 credits = $1) leaves a real margin instead of losing money on
+        # every lip-sync request. See /api/lipsync for how it's charged.
+        "lipsyncCreditsPerSec": 10,
         # Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"), set from
         # the admin panel. Empty string = analytics off. The landing() route
         # below injects Google's gtag.js snippet server-side into the page
@@ -1874,6 +1909,7 @@ def _get_pricing_config():
                 "mergeCredits": row.get("merge_credits", defaults["mergeCredits"]),
                 "charsPerCredit": row.get("chars_per_credit", defaults["charsPerCredit"]),
                 "cloneCredits": row.get("clone_credits", defaults["cloneCredits"]),
+                "lipsyncCreditsPerSec": row.get("lipsync_credits_per_sec", defaults["lipsyncCreditsPerSec"]),
                 "gaMeasurementId": row.get("ga_measurement_id", defaults["gaMeasurementId"]),
                 "packs": row.get("packs", defaults["packs"])
             }
@@ -1909,6 +1945,7 @@ def _save_pricing_config(config):
             "merge_credits": config.get("mergeCredits", 1),
             "chars_per_credit": config.get("charsPerCredit", 60),
             "clone_credits": config.get("cloneCredits", 5),
+            "lipsync_credits_per_sec": config.get("lipsyncCreditsPerSec", 10),
             "ga_measurement_id": _clean_ga,
             "packs": config.get("packs", []),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -2272,16 +2309,17 @@ def admin_page(request: Request):
 def public_pricing():
     """Returns the user-facing pricing config (packs), plus the real
     per-step charges (transcribeCredits/mergeCredits/charsPerCredit/
-    cloneCredits) so the app's own credit badges can show what a button
-    actually costs instead of a guessed or hardcoded number.
-    No auth required — these are prices, not secrets."""
+    cloneCredits/lipsyncCreditsPerSec) so the app's own credit badges can
+    show what a button actually costs instead of a guessed or hardcoded
+    number. No auth required — these are prices, not secrets."""
     cfg = _get_pricing_config()
     return {
         "packs": cfg.get("packs", []),
         "transcribeCredits": cfg.get("transcribeCredits", 3),
         "mergeCredits": cfg.get("mergeCredits", 1),
         "charsPerCredit": cfg.get("charsPerCredit", 60),
-        "cloneCredits": cfg.get("cloneCredits", 5)
+        "cloneCredits": cfg.get("cloneCredits", 5),
+        "lipsyncCreditsPerSec": cfg.get("lipsyncCreditsPerSec", 10)
     }
 
 @app.get("/api/billing/packs")

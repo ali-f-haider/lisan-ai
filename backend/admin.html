@@ -144,6 +144,11 @@ button.btn-success:hover { background: #15803d; }
           <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
           <span class="muted">Current default: 5 — charged for both "Clone Selected Voices" (Step 3.5) and "Upload as this speaker's voice" (Step 4), since both create a new voice via the same paid ElevenLabs quota.</span>
         </div>
+        <div class="form-group">
+          <label>Lip-sync (credits per second of video)</label>
+          <input type="number" id="lipsyncCreditsPerSec" style="width:120px;" step="1" min="0" max="1000">
+          <span class="muted">Current default: 10 (= $0.10/sec at 100 credits = $1). VEED Lip Sync 2.0 (Step 7) actually costs this app $0.07/sec, so 10 leaves a margin — a 1-minute video costs the user 600 credits at the default rate.</span>
+        </div>
         <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
       </div>
 
@@ -368,7 +373,7 @@ function slugifyPackKey(name) {
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','gaMeasurementId'].forEach(k => {
+  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','lipsyncCreditsPerSec','gaMeasurementId'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   let html = '';
@@ -427,6 +432,7 @@ async function savePricing() {
     mergeCredits: parseInt(document.getElementById('mergeCredits')?.value || '1'),
     charsPerCredit: parseInt(document.getElementById('charsPerCredit')?.value || '60'),
     cloneCredits: parseInt(document.getElementById('cloneCredits')?.value || '5'),
+    lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '10'),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs
   };

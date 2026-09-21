@@ -221,8 +221,14 @@
 </div>
 
 <div id="lipsyncSection" class="card hidden">
-    <h3>Step 7: Lip-Sync (currently disabled)</h3>
-    <p class="note">Lip-sync is not available in this build. It will return as a local or premium provider option in a future update.</p>
+    <h3>Step 7: Lip-Sync (Premium)</h3>
+    <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using a premium third-party AI service. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video.</p>
+    <button class="green" id="lipsyncButton" onclick="runLipsync()">🎭 Lip-Sync Video</button>
+    <div id="lipsyncProgress" class="hidden">
+        <div class="progress-bar"><div class="progress-fill green" id="lipsyncProgressFill" style="width:0%"></div></div>
+        <p id="lipsyncProgressText" class="progress-status">Starting...</p>
+    </div>
+    <div id="lipsyncResults" class="hidden"></div>
 </div>
 
 <div class="modal-overlay hidden" id="appContactModal">
