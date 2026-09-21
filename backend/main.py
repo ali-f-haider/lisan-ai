@@ -729,26 +729,53 @@ async def stripe_webhook(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # ---------- Auto-cleanup of old job files ----------
+# Two retention tiers now, not one:
+#  - Everything in UPLOAD_DIR (the original upload, Demucs stems, etc.) and
+#    every intermediate file in OUTPUT_DIR (per-line TTS clips, mix drafts,
+#    lipsync working files...) is still purged after CLEANUP_RETENTION_HOURS,
+#    same as always.
+#  - The finished result of a job -- the files a user would actually want to
+#    come back and download later, matched by the job-scoped filenames below
+#    -- is kept for CLEANUP_FINAL_OUTPUT_DAYS instead, so it survives long
+#    enough to show up on the Account page (see /api/my_jobs).
+# Update privacy.html and terms.html if either number changes -- both make a
+# stated retention-time commitment to users.
 CLEANUP_RETENTION_HOURS = 6
+CLEANUP_FINAL_OUTPUT_DAYS = 30
 CLEANUP_INTERVAL_MIN = 15
+
+# Suffixes that mark a file in OUTPUT_DIR as a job's *finished* output rather
+# than an intermediate working file. Keep this in sync with the filenames
+# written in main.py (merge_video), eleven_service.py, tts_service.py and
+# lipsync_service.py.
+_FINAL_OUTPUT_SUFFIXES = ("_final_dubbed.mp3", "_final_dubbed_video.mp4", "_final_lipsync.mp4")
+
+
+def _is_final_output(path):
+    return path.parent == OUTPUT_DIR and path.name.endswith(_FINAL_OUTPUT_SUFFIXES)
 
 
 def _cleanup_worker():
     while True:
         _time.sleep(CLEANUP_INTERVAL_MIN * 60)
         try:
-            cutoff = _time.time() - CLEANUP_RETENTION_HOURS * 3600
+            now = _time.time()
+            short_cutoff = now - CLEANUP_RETENTION_HOURS * 3600
+            final_cutoff = now - CLEANUP_FINAL_OUTPUT_DAYS * 86400
             removed = 0
             for d in (UPLOAD_DIR, OUTPUT_DIR):
                 for p in d.glob("*"):
                     try:
-                        if p.is_file() and p.stat().st_mtime < cutoff:
+                        if not p.is_file():
+                            continue
+                        cutoff = final_cutoff if _is_final_output(p) else short_cutoff
+                        if p.stat().st_mtime < cutoff:
                             p.unlink()
                             removed += 1
                     except Exception:
                         pass
             for jid in list(_job_started.keys()):
-                if _job_started[jid] < cutoff:
+                if _job_started[jid] < short_cutoff:
                     jobs_progress.pop(jid, None)
                     _job_started.pop(jid, None)
             if removed:
@@ -1104,12 +1131,16 @@ def merge_video(req: MergeRequest, request: Request):
         deduct_credits(uid, merge_cost, "merge", req.job_id)
 
     video = find_job_video(req.job_id)
-    dub = OUTPUT_DIR / "final_dubbed.mp3"
+    # Job-scoped filename -- see the comment on CLEANUP_RETENTION_HOURS below
+    # for why this used to be a single shared filename for every job on the
+    # server (a real bug: two jobs finishing near each other would silently
+    # overwrite each other's file) and why it now includes the job_id.
+    dub = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
     if video is None or not dub.exists():
         return {"error": "Missing video or dubbed audio. Run Generate first."}
-    
+
     bg = job_background_audio(req.job_id)
-    final = OUTPUT_DIR / "final_dubbed_video.mp4"
+    final = OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4"
     
     if bg is not None:
         # Optionally enhance the separated background
@@ -1159,6 +1190,12 @@ def usage(job_id: str):
 
 @app.get("/api/download/{filename}")
 def download(filename: str):
+    # Basic path-traversal guard. This was harmless before (files only ever
+    # lived a few hours and had one shared name), but final outputs now
+    # persist for up to CLEANUP_FINAL_OUTPUT_DAYS days, so it's worth closing
+    # off "../" style filenames before they reach the filesystem.
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "not found"}, status_code=404)
     p = OUTPUT_DIR / filename
     if not p.exists():
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -1317,6 +1354,122 @@ def account_summary(request: Request):
         "purchases": orders,
         "spends": spends
     }
+
+
+# ===== "Your Finished Files" on the Account page =====
+# Ownership of a job_id is decided by whether it shows up in this uid's own
+# credit_spends rows (already written for every generate/merge/clone call --
+# see _record_spend above), not a separate jobs table.
+_MY_JOB_FILE_SUFFIXES = {
+    "audio": "_final_dubbed.mp3",
+    "video": "_final_dubbed_video.mp4",
+    "lipsync": "_final_lipsync.mp4",
+}
+
+
+def _job_belongs_to_uid(uid: str, job_id: str) -> bool:
+    if not uid or not job_id or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&job_id=eq.{job_id}&select=job_id&limit=1"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            return bool(json.load(r))
+    except Exception:
+        return False
+
+
+@app.get("/api/my_jobs")
+def my_jobs(request: Request):
+    """Every job of this user's that still has a finished output on disk --
+    backs the Account page's file list. Reuses credit_spends for ownership
+    instead of a new table; a job with no final file left (never produced
+    one, or past the 30-day window) is simply left out."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return {"jobs": []}
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=job_id,created_at&order=created_at.desc&limit=1000"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+    except Exception as e:
+        print("[my_jobs] fetch error:", e)
+        return {"jobs": []}
+
+    latest_seen = {}
+    for row in rows:
+        jid = row.get("job_id")
+        if not jid or "/" in jid or "\\" in jid or ".." in jid:
+            continue
+        ts = row.get("created_at") or ""
+        if jid not in latest_seen or ts > latest_seen[jid]:
+            latest_seen[jid] = ts
+
+    jobs = []
+    for jid, created_at in latest_seen.items():
+        audio = OUTPUT_DIR / f"{jid}_final_dubbed.mp3"
+        video = OUTPUT_DIR / f"{jid}_final_dubbed_video.mp4"
+        lip = OUTPUT_DIR / f"{jid}_final_lipsync.mp4"
+        existing = [p for p in (audio, video, lip) if p.exists()]
+        if not existing:
+            continue
+        newest_mtime = max(p.stat().st_mtime for p in existing)
+        jobs.append({
+            "job_id": jid,
+            "created_at": created_at,
+            "has_audio": audio.exists(),
+            "has_video": video.exists(),
+            "has_lipsync": lip.exists(),
+            "expires_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(newest_mtime + CLEANUP_FINAL_OUTPUT_DAYS * 86400)),
+        })
+    jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
+    return {"jobs": jobs}
+
+
+@app.get("/api/my_jobs/{job_id}/{kind}")
+def my_job_file(job_id: str, kind: str, request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    suffix = _MY_JOB_FILE_SUFFIXES.get(kind)
+    if not suffix or "/" in job_id or "\\" in job_id or ".." in job_id:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not _job_belongs_to_uid(uid, job_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    p = OUTPUT_DIR / f"{job_id}{suffix}"
+    if not p.exists():
+        return JSONResponse({"error": "This file has expired or was already deleted."}, status_code=404)
+    media_type = "audio/mpeg" if kind == "audio" else "video/mp4"
+    return FileResponse(p, media_type=media_type, filename=p.name)
+
+
+@app.delete("/api/my_jobs/{job_id}")
+def delete_my_job(job_id: str, request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    if "/" in job_id or "\\" in job_id or ".." in job_id:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not _job_belongs_to_uid(uid, job_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    removed = 0
+    for suffix in _MY_JOB_FILE_SUFFIXES.values():
+        p = OUTPUT_DIR / f"{job_id}{suffix}"
+        try:
+            if p.exists():
+                p.unlink()
+                removed += 1
+        except Exception:
+            pass
+    return {"status": "success", "removed": removed}
+
 
 def account_summary_diag(request: Request):
     uid = _current_uid(request)

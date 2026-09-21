@@ -885,8 +885,8 @@ async function checkGenerateProgress() {
         document.getElementById("audioResults").innerHTML = `
             <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
-            <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
-            <div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
+            <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
+            <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
         if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
         fetchUsage(); updateBadges();
     }
@@ -908,10 +908,10 @@ async function mergeVideo() {
         document.getElementById("videoResults").classList.remove("hidden");
         document.getElementById("videoResults").innerHTML = `
             <h4>🎬 Final Dubbed Video:</h4><p class="note">${bgNote}</p>
-            <video controls src="/api/download/final_dubbed_video.mp4?cache=${Date.now()}"></video>
+            <video controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed_video.mp4?cache=${Date.now()}"></video>
             <div class="download-buttons">
-                <a href="/api/download/final_dubbed_video.mp4?cache=${Date.now()}" download="final_dubbed_video.mp4">⬇️ Download Dubbed Video (MP4)</a>
-                <a class="blue" href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download Pure Vocals (MP3)</a>
+                <a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed_video.mp4?cache=${Date.now()}" download="final_dubbed_video.mp4">⬇️ Download Dubbed Video (MP4)</a>
+                <a class="blue" href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download Pure Vocals (MP3)</a>
             </div>`;
         notify("success", "Video merged successfully!");
     } catch (e) { document.getElementById("mergeButton").disabled = false; notify("error", e.message); }
@@ -952,7 +952,7 @@ async function regenerateLine(i, btn) {
         const cr = Math.max(1, usdToCredits(usd));
         notify("success", `Line ${i + 1} re-spoken: ${data.stretched_duration}s into a ${data.target}s window. Cost ≈ ${cr} credits ($${usd.toFixed(4)}). Final mix rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
         const au = document.querySelector("#audioResults audio");
-        if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         fetchUsage();
     } catch (e) {
         notify("error", e.message);
@@ -989,7 +989,7 @@ async function confirmTimeline() {
         }
         notify("success", "New mix built with " + data.segments_generated + " lines. The Step 6 player now uses it.");
         const au = document.querySelector("#audioResults audio");
-        if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
     } catch (e) { notify("error", e.message); }
 }
 
@@ -1372,7 +1372,7 @@ async function regenerateLine(i, btn) {
         }
         if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
         const au = document.querySelector("#audioResults audio");
-        if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         fetchUsage();
     } catch (e) {
         notify("error", e.message);
@@ -1430,7 +1430,7 @@ async function restretchLine(seg) {
         }
         if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
         const au = document.querySelector("#audioResults audio");
-        if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         const idx = segmentsData.indexOf(seg);
         notify("success", `Line ${idx + 1} re-stretched: ${data.stretched_duration}s into a ${data.target}s window.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
     } catch (e) {
@@ -1544,8 +1544,8 @@ checkGenerateProgress = async function() {
         document.getElementById("audioResults").innerHTML = `
             <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
-            <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
-            <div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
+            <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
+            <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
         if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
         fetchUsage(); updateBadges();
     }
@@ -1632,8 +1632,8 @@ checkGenerateProgress = async function() {
         document.getElementById("audioResults").innerHTML = `
             <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
-            <audio controls src="/api/download/final_dubbed.mp3?cache=${Date.now()}"></audio>
-            <div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
+            <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
+            <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
         if (isVideoUpload) document.getElementById("mergeSection").classList.remove("hidden");
         fetchUsage(); updateBadges();
     }
@@ -2408,8 +2408,8 @@ checkGenerateProgress = async function () {
             document.getElementById("audioResults").innerHTML =
                 '<p>Segments generated: <strong>' + (r.segments_generated || 0) + '</strong> | Timing warnings: <strong>' + (r.tempo_warnings || 0) + '</strong> | Trimmed: <strong>' + (r.duration_cuts || 0) + '</strong></p>' +
                 '<p>Final duration: <strong>' + (r.final_duration || 0) + 's</strong> | Voice characters used: <strong>' + ((r.eleven_credits_used || 0).toLocaleString()) + '</strong></p>' +
-                '<audio controls src="/api/download/final_dubbed.mp3?cache=' + Date.now() + '"></audio>' +
-                '<div class="download-buttons"><a href="/api/download/final_dubbed.mp3?cache=' + Date.now() + '" download="final_dubbed.mp3">⬇️ Download MP3</a></div>';
+                '<audio controls src="/api/download/' + encodeURIComponent(currentJobId || "") + '_final_dubbed.mp3?cache=' + Date.now() + '"></audio>' +
+                '<div class="download-buttons"><a href="/api/download/' + encodeURIComponent(currentJobId || "") + '_final_dubbed.mp3?cache=' + Date.now() + '" download="final_dubbed.mp3">⬇️ Download MP3</a></div>';
 
             if (isVideoUpload) {
                 document.getElementById("mergeSection").classList.remove("hidden");
@@ -2584,7 +2584,7 @@ function resetFileLabel() {
 
 function confirmResetSafe() {
     if (resultsExist && !resultsDownloaded) {
-        if (!confirm("⚠️ You generated audio/video that has NOT been downloaded yet.\n\nIf you continue, it will be lost forever (server files are temporary).\n\nDid you download everything you need?")) return false;
+        if (!confirm("⚠️ You generated audio/video for this project.\n\nIt's saved to your Account page for 30 days, but this editing session (segments, translations, voice choices) will be lost if you continue.\n\nDid you download or note everything you need from this session?")) return false;
     }
     if (segmentsData.length) {
         if (!confirm("This clears the current project (segments, translations, voices).\nTip: use 💾 Save Project first if you want to keep it.\n\nContinue?")) return false;
@@ -3153,7 +3153,7 @@ async function applyVolumes() {
         }
         notify("success", "Volumes applied — final MP3 rebuilt with your per-line trim.");
         var au = document.querySelector("#audioResults audio");
-        if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         btn.textContent = "🔊 Apply changes & rebuild MP3";
     } catch (e) { notify("error", e.message); }
     finally { btn.disabled = false; }
@@ -3263,7 +3263,7 @@ async function applyVolumes() {
             if (mt) { mt.value = 0; document.getElementById("masterTrimLab").textContent = "+0.0 dB"; }
             notify("success", "Volumes applied — final MP3 rebuilt with your mix.");
             var au = document.querySelector("#audioResults audio");
-            if (au) { au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+            if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         }).catch(function (e) { notify("error", e.message); }).finally(function () {
             btn.disabled = false; btn.textContent = "🔊 Apply changes & rebuild MP3";
         });
@@ -3546,7 +3546,7 @@ async function applyVolumes() {
                 if (typeof window.buildVolumeTable === "function") window.buildVolumeTable(window._volumeLines || []);
             }
             var au = document.querySelector("#audioResults audio");
-            if (au) { au.pause(); au.src = "/api/download/final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+            if (au) { au.pause(); au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
             btn.textContent = "🔊 Apply changes & rebuild MP3";
         }).catch(function (e) { notify("error", e.message); })
           .finally(function () { btn.disabled = false; });

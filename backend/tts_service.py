@@ -460,7 +460,7 @@ def generate_worker(req):
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted_files))])
         filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted_files) + 1}:duration=first:normalize=0[out]")
         filter_complex = ";".join(filter_parts)
-        output_file = OUTPUT_DIR / "final_dubbed.mp3"
+        output_file = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
         run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
 
         if req.tts_provider != "gemini" and req.cloned_voice_ids and eleven_client:

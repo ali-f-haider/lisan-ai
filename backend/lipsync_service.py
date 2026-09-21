@@ -211,7 +211,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key):
         video_path = find_job_video(job_id)
         if video_path is None:
             raise Exception("Original video not found.")
-        dubbed_audio = OUTPUT_DIR / "final_dubbed.mp3"
+        dubbed_audio = OUTPUT_DIR / f"{job_id}_final_dubbed.mp3"
         if not dubbed_audio.exists():
             raise Exception("Dubbed audio not found.")
 
@@ -236,7 +236,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key):
         jobs_progress[key]["percent"] = 92
         jobs_progress[key]["message"] = "Mixing background audio back in..."
         background = job_background_audio(job_id)
-        final_video = OUTPUT_DIR / "final_lipsync.mp4"
+        final_video = OUTPUT_DIR / f"{job_id}_final_lipsync.mp4"
         if background is not None:
             mixed = OUTPUT_DIR / f"lipsync_mixed_{job_id}.wav"
             mix_two_audio(raw_video, background, mixed)
@@ -250,7 +250,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key):
 
         jobs_progress[key].update({"status": "done", "percent": 100,
                                    "message": "Lip-sync complete.",
-                                   "result": {"video": "final_lipsync.mp4", "provider": provider}})
+                                   "result": {"video": f"{job_id}_final_lipsync.mp4", "provider": provider}})
     except Exception as e:
         jobs_progress[key] = {"status": "error", "percent": 0, "message": str(e), "error": str(e),
                               "result": None, "generation_id": jobs_progress.get(key, {}).get("generation_id")}

@@ -36,7 +36,7 @@ if bg is None:
     if bg is None:
         sys.exit(1)
 
-dub = OUT / "final_dubbed.mp3"
+dub = OUT / f"{job}_final_dubbed.mp3"
 video = None
 for p in sorted(UP.glob(f"{job}*")):
     if p.suffix.lower() in VIDEO_EXTS and "_separated" not in p.name:
@@ -51,7 +51,7 @@ mixed = OUT / "merge_mixed_repair.wav"
 subprocess.run(["ffmpeg", "-y", "-i", str(dub), "-i", str(bg), "-filter_complex",
                 "[0:a]volume=1.0[d];[1:a]volume=0.8[b];[d][b]amix=inputs=2:duration=first:normalize=0[out]",
                 "-map", "[out]", str(mixed)], check=True, capture_output=True)
-final = OUT / "final_dubbed_video.mp4"
+final = OUT / f"{job}_final_dubbed_video.mp4"
 subprocess.run(["ffmpeg", "-y", "-i", str(video), "-i", str(mixed),
                 "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-shortest", str(final)],
                check=True, capture_output=True)

@@ -557,7 +557,7 @@ def generate_worker(req):
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted_files))])
         filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted_files) + 1}:duration=first:normalize=0[out]")
         filter_complex = ";".join(filter_parts)
-        output_file = OUTPUT_DIR / "final_dubbed.mp3"
+        output_file = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
         run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
         warning_count = sum(1 for f in adjusted_files if f.get("tempo_warning"))
         result = {"status": "success", "output_folder": str(OUTPUT_DIR), "final_file": str(output_file),
@@ -573,7 +573,7 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     global DEAD_SPACE_FLAGS
     if flags: OVERLAP_FLAGS = dict(flags)
     if dead_space_flags: DEAD_SPACE_FLAGS = dict(dead_space_flags)
-    """Rebuild final_dubbed.mp3 from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
+    """Rebuild this job's final dubbed audio from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
     active = dict(USER_GAINS.get(job_id or "", {}))
     segs = sorted([s for s in segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
     items = []
@@ -635,7 +635,7 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted))])
     filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted) + 1}:duration=first:normalize=0[out]")
     filter_complex = ";".join(filter_parts)
-    output_file = OUTPUT_DIR / "final_dubbed.mp3"
+    output_file = OUTPUT_DIR / f"{job_id}_final_dubbed.mp3"
     run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
     return {"segments_generated": len(adjusted), "duration_cuts": cuts,
             "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}
@@ -762,7 +762,7 @@ def restretch_line(req):
         return {"error": friendly_error(e)}
 
 def remix_with_offsets(req):
-    """Rebuild final_dubbed.mp3 applying per-segment time offsets AND Step 5.5 volume gains."""
+    """Rebuild this job's final dubbed audio applying per-segment time offsets AND Step 5.5 volume gains."""
     global OVERLAP_FLAGS
     global DEAD_SPACE_FLAGS
     OVERLAP_FLAGS = dict(getattr(req, 'overlap_allowed', None) or {})
@@ -834,7 +834,7 @@ def remix_with_offsets(req):
         mix_inputs = "".join([f"[a{i}]" for i in range(len(adjusted))])
         filter_parts.append(f"[0]{mix_inputs}amix=inputs={len(adjusted) + 1}:duration=first:normalize=0[out]")
         filter_complex = ";".join(filter_parts)
-        output_file = OUTPUT_DIR / "final_dubbed.mp3"
+        output_file = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
         run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
         return {"status": "success", "segments_generated": len(adjusted), "duration_cuts": cuts,
                 "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}

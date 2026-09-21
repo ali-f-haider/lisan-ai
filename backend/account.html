@@ -6,6 +6,19 @@
 <title>Lisan AI — My Usage</title>
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="stylesheet" href="/styles.css">
+<style>
+  .job-item { border-top: 1px solid #e5e7eb; padding: 16px 0; }
+  .job-item:first-child { border-top: none; padding-top: 4px; }
+  .job-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+  .job-date { font-weight: 700; color: #1a237e; }
+  .job-expiry { font-size: 12px; color: #6b7280; background: #f3f4f6; padding: 3px 10px; border-radius: 12px; }
+  .btn-danger {
+    padding: 10px 20px; background: #fff; color: #dc2626; border: 1px solid #fecaca;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+    font-family: inherit; text-decoration: none; transition: all 0.2s;
+  }
+  .btn-danger:hover { background: #fef2f2; }
+</style>
 </head>
 <body>
 <div id="userBar">
@@ -23,6 +36,11 @@
   <h3>💰 Current balance</h3>
   <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
   <p class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
+</div>
+<div class="card">
+  <h3>🎬 Your Finished Files</h3>
+  <p class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
+  <div id="myJobsList"><p style="color:#6b7280;">Loading…</p></div>
 </div>
 <div class="card">
   <h3>🛒 Credit purchases</h3>
@@ -53,6 +71,82 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
   });
   if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">No consumption recorded yet.</td></tr>';
 }).catch(function(){});
+
+function fmtDate(iso) {
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso || "";
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
+      ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  } catch (e) { return iso || ""; }
+}
+
+function daysUntil(iso) {
+  try {
+    var ms = new Date(iso).getTime() - Date.now();
+    var days = Math.ceil(ms / 86400000);
+    if (days <= 0) return "expiring soon";
+    if (days === 1) return "expires in 1 day";
+    return "expires in " + days + " days";
+  } catch (e) { return ""; }
+}
+
+function renderMyJobs(jobs) {
+  var list = document.getElementById("myJobsList");
+  if (!jobs.length) {
+    list.innerHTML = '<p style="color:#6b7280;">Nothing here yet — files you generate will show up here for 30 days.</p>';
+    return;
+  }
+  list.innerHTML = "";
+  jobs.forEach(function (j) {
+    var item = document.createElement("div");
+    item.className = "job-item";
+    item.id = "job-" + j.job_id;
+    var buttons = "";
+    var preview = "";
+    if (j.has_video) {
+      preview += '<video controls src="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/video"></video>';
+      buttons += '<a href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/video" download="dubbed_video.mp4">⬇️ Download Video</a>';
+    }
+    if (j.has_lipsync) {
+      preview += '<video controls src="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/lipsync"></video>';
+      buttons += '<a href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/lipsync" download="lipsync_video.mp4">⬇️ Download Lip-Synced Video</a>';
+    }
+    if (j.has_audio) {
+      preview += '<audio controls src="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/audio"></audio>';
+      buttons += '<a class="blue" href="/api/my_jobs/' + encodeURIComponent(j.job_id) + '/audio" download="dubbed_audio.mp3">⬇️ Download MP3</a>';
+    }
+    buttons += '<a class="btn-danger" onclick="deleteMyJob(\'' + j.job_id.replace(/'/g, "") + '\')">🗑️ Delete</a>';
+    item.innerHTML =
+      '<div class="job-meta"><span class="job-date">' + fmtDate(j.created_at) + '</span>' +
+      '<span class="job-expiry">' + daysUntil(j.expires_at) + '</span></div>' +
+      preview +
+      '<div class="download-buttons">' + buttons + '</div>';
+    list.appendChild(item);
+  });
+}
+
+function loadMyJobs() {
+  fetch("/api/my_jobs").then(function (r) { return r.json(); }).then(function (d) {
+    renderMyJobs(d.jobs || []);
+  }).catch(function () {
+    document.getElementById("myJobsList").innerHTML = '<p style="color:#6b7280;">Couldn\'t load your files right now.</p>';
+  });
+}
+
+function deleteMyJob(jobId) {
+  if (!confirm("Delete this file permanently? This can't be undone.")) return;
+  fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function () {
+    var el = document.getElementById("job-" + jobId);
+    if (el) el.remove();
+    var list = document.getElementById("myJobsList");
+    if (list && !list.children.length) {
+      list.innerHTML = '<p style="color:#6b7280;">Nothing here yet — files you generate will show up here for 30 days.</p>';
+    }
+  }).catch(function () { alert("Couldn't delete this file. Please try again."); });
+}
+
+loadMyJobs();
 </script>
 </body>
 </html>
