@@ -3038,7 +3038,7 @@ var volOrigAudio = null;
     card.className = "card hidden";
     card.id = "volumeSection";
     card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3>' +
-        '<p class="note">Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.</p>' +
+        '<p class="note" id="volumeMatchNote">Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.</p>' +
         '<div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style="min-width:130px">Volume</th><th></th></tr></thead><tbody></tbody></table></div>' +
         '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3<span class="badge" id="badgeApplyVolumes"></span></button> ' +
         '<button id="resetVolumesBtn" class="blue">↺ Reset All Sliders</button>';
@@ -3685,15 +3685,34 @@ window.cleanOldClones = function () {
         ["Upload as this speaker's voice", "رفعه كصوت لهذا المتحدث"],
         ["🧹 Clean old cloned voices", "🧹 تنظيف الأصوات المستنسخة القديمة"],
         ["➕ Buy", "➕ شراء"],
-        ["Upload Media", "ارفع الوسائط"]
+        ["Upload Media", "ارفع الوسائط"],
+        // Second pass: Step 1.5 header, a batch of buttons/labels that had no
+        // entry at all yet, and the Contact Us modal's controls.
+        ["Step 1.5: Speaker Setup", "الخطوة 1.5: إعداد المتحدثين"],
+        ["Choose Media File", "اختيار ملف الوسائط"],
+        ["📤 SRT", "📤 تصدير SRT"],
+        ["📤 SBV", "📤 تصدير SBV"],
+        ["🔄 Load Voice Options", "🔄 تحميل خيارات الأصوات"],
+        ["🌐 Browse Voice Library", "🌐 استعراض مكتبة الأصوات"],
+        ["Number of speakers", "عدد المتحدثين"],
+        ["Speaker names (comma separated, optional)", "أسماء المتحدثين (مفصولة بفواصل، اختياري)"],
+        ["Final Duration Mode", "نمط المدة النهائية"],
+        ["Choose File", "اختيار ملف"],
+        ["⬇ Download voice sample", "⬇ تنزيل نموذج الصوت"],
+        ["Contact Us", "اتصل بنا"],
+        ["Name (optional)", "الاسم (اختياري)"],
+        ["Email", "البريد الإلكتروني"],
+        ["Message", "الرسالة"],
+        ["Send Message", "إرسال الرسالة"]
     ];
-    // The two retention banners (Step 1 upload warning, Step 6 result banner)
-    // are handled separately via BANNERS/direct innerHTML-swap below, not
-    // through this R-array fragment-replace mechanism -- their text is
-    // wrapped in inline <strong>/<a> tags, so el.firstChild is only a tiny
-    // leading text node (e.g. "⚠️ ") and could never contain a match for a
-    // full-sentence R-array key. That was true before these wording edits
-    // too; it isn't something the wording change broke.
+    // Any note/paragraph whose text is broken up by inline tags (<strong>,
+    // <br>, <a>) is handled here via a full innerHTML swap, not through the
+    // R-array fragment-replace mechanism below -- el.firstChild for such an
+    // element is only the small leading text node before the first inline
+    // tag, so an R-array .replace() can only ever touch that leading
+    // fragment and can never reach text that comes after an inline tag.
+    // That structural limit existed before any of these entries were added;
+    // it isn't something a later wording edit broke.
     var BANNERS = {
         tempFileWarning: {
             en: '⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it\'s saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days — download it any time from there.',
@@ -3702,18 +3721,46 @@ window.cleanOldClones = function () {
         resultSavedBanner: {
             en: '✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days. Your uploaded source file is still temporary — download or keep editing before you close this session.',
             ar: '✅ تم حفظ هذه النتيجة في صفحة <a href="/account" style="color:#92400e;">حسابك</a> لمدة 30 يومًا. ملفك المصدر المرفوع لا يزال مؤقتًا — نزّله أو استمر في التحرير قبل إغلاق هذه الجلسة.'
+        },
+        step1SupportsNote: {
+            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.',
+            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>الحدود: <strong>60 ثانية</strong> كحد أقصى للمدة، <strong>400 ميجابايت</strong> كحد أقصى لحجم الملف.'
+        },
+        step1CreditsNote: {
+            en: '💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
+            ar: '💡 الائتمانات وحدتنا الداخلية: <strong>100 ائتمان = 1.00 دولار</strong> (الائتمان الواحد = 0.01 دولار).<br>الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط.'
+        },
+        attachMediaNote: {
+            en: '📼 <strong>Project loaded.</strong> Upload the matching original audio/video file to enable preview, re-speak, emotion detection, auto-fix, and video merge.',
+            ar: '📼 <strong>تم تحميل المشروع.</strong> ارفع ملف الصوت أو الفيديو الأصلي المطابق لتفعيل المعاينة، وإعادة النطق، وكشف المشاعر، والإصلاح التلقائي، ودمج الفيديو.'
+        },
+        volumeMatchNote: {
+            en: 'Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.',
+            ar: 'تمت مطابقة مستوى كل سطر عربي تلقائيًا مع صوت المتحدث الأصلي (انظر عمود <strong>Auto</strong>). شغّل 🔊 السطر المدبلج، واضبطه بالمنزلق (−6...+6 ديسيبل مع معاينة مباشرة)، ثم طبّق لإعادة بناء ملف MP3 النهائي. تكرار توليد الصوت يعيد الإزاحات إلى القيم التلقائية.'
         }
     };
+    // R-array keys below are now the FULL exact text of each plain (no
+    // inline-tag) note, not a short prefix. Earlier, several keys were only
+    // the first few words of a longer sentence (e.g. "Pick a voice for each
+    // speaker" as the key for a full multi-clause note) -- .replace() only
+    // swaps that matched fragment, so the rest of the original English
+    // sentence was left in place right after the Arabic text, showing both
+    // languages at once. Matching the full sentence makes the swap total.
     var R = [
-        ["Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM", "يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. الحدود: 60 ثانية و400 ميجابايت كحد أقصى"],
-        ["English to Arabic AI Dubbing", "English to Arabic AI Dubbing"],
-        ["Credits are our internal unit", "الائتمانات وحدتنا الداخلية: 100 ائتمان = 1 دولار. الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط"],
-        ["Voice generation supports emotions", "يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُحتسب التكلفة بالأحرف وتُعرض بالائتمانات (100 ائتمان = 1 دولار)"],
-        ["Cloning copies each speaker's own voice", "ينسخ الاستنساخ صوت كل متحدث من الفيديو. اختياري — يمكنك اختيار أصوات المكتبة في الخطوة 4"],
-        ["Pick a voice for each speaker", "اختر صوتًا لكل متحدث. الأصوات المستنسخة من الفيديو؛ والأصوات المرقمة من مكتبة الاستوديو"],
-        ["Combines the dubbed Arabic audio", "يدمج الصوت العربي المدبلج مع موسيقى الخلفية الأصلية والفيديو"],
-        ["Drag each block left/right", "اسحب كل كتلة يسارًا/يمينًا لمطابقة حركة الشفاه، ثم أكّد لإعادة بناء MP3"],
-        ["Each Arabic line was automatically loudness-matched", "تمت مطابقة مستوى كل سطر عربي مع صوت المتحدث الأصلي تلقائيًا (عمود Auto). شغّل ▶ واضبط بالمنزلق ثم طبّق"]
+        ["Tell us how many speakers are in the file, and optionally their names. This fills the Speaker dropdown in Step 2.", "أخبرنا بعدد المتحدثين في الملف، وأسمائهم اختياريًا. هذا يملأ قائمة المتحدثين في الخطوة 2."],
+        ['If you give fewer names than the number of speakers, the rest are labeled "Speaker 3", "Speaker 4", etc.', "إذا أعطيت أسماءً أقل من عدد المتحدثين، يُسمّى الباقون “متحدث 3”، “متحدث 4”، وهكذا."],
+        ["Cloning copies each speaker's own voice from the video. Optional — you can also pick studio library voices in Step 4.", "ينسخ الاستنساخ صوت كل متحدث من الفيديو. اختياري — يمكنك اختيار أصوات المكتبة في الخطوة 4."],
+        ["Review the available audio for each speaker. Uncheck any speaker you want to skip.", "راجع الصوت المتوفر لكل متحدث. أزل التحديد عن أي متحدث تريد تخطي استنساخه."],
+        ["Pick a voice for each speaker. Cloned voices come from your video; numbered voices are high-quality studio library voices (names hidden on purpose). Two speakers never share the same numbered voice.", "اختر صوتًا لكل متحدث. الأصوات المستنسخة من الفيديو؛ والأصوات المرقمة من مكتبة الاستوديو، وأسماؤها مخفية عمدًا. لا يشترك متحدثان في نفس الصوت المرقّم."],
+        ["Listen to ready-made Arabic voices below. To use one, select it from the dropdown in the table.", "استمع إلى أصوات عربية جاهزة أدناه. لاستخدام أحدها، اخترْه من القائمة المنسدلة في الجدول."],
+        ["👉 Select a voice for each speaker from the dropdown below.", "👉 اختر صوتًا لكل متحدث من القائمة المنسدلة أدناه."],
+        ["💡 Voice generation supports emotions and cloned voices. Costs are charged by the character and shown in credits (100 credits = $1).", "💡 يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُحتسب التكلفة بالأحرف وتُعرض بالائتمانات (100 ائتمان = 1 دولار)."],
+        ["Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.", "اسحب كل كتلة يسارًا/يمينًا لمطابقة حركة الشفاه. تتوقف الكتل عند المقاطع المجاورة لمنع التداخل، ثم أكّد لإعادة بناء MP3."],
+        ["Combines the dubbed Arabic audio with the original background music and video.", "يدمج الصوت العربي المدبلج مع موسيقى الخلفية الأصلية والفيديو."],
+        ["Questions, feedback, or need help? Send us a message and we'll get back to you by email.", "أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنرد عليك بالبريد الإلكتروني."],
+        ["Applies DSP filters: removes rumble + adds crispness with high-shelf boost. Instant processing, no ML artifacts.", "يطبّق مرشحات معالجة رقمية: يزيل الضجيج المنخفض ويضيف وضوحًا بتعزيز الترددات العالية. معالجة فورية دون تشويش ناتج عن الذكاء الاصطناعي."],
+        ["✨ Enhance Background Audio", "✨ تحسين جودة الصوت الخلفي"],
+        ["Show Arabic audio length overlay", "إظهار طبقة مدة الصوت العربي"]
     ];
     var N = [
         ["Transcription complete.", "اكتملت التفريغة."],
@@ -3797,8 +3844,16 @@ window.cleanOldClones = function () {
             document.documentElement.lang = (lang === "ar") ? "ar" : "en";
             var lb = document.getElementById("langBtn");
             if (lb) lb.textContent = (lang === "en") ? "🌐 عربي" : "🌐 English";
+            // Subtitle and Help/FAQ link: previously the Arabic version was
+            // just appended after the always-visible English text, so both
+            // showed at once in Arabic mode. Now each pair is mutually
+            // exclusive -- exactly one language shows at a time.
+            var subEn = document.getElementById("subtitleEn");
+            if (subEn) subEn.style.display = (lang === "ar") ? "none" : "";
             var subAr = document.getElementById("subtitleAr");
             if (subAr) subAr.style.display = (lang === "ar") ? "" : "none";
+            var helpEn = document.getElementById("helpEnPart");
+            if (helpEn) helpEn.style.display = (lang === "ar") ? "none" : "";
             var helpAr = document.getElementById("helpArPart");
             if (helpAr) helpAr.style.display = (lang === "ar") ? "" : "none";
         } catch (e) { console.error("applyLang:", e); }

@@ -37,16 +37,16 @@
         <img src="/logo.png" alt="Lisan AI" style="height:64px;">
          <span style="font-family:'Inter',-apple-system,sans-serif;font-size:44px;font-weight:900;letter-spacing:-1.5px;line-height:1;background:linear-gradient(135deg,#1a237e 0%,#3949ab 55%,#42a5f5 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;">Lisan AI</span>
     </div>
-    <p class="subtitle" style="margin-top:12px;"><strong>English to Arabic AI Dubbing</strong></p>
+    <p class="subtitle" id="subtitleEn" style="margin-top:12px;"><strong>English to Arabic AI Dubbing</strong></p>
     <p class="subtitle" id="subtitleAr" dir="rtl"><strong>دبلجة آلية من الإنجليزية إلى العربية</strong></p>
-    <p style="margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;">❓ Help &amp; FAQ<span id="helpArPart"> / المساعدة والأسئلة الشائعة</span></a></p>
+    <p style="margin:8px 0 20px;"><a href="/help" style="color:#42a5f5;font-size:14px;font-weight:600;text-decoration:none;"><span id="helpEnPart">❓ Help &amp; FAQ</span><span id="helpArPart" style="display:none;">❓ المساعدة والأسئلة الشائعة</span></a></p>
 </div>
 
 <div class="card" id="step1Card">
     <h3>Step 1: Upload Audio or Video</h3>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
-            <p class="note">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
+            <p class="note" id="step1SupportsNote">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
             <div id="step1UploadRow" style="display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:8px;">
                 <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">
                     <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
@@ -60,7 +60,7 @@
             </div>
 
             <div id="attachMediaSection" class="hidden" style="margin-top:16px; padding:16px; background:#fef3c7; border:1px solid #fbbf24; border-radius:8px;">
-                <p style="margin:0 0 12px 0; color:#92400e; font-size:14px;">
+                <p id="attachMediaNote" style="margin:0 0 12px 0; color:#92400e; font-size:14px;">
                     📼 <strong>Project loaded.</strong> Upload the matching original audio/video file to enable preview, re-speak, emotion detection, auto-fix, and video merge.
                 </p>
                 <input type="file" id="attachMediaFile" accept="audio/*,video/*,.mp3,.wav,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="attachMedia(this)">
@@ -69,7 +69,7 @@
         </div>
         <div class="credits-info-box">
             <div id="usageBox" class="hidden" style="font-size:13px;"></div>
-            <p class="note" style="margin:0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+            <p class="note" id="step1CreditsNote" style="margin:0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
             <p id="tempFileWarning" style="margin-top:10px;padding:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e;line-height:1.5;">
                 ⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it's saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days — download it any time from there.
             </p>
@@ -184,7 +184,7 @@
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
     <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;">
         <input type="checkbox" id="enhanceBackground" checked style="width:18px;height:18px;accent-color:#059669;">
-        ✨ Enhance Background Audio
+        <span id="enhanceBgLabel">✨ Enhance Background Audio</span>
     </label>
     <span style="font-size:12px;color:#6b7280;">Applies DSP filters: removes rumble + adds crispness with high-shelf boost. Instant processing, no ML artifacts.</span>
 	</div>
@@ -206,7 +206,7 @@
         <p class="note">Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.</p>
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#94a3b8;margin-bottom:6px;cursor:pointer;">
             <input type="checkbox" id="toggleArabicOverlay" onchange="window._hideArabicDubOverlay = !this.checked; if (typeof renderTimeline === 'function') renderTimeline();" checked>
-            Show Arabic audio length overlay
+            <span id="arOverlayLabel">Show Arabic audio length overlay</span>
         </label>
         <div id="timelineWrap" style="position:relative;background:#1e293b;border-radius:8px;overflow:hidden;margin:10px 0;"></div>
         <button class="green" onclick="confirmTimeline()">✅ Confirm Changes & Rebuild MP3</button>

@@ -514,6 +514,9 @@ body.lang-ar #timelineWrap {
 }
 .contact-icon-btn:hover { transform: scale(1.1); color: var(--primary-light); }
 .contact-icon-btn svg { width: 28px; height: 28px; }
+/* In Arabic (RTL) mode, move the floating contact icon to the left side of
+   the screen instead of the right, matching RTL UI convention. */
+body.lang-ar .contact-icon-btn { right: auto; left: 24px; }
 .modal-overlay {
     position: fixed;
     inset: 0;
