@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # Bump this by hand whenever a batch of changes ships. Shown in the corner of
 # the admin dashboard (/admin) so it's easy to confirm what's actually live.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 
 def _load_env():

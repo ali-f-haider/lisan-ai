@@ -492,6 +492,15 @@ body.lang-ar table,
 body.lang-ar #timelineWrap {
     direction: ltr;
 }
+/* The logo + "Lisan AI" wordmark: the name itself is Latin-script and stays
+   "Lisan AI" in both languages, so this row should always read logo-first
+   regardless of the page's overall RTL flip above -- without this, the
+   whole-page `direction: rtl` visually reverses the flex row and puts the
+   logo on the wrong side of the name in Arabic mode. Used by index.html and
+   account.html; landing.html doesn't toggle lang-ar so it never needs this. */
+.brand-row {
+    direction: ltr;
+}
 
 /* Contact Us icon + popup (shared by landing.html and index.html) */
 .contact-icon-btn {
