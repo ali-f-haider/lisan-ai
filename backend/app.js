@@ -3306,15 +3306,11 @@ async function applyVolumes() {
     document.querySelectorAll("button").forEach(function (b) {
         if (/Load Voice Options/i.test(b.textContent)) b.style.display = "none";
     });
-    // Usage button in user bar
-    var bar = document.getElementById("userBar");
-    if (bar && !document.getElementById("accountBtn")) {
-        var right = bar.children[1];
-        var a = document.createElement("button");
-        a.id = "accountBtn"; a.className = "btn-logout"; a.textContent = "📊 Usage";
-        a.onclick = function () { window.location.href = "/account"; };
-        right.insertBefore(a, document.getElementById("buyBtn") || right.lastElementChild);
-    }
+    // Usage button removed from the user bar -- clicking the user's own
+    // name (#userName, now an <a href="/account"> in index.html) opens the
+    // Account page instead. See the "Help & Usage open in NEW tabs" click
+    // delegation further down, which already opens href="/account" links
+    // in a new tab and keeps working unchanged for this link too.
     // Custom voice upload box in Step 4
     var sv = document.getElementById("speakerVoicesSection");
     if (sv && !document.getElementById("customVoiceBox")) {
@@ -3680,7 +3676,6 @@ window.cleanOldClones = function () {
         ["Reset All Sliders", "إعادة تعيين كل المنزلقات"],
         ["Upload as this speaker's voice", "رفعه كصوت لهذا المتحدث"],
         ["Clean old cloned voices", "تنظيف الأصوات المستنسخة القديمة"],
-        ["📊 Usage", "📊 الاستخدام"],
         ["➕ Buy", "➕ شراء"],
         ["Upload Media", "ارفع الوسائط"]
     ];

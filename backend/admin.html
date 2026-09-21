@@ -197,6 +197,17 @@ button.btn-success:hover { background: #15803d; }
         <div class="metric"><div class="label">Gemini</div><div class="value" id="hGemini">—</div></div>
       </div>
       <div class="card">
+        <h3>💾 Server Storage</h3>
+        <div class="metric"><div class="label">Used</div><div class="value" id="sUsed">—</div></div>
+        <div class="metric"><div class="label">Free</div><div class="value" id="sFree">—</div></div>
+        <div class="metric"><div class="label">Total</div><div class="value" id="sTotal">—</div></div>
+        <div class="metric"><div class="label">% Used</div><div class="value" id="sPercent">—</div></div>
+        <div style="background:#1e293b;border-radius:8px;height:14px;margin:14px 0 8px;overflow:hidden;">
+          <div id="sBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+        </div>
+        <p class="muted" id="sFinalOutputs">—</p>
+      </div>
+      <div class="card">
         <h3>🚪 Danger Zone</h3>
         <p class="muted" style="margin-bottom:12px;">These actions cannot be undone.</p>
         <button class="btn btn-danger" onclick="purgeOldJobs()">🗑️ Purge jobs older than 30 days</button>
@@ -264,7 +275,7 @@ function doLogin() {
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth();
+  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth(); loadStorage();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -491,6 +502,21 @@ async function loadHealth() {
   document.getElementById('hEleven').style.color = map[r.data.elevenlabs] || '#dc2626';
   document.getElementById('hGemini').textContent = r.data.gemini.toUpperCase();
   document.getElementById('hGemini').style.color = map[r.data.gemini] || '#dc2626';
+}
+
+async function loadStorage() {
+  const r = await api('/api/admin/storage');
+  if (!r.ok) return;
+  const d = r.data;
+  document.getElementById('sUsed').textContent = d.used_gb + ' GB';
+  document.getElementById('sFree').textContent = d.free_gb + ' GB';
+  document.getElementById('sTotal').textContent = d.total_gb + ' GB';
+  document.getElementById('sPercent').textContent = d.percent_used + '%';
+  const bar = document.getElementById('sBar');
+  bar.style.width = Math.min(100, d.percent_used) + '%';
+  bar.style.background = d.percent_used >= 90 ? '#dc2626' : (d.percent_used >= 70 ? '#f59e0b' : '#16a34a');
+  document.getElementById('sFinalOutputs').textContent =
+    d.final_output_count + ' finished file(s) on the 30-day retention policy, using ' + d.final_output_gb + ' GB of the ' + d.used_gb + ' GB used.';
 }
 
 async function purgeOldJobs() {

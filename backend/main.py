@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from config import (BASE_DIR, UPLOAD_DIR, OUTPUT_DIR,
+from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL)
 from app_state import jobs_progress, usage_bucket
@@ -1903,6 +1903,39 @@ def admin_health(request: Request):
     eleven = "ok" if ELEVENLABS_API_KEY else "fail"
     gemini = "ok" if GEMINI_API_KEY else "fail"
     return {"supabase": supabase, "elevenlabs": eleven, "gemini": gemini}
+
+@app.get("/api/admin/storage")
+def admin_storage(request: Request):
+    """Real disk usage of the Railway volume mounted at DATA_DIR (/data) --
+    not an API call to Railway, just shutil.disk_usage on the mount the
+    container already sees. Also reports how much of that is this app's own
+    30-day-retention final outputs, so it's clear how much of any growth is
+    this feature specifically vs. everything else on the volume."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import shutil
+    try:
+        total, used, free = shutil.disk_usage(str(DATA_DIR))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    final_count = 0
+    final_bytes = 0
+    try:
+        for p in OUTPUT_DIR.glob("*"):
+            if p.is_file() and p.name.endswith(_FINAL_OUTPUT_SUFFIXES):
+                final_count += 1
+                final_bytes += p.stat().st_size
+    except Exception:
+        pass
+    gb = 1024 ** 3
+    return {
+        "total_gb": round(total / gb, 2),
+        "used_gb": round(used / gb, 2),
+        "free_gb": round(free / gb, 2),
+        "percent_used": round(used / total * 100, 1) if total else 0,
+        "final_output_count": final_count,
+        "final_output_gb": round(final_bytes / gb, 2),
+    }
 
 @app.post("/api/admin/purge_old_jobs")
 def admin_purge_jobs(request: Request):

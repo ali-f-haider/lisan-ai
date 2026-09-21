@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="/styles.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>#userName:hover { text-decoration: underline; color: #1a237e !important; }</style>
 </head>
 <body>
 <div id="notifyPanel"></div>
@@ -20,7 +21,7 @@
         <div id="creditsDisplay" class="credits-badge">
             💰 <span id="creditsNum">0</span> credits
         </div>
-        <div id="userName" style="font-size:14px;font-weight:600;color:#374151;"></div>
+        <a id="userName" href="/account" title="View your account" style="font-size:14px;font-weight:600;color:#374151;text-decoration:none;cursor:pointer;"></a>
         <button onclick="doLogout()" class="btn-logout">Log Out</button>
     </div>
 </div>
