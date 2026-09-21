@@ -25,6 +25,7 @@ import gemini_service
 import eleven_service
 import ffmpeg_utils
 import lipsync_service
+import r2_backup
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 # Sentry: reports unhandled exceptions from the live server automatically.
@@ -773,7 +774,7 @@ EXPIRY_CHECK_INTERVAL_HOURS = 6
 # Suffixes that mark a file in OUTPUT_DIR as a job's *finished* output rather
 # than an intermediate working file. Keep this in sync with the filenames
 # written in main.py (merge_video), eleven_service.py, tts_service.py and
-# lipsync_service.py.
+# lipsync_service.py. Also what r2_backup.py treats as "back this up".
 _FINAL_OUTPUT_SUFFIXES = ("_final_dubbed.mp3", "_final_dubbed_video.mp4", "_final_lipsync.mp4")
 
 
@@ -943,6 +944,10 @@ def _cleanup_worker():
     global _last_expiry_check
     while True:
         _time.sleep(CLEANUP_INTERVAL_MIN * 60)
+        try:
+            r2_backup.backup_final_outputs(OUTPUT_DIR, _is_final_output)
+        except Exception as e:
+            print("[r2-backup] sweep error:", e)
         try:
             now = _time.time()
             short_cutoff = now - CLEANUP_RETENTION_HOURS * 3600

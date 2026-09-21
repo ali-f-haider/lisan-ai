@@ -45,6 +45,14 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "") or APP_PASSWORD
 # current DSN so monitoring works even before that env var is added.
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "https://c5cc9438122a8fbbefd5ce57dfcb30b2@o4512124657926144.ingest.de.sentry.io/4512124665856080")
 
+# --- Cloudflare R2 (optional off-site backup of finished dubbing outputs) ---
+# All four must be set for backups to run; r2_backup.py no-ops entirely if
+# any is missing, so a deployment that hasn't set these up yet is unaffected.
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "")
+
 # --- Contact form (optional; the /api/contact endpoint still validates
 # and rate-limits input without this, it just won't actually deliver mail
 # until you set RESEND_API_KEY) ---
