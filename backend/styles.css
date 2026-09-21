@@ -330,10 +330,24 @@ table textarea {
 .download-buttons a:hover { background: var(--primary-light); }
 .download-buttons a.blue { background: var(--accent); }
 
-/* Audio & Video players */
-audio, video {
+/* Audio players -- full-width bar, as before */
+audio {
     width: 100%;
     margin: 12px 0;
+    border-radius: 8px;
+}
+
+/* Video players -- capped, not full-width. A vertical (9:16) video at
+   width:100% would render very tall and blow out the page layout; capping
+   max-height and letting width scale down with it (via width/height:auto)
+   keeps any aspect ratio -- landscape or portrait -- within a sane box. */
+video {
+    display: block;
+    max-width: 100%;
+    max-height: 500px;
+    width: auto;
+    height: auto;
+    margin: 12px auto;
     border-radius: 8px;
 }
 

@@ -18,6 +18,13 @@
     font-family: inherit; text-decoration: none; transition: all 0.2s;
   }
   .btn-danger:hover { background: #fef2f2; }
+  /* Keep the file previews small here specifically -- a max 500x500 box,
+     same aspect-ratio-preserving trick as styles.css's shared video rule
+     (width/height:auto under a max), just with an added max-width so a
+     landscape video can't stretch to the full card width like it does
+     on the main app page. */
+  #myJobsList video { max-width: 500px; max-height: 500px; }
+  #myJobsList audio { max-width: 500px; }
 </style>
 </head>
 <body>
