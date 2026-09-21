@@ -3749,6 +3749,30 @@ window.cleanOldClones = function () {
             ar: '<strong>📤 استخدم مقطع صوتك الخاص:</strong> اختر متحدثًا وارفع مقطع MP3/WAV (بحد أقصى 20 ثانية) يتحدث فيه ذلك الشخص معظم الوقت. المقطع لا يُحلَّل — محرك الصوت يستخرج منه الصوت الغالب، لذا فإن وجود موسيقى أو أصوات أخرى فيه سيقلل الجودة.'
         }
     };
+    // Plain textContent swaps for elements tagAll() never reaches: table
+    // <th> headers (th is deliberately excluded from tagAll's selector --
+    // see the note above it) and <option> labels (<select> children aren't
+    // scanned either). Keyed by id, applied the same way BANNERS is below.
+    var TABLE_TXT = {
+        thNum: { en: "#", ar: "#" },
+        thStart: { en: "Start", ar: "البداية" },
+        thEnd: { en: "End", ar: "النهاية" },
+        thSpeaker: { en: "Speaker", ar: "المتحدث" },
+        thGender: { en: "Gender", ar: "الجنس" },
+        thStyle: { en: "Style / Emotion", ar: "الأسلوب / المشاعر" },
+        thEnglish: { en: "English", ar: "الإنجليزية" },
+        thArabic: { en: "Arabic", ar: "العربية" },
+        thActions: { en: "Actions", ar: "الإجراءات" },
+        thCloneQ: { en: "Clone?", ar: "استنساخ؟" },
+        thCloneSpeaker: { en: "Speaker", ar: "المتحدث" },
+        thSpeechFound: { en: "Speech Found", ar: "الكلام المتوفر" },
+        thQualityGuidance: { en: "Quality Guidance", ar: "إرشادات الجودة" },
+        thVoiceTableSpeaker: { en: "Speaker", ar: "المتحدث" },
+        thVoiceTableVoice: { en: "Voice", ar: "الصوت" },
+        optExactDuration: { en: "Exact input duration", ar: "مدة الإدخال بالضبط" },
+        optExtendDuration: { en: "Extend duration", ar: "تمديد المدة" },
+        creditsWord: { en: "credits", ar: "رصيد" }
+    };
     // R-array keys below are now the FULL exact text of each plain (no
     // inline-tag) note, not a short prefix. Earlier, several keys were only
     // the first few words of a longer sentence (e.g. "Pick a voice for each
@@ -3811,9 +3835,159 @@ window.cleanOldClones = function () {
         ["Insufficient credits", "الرصيد غير كافٍ"],
         ["Upload failed:", "فشل الرفع:"],
         ["Rebuild failed:", "فشل إعادة البناء:"],
+        // The specific "X failed: " entries below must stay ABOVE the
+        // generic "failed:" catch-all right after them -- this array is
+        // matched top-to-bottom and each match mutates the string in place,
+        // so if the generic entry fired first it would translate just
+        // "failed:" and leave the rest of the message (the "X" part) in
+        // English, out of order (e.g. "Tashkeel فشل:" instead of "فشل
+        // التشكيل:"). Discovered when a simulation of the exact runtime
+        // algorithm against real message text caught it before it shipped.
+        ["Tashkeel failed: ", "فشل التشكيل: "],
+        ["Preview failed: ", "فشلت المعاينة: "],
+        ["Remix failed: ", "فشل إعادة المزج: "],
+        ["Time Stretch update failed: ", "فشل تحديث تمديد الوقت: "],
+        ["Transcribe failed: ", "فشل التفريغ: "],
+        ["Regenerate failed: ", "فشلت إعادة التوليد: "],
+        ["Credit sync failed: ", "فشلت مزامنة الرصيد: "],
         ["failed:", "فشل:"],
         ["Workspace cleared.", "تم مسح مساحة العمل."],
-        ["Uploading and starting transcription...", "جارٍ الرفع وبدء التفريغة..."]
+        ["Uploading and starting transcription...", "جارٍ الرفع وبدء التفريغة..."],
+        // ===== Batch 4: remaining untranslated notify() messages =====
+        // Built and verified by simulating this exact array + the runtime's
+        // sequential indexOf/replace algorithm against real message text
+        // (with sample values standing in for variables) before insertion,
+        // specifically to catch ordering collisions like the one above.
+        // Long-before-short pairs come first where one key is a substring
+        // of another (otherwise the short one would partially consume the
+        // long one's match before the long entry gets its turn).
+        ["Could not load the voice library. Check the server configuration.", "تعذّر تحميل مكتبة الأصوات. تحقق من إعدادات الخادم."],
+        ["Could not load the voice library.", "تعذّر تحميل مكتبة الأصوات."],
+        ["Voice library unavailable. Check the server configuration.", "مكتبة الأصوات غير متاحة. تحقق من إعدادات الخادم."],
+        ["Voice library unavailable.", "مكتبة الأصوات غير متاحة."],
+        ["Enter the Translation AI key in Step 2 first.", "أدخل مفتاح الذكاء الاصطناعي للترجمة في الخطوة 2 أولاً."],
+        ["No unlocked Arabic text found. Locked lines are skipped.", "لم يُعثر على نص عربي غير مقفل. الأسطر المقفلة تُستثنى."],
+        ["Transcribe or load a project first.", "فرّغ الملف صوتيًا أو حمّل مشروعًا أولاً."],
+        ["Preview unavailable: source audio not found.", "المعاينة غير متاحة: الصوت المصدر غير موجود."],
+        ["No cues found in subtitle file.", "لم يُعثر على أسطر في ملف الترجمة."],
+        ["Nothing to export.", "لا يوجد شيء للتصدير."],
+        ["Media attached successfully. All functions are now enabled.", "أُرفقت الوسائط بنجاح. جميع الوظائف مفعّلة الآن."],
+        ["Choose an audio or video file first.", "اختر ملف صوت أو فيديو أولاً."],
+        ["Choose an audio or video file.", "اختر ملف صوت أو فيديو."],
+        ["Line locked: Auto-Fix, Translate and Tashkeel will skip it.", "السطر مقفل: سيتخطاه الإصلاح التلقائي والترجمة والتشكيل."],
+        ["Line unlocked.", "السطر غير مقفل."],
+        ["Manual line inserted. Use ✨ Auto-Fix to sync its time.", "أُدرج سطر يدوي. استخدم ✨ الإصلاح التلقائي لمزامنة توقيته."],
+        ["Could not load voices. Enter the Voice Engine API key in Step 3 first.", "تعذّر تحميل الأصوات. أدخل مفتاح محرك الصوت في الخطوة 3 أولاً."],
+        ["Enter the Voice Engine API key in Step 3 first, then try again.", "أدخل مفتاح محرك الصوت في الخطوة 3 أولاً، ثم أعد المحاولة."],
+        ["Enter the Voice Engine API key in Step 3.", "أدخل مفتاح محرك الصوت في الخطوة 3."],
+        ["No segments to fix.", "لا توجد مقاطع لإصلاحها."],
+        ["No original transcription available.", "لا يوجد تفريغ أصلي متاح."],
+        ["Original transcription has no words to match.", "التفريغ الأصلي لا يحتوي كلمات للمطابقة."],
+        ["No segments found.", "لم يُعثر على مقاطع."],
+        ["Review the guidance below. Speakers marked ❌ are unchecked automatically.", "راجع الإرشادات أدناه. المتحدثون المعلّمون بـ ❌ يُلغى تحديدهم تلقائيًا."],
+        ["Review the guidance. Speakers marked ❌ are unchecked automatically.", "راجع الإرشادات. المتحدثون المعلّمون بـ ❌ يُلغى تحديدهم تلقائيًا."],
+        ["Transcribe first.", "فرّغ الملف صوتيًا أولاً."],
+        ["Select at least one speaker to clone.", "اختر متحدثًا واحدًا على الأقل للاستنساخ."],
+        ["All lines are locked — nothing to translate.", "جميع الأسطر مقفلة — لا شيء للترجمة."],
+        ["Starting emotion detection...", "جارٍ بدء كشف المشاعر..."],
+        ["Fill at least one Arabic translation.", "املأ ترجمة عربية واحدة على الأقل."],
+        ["Starting Arabic audio generation...", "جارٍ بدء توليد الصوت العربي..."],
+        ["No job found.", "لم يُعثر على مهمة."],
+        ["No job.", "لا توجد مهمة."],
+        ["Merging dubbed audio with video and background music...", "جارٍ دمج الصوت المدبلج مع الفيديو وموسيقى الخلفية..."],
+        ["This line has no Arabic text yet.", "هذا السطر لا يحتوي نصًا عربيًا بعد."],
+        ["Offsets reset.", "أُعيدت الإزاحات."],
+        ["No offsets to apply — drag some blocks first.", "لا توجد إزاحات لتطبيقها — اسحب بعض الكتل أولاً."],
+        ["Rebuilding final audio with your offsets...", "جارٍ إعادة بناء الصوت النهائي بإزاحاتك..."],
+        ["Choose an MP3 or WAV clip first.", "اختر مقطع MP3 أو WAV أولاً."],
+        ["Only MP3 or WAV files are allowed.", "يُسمح فقط بملفات MP3 أو WAV."],
+        ["Could not read that audio file.", "تعذّر قراءة ملف الصوت هذا."],
+        ["Custom voice box not ready — refresh the page.", "صندوق الصوت المخصص غير جاهز — أعد تحميل الصفحة."],
+        ["Custom voice box not ready - refresh the page.", "صندوق الصوت المخصص غير جاهز - أعد تحميل الصفحة."],
+        ["Server error — is the server redeployed?", "خطأ في الخادم — هل أُعيد نشر الخادم؟"],
+        ["Server error.", "خطأ في الخادم."],
+        ["Custom voice created. The cloned voice stays in the dropdown.", "أُنشئ الصوت المخصص. يبقى الصوت المستنسخ في القائمة المنسدلة."],
+        ["All lines unlocked.", "جميع الأسطر غير مقفلة."],
+        ["All lines locked.", "جميع الأسطر مقفلة."],
+        ["Restored your session. Reconnecting to your last job on the server...", "استُعيدت جلستك. جارٍ إعادة الاتصال بآخر مهمة على الخادم..."],
+        ["Restored your previous session from this browser. Re-upload the original file to enable preview/clone/merge.", "استُعيدت جلستك السابقة من هذا المتصفح. أعد رفع الملف الأصلي لتفعيل المعاينة/الاستنساخ/الدمج."],
+        ["Your last media is no longer on the server (it expires after ~6 hours or a restart). Re-upload the original file to continue.", "وسائطك الأخيرة لم تعد موجودة على الخادم (تنتهي صلاحيتها بعد ~6 ساعات أو عند إعادة التشغيل). أعد رفع الملف الأصلي للمتابعة."],
+        ["📼 Loaded projects have no media on the server. Preview, re-speak, emotions, auto-fix and merge need a fresh upload. Editing, translate, tashkeel, SRT export and Generate still work.", "📼 المشاريع المحمّلة لا تحتوي وسائط على الخادم. المعاينة وإعادة النطق وكشف المشاعر والإصلاح التلقائي والدمج تحتاج رفعًا جديدًا. التحرير والترجمة والتشكيل وتصدير SRT والتوليد تعمل كالمعتاد."],
+        ["🎉 Payment complete! Your credits have been added.", "🎉 اكتمل الدفع! أُضيف رصيدك."],
+        ["📼 Voice cloning needs the original audio on the server, and loaded projects have none. Either re-upload the same video in Step 1, or skip cloning and pick studio library voices in Step 4.", "📼 يحتاج استنساخ الصوت إلى الصوت الأصلي على الخادم، والمشاريع المحمّلة لا تحتوي عليه. إمّا أعد رفع نفس الفيديو في الخطوة 1، أو تخطَّ الاستنساخ واختر أصواتًا من مكتبة الاستوديو في الخطوة 4."],
+        ["⏳ Audio generation is still running. Wait for it to finish before starting a new video — switching now could mix the two audios.", "⏳ توليد الصوت لا يزال قيد التشغيل. انتظر حتى ينتهي قبل بدء فيديو جديد — التبديل الآن قد يخلط الصوتين."],
+        ["Sync found no paid Stripe sessions for this account.", "لم يُعثر على جلسات Stripe مدفوعة لهذا الحساب."],
+        ["Transcription failed.", "فشل التفريغ."],
+        ["Audio generation failed.", "فشل توليد الصوت."],
+        ["Preview playback failed: ", "فشل تشغيل المعاينة: "],
+        ["Adding tashkeel to ", "جارٍ إضافة التشكيل إلى "],
+        ["Tashkeel added to ", "أُضيف التشكيل إلى "],
+        ["🎙️ The cloned voice(s) for ", "🎙️ الصوت (الأصوات) المستنسخة لـ "],
+        ["Failed to attach media: ", "فشل إرفاق الوسائط: "],
+        ["Load failed: ", "فشل التحميل: "],
+        ["Auto-Fix: ", "الإصلاح التلقائي: "],
+        ["Subtitle import: ", "استيراد الترجمة: "],
+        ["Cloning ", "جارٍ استنساخ "],
+        ["Re-speaking line ", "جارٍ إعادة نطق السطر "],
+        ["New mix built with ", "بُني مزيج جديد بـ "],
+        ["Translating ", "جارٍ الترجمة "],
+        ["No voice for: ", "لا يوجد صوت لـ: "],
+        ["No voice for ", "لا يوجد صوت لـ "],
+        ["This clip is ", "مدة هذا المقطع تبلغ "],
+        ["File too large (", "الملف كبير جدًا ("],
+        ["Words not in the official list were removed. Style: '", "أُزيلت كلمات غير موجودة في القائمة الرسمية. النمط: '"],
+        ["Clip is ", "مدة المقطع تبلغ "],
+        ["Final MP3 rebuilt", "أُعيد بناء MP3 النهائي"],
+        ["Cleanup endpoint not found (status ", "نقطة تنظيف الصوت غير موجودة (الحالة "],
+        ["Credit sync error: ", "خطأ في مزامنة الرصيد: "],
+        ["Credit fulfillment: ", "تنفيذ الرصيد: "],
+        ["Preview plays matched audio ", "تعرض المعاينة الصوت المطابق "],
+        ["(row shows ", "(الصف يعرض "],
+        [" (balance: ", " (الرصيد: "],
+        [" speaker(s) assigned to their cloned voices.", " متحدثًا تم تعيين صوته المستنسخ."],
+        [" segments translated. Locked lines untouched.", " مقطعًا مُترجَمًا. الأسطر المقفلة لم تُمس."],
+        [" segments updated.", " مقطعًا مُحدَّثًا."],
+        [" You can change any speaker's voice in the Step 4 table.", " يمكنك تغيير صوت أي متحدث من جدول الخطوة 4."],
+        [" Change any speaker's voice in the Step 4 table.", " غيّر صوت أي متحدث من جدول الخطوة 4."],
+        [" Pick a voice per speaker below.", " اختر صوتًا لكل متحدث أدناه."],
+        [" — final MP3 rebuilt with your per-line trim.", " — أُعيد بناء ملف MP3 النهائي بضبطك لكل سطر."],
+        [" — final MP3 rebuilt with your mix.", " — أُعيد بناء ملف MP3 النهائي بمزيجك."],
+        [" to auto-matched values. Press Apply to rebuild.", " إلى القيم المطابقة تلقائيًا. اضغط تطبيق لإعادة البناء."],
+        [" to the auto-matched volumes.", " إلى مستويات الصوت المطابقة تلقائيًا."],
+        ["Sliders restored to the measured original-matched volumes.", "أُعيدت المنزلقات إلى المستويات المقاسة المطابقة للأصل."],
+        [" old cloned voice(s).", " صوتًا مستنسخًا قديمًا."],
+        [" cloned voice(s) from your account.", " صوتًا مستنسخًا من حسابك."],
+        [" errors)", " أخطاء)"],
+        [" unlocked line(s)...", " سطرًا غير مقفل..."],
+        [" unlocked line(s). Locked lines untouched.", " سطرًا غير مقفل. الأسطر المقفلة لم تُمس."],
+        [" Use 🔒 to protect lines from Auto-Fix, Translate and Tashkeel.", " استخدم 🔒 لحماية الأسطر من الإصلاح التلقائي والترجمة والتشكيل."],
+        [" unlocked line(s) to Arabic (locked lines skipped)...", " سطرًا غير مقفل إلى العربية (الأسطر المقفلة مستثناة)..."],
+        [". Pick voices in Step 4 (or Auto-Assign) first.", ". اختر أصواتًا في الخطوة 4 (أو التعيين التلقائي) أولاً."],
+        [". Pick one in Step 4 first.", ". اختر صوتًا في الخطوة 4 أولاً."],
+        [" seconds long. This build accepts up to 60 seconds — please trim it first.", " ثانية. يقبل هذا الإصدار حتى 60 ثانية — يرجى تقليمه أولاً."],
+        [" MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.", " ميجابايت). الحد الأقصى 400 ميجابايت — عادةً ما يكون مقطع بدقة 1080p لمدة دقيقة واحدة أقل من 150 ميجابايت بكثير."],
+        [" ⚠️ stretched to the limit.", " ⚠️ تم التمديد إلى الحد الأقصى."],
+        [" lines. The Step 6 player now uses it.", " أسطر. مشغّل الخطوة 6 يستخدمه الآن."],
+        [" only...", " فقط..."],
+        [" voice(s)... this may take a minute.", " صوت... قد يستغرق هذا دقيقة."],
+        [") — redeploy main.py with the /api/cleanup_voices block.", ") — أعد نشر main.py مع كتلة /api/cleanup_voices."],
+        ["s — the limit is 20 seconds.", " ثانية — الحد الأقصى 20 ثانية."],
+        ["s - the limit is 20 seconds.", " ثانية - الحد الأقصى 20 ثانية."],
+        [" — no lines were trimmed.", " — لم يُقلَّم أي سطر."],
+        [" line(s) still trimmed.", " سطرًا لا يزال مقلَّمًا."],
+        [" Please upload the matching audio/video file to enable preview, re-speak, and other functions.", " يرجى رفع ملف الصوت/الفيديو المطابق لتفعيل المعاينة وإعادة النطق والوظائف الأخرى."],
+        [" Upload your next video in Step 1.", " ارفع الفيديو التالي في الخطوة 1."],
+        [" Original media is not on the server — media features are disabled (see the yellow notice).", " الوسائط الأصلية غير موجودة على الخادم — ميزات الوسائط معطّلة (انظر التنبيه الأصفر)."],
+        [" credits from your purchase have been added.", " ائتمانًا أُضيف من مشترياتك."],
+        [" credits added from your purchase(s).", " ائتمانًا أُضيف من مشترياتك."],
+        [" credits added from your purchase.", " ائتمانًا أُضيف من مشترياتك."],
+        [". Run ✨ Auto-Fix to correct the row.", ". استخدم ✨ الإصلاح التلقائي لتصحيح هذا السطر."],
+        ["Use ➕ Buy to get a pack.", "استخدم ➕ شراء للحصول على باقة."],
+        ["Use ➕ Buy.", "استخدم ➕ شراء."],
+        [" no longer exist in your voice account (old cloned voices are removed automatically). Re-clone in Step 3.5 or pick a voice in Step 4 before generating.", " لم تعد موجودة في حساب صوتك (تُحذف الأصوات المستنسخة القديمة تلقائيًا). أعد الاستنساخ في الخطوة 3.5 أو اختر صوتًا في الخطوة 4 قبل التوليد."],
+        ["re-spoken: ", "أُعيد نطقه: "],
+        ["re-stretched: ", "أُعيد تمديده: "],
+        ["Line ", "السطر "],
     ];
 
     function tagAll() {
@@ -3868,6 +4042,23 @@ window.cleanOldClones = function () {
                 var el = document.getElementById(id);
                 if (el) el.innerHTML = BANNERS[id][lang === "ar" ? "ar" : "en"];
             });
+            // Table headers, dropdown option labels and the "credits" word
+            // next to the balance (see TABLE_TXT above) -- plain text, no
+            // inline tags, so textContent is enough and safer than innerHTML.
+            Object.keys(TABLE_TXT).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.textContent = TABLE_TXT[id][lang === "ar" ? "ar" : "en"];
+            });
+            // Tooltips: attribute text, not element text, so neither tagAll()
+            // nor TABLE_TXT reaches these -- set directly here.
+            var userNameLink = document.getElementById("userName");
+            if (userNameLink) userNameLink.title = (lang === "ar") ? "عرض حسابك" : "View your account";
+            var appContactBtn = document.getElementById("appContactIconBtn");
+            if (appContactBtn) {
+                var contactTitle = (lang === "ar") ? "اتصل بنا" : "Contact Us";
+                appContactBtn.title = contactTitle;
+                appContactBtn.setAttribute("aria-label", contactTitle);
+            }
             document.body.classList.toggle("lang-ar", lang === "ar");
             document.documentElement.lang = (lang === "ar") ? "ar" : "en";
             var lb = document.getElementById("langBtn");

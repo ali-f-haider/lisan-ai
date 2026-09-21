@@ -19,7 +19,7 @@
     </div>
     <div style="display:flex;align-items:center;gap:16px;">
         <div id="creditsDisplay" class="credits-badge">
-            💰 <span id="creditsNum">0</span> credits
+            💰 <span id="creditsNum">0</span> <span id="creditsWord">credits</span>
         </div>
         <a id="userName" href="/account" title="View your account" style="font-size:14px;font-weight:600;color:#374151;text-decoration:none;cursor:pointer;"></a>
         <button onclick="doLogout()" class="btn-logout">Log Out</button>
@@ -113,15 +113,15 @@
     <div style="overflow-x:auto;">
         <table id="segmentsTable">
             <thead><tr>
-                <th style="width:36px">#</th>
-                <th style="width:72px">Start</th>
-                <th style="width:72px">End</th>
-                <th style="width:100px">Speaker</th>
-                <th style="width:78px">Gender</th>
-                <th style="width:170px">Style / Emotion</th>
-                <th style="min-width:150px">English</th>
-                <th style="min-width:150px">Arabic</th>
-                <th style="width:180px">Actions</th>
+                <th style="width:36px" id="thNum">#</th>
+                <th style="width:72px" id="thStart">Start</th>
+                <th style="width:72px" id="thEnd">End</th>
+                <th style="width:100px" id="thSpeaker">Speaker</th>
+                <th style="width:78px" id="thGender">Gender</th>
+                <th style="width:170px" id="thStyle">Style / Emotion</th>
+                <th style="min-width:150px" id="thEnglish">English</th>
+                <th style="min-width:150px" id="thArabic">Arabic</th>
+                <th style="width:180px" id="thActions">Actions</th>
             </tr></thead>
             <tbody></tbody>
         </table>
@@ -139,7 +139,7 @@
     <p class="note">Review the available audio for each speaker. Uncheck any speaker you want to skip.</p>
     <div style="overflow-x:auto;">
         <table id="cloneAnalysisTable">
-            <thead><tr><th style="width:50px">Clone?</th><th style="width:150px">Speaker</th><th style="width:140px">Speech Found</th><th>Quality Guidance</th></tr></thead>
+            <thead><tr><th style="width:50px" id="thCloneQ">Clone?</th><th style="width:150px" id="thCloneSpeaker">Speaker</th><th style="width:140px" id="thSpeechFound">Speech Found</th><th id="thQualityGuidance">Quality Guidance</th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -162,7 +162,7 @@
     <p class="note">👉 Select a voice for each speaker from the dropdown below.</p>
     <div style="overflow-x:auto;">
         <table id="speakerVoicesTable">
-            <thead><tr><th style="width:30%">Speaker</th><th>Voice</th></tr></thead>
+            <thead><tr><th style="width:30%" id="thVoiceTableSpeaker">Speaker</th><th id="thVoiceTableVoice">Voice</th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -177,8 +177,8 @@
     </div>
     <label>Final Duration Mode</label>
     <select id="durationMode">
-        <option value="exact" selected>Exact input duration</option>
-        <option value="extend">Extend duration</option>
+        <option value="exact" selected id="optExactDuration">Exact input duration</option>
+        <option value="extend" id="optExtendDuration">Extend duration</option>
     </select>
     <br><br>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
@@ -268,10 +268,15 @@ function submitAppContact(e) {
         message: document.getElementById("appCMessage").value,
         hp: document.getElementById("appCHp").value
     };
+    // This form posts directly (it doesn't go through notify()/the N-array
+    // translation pipeline), so its own few messages are translated here
+    // directly against window.currentLang -- set by applyLang() in app.js
+    // and already in sync with the rest of the app's language toggle.
+    var isAr = (window.currentLang === "ar");
     statusEl.style.display = "none";
     btn.disabled = true;
     var prevText = btn.textContent;
-    btn.textContent = "Sending…";
+    btn.textContent = isAr ? "...جارٍ الإرسال" : "Sending…";
     fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -283,13 +288,13 @@ function submitAppContact(e) {
               statusEl.style.color = "#065f46";
               statusEl.style.background = "#ecfdf5";
               statusEl.style.borderLeftColor = "#059669";
-              statusEl.textContent = "Message sent — we'll get back to you by email.";
+              statusEl.textContent = isAr ? "تم إرسال الرسالة — سنعاود التواصل معك عبر البريد الإلكتروني." : "Message sent — we'll get back to you by email.";
               document.getElementById("appContactForm").reset();
           } else {
               statusEl.style.color = "#991b1b";
               statusEl.style.background = "#fef2f2";
               statusEl.style.borderLeftColor = "#dc2626";
-              statusEl.textContent = (res.body && res.body.error) || "Something went wrong. Please email contact@lisanai.org directly.";
+              statusEl.textContent = (res.body && res.body.error) || (isAr ? "حدث خطأ ما. يرجى مراسلتنا مباشرة على contact@lisanai.org." : "Something went wrong. Please email contact@lisanai.org directly.");
           }
       })
       .catch(function () {
@@ -297,7 +302,7 @@ function submitAppContact(e) {
           statusEl.style.color = "#991b1b";
           statusEl.style.background = "#fef2f2";
           statusEl.style.borderLeftColor = "#dc2626";
-          statusEl.textContent = "Network error. Please email contact@lisanai.org directly.";
+          statusEl.textContent = isAr ? "خطأ في الشبكة. يرجى مراسلتنا مباشرة على contact@lisanai.org." : "Network error. Please email contact@lisanai.org directly.";
       })
       .finally(function () {
           btn.disabled = false;
