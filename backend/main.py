@@ -271,6 +271,45 @@ def _record_login_fail(request: Request):
     ip = _client_ip(request)
     _login_fails.setdefault(ip, []).append(time.time())
 
+# --- Same sliding-window idea, generalized for the endpoints that cost
+# either heavy server compute (transcribe/generate/merge -- already
+# credit-gated, but nothing stopped a script from calling them faster than
+# any real user ever would) or a real Gemini/ElevenLabs API charge per call
+# with no credit check at all (translate/tashkeel/detect_emotions/clone/
+# lipsync/regenerate_line). Keyed per logged-in user (falling back to IP
+# for a session with no Supabase uid, e.g. the shared APP_PASSWORD login)
+# rather than per IP, since every one of these endpoints already requires
+# being logged in and uid is a far more reliable identity than an IP that
+# a shared office/VPN can collide on. Limits are deliberately generous --
+# this is meant to stop scripted abuse, not to get in the way of someone
+# actively iterating on a real dubbing job. Resets on process restart and
+# is per-instance, same tradeoff as the login/contact guards above.
+_rate_buckets: Dict[str, Dict[str, List[float]]] = {}
+HEAVY_RATE_MAX = 30          # /api/transcribe, /api/generate, /api/merge_video
+HEAVY_RATE_WINDOW_SEC = 600  # 10 minutes
+LIGHT_RATE_MAX = 60          # /api/translate, /api/tashkeel, /api/detect_emotions,
+LIGHT_RATE_WINDOW_SEC = 600  # /api/clone, /api/lipsync, /api/regenerate_line
+_RATE_LIMIT_MSG = "Too many requests. Please slow down and try again in a few minutes."
+
+def _rate_key(request: Request) -> str:
+    uid = _current_uid(request)
+    return f"uid:{uid}" if uid else f"ip:{_client_ip(request)}"
+
+def _rate_limited(request: Request, bucket: str, max_attempts: int, window_sec: int) -> bool:
+    """True if this caller is already over the limit for `bucket` (caller
+    should return a 429 in that case). Otherwise records this call and
+    returns False."""
+    key = _rate_key(request)
+    now = time.time()
+    store = _rate_buckets.setdefault(bucket, {})
+    attempts = [t for t in store.get(key, []) if now - t < window_sec]
+    if len(attempts) >= max_attempts:
+        store[key] = attempts
+        return True
+    attempts.append(now)
+    store[key] = attempts
+    return False
+
 # ==================== DEBUG ====================
 @app.get("/api/user/info")
 def user_info(request: Request):
@@ -1083,6 +1122,8 @@ def enhance_progress(job_id: str):
 
 @app.post("/api/transcribe")
 async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(2), hf_token: str = Form("")):
+    if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     transcribe_cost = int(_get_pricing_config().get("transcribeCredits", 3))
@@ -1241,6 +1282,8 @@ def analyze_speakers(req: AnalyzeRequest):
 
 @app.post("/api/clone")
 def clone(req: CloneRequest, request: Request):
+    if _rate_limited(request, "clone", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     clone_cost = int(_get_pricing_config().get("cloneCredits", 5))
@@ -1254,11 +1297,15 @@ def clone(req: CloneRequest, request: Request):
     return eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
 
 @app.post("/api/translate")
-def translate(req: TranslateRequest):
+def translate(req: TranslateRequest, request: Request):
+    if _rate_limited(request, "translate", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     return gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY)
 
 @app.post("/api/detect_emotions")
-def detect_emotions(req: EmotionRequest):
+def detect_emotions(req: EmotionRequest, request: Request):
+    if _rate_limited(request, "detect_emotions", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     audio = resolve_job_audio(req.job_id)
     if audio is None:
         return {"error": "Audio not found."}
@@ -1273,7 +1320,9 @@ def emotions_progress(job_id: str):
     return jobs_progress.get(f"emotions_{job_id}", {"status": "not_found"})
 
 @app.post("/api/tashkeel")
-def tashkeel(req: TashkeelRequest):
+def tashkeel(req: TashkeelRequest, request: Request):
+    if _rate_limited(request, "tashkeel", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     if not req.items:
         return {"error": "Nothing to process."}
     prompt = ("You are an Arabic diacritization (tashkeel) engine.\n"
@@ -1291,6 +1340,8 @@ def tashkeel(req: TashkeelRequest):
 
 @app.post("/api/generate")
 def generate(req: GenerateRequest, request: Request):
+    if _rate_limited(request, "generate", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     # minReserve (admin-configurable, "💰 Pricing Configuration") is a rough
@@ -1315,7 +1366,9 @@ def generate(req: GenerateRequest, request: Request):
 
 
 @app.post("/api/regenerate_line")
-def regenerate_line(req: RegenerateLineRequest):
+def regenerate_line(req: RegenerateLineRequest, request: Request):
+    if _rate_limited(request, "regenerate_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     return eleven_service.regenerate_line(req)
 
@@ -1332,6 +1385,8 @@ def remix_audio(req: RemixRequest):
 
 @app.post("/api/merge_video")
 def merge_video(req: MergeRequest, request: Request):
+    if _rate_limited(request, "merge_video", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     merge_cost = int(_get_pricing_config().get("mergeCredits", 1))
@@ -1376,7 +1431,9 @@ def merge_video(req: MergeRequest, request: Request):
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background}
 
 @app.post("/api/lipsync")
-def lipsync(req: LipSyncRequest):
+def lipsync(req: LipSyncRequest, request: Request):
+    if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     jobs_progress[f"lipsync_{req.job_id}"] = {"status": "processing", "percent": 5,
                                               "message": "Preparing...", "error": None,
                                               "result": None, "generation_id": None}
