@@ -32,10 +32,26 @@ from media_paths import resolve_job_audio, find_job_video, job_background_audio
 # Wrapped in try/except so a missing package or bad DSN never takes the app
 # down -- monitoring is a nice-to-have, not something that should be able to
 # break dubbing jobs.
+#
+# disabled_integrations turns off sentry-sdk's auto-enabled Hugging Face Hub
+# integration. This app only uses huggingface_hub for HF_TOKEN-gated model
+# downloads (pyannote diarization) -- never InferenceClient.chat_completion,
+# which is what that integration patches. The pinned huggingface-hub==0.21.4
+# in requirements.txt predates that method existing at all, so with the
+# integration left on, sentry_sdk.init() raised
+# "AttributeError: type object 'InferenceClient' has no attribute
+# 'chat_completion'" on every single startup and Sentry never initialized --
+# confirmed by reproducing it locally against the exact pinned versions.
 try:
     if SENTRY_DSN:
         import sentry_sdk
-        sentry_sdk.init(dsn=SENTRY_DSN, traces_sample_rate=0.1, send_default_pii=False)
+        from sentry_sdk.integrations.huggingface_hub import HuggingfaceHubIntegration
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            traces_sample_rate=0.1,
+            send_default_pii=False,
+            disabled_integrations=[HuggingfaceHubIntegration()],
+        )
 except Exception as _sentry_ex:
     print(f"[sentry] init skipped: {_sentry_ex}")
 
