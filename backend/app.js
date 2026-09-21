@@ -3653,36 +3653,59 @@ window.cleanOldClones = function () {
         ["Step 6: Final Result", "الخطوة 6: النتيجة النهائية"],
         ["Start", "ابدأ"],
         ["Auto Translate to Arabic", "ترجمة تلقائية إلى العربية"],
-        ["Add Tashkeel Only", "إضافة التشكيل فقط"],
+        // The 17 pairs below were previously written WITHOUT the emoji that
+        // actually prefixes each button/link in the live DOM. Matching for
+        // buttons/links/labels/headers requires the text to *start with* the
+        // English key (see tagAll()'s `indexOf(...) === 0` check below), so
+        // any mismatched emoji silently broke translation for all of these --
+        // they just never got tagged at all. Keeping the emoji on both sides
+        // of each pair also keeps the button looking the same after the
+        // switch, the same way the pre-existing "➕ Buy" pair already did.
+        ["🔤 Add Tashkeel Only", "🔤 إضافة التشكيل فقط"],
         ["Detect Emotions from Voice", "كشف المشاعر من الصوت"],
-        ["Auto-Fix Timing", "إصلاح التوقيت تلقائيًا"],
-        ["Import SRT/SBV", "استيراد SRT/SBV"],
-        ["Save Project", "حفظ المشروع"],
-        ["Load Project", "تحميل المشروع"],
+        ["✨ Auto-Fix Timing", "✨ إصلاح التوقيت تلقائيًا"],
+        ["📥 Import SRT/SBV", "📥 استيراد SRT/SBV"],
+        ["💾 Save Project", "💾 حفظ المشروع"],
+        ["📂 Load Project", "📂 تحميل المشروع"],
         ["Prepare Voice Cloning", "تحضير استنساخ الصوت"],
         ["Clone Selected Voices", "استنساخ الأصوات المحددة"],
-        ["Auto-Assign All", "تعيين تلقائي للكل"],
+        ["🎲 Auto-Assign All", "🎲 تعيين تلقائي للكل"],
         ["Generate Arabic Audio", "توليد الصوت العربي"],
-        ["Merge Audio into Video", "دمج الصوت في الفيديو"],
-        ["Confirm Changes & Rebuild MP3", "تأكيد التغييرات وإعادة بناء MP3"],
-        ["Reset Offsets", "إصفار الإزاحات"],
-        ["Fine-Tune Timeline", "ضبط الخط الزمني"],
-        ["Dub Another Video", "دبلجة فيديو آخر"],
+        ["🎬 Merge Audio into Video", "🎬 دمج الصوت في الفيديو"],
+        ["✅ Confirm Changes & Rebuild MP3", "✅ تأكيد التغييرات وإعادة بناء MP3"],
+        ["↩️ Reset Offsets", "↩️ إصفار الإزاحات"],
+        ["🎚️ Fine-Tune Timeline", "🎚️ ضبط الخط الزمني"],
+        ["🆕 Dub Another Video", "🆕 دبلجة فيديو آخر"],
         ["Log Out", "تسجيل الخروج"],
-        ["Download MP3", "تنزيل MP3"],
-        ["Download Dubbed Video (MP4)", "تنزيل الفيديو المدبلج (MP4)"],
-        ["Download Pure Vocals (MP3)", "تنزيل الصوت فقط (MP3)"],
-        ["Apply changes & rebuild MP3", "تطبيق التغييرات وإعادة بناء MP3"],
-        ["Reset All Sliders", "إعادة تعيين كل المنزلقات"],
+        ["⬇️ Download MP3", "⬇️ تنزيل MP3"],
+        ["⬇️ Download Dubbed Video (MP4)", "⬇️ تنزيل الفيديو المدبلج (MP4)"],
+        ["⬇️ Download Pure Vocals (MP3)", "⬇️ تنزيل الصوت فقط (MP3)"],
+        ["🔊 Apply changes & rebuild MP3", "🔊 تطبيق التغييرات وإعادة بناء MP3"],
+        ["↺ Reset All Sliders", "↺ إعادة تعيين كل المنزلقات"],
         ["Upload as this speaker's voice", "رفعه كصوت لهذا المتحدث"],
-        ["Clean old cloned voices", "تنظيف الأصوات المستنسخة القديمة"],
+        ["🧹 Clean old cloned voices", "🧹 تنظيف الأصوات المستنسخة القديمة"],
         ["➕ Buy", "➕ شراء"],
         ["Upload Media", "ارفع الوسائط"]
     ];
+    // The two retention banners (Step 1 upload warning, Step 6 result banner)
+    // are handled separately via BANNERS/direct innerHTML-swap below, not
+    // through this R-array fragment-replace mechanism -- their text is
+    // wrapped in inline <strong>/<a> tags, so el.firstChild is only a tiny
+    // leading text node (e.g. "⚠️ ") and could never contain a match for a
+    // full-sentence R-array key. That was true before these wording edits
+    // too; it isn't something the wording change broke.
+    var BANNERS = {
+        tempFileWarning: {
+            en: '⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it\'s saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days — download it any time from there.',
+            ar: '⚠️ <strong>مهم:</strong> ملفك المصدر المرفوع وأي تحرير جارٍ مؤقتان ويُفقدان عند انتهاء الجلسة أو إعادة تشغيل الخادم. بعد توليد النتيجة، تُحفظ في صفحة <a href="/account" style="color:#92400e;">حسابك</a> لمدة 30 يومًا — نزّلها في أي وقت من هناك.'
+        },
+        resultSavedBanner: {
+            en: '✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days. Your uploaded source file is still temporary — download or keep editing before you close this session.',
+            ar: '✅ تم حفظ هذه النتيجة في صفحة <a href="/account" style="color:#92400e;">حسابك</a> لمدة 30 يومًا. ملفك المصدر المرفوع لا يزال مؤقتًا — نزّله أو استمر في التحرير قبل إغلاق هذه الجلسة.'
+        }
+    };
     var R = [
         ["Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM", "يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM. الحدود: 60 ثانية و400 ميجابايت كحد أقصى"],
-        ["Important: Your generated audio", "مهم: ملفات الصوت والفيديو الناتجة مؤقتة. نزّلها فورًا بعد المعالجة — ستُفقد عند انتهاء الجلسة أو إعادة تشغيل الخادم"],
-        ["Download your files now", "نزّل ملفاتك الآن! الصوت والفيديو الناتجان مؤقتان ويُفقدان عند انتهاء الجلسة"],
         ["English to Arabic AI Dubbing", "English to Arabic AI Dubbing"],
         ["Credits are our internal unit", "الائتمانات وحدتنا الداخلية: 100 ائتمان = 1 دولار. الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط"],
         ["Voice generation supports emotions", "يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُحتسب التكلفة بالأحرف وتُعرض بالائتمانات (100 ائتمان = 1 دولار)"],
@@ -3719,12 +3742,18 @@ window.cleanOldClones = function () {
     ];
 
     function tagAll() {
-        document.querySelectorAll("h3, button, a, p, .note, span, label, th").forEach(function (el) {
+        // "th" was removed from this selector: the segments table's <th>Start</th>
+        // time-column header was matching the same P-array entry as the big
+        // green "Start" button (both are plain "Start" text on a control tag),
+        // so the header was incorrectly getting the button's imperative "ابدأ"
+        // translation. No table headers are translated for now.
+        document.querySelectorAll("h3, button, a, p, .note, span, label").forEach(function (el) {
             if (el.dataset && el.dataset.i18n) return;
             if (el.closest && (el.closest("#notifyPanel") || el.closest("#buyModal"))) return;
+            if (el.id && BANNERS[el.id]) return;
             var base = (el.textContent || "").trim();
             if (!base) return;
-            var isCtl = /^(H3|BUTTON|A|LABEL|TH)$/.test(el.tagName);
+            var isCtl = /^(H3|BUTTON|A|LABEL)$/.test(el.tagName);
             var list = isCtl ? P : R;
             for (var i = 0; i < list.length; i++) {
                 var hit = isCtl ? base.indexOf(list[i][0]) === 0 : base.indexOf(list[i][0]) > -1;
@@ -3757,6 +3786,12 @@ window.cleanOldClones = function () {
                         if (hasText) el.firstChild.nodeValue = en; else el.innerHTML = en;
                     }
                 } catch (e) {}
+            });
+            // Direct-swap the two retention banners (see BANNERS above) --
+            // bypasses the R-array fragment-replace path entirely.
+            Object.keys(BANNERS).forEach(function (id) {
+                var el = document.getElementById(id);
+                if (el) el.innerHTML = BANNERS[id][lang === "ar" ? "ar" : "en"];
             });
             document.body.classList.toggle("lang-ar", lang === "ar");
             document.documentElement.lang = (lang === "ar") ? "ar" : "en";

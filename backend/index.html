@@ -70,7 +70,7 @@
         <div class="credits-info-box">
             <div id="usageBox" class="hidden" style="font-size:13px;"></div>
             <p class="note" style="margin:0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
-            <p style="margin-top:10px;padding:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e;line-height:1.5;">
+            <p id="tempFileWarning" style="margin-top:10px;padding:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e;line-height:1.5;">
                 ⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it's saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days — download it any time from there.
             </p>
         </div>
@@ -197,7 +197,7 @@
 
 <div id="resultSection" class="card hidden">
     <h3>Step 6: Final Result</h3>
-    <div style="padding:12px 16px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;margin-bottom:16px;font-size:13px;color:#92400e;">
+    <div id="resultSavedBanner" style="padding:12px 16px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;margin-bottom:16px;font-size:13px;color:#92400e;">
         ✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days. Your uploaded source file is still temporary — download or keep editing before you close this session.
     </div>
     <div id="audioResults"></div>
