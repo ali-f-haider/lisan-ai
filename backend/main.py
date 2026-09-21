@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
-                    RESEND_API_KEY, CONTACT_TO_EMAIL)
+                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION)
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -2148,7 +2148,11 @@ def admin_page(request: Request):
     p = Path(__file__).parent / "admin.html"
     if not p.exists():
         return JSONResponse({"error": "admin.html not found"}, status_code=404)
-    return HTMLResponse(p.read_text(encoding="utf-8"))
+    # Stamp the current APP_VERSION (config.py) into the page each time it's
+    # served, so the admin dashboard always shows what's actually deployed
+    # without admin.html itself needing to change when the version bumps.
+    html = p.read_text(encoding="utf-8").replace("{{APP_VERSION}}", APP_VERSION)
+    return HTMLResponse(html)
 
 
 # ============================================================
