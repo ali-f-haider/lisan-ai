@@ -743,6 +743,15 @@ async def stripe_webhook(request: Request):
 CLEANUP_RETENTION_HOURS = 6
 CLEANUP_FINAL_OUTPUT_DAYS = 30
 CLEANUP_INTERVAL_MIN = 15
+# How many days before the 30-day auto-delete to email the owner a
+# heads-up. Requires the `expiry_notices` table (see the SQL note above
+# _check_expiring_outputs below) and RESEND_API_KEY to actually be set --
+# both fail silently (no email sent, nothing crashes) if missing.
+CLEANUP_WARNING_DAYS = 3
+# Only re-scan for jobs entering the warning window this often -- a 3-day
+# warning doesn't need 15-minute precision, and this keeps the extra
+# Supabase/Resend calls rare.
+EXPIRY_CHECK_INTERVAL_HOURS = 6
 
 # Suffixes that mark a file in OUTPUT_DIR as a job's *finished* output rather
 # than an intermediate working file. Keep this in sync with the filenames
@@ -755,7 +764,166 @@ def _is_final_output(path):
     return path.parent == OUTPUT_DIR and path.name.endswith(_FINAL_OUTPUT_SUFFIXES)
 
 
+# ---------- "Your file expires soon" email ----------
+# Needs one new Supabase table (run once in the SQL editor):
+#   CREATE TABLE IF NOT EXISTS expiry_notices (
+#     job_id text PRIMARY KEY,
+#     uid uuid,
+#     notified_at timestamptz DEFAULT now()
+#   );
+# This is what makes the "only email once per job" de-dup survive a
+# Railway restart -- an in-memory set would re-send every warning after
+# every redeploy.
+
+def _job_id_from_output_path(path):
+    for suffix in _FINAL_OUTPUT_SUFFIXES:
+        if path.name.endswith(suffix):
+            return path.name[: -len(suffix)]
+    return None
+
+
+def _uid_for_job(job_id):
+    """Same source of truth as account ownership (_job_belongs_to_uid) --
+    credit_spends already records uid+job_id for every generate/merge."""
+    if not job_id or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    import urllib.parse as _up
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?job_id=eq.{_up.quote(job_id)}&select=uid&limit=1"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return rows[0].get("uid") if rows else None
+    except Exception:
+        return None
+
+
+def _email_for_uid(uid):
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=email"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return (rows[0].get("email") or "").strip() or None if rows else None
+    except Exception:
+        return None
+
+
+def _already_notified(job_id):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return True  # can't check -- fail toward not spamming, not over-sending
+    import urllib.request as _ur
+    import urllib.parse as _up
+    url = f"{SUPABASE_URL}/rest/v1/expiry_notices?job_id=eq.{_up.quote(job_id)}&select=job_id&limit=1"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            return bool(json.load(r))
+    except Exception:
+        return True
+
+
+def _mark_notified(job_id, uid):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return
+    import urllib.request as _ur
+    body = json.dumps({"job_id": job_id, "uid": uid}).encode("utf-8")
+    req = _ur.Request(
+        f"{SUPABASE_URL}/rest/v1/expiry_notices",
+        data=body,
+        headers={
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal,resolution=merge-duplicates",
+        },
+        method="POST")
+    try:
+        _ur.urlopen(req, timeout=10)
+    except Exception as ex:
+        print(f"[expiry-notice] could not record notice for {job_id}: {ex}")
+
+
+def _send_expiry_email(to_email, days_left):
+    """Same Resend HTTP API call as /api/contact -- same 'from' domain,
+    same Cloudflare-safe User-Agent. Silently does nothing if RESEND_API_KEY
+    isn't set (matches /api/contact's own fallback behavior)."""
+    if not RESEND_API_KEY or not to_email:
+        return False
+    plural = "s" if days_left != 1 else ""
+    subject = f"Your Lisan AI file will be deleted in {days_left} day{plural}"
+    body_text = (
+        "Hi,\n\n"
+        f"Your dubbed audio/video on Lisan AI is scheduled to be automatically "
+        f"deleted in about {days_left} day{plural}, as part of our 30-day storage policy.\n\n"
+        "If you'd like to keep it, download it now from your account page:\n"
+        "https://lisanai.org/account\n\n"
+        "After that, this file cannot be recovered.\n\n"
+        "-- Lisan AI"
+    )
+    payload = json.dumps({
+        "from": "Lisan AI <noreply@lisanai.org>",
+        "to": [to_email],
+        "subject": subject,
+        "text": body_text,
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status in (200, 201)
+    except Exception as ex:
+        print(f"[expiry-notice] Resend send failed: {ex}")
+        return False
+
+
+def _check_expiring_outputs():
+    """Emails a job's owner once when their finished output enters the
+    CLEANUP_WARNING_DAYS window before CLEANUP_FINAL_OUTPUT_DAYS auto-delete.
+    De-duped via the expiry_notices table (see the SQL note above), so this
+    is safe to call repeatedly -- a job already recorded there is skipped."""
+    try:
+        now = _time.time()
+        warn_after_days = CLEANUP_FINAL_OUTPUT_DAYS - CLEANUP_WARNING_DAYS
+        for p in OUTPUT_DIR.glob("*"):
+            if not p.is_file() or not _is_final_output(p):
+                continue
+            age_days = (now - p.stat().st_mtime) / 86400
+            if age_days < warn_after_days:
+                continue
+            job_id = _job_id_from_output_path(p)
+            if not job_id or _already_notified(job_id):
+                continue
+            uid = _uid_for_job(job_id)
+            email = _email_for_uid(uid) if uid else None
+            if not email:
+                continue
+            days_left = max(1, round(CLEANUP_FINAL_OUTPUT_DAYS - age_days))
+            if _send_expiry_email(email, days_left):
+                _mark_notified(job_id, uid)
+    except Exception as e:
+        print("[expiry-notice] error:", e)
+
+
+_last_expiry_check = 0.0
+
+
 def _cleanup_worker():
+    global _last_expiry_check
     while True:
         _time.sleep(CLEANUP_INTERVAL_MIN * 60)
         try:
@@ -782,6 +950,10 @@ def _cleanup_worker():
                 print(f"[cleanup] removed {removed} old file(s)")
         except Exception as e:
             print("[cleanup] error:", e)
+
+        if _time.time() - _last_expiry_check > EXPIRY_CHECK_INTERVAL_HOURS * 3600:
+            _last_expiry_check = _time.time()
+            _check_expiring_outputs()
 
 
 threading.Thread(target=_cleanup_worker, daemon=True).start()
