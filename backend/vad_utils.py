@@ -40,7 +40,26 @@ def speech_probability_curve(audio_path):
         return [], []
     audio = audio[:n]
     model = get_vad_model()
-    probs = model(audio, num_samples=_FRAME_SAMPLES)
+    # SileroVADModel's calling convention as of requirements.txt's pinned
+    # faster-whisper==1.1.1: it expects a 2D (batch_size, num_samples)
+    # array, not a flat 1D one -- reshape(1, -1) matches exactly how
+    # faster-whisper's own internal vad_filter=True code calls it (see its
+    # vad.py: `model(padded_audio.reshape(1, -1)).squeeze(0)`). This was
+    # gotten wrong once already: an earlier version of this module was
+    # written and validated against a newer faster-whisper installed in
+    # the dev sandbox (1.2.1, which takes a flat 1D array instead) and
+    # shipped without checking it against the actual pinned version --
+    # it silently failed on every real request in production as a result
+    # ("Input should be a 2D array..."), caught only by testing live. If
+    # requirements.txt's faster-whisper pin ever changes, re-check this
+    # against that version's own vad.py before assuming it still works.
+    # .reshape(-1) rather than .squeeze(0): the raw output here turned out
+    # to carry an extra trailing size-1 dimension too (shape (num_windows,
+    # 1), not just (1, num_windows)) -- squeezing only the batch axis left
+    # each probability as a 1-element array instead of a plain float,
+    # which broke sum()/comparisons downstream. reshape(-1) flattens
+    # whatever shape comes back into one plain 1D array unconditionally.
+    probs = model(audio.reshape(1, -1), num_samples=_FRAME_SAMPLES).reshape(-1)
     times = [i * _FRAME_SAMPLES / _SR for i in range(len(probs))]
     return times, probs
 
