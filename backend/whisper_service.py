@@ -15,7 +15,7 @@ from ffmpeg_utils import (
     separate_vocals,
     detect_silence_gaps,
 )
-from vad_utils import flag_suspect_word_gaps
+from vad_utils import flag_suspect_word_gaps, flag_misaligned_words
 
 # Match the container's 4 vCPUs — prevents thread oversubscription
 # (the "calm CPU but 3-4x slower" bug).
@@ -496,6 +496,21 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             flag_suspect_word_gaps(result, audio_path)
         except Exception as e:
             print(f"[transcribe] VAD suspect-gap detection failed, skipping: {e}")
+
+        # Second, rarer VAD cross-check: a word whose own claimed timestamp
+        # shows almost no real voice activity at all, meaning it's not just
+        # mistimed but anchored to roughly the wrong point in the audio
+        # entirely. Found on a real clip -- a word Whisper placed ~3.4s away
+        # from where it's actually spoken, right next to a long non-speech
+        # stretch (background score/engine noise) that confused the
+        # alignment. Deliberately narrow (only checks words next to an
+        # unusually large gap) to avoid flagging ordinary words right after
+        # a normal pause -- see the long comment in vad_utils.py for why.
+        # Same best-effort pattern, writes into the same seg["suspect_gaps"].
+        try:
+            flag_misaligned_words(result, audio_path)
+        except Exception as e:
+            print(f"[transcribe] VAD word-misalignment detection failed, skipping: {e}")
 
         jobs_progress[job_id]["segments"] = result
         jobs_progress[job_id]["status"] = "done"
