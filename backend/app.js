@@ -476,6 +476,78 @@ function insertSegmentAfter(i) {
     renderTable(); renderSpeakerVoices();
     notify("info", "Manual line inserted. Use ✨ Auto-Fix to sync its time.");
 }
+// ===== Internal-pause detection (auto-suggest a segment split) =====
+// Whisper sometimes groups two natural spoken phrases -- with a real pause
+// between them -- into a single segment (its segment boundaries don't
+// always land on every silence). A Segment here only has one start/end/
+// text, so that internal pause has nowhere to live: the Arabic translation
+// gets generated as one continuous line and TTS renders it as one fluent
+// utterance stretched across the whole slot, and the pause is gone. This
+// looks at the word-level timestamps Whisper already returns per segment
+// (segment.words, set in whisper_service.py's transcribe_worker) to find
+// a gap between two consecutive words big enough to be a real pause rather
+// than normal word-to-word spacing, so the row can offer to split there.
+//
+// 0.45s is a reasonable starting point for "this is a beat, not just
+// speech" -- ordinary fluent speech usually has well under 0.2s between
+// words. Tune this constant if it's flagging too much or too little.
+const INTERNAL_PAUSE_THRESHOLD_SEC = 0.45;
+
+function detectInternalPause(seg) {
+    var words = seg && seg.words;
+    if (!words || words.length < 2) return null;
+    // If the segment's start/end were hand-edited since transcription, the
+    // word timestamps below no longer describe this row reliably -- don't
+    // suggest a split from stale data.
+    if (Math.abs(words[0].start - seg.start) > 0.5) return null;
+    if (Math.abs(words[words.length - 1].end - seg.end) > 0.5) return null;
+    var best = null;
+    for (var k = 0; k < words.length - 1; k++) {
+        var gap = words[k + 1].start - words[k].end;
+        if (gap >= INTERNAL_PAUSE_THRESHOLD_SEC && (!best || gap > best.gap)) {
+            best = { index: k, gap: gap };
+        }
+    }
+    return best;
+}
+
+function splitSegmentAtPause(i) {
+    var seg = segmentsData[i]; if (!seg) return;
+    var pause = detectInternalPause(seg);
+    if (!pause) { notify("error", "No pause detected here anymore (line may have been edited)."); return; }
+    var words = seg.words;
+    var originalEnd = seg.end;
+    var firstWords = words.slice(0, pause.index + 1);
+    var secondWords = words.slice(pause.index + 1);
+    var firstText = firstWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
+    var secondText = secondWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
+
+    // Mutate the original row into the first half...
+    seg.end = Number(firstWords[firstWords.length - 1].end.toFixed(2));
+    seg.text = firstText;
+    seg.words = firstWords;
+    seg.arabic_text = "";
+    seg.locked = false;
+
+    // ...and insert the second half right after it, using the real
+    // measured gap as the boundary so the pause is actually preserved.
+    // end stays at the ORIGINAL segment's end (captured before the
+    // mutation above), not the last word's own end, so it still lines up
+    // with whatever segment (if any) comes right after this one.
+    var secondSeg = {
+        segment_id: "split_" + Date.now() + "_b",
+        start: Number(secondWords[0].start.toFixed(2)),
+        end: Number(originalEnd.toFixed(2)),
+        speaker: seg.speaker, gender: seg.gender, emotion: seg.emotion,
+        text: secondText, arabic_text: "", locked: false,
+        tempo_mode: seg.tempo_mode || "excellent",
+        words: secondWords,
+    };
+    segmentsData.splice(i + 1, 0, secondSeg);
+    renderTable(); renderSpeakerVoices();
+    notify("info", "Split into two lines at the detected " + pause.gap.toFixed(2) + "s pause. Re-translate (and re-run Tashkeel if used) both new lines before generating.");
+}
+
 function deleteSegment(i) { if (!confirm("Delete this segment?")) return; segmentsData.splice(i, 1); cleanUnusedSpeakerVoices(); renderTable(); renderSpeakerVoices(); }
 function cleanUnusedSpeakerVoices() {
     const active = new Set(segmentsData.map(s => s.speaker));
@@ -2002,6 +2074,13 @@ function createRow(seg, i) {
     var db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = function() { deleteSegment(i); };
     var lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = function() { toggleLock(i); };
     aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
+    var pause = detectInternalPause(seg);
+    if (pause) {
+        var sb = mk("button"); sb.className = "action-btn orange"; sb.textContent = "✂️ Split";
+        sb.title = "Detected a " + pause.gap.toFixed(2) + "s pause inside this line's audio that Whisper didn't put a segment break at — click to split into two accurately-timed lines here.";
+        sb.onclick = function() { splitSegmentAtPause(i); };
+        aCell.appendChild(sb);
+    }
     row.appendChild(aCell);
     return row;
 }
