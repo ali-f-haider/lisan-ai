@@ -646,6 +646,16 @@ function autoSplitAllPauses() {
         var firstGaps = allGaps.filter(function (g) { return g.end <= newFirstEnd + 0.05; });
         var secondGaps = allGaps.filter(function (g) { return g.start >= newSecondStart - 0.05; });
 
+        // Same split-by-position treatment for the VAD suspect-gap flags
+        // (seg.suspect_gaps, set by the backend's flag_suspect_word_gaps):
+        // each flagged gap belonged to the whole original segment, so it
+        // has to follow whichever half its own start/end actually falls
+        // into, or a flag could end up attached to a half that no longer
+        // contains the words it was about.
+        var allSuspects = seg.suspect_gaps || [];
+        var firstSuspects = allSuspects.filter(function (g) { return g.end <= newFirstEnd + 0.05; });
+        var secondSuspects = allSuspects.filter(function (g) { return g.start >= newSecondStart - 0.05; });
+
         // Mutate the original row into the first half...
         seg.end = newFirstEnd;
         seg.text = firstText;
@@ -654,6 +664,7 @@ function autoSplitAllPauses() {
         seg.locked = false;
         seg._autoSplitChild = true; // see the comment on that check in detectInternalPause
         if (firstGaps.length) { seg.pause_gaps = firstGaps; } else { delete seg.pause_gaps; }
+        if (firstSuspects.length) { seg.suspect_gaps = firstSuspects; } else { delete seg.suspect_gaps; }
 
         // ...and insert the second half right after it, using the real
         // measured gap as the boundary so the pause is actually preserved.
@@ -671,6 +682,7 @@ function autoSplitAllPauses() {
             _autoSplitChild: true, // see the comment on that check in detectInternalPause
         };
         if (secondGaps.length) secondSeg.pause_gaps = secondGaps;
+        if (secondSuspects.length) secondSeg.suspect_gaps = secondSuspects;
         segmentsData.splice(i + 1, 0, secondSeg);
         splitCount++;
         // Re-check index i again (don't advance) -- the first half may
@@ -2201,7 +2213,20 @@ function createRow(seg, i) {
         row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
     }
     var mk = function(tag) { return document.createElement(tag); };
-    var numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1; row.appendChild(numCell);
+    var numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1;
+    // Backend's VAD cross-check (vad_utils.flag_suspect_word_gaps) found a
+    // word-to-word gap inside this line that Whisper's own timestamps call
+    // empty, but real voice-activity data says otherwise -- surface it so
+    // the word timing gets a manual look before it silently sets a wrong
+    // duration for a paid TTS generation. Never auto-fixed, just flagged.
+    if (seg.suspect_gaps && seg.suspect_gaps.length) {
+        var warn = mk("span");
+        warn.textContent = " ⚠️";
+        warn.style.cursor = "help";
+        warn.title = seg.suspect_gaps.map(function(g) { return g.reason; }).join("\n\n");
+        numCell.appendChild(warn);
+    }
+    row.appendChild(numCell);
     var startCell = mk("td"); var si = mk("input"); si.type = "number"; si.step = "0.01"; si.value = seg.start; si.onchange = function() { segmentsData[i].start = parseFloat(si.value) || 0; updateBadges(); }; startCell.appendChild(si); row.appendChild(startCell);
     var endCell = mk("td"); var ei = mk("input"); ei.type = "number"; ei.step = "0.01"; ei.value = seg.end; ei.onchange = function() { segmentsData[i].end = parseFloat(ei.value) || 0; updateBadges(); }; endCell.appendChild(ei); row.appendChild(endCell);
     var spCell = mk("td"); var spS = mk("select"); spS.style.width = "100%";
