@@ -542,12 +542,25 @@ function detectInternalPause(seg) {
             // without it, that last word (e.g. "slaughtered" in "...cows
             // being slaughtered <pause> and I saw...") could get bumped
             // into the next line instead of staying on this one.
+            //
+            // One more failure mode, seen on a real clip: sometimes a
+            // single word's own timestamp doesn't just bleed slightly past
+            // the pause -- it swallows the ENTIRE pause, starting before it
+            // and ending after it (e.g. "inserting" recorded as 9.37s-11.51s
+            // around a real 9.69s-11.37s silence). That word isn't safely
+            // "before" the pause the way its start time alone suggests --
+            // it's the word Whisper's alignment got confused about right
+            // where the real pause is, and it belongs on the far side of
+            // the pause, not this one. Skip any word whose own span fully
+            // contains the measured silence when picking the boundary.
             var idx = -1;
             for (var m = 0; m < words.length - 1; m++) {
-                if (words[m].start < widest.start) idx = m;
+                var w = words[m];
+                var spansPause = w.start <= widest.start + 0.05 && w.end >= widest.end - 0.05;
+                if (!spansPause && w.start < widest.start) idx = m;
             }
             if (idx >= 0 && idx < words.length - 1) {
-                return { index: idx, gap: widest.end - widest.start };
+                return { index: idx, gap: widest.end - widest.start, usedGap: widest };
             }
         }
     }
@@ -579,7 +592,16 @@ function autoSplitAllPauses() {
         // each gap actually falls, so a leftover gap from further down the
         // line can never be mistaken for another pause inside the (now
         // shorter) first half on a later pass through this same loop.
-        var allGaps = seg.pause_gaps || [];
+        // The gap that actually triggered THIS split (pause.usedGap, when
+        // the fallback path found it) is explicitly dropped from both sides
+        // first and unconditionally -- on a clip where one word's own
+        // timestamp overran across the whole pause, that gap could still
+        // land inside the new first half's range by the filters below and
+        // fire a second, spurious split using the same silence that was
+        // just used.
+        var allGaps = (seg.pause_gaps || []).filter(function (g) {
+            return !(pause.usedGap && g.start === pause.usedGap.start && g.end === pause.usedGap.end);
+        });
         var firstGaps = allGaps.filter(function (g) { return g.end <= newFirstEnd + 0.05; });
         var secondGaps = allGaps.filter(function (g) { return g.start >= newSecondStart - 0.05; });
 
@@ -2600,16 +2622,6 @@ checkTranscribeProgress = async function () {
                 s.tempo_mode = s.tempo_mode || "excellent";
             });
             remapDefaultSpeakerLabels();
-            // TEMP DEBUG (remove once the auto-split boundary bug is fully
-            // nailed down): dumps exactly what the backend handed back for
-            // each segment -- word timestamps and audio-measured pause_gaps
-            // -- before auto-split touches anything, so a real spurious
-            // split can be traced against real data instead of guesswork.
-            try {
-                console.log("[pause-debug] pre-split segments:", JSON.stringify(segmentsData.map(function (s) {
-                    return { start: s.start, end: s.end, text: s.text, words: s.words, pause_gaps: s.pause_gaps || null };
-                }), null, 2));
-            } catch (e) {}
             var autoSplitCount = autoSplitAllPauses();
 
             originalSegments = JSON.parse(JSON.stringify(segmentsData));
