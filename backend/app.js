@@ -530,12 +530,21 @@ function detectInternalPause(seg) {
             if (!widest || (gaps[g].end - gaps[g].start) > (widest.end - widest.start)) widest = gaps[g];
         }
         if (widest) {
-            // Find the last word that finishes at or before the silence
-            // starts -- that word, paired with the one after it, is the
-            // real split point.
+            // Find the last word that STARTS before the silence begins --
+            // deliberately using each word's start, not its end, here.
+            // Whisper's own word timestamps get noticeably less precise for
+            // the very last word before a real pause (there's no following
+            // word for the model to sharpen that boundary against), so its
+            // recorded "end" can run a little past when the audio-measured
+            // silence actually starts. A word's start time isn't affected
+            // the same way, so it's the more reliable signal for "this
+            // word was still part of the phrase before the pause" --
+            // without it, that last word (e.g. "slaughtered" in "...cows
+            // being slaughtered <pause> and I saw...") could get bumped
+            // into the next line instead of staying on this one.
             var idx = -1;
             for (var m = 0; m < words.length - 1; m++) {
-                if (words[m].end <= widest.start + 0.1) idx = m;
+                if (words[m].start < widest.start) idx = m;
             }
             if (idx >= 0 && idx < words.length - 1) {
                 return { index: idx, gap: widest.end - widest.start };
