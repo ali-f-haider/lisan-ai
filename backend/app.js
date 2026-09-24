@@ -572,6 +572,22 @@ function detectInternalPause(seg) {
     // Fallback: no usable audio-measured gap for this segment at all
     // (ffmpeg failed, or nothing it found lines up inside these bounds) --
     // the raw gap between consecutive words is the only signal left.
+    //
+    // Never use it, though, on a piece that already came out of a previous
+    // auto-split (seg._autoSplitChild). Real clip proof of why: a segment
+    // with ONE true pause -- "The stewardess said <pause> both pilots." --
+    // got correctly cut there using the real measured silence, but the
+    // silence was long enough that Whisper's own word timing inside it
+    // still showed a big leftover gap between "both" and "pilots." (its
+    // recorded word for "both" ends well before the real silence does).
+    // That leftover word-timing gap isn't a SECOND real pause -- it's just
+    // residue of the exact same measured silence that already produced
+    // this split -- but the raw fallback below can't tell the difference
+    // and split "both" | "pilots." apart on it anyway. Once ground truth
+    // has already explained a segment's silence, only more ground truth
+    // (another real, distinct pause_gaps entry) should be allowed to
+    // justify splitting it further.
+    if (seg._autoSplitChild) return null;
     var best = null;
     for (var k = 0; k < words.length - 1; k++) {
         var gap = words[k + 1].start - words[k].end;
@@ -636,6 +652,7 @@ function autoSplitAllPauses() {
         seg.words = firstWords;
         seg.arabic_text = "";
         seg.locked = false;
+        seg._autoSplitChild = true; // see the comment on that check in detectInternalPause
         if (firstGaps.length) { seg.pause_gaps = firstGaps; } else { delete seg.pause_gaps; }
 
         // ...and insert the second half right after it, using the real
@@ -651,6 +668,7 @@ function autoSplitAllPauses() {
             text: secondText, arabic_text: "", locked: false,
             tempo_mode: seg.tempo_mode || "excellent",
             words: secondWords,
+            _autoSplitChild: true, // see the comment on that check in detectInternalPause
         };
         if (secondGaps.length) secondSeg.pause_gaps = secondGaps;
         segmentsData.splice(i + 1, 0, secondSeg);
