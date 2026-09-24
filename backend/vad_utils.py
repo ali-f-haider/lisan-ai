@@ -118,7 +118,7 @@ def _file_baselines(result, times, probs):
     return speech_baseline, pause_baseline
 
 
-def flag_suspect_word_gaps(result, audio_path, min_gap_sec=1.0):
+def flag_suspect_word_gaps(result, audio_path, min_gap_sec=1.0, _precomputed=None):
     """For each segment, checks any internal word-to-word gap of at least
     min_gap_sec against real voice-activity data. A gap Whisper's word
     timestamps claim is empty, but where VAD finds speech-like probability
@@ -130,8 +130,12 @@ def flag_suspect_word_gaps(result, audio_path, min_gap_sec=1.0):
     only that the claimed one looks inconsistent with real voice activity.
     It's a flag for a human to check before a mistimed word silently sets
     a wrong duration for a paid TTS generation, not a silent rewrite.
+
+    _precomputed: internal use by run_vad_timing_checks() below, to reuse
+    an already-decoded (times, probs) curve instead of decoding the whole
+    file again. Callers using this function on its own don't need it.
     """
-    times, probs = speech_probability_curve(audio_path)
+    times, probs = _precomputed if _precomputed is not None else speech_probability_curve(audio_path)
     if not times:
         return
 
@@ -173,7 +177,7 @@ def flag_suspect_word_gaps(result, audio_path, min_gap_sec=1.0):
             seg["suspect_gaps"] = suspects
 
 
-def flag_misaligned_words(result, audio_path, min_word_sec=0.12, min_speech_fraction=0.4, big_gap_sec=1.5):
+def flag_misaligned_words(result, audio_path, min_word_sec=0.12, min_speech_fraction=0.4, big_gap_sec=1.5, _precomputed=None):
     """Catches a different, rarer failure than flag_suspect_word_gaps above.
     That one looks for real speech hiding inside a gap Whisper claims is
     empty. This one looks for the mirror image: a word whose OWN claimed
@@ -204,8 +208,12 @@ def flag_misaligned_words(result, audio_path, min_word_sec=0.12, min_speech_frac
     one looks wrong), and writes into the SAME seg["suspect_gaps"] field so
     the existing frontend warning indicator and auto-split partitioning
     both pick it up with no extra wiring.
+
+    _precomputed: internal use by run_vad_timing_checks() below, to reuse
+    an already-decoded (times, probs) curve instead of decoding the whole
+    file again. Callers using this function on its own don't need it.
     """
-    times, probs = speech_probability_curve(audio_path)
+    times, probs = _precomputed if _precomputed is not None else speech_probability_curve(audio_path)
     if not times:
         return
 
@@ -249,3 +257,26 @@ def flag_misaligned_words(result, audio_path, min_word_sec=0.12, min_speech_frac
                            f'entirely, not just mistimed. Worth checking before generating.'),
             }
             seg.setdefault("suspect_gaps", []).append(entry)
+
+
+def run_vad_timing_checks(result, audio_path, min_gap_sec=1.0, min_word_sec=0.12,
+                           min_speech_fraction=0.4, big_gap_sec=1.5):
+    """Runs both VAD timing checks (flag_suspect_word_gaps and
+    flag_misaligned_words) while decoding the audio and running it through
+    the VAD model only ONCE, not twice.
+
+    Each check used to call speech_probability_curve() on its own, which
+    fully decodes the audio file into a float32 PCM array and runs the
+    whole thing through the VAD model -- real memory for a long file, and
+    running that twice back to back (once per check) roughly doubled the
+    peak allocation for no benefit, since both checks want the exact same
+    curve. Callers (whisper_service.py) should call this instead of
+    calling both flag_* functions separately.
+    """
+    times, probs = speech_probability_curve(audio_path)
+    if not times:
+        return
+    flag_suspect_word_gaps(result, audio_path, min_gap_sec=min_gap_sec, _precomputed=(times, probs))
+    flag_misaligned_words(result, audio_path, min_word_sec=min_word_sec,
+                           min_speech_fraction=min_speech_fraction, big_gap_sec=big_gap_sec,
+                           _precomputed=(times, probs))

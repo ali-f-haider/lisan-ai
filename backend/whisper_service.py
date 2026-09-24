@@ -15,7 +15,7 @@ from ffmpeg_utils import (
     separate_vocals,
     detect_silence_gaps,
 )
-from vad_utils import flag_suspect_word_gaps, flag_misaligned_words
+from vad_utils import run_vad_timing_checks
 
 # Match the container's 4 vCPUs — prevents thread oversubscription
 # (the "calm CPU but 3-4x slower" bug).
@@ -485,32 +485,42 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         # Cross-check Whisper's own word timestamps against real voice-
         # activity data (the same Silero VAD model faster-whisper already
-        # uses internally). A word-to-word gap Whisper's timing claims is
-        # empty, but where VAD finds speech-like probability, likely means
-        # the WORD TIMESTAMP is wrong rather than a real pause -- flags it
-        # on the segment as suspect_gaps for manual review, since a wrong
-        # duration here would otherwise silently feed a paid TTS generation.
-        # Best-effort, same as the silence-gap block above: never breaks an
-        # otherwise-finished transcription.
+        # uses internally), two ways: (1) a word-to-word gap Whisper's
+        # timing claims is empty, but where VAD finds speech-like
+        # probability -- the word timestamp may be wrong rather than this
+        # being a real pause; (2) a word whose OWN claimed span shows
+        # almost no real voice activity at all, right next to an unusually
+        # large gap -- meaning it's not just mistimed but anchored to
+        # roughly the wrong point in the audio entirely (found on a real
+        # clip: Whisper placed a word ~3.4s from where it's actually
+        # spoken, next to a long non-speech stretch that confused the
+        # alignment). Both write into seg["suspect_gaps"] for manual
+        # review, never auto-correct, since a wrong duration here would
+        # otherwise silently feed a paid TTS generation. See vad_utils.py
+        # for why the second check is deliberately narrow.
+        #
+        # run_vad_timing_checks decodes the audio and runs the VAD model
+        # only once for both checks together (they used to each do this
+        # independently, doubling the memory this step needs for no
+        # reason). Best-effort, same as the silence-gap block above: never
+        # breaks an otherwise-finished transcription. gc.collect() +
+        # _trim_memory() afterward for the same reason _release_model()
+        # and _release_diarization_pipeline() above call them -- this step
+        # decodes the whole audio file into memory, and without an
+        # explicit trim, Railway's memory graph keeps showing that as the
+        # process's high-water mark even after Python's own GC has freed
+        # it, because glibc doesn't hand freed heap back to the OS on its
+        # own. This was the very last heavy allocation in the job before
+        # this fix, with nothing after it to trim -- worth checking if
+        # idle memory looks elevated again after a future change here.
         try:
-            flag_suspect_word_gaps(result, audio_path)
+            run_vad_timing_checks(result, audio_path)
         except Exception as e:
-            print(f"[transcribe] VAD suspect-gap detection failed, skipping: {e}")
-
-        # Second, rarer VAD cross-check: a word whose own claimed timestamp
-        # shows almost no real voice activity at all, meaning it's not just
-        # mistimed but anchored to roughly the wrong point in the audio
-        # entirely. Found on a real clip -- a word Whisper placed ~3.4s away
-        # from where it's actually spoken, right next to a long non-speech
-        # stretch (background score/engine noise) that confused the
-        # alignment. Deliberately narrow (only checks words next to an
-        # unusually large gap) to avoid flagging ordinary words right after
-        # a normal pause -- see the long comment in vad_utils.py for why.
-        # Same best-effort pattern, writes into the same seg["suspect_gaps"].
-        try:
-            flag_misaligned_words(result, audio_path)
-        except Exception as e:
-            print(f"[transcribe] VAD word-misalignment detection failed, skipping: {e}")
+            print(f"[transcribe] VAD timing checks failed, skipping: {e}")
+        finally:
+            import gc
+            gc.collect()
+            _trim_memory()
 
         jobs_progress[job_id]["segments"] = result
         jobs_progress[job_id]["status"] = "done"
