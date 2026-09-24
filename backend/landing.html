@@ -34,8 +34,10 @@ a:hover{text-decoration:underline}
 .hero h1{color:var(--indigo);font-size:38px;line-height:1.2;margin-bottom:14px}
 .hero p{max-width:640px;margin:0 auto 10px;color:var(--muted);font-size:17px}
 .hero .ar{direction:rtl;font-size:18px;color:#334155;margin-bottom:26px}
-.msa-badge{display:inline-block;margin:2px 0 16px;padding:5px 16px;border-radius:999px;background:#eef2ff;color:var(--indigo);font-weight:800;font-size:15px;direction:rtl}
-.msa-badge .en{direction:ltr;unicode-bidi:isolate;font-weight:700;color:#4b5bd6;font-size:.8em;margin-inline-start:4px}
+/* MSA tag now lives inline inside each title (English + Arabic) instead of
+   a separate badge underneath -- sized in em so it scales with whichever
+   title it's nested in (desktop 38px, or the 30px mobile override below). */
+.hero h1 .msa-inline{font-size:.42em;font-weight:700;color:#4b5bd6;margin-inline-start:8px;vertical-align:middle}
 .cta{display:inline-block;text-align:center;background:var(--green);color:#fff;font-weight:800;font-size:17px;padding:14px 34px;border-radius:12px;border:none;cursor:pointer}
 .cta:hover{filter:brightness(1.06);text-decoration:none}
 section{padding:44px 0}
@@ -90,7 +92,7 @@ footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600
 /* Arabic translation lines stacked under the English text throughout the
    page (no language toggle -- both languages are always visible). */
 .ar2{display:block;direction:rtl;unicode-bidi:isolate;font-weight:500;color:#5b6b85;margin-top:4px;line-height:1.5;font-size:.85em}
-.hero h1 .ar2{color:#3949ab;font-weight:800;font-size:20px;margin-top:10px}
+.hero h1 .ar2{color:#3949ab;font-weight:800;font-size:1em;margin-top:10px}
 .hero p .ar2{color:#94a3b8;font-size:15px;font-weight:400}
 h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
 h3 .ar2{color:#64748b;font-weight:700;margin-top:3px}
@@ -125,8 +127,7 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
 </button>
 
 <div class="hero">
-  <h1>Dub any video into Arabic — automatically<span class="ar2">دبلج أي فيديو إلى العربية — تلقائيًا</span></h1>
-  <div class="msa-badge">الفصحى<span class="en">· MSA</span></div>
+  <h1>Dub any video into Arabic — automatically<span class="msa-inline">(MSA)</span><span class="ar2">دبلج أي فيديو إلى العربية — تلقائيًا<span class="msa-inline">(الفصحى)</span></span></h1>
   <p>AI transcription, translation, speaker detection and voice cloning in one flow. Your speakers, their voices, perfect timing.</p>
   <p class="ar">نسخ صوتي وترجمة وتمييز للمتحدثين واستنساخ للصوت بالذكاء الاصطناعي في تدفق واحد. أصوات متحدثيك، بتوقيت مثالي.</p>
   <div style="display:flex;justify-content:center;margin:8px 0 4px;">

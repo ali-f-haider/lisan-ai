@@ -1618,7 +1618,14 @@ async function startTranscribe() {
         notify("error", "This clip is " + Math.round(dur) + " seconds long. This build accepts up to 60 seconds — please trim it first.");
         return;
     }
-    const speakerCount = parseInt(document.getElementById("speakerCount").value, 10) || 2;
+    // Blank field -> 0, which whisper_service.py already treats as "no
+    // hint, auto-detect" (both in the diarization call and in the "only
+    // found fewer than requested" warning, which only fires when
+    // speaker_count is truthy). Defaulting a blank field to 2 here used to
+    // silently turn "I didn't specify a count" into "I specifically asked
+    // for 2", which is what produced a confusing warning for a 1-speaker
+    // video nobody actually requested 2 speakers for.
+    const speakerCount = parseInt(document.getElementById("speakerCount").value, 10) || 0;
     const form = new FormData();
     form.append("file", file);
     form.append("speaker_count", speakerCount);

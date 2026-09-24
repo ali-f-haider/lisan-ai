@@ -1096,17 +1096,28 @@ def landing():
         html = html.replace("<head>", "<head>\n" + snippet, 1)
     return HTMLResponse(html)
 
+
+# "no-cache" (despite the name) still lets the browser cache these -- it
+# just makes it revalidate with the server first every time (a cheap
+# conditional GET against the Last-Modified/ETag FileResponse already sets,
+# 304 if unchanged) instead of silently reusing whatever copy it has for
+# some heuristic length of time. Without this, a deploy that changes
+# app.js/index.html/styles.css can go unnoticed by an already-open browser
+# tab or a "hard refresh"-less reload, which cost real debugging time more
+# than once (the Step 7 visibility investigation in particular).
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
+
 @app.get("/app")
 def home():
-    return FileResponse(BASE_DIR / "index.html")
+    return FileResponse(BASE_DIR / "index.html", headers=_NO_CACHE_HEADERS)
 
 @app.get("/app.js")
 def app_js():
-    return FileResponse(BASE_DIR / "app.js", media_type="application/javascript")
+    return FileResponse(BASE_DIR / "app.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 @app.get("/styles.css")
 def styles():
-    return FileResponse(BASE_DIR / "styles.css", media_type="text/css")
+    return FileResponse(BASE_DIR / "styles.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
 
 @app.get("/logo.png")
 def logo():
@@ -1140,7 +1151,7 @@ def enhance_progress(job_id: str):
 # ==================== API ROUTES ====================
 
 @app.post("/api/transcribe")
-async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(2), hf_token: str = Form("")):
+async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form("")):
     if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
