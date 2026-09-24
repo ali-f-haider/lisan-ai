@@ -537,41 +537,53 @@ function detectInternalPause(seg) {
     return null;
 }
 
-function splitSegmentAtPause(i) {
-    var seg = segmentsData[i]; if (!seg) return;
-    var pause = detectInternalPause(seg);
-    if (!pause) { notify("error", "No pause detected here anymore (line may have been edited)."); return; }
-    var words = seg.words;
-    var originalEnd = seg.end;
-    var firstWords = words.slice(0, pause.index + 1);
-    var secondWords = words.slice(pause.index + 1);
-    var firstText = firstWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
-    var secondText = secondWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
+// Runs once, right after a fresh transcription lands (before the user has
+// touched anything), and silently splits every line that has a detected
+// internal pause -- no button, no manual step. Returns how many splits it
+// made, for the "Auto-split N line(s)..." note in the completion toast.
+function autoSplitAllPauses() {
+    var splitCount = 0;
+    var i = 0;
+    while (i < segmentsData.length) {
+        var seg = segmentsData[i];
+        var pause = detectInternalPause(seg);
+        if (!pause) { i++; continue; }
+        var words = seg.words;
+        var originalEnd = seg.end;
+        var firstWords = words.slice(0, pause.index + 1);
+        var secondWords = words.slice(pause.index + 1);
+        var firstText = firstWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
+        var secondText = secondWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
 
-    // Mutate the original row into the first half...
-    seg.end = Number(firstWords[firstWords.length - 1].end.toFixed(2));
-    seg.text = firstText;
-    seg.words = firstWords;
-    seg.arabic_text = "";
-    seg.locked = false;
+        // Mutate the original row into the first half...
+        seg.end = Number(firstWords[firstWords.length - 1].end.toFixed(2));
+        seg.text = firstText;
+        seg.words = firstWords;
+        seg.arabic_text = "";
+        seg.locked = false;
 
-    // ...and insert the second half right after it, using the real
-    // measured gap as the boundary so the pause is actually preserved.
-    // end stays at the ORIGINAL segment's end (captured before the
-    // mutation above), not the last word's own end, so it still lines up
-    // with whatever segment (if any) comes right after this one.
-    var secondSeg = {
-        segment_id: "split_" + Date.now() + "_b",
-        start: Number(secondWords[0].start.toFixed(2)),
-        end: Number(originalEnd.toFixed(2)),
-        speaker: seg.speaker, gender: seg.gender, emotion: seg.emotion,
-        text: secondText, arabic_text: "", locked: false,
-        tempo_mode: seg.tempo_mode || "excellent",
-        words: secondWords,
-    };
-    segmentsData.splice(i + 1, 0, secondSeg);
-    renderTable(); renderSpeakerVoices();
-    notify("info", "Split into two lines at the detected " + pause.gap.toFixed(2) + "s pause. Re-translate (and re-run Tashkeel if used) both new lines before generating.");
+        // ...and insert the second half right after it, using the real
+        // measured gap as the boundary so the pause is actually preserved.
+        // end stays at the ORIGINAL segment's end (captured before the
+        // mutation above), not the last word's own end, so it still lines
+        // up with whatever segment (if any) comes right after this one.
+        var secondSeg = {
+            segment_id: "split_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
+            start: Number(secondWords[0].start.toFixed(2)),
+            end: Number(originalEnd.toFixed(2)),
+            speaker: seg.speaker, gender: seg.gender, emotion: seg.emotion,
+            text: secondText, arabic_text: "", locked: false,
+            tempo_mode: seg.tempo_mode || "excellent",
+            words: secondWords,
+        };
+        segmentsData.splice(i + 1, 0, secondSeg);
+        splitCount++;
+        // Re-check index i again (don't advance) -- the first half may
+        // itself still contain another pause if the original line had
+        // more than one. Once it's clean, the loop naturally moves on to
+        // the second half at i+1 and checks that too.
+    }
+    return splitCount;
 }
 
 function deleteSegment(i) { if (!confirm("Delete this segment?")) return; segmentsData.splice(i, 1); cleanUnusedSpeakerVoices(); renderTable(); renderSpeakerVoices(); }
@@ -2015,10 +2027,24 @@ function onFileSelected(input) {
         label.textContent = fullText;
         label.title = fullText; // full name on hover -- text may be truncated visually
         if (step15) step15.classList.remove("hidden");
+        // New upload -- require fresh consent for it. If a previous upload
+        // in this same page session was already certified and locked (see
+        // onVoiceConsentChanged), re-enable and uncheck it here so it can't
+        // be silently carried over to a different file.
+        var consentBox = document.getElementById("voiceConsentCheckbox");
+        if (consentBox) { consentBox.checked = false; consentBox.disabled = false; }
     } else {
         label.textContent = "Upload Media";
         label.title = "";
     }
+}
+
+// Once checked, lock the voice-rights checkbox so it can't be casually
+// unchecked afterward -- the certification was made for this specific
+// upload. onFileSelected (above) re-enables and resets it the moment a
+// new file is chosen, so the next upload needs its own fresh consent.
+function onVoiceConsentChanged(checkbox) {
+    if (checkbox && checkbox.checked) checkbox.disabled = true;
 }
 
 // ===== USER HEADER =====
@@ -2114,13 +2140,9 @@ function createRow(seg, i) {
     var db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = function() { deleteSegment(i); };
     var lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = function() { toggleLock(i); };
     aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
-    var pause = detectInternalPause(seg);
-    if (pause) {
-        var sb = mk("button"); sb.className = "action-btn orange"; sb.textContent = "✂️ Split";
-        sb.title = "Detected a " + pause.gap.toFixed(2) + "s pause inside this line's audio that Whisper didn't put a segment break at — click to split into two accurately-timed lines here.";
-        sb.onclick = function() { splitSegmentAtPause(i); };
-        aCell.appendChild(sb);
-    }
+    // No manual "Split" button here -- detected pauses are split
+    // automatically right after transcription (see autoSplitAllPauses),
+    // before the row is ever rendered.
     row.appendChild(aCell);
     return row;
 }
@@ -2543,6 +2565,7 @@ checkTranscribeProgress = async function () {
                 s.tempo_mode = s.tempo_mode || "excellent";
             });
             remapDefaultSpeakerLabels();
+            var autoSplitCount = autoSplitAllPauses();
 
             originalSegments = JSON.parse(JSON.stringify(segmentsData));
             totalDuration = data.full_duration || 0;
@@ -2550,6 +2573,9 @@ checkTranscribeProgress = async function () {
             var message = "Transcription complete.";
             if (data.detected_speakers > 0) {
                 message += " Detected speakers: " + data.detected_speakers + ".";
+            }
+            if (autoSplitCount > 0) {
+                message += " Auto-split " + autoSplitCount + " line" + (autoSplitCount > 1 ? "s" : "") + " at detected pause" + (autoSplitCount > 1 ? "s" : "") + ".";
             }
 
             if (data.warning) notify("error", "⚠️ " + data.warning);
