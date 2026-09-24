@@ -2391,15 +2391,12 @@ def admin_page(request: Request):
     # Stamp the current APP_VERSION (config.py) into the page each time it's
     # served, so the admin dashboard always shows what's actually deployed
     # without admin.html itself needing to change when the version bumps.
-    # Also stamp Railway's own deployment id, which Railway sets automatically
-    # on every deploy -- a self-updating cross-check for the hand-bumped
-    # version above, in case that one is ever forgotten.
-    deployment_id = os.environ.get("RAILWAY_DEPLOYMENT_ID", "local")[:8]
-    html = (
-        p.read_text(encoding="utf-8")
-        .replace("{{APP_VERSION}}", APP_VERSION)
-        .replace("{{RAILWAY_DEPLOYMENT_ID}}", deployment_id)
-    )
+    # (Previously also showed Railway's raw deployment id as a self-updating
+    # cross-check -- dropped per Ali: a hex id doesn't mean anything to a
+    # human, so it didn't actually help confirm what shipped. Bump
+    # APP_VERSION by hand instead: patch (third number) for a fix, minor
+    # (middle number) when a feature is added.)
+    html = p.read_text(encoding="utf-8").replace("{{APP_VERSION}}", APP_VERSION)
     return HTMLResponse(html)
 
 

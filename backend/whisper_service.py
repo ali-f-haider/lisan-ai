@@ -475,7 +475,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 seg_gaps = [
                     g for g in all_silences
                     if g["start"] > seg["start"] + 0.15 and g["end"] < seg["end"] - 0.05
-                    and (g["end"] - g["start"]) >= 0.45
+                    and (g["end"] - g["start"]) >= 0.6
                 ]
                 if seg_gaps:
                     seg["pause_gaps"] = seg_gaps

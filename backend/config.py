@@ -3,12 +3,12 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Bump this by hand whenever a batch of changes ships. Shown in the corner of
-# the admin dashboard (/admin) so it's easy to confirm what's actually live.
-# The admin page also shows Railway's own deployment id next to it (auto-set
-# by Railway on every deploy, never stale) as a cross-check in case this
-# number is ever forgotten.
-APP_VERSION = "1.2.0"
+# Bump this by hand whenever a batch of changes ships -- shown in the
+# corner of the admin dashboard (/admin) so it's easy to confirm what's
+# actually live. Patch (last number) for a fix, minor (middle number) when
+# a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
+# 1.2.0 -> 1.3.0 when a new feature ships.
+APP_VERSION = "1.3.0"
 
 
 def _load_env():

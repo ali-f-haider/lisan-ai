@@ -488,10 +488,13 @@ function insertSegmentAfter(i) {
 // a gap between two consecutive words big enough to be a real pause rather
 // than normal word-to-word spacing, so the row can offer to split there.
 //
-// 0.45s is a reasonable starting point for "this is a beat, not just
-// speech" -- ordinary fluent speech usually has well under 0.2s between
-// words. Tune this constant if it's flagging too much or too little.
-const INTERNAL_PAUSE_THRESHOLD_SEC = 0.45;
+// 0.6s -- ordinary fluent speech (including a quick breath or a comma)
+// usually has well under 0.5s between words, so this stays clear of that
+// and only catches a real, deliberate beat. (Was 0.45s; raised after that
+// setting caught too many ordinary breathing/comma pauses in real testing
+// and produced far more splits than were actually wanted.) Tune this
+// constant if it's flagging too much or too little.
+const INTERNAL_PAUSE_THRESHOLD_SEC = 0.6;
 
 function detectInternalPause(seg) {
     var words = seg && seg.words;
@@ -515,10 +518,15 @@ function detectInternalPause(seg) {
     // between the surrounding words, hiding it from the check above. The
     // backend separately measures silence directly from the audio for each
     // segment (seg.pause_gaps); use the widest one here as a second signal.
+    // Only consider gaps that actually fall inside THIS segment's own
+    // start/end -- pause_gaps isn't re-partitioned word-by-word when a
+    // segment splits (see autoSplitAllPauses), so a stale gap belonging to
+    // a sibling piece must never be allowed to trigger another split here.
     var gaps = seg.pause_gaps;
     if (gaps && gaps.length) {
         var widest = null;
         for (var g = 0; g < gaps.length; g++) {
+            if (gaps[g].start < seg.start - 0.05 || gaps[g].end > seg.end + 0.05) continue;
             if (!widest || (gaps[g].end - gaps[g].start) > (widest.end - widest.start)) widest = gaps[g];
         }
         if (widest) {
@@ -554,13 +562,25 @@ function autoSplitAllPauses() {
         var secondWords = words.slice(pause.index + 1);
         var firstText = firstWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
         var secondText = secondWords.map(function (w) { return (w.word || "").trim(); }).join(" ").trim();
+        var newFirstEnd = Number(firstWords[firstWords.length - 1].end.toFixed(2));
+        var newSecondStart = Number(secondWords[0].start.toFixed(2));
+
+        // The backend's audio-measured pause_gaps belonged to the WHOLE
+        // original segment -- split it between the two new halves by where
+        // each gap actually falls, so a leftover gap from further down the
+        // line can never be mistaken for another pause inside the (now
+        // shorter) first half on a later pass through this same loop.
+        var allGaps = seg.pause_gaps || [];
+        var firstGaps = allGaps.filter(function (g) { return g.end <= newFirstEnd + 0.05; });
+        var secondGaps = allGaps.filter(function (g) { return g.start >= newSecondStart - 0.05; });
 
         // Mutate the original row into the first half...
-        seg.end = Number(firstWords[firstWords.length - 1].end.toFixed(2));
+        seg.end = newFirstEnd;
         seg.text = firstText;
         seg.words = firstWords;
         seg.arabic_text = "";
         seg.locked = false;
+        if (firstGaps.length) { seg.pause_gaps = firstGaps; } else { delete seg.pause_gaps; }
 
         // ...and insert the second half right after it, using the real
         // measured gap as the boundary so the pause is actually preserved.
@@ -569,13 +589,14 @@ function autoSplitAllPauses() {
         // up with whatever segment (if any) comes right after this one.
         var secondSeg = {
             segment_id: "split_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
-            start: Number(secondWords[0].start.toFixed(2)),
+            start: newSecondStart,
             end: Number(originalEnd.toFixed(2)),
             speaker: seg.speaker, gender: seg.gender, emotion: seg.emotion,
             text: secondText, arabic_text: "", locked: false,
             tempo_mode: seg.tempo_mode || "excellent",
             words: secondWords,
         };
+        if (secondGaps.length) secondSeg.pause_gaps = secondGaps;
         segmentsData.splice(i + 1, 0, secondSeg);
         splitCount++;
         // Re-check index i again (don't advance) -- the first half may
@@ -2020,6 +2041,8 @@ async function autoAssignVoices() {
 function onFileSelected(input) {
     var label = document.getElementById("fileUploadText");
     var step15 = document.getElementById("step1_5Card");
+    var consentSection = document.getElementById("voiceConsentSection");
+    var consentBox = document.getElementById("voiceConsentCheckbox");
     if (input.files && input.files[0]) {
         var f = input.files[0];
         var sizeMB = (f.size / (1024 * 1024)).toFixed(1);
@@ -2027,15 +2050,18 @@ function onFileSelected(input) {
         label.textContent = fullText;
         label.title = fullText; // full name on hover -- text may be truncated visually
         if (step15) step15.classList.remove("hidden");
-        // New upload -- require fresh consent for it. If a previous upload
-        // in this same page session was already certified and locked (see
-        // onVoiceConsentChanged), re-enable and uncheck it here so it can't
-        // be silently carried over to a different file.
-        var consentBox = document.getElementById("voiceConsentCheckbox");
+        // Only show the consent checkbox once there's actually a file to
+        // certify about. New upload -- require fresh consent for it. If a
+        // previous upload in this same page session was already certified
+        // and locked (see onVoiceConsentChanged), re-enable and uncheck it
+        // here so it can't be silently carried over to a different file.
+        if (consentSection) consentSection.classList.remove("hidden");
         if (consentBox) { consentBox.checked = false; consentBox.disabled = false; }
     } else {
         label.textContent = "Upload Media";
         label.title = "";
+        if (consentSection) consentSection.classList.add("hidden");
+        if (consentBox) { consentBox.checked = false; consentBox.disabled = false; }
     }
 }
 

@@ -155,7 +155,7 @@ def mux_audio_into_video(video_path: Path, audio_path: Path, out_path: Path):
     run_ffmpeg(cmd)
 
 
-def detect_silence_gaps(file_path, min_silence_sec: float = 0.4, noise_db: str = "-30dB"):
+def detect_silence_gaps(file_path, min_silence_sec: float = 0.6, noise_db: str = "-30dB"):
     """Real, audio-measured silence windows in a file (absolute seconds),
     via ffmpeg's silencedetect filter. Independent of Whisper entirely --
     Whisper's own per-word timestamps come from an attention-based DTW
