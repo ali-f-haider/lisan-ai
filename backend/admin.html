@@ -563,17 +563,22 @@ async function loadMemDiag() {
   out.textContent = 'Checking...';
   const r = await api('/api/admin/mem_diag');
   if (!r.ok) { out.textContent = 'Failed: ' + (r.data && r.data.error ? r.data.error : 'unknown error'); return; }
-  const m = r.data.meminfo;
+  const c = r.data.cgroup;
+  const h = r.data.host_meminfo;
   let text = '';
-  text += 'Total RAM:              ' + m.MemTotal_mb + ' MB\n';
-  text += 'Free (truly unused):    ' + m.MemFree_mb + ' MB\n';
-  text += 'Reclaimable page cache: ' + m.reclaimable_cache_mb + ' MB  <- model/library files Linux cached in RAM; not a leak, freed automatically under pressure\n';
-  text += '\n';
-  text += 'Railway-graph-style "used" (Total - Available): ' + m.reported_used_mb + ' MB   <- what a dashboard usually shows\n';
-  text += 'Real "used" (Total - Free - all reclaimable):    ' + m.true_used_mb + ' MB   <- what is actually pinned by processes\n';
-  text += '\n';
-  text += 'If "Real used" is small but the graph-style number is huge, the gap is page cache -- not a leak.\n';
-  text += '\n--- Top processes by memory ---\n';
+  if (c.error) {
+    text += 'Could not read cgroup memory files: ' + c.error + '\n\n';
+  } else {
+    text += '--- This container (cgroup ' + c.version + ') -- the real, correctly-scoped numbers ---\n';
+    text += 'Total used (what Railway\'s graph almost certainly shows): ' + c.used_mb + ' MB' + (c.limit_mb ? ' of ' + c.limit_mb + ' MB limit' : '') + '\n';
+    if (c.cache_mb != null) text += '  of which reclaimable page cache: ' + c.cache_mb + ' MB  <- model/library files Linux cached in RAM; not a leak, freed automatically under pressure\n';
+    if (c.anon_mb != null) text += '  of which real app memory (anon):  ' + c.anon_mb + ' MB  <- what the app is actually holding onto\n';
+    text += '\nIf "real app memory" is small but "Total used" is huge, the gap is page cache -- not a leak.\n';
+  }
+  if (h.MemTotal_mb) {
+    text += '\n(For reference only -- this is the whole shared HOST machine, not just this container, so don\'t read it as this app\'s memory: ' + h.MemTotal_mb + ' MB total RAM on the host, ' + (h.MemAvailable_mb || '?') + ' MB available.)\n';
+  }
+  text += '\n--- Processes visible inside this container ---\n';
   r.data.processes.slice(0, 15).forEach(p => {
     text += p.rss_mb.toString().padStart(8) + ' MB   ' + p.name + '  (pid ' + p.pid + ')\n';
   });

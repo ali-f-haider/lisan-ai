@@ -2349,6 +2349,82 @@ def admin_railway_memory(request: Request):
     data["alert_percent"] = railway_monitor.ALERT_PERCENT
     return data
 
+def _read_cgroup_memory():
+    """Reads THIS CONTAINER's own memory accounting from the cgroup
+    filesystem. Unlike /proc/meminfo -- which was tried first in an earlier
+    version of this endpoint and turned out to report the whole physical
+    HOST's memory (Railway's shared underlying machine, not just this
+    service's container), since /proc/meminfo isn't namespaced by Docker --
+    the cgroup files under /sys/fs/cgroup ARE scoped correctly to just this
+    container by the kernel itself, and are almost certainly the exact
+    source Railway's own graph reads from (Railway runs on standard
+    container cgroups same as any other Docker host). Tries cgroup v2 (the
+    modern unified hierarchy) first, falls back to v1."""
+    result = {"version": None, "used_mb": None, "limit_mb": None,
+              "cache_mb": None, "anon_mb": None, "error": None}
+
+    def _mb(byte_val):
+        return round(byte_val / (1024 * 1024), 1)
+
+    try:  # cgroup v2
+        with open("/sys/fs/cgroup/memory.current") as f:
+            used = int(f.read().strip())
+        result["version"] = "v2"
+        result["used_mb"] = _mb(used)
+        try:
+            with open("/sys/fs/cgroup/memory.max") as f:
+                raw = f.read().strip()
+            result["limit_mb"] = None if raw == "max" else _mb(int(raw))
+        except Exception:
+            pass
+        try:
+            with open("/sys/fs/cgroup/memory.stat") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) != 2:
+                        continue
+                    key, val = parts[0], int(parts[1])
+                    if key == "file":       # page cache charged to this container
+                        result["cache_mb"] = _mb(val)
+                    elif key == "anon":     # real heap/stack memory this container holds
+                        result["anon_mb"] = _mb(val)
+        except Exception:
+            pass
+        return result
+    except Exception:
+        pass
+
+    try:  # cgroup v1 fallback
+        with open("/sys/fs/cgroup/memory/memory.usage_in_bytes") as f:
+            used = int(f.read().strip())
+        result["version"] = "v1"
+        result["used_mb"] = _mb(used)
+        try:
+            with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as f:
+                raw = int(f.read().strip())
+            # v1 reports a near-int64-max sentinel when there's no real limit
+            result["limit_mb"] = None if raw > 10 ** 15 else _mb(raw)
+        except Exception:
+            pass
+        try:
+            with open("/sys/fs/cgroup/memory/memory.stat") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) != 2:
+                        continue
+                    key, val = parts[0], int(parts[1])
+                    if key == "cache":
+                        result["cache_mb"] = _mb(val)
+                    elif key == "rss":
+                        result["anon_mb"] = _mb(val)
+        except Exception:
+            pass
+        return result
+    except Exception as e:
+        result["error"] = f"cgroup memory files not readable: {e}"
+        return result
+
+
 @app.get("/api/admin/mem_diag")
 def admin_mem_diag(request: Request):
     """TEMPORARY diagnostic (Sept 2026 memory-plateau investigation, same
@@ -2361,19 +2437,24 @@ def admin_mem_diag(request: Request):
     claiming it's "just reporting what your app uses" hasn't been verified
     against this app's own container.
 
-    Reads /proc/meminfo -- the exact same source the Linux `free` command
-    reads -- and walks /proc/<pid>/status for every process visible in this
-    container as a substitute for `ps aux`, since the slim python:3.12-slim
-    base image doesn't ship a `ps` binary (confirmed via the Dockerfile: it
-    apt-installs only ffmpeg and git). No side effects, nothing here can
-    make the plateau worse."""
+    The authoritative numbers come from _read_cgroup_memory() (see above),
+    which is correctly scoped to just this container. /proc/meminfo is also
+    included below, but only as host-wide background context -- it reports
+    Railway's whole shared physical machine, not this container, so don't
+    read its numbers as "this app's memory". Also walks /proc/<pid>/status
+    for every process visible in this container (PID namespaces ARE
+    isolated per-container, unlike /proc/meminfo) as a substitute for
+    `ps aux`, since the slim python:3.12-slim base image doesn't ship a
+    `ps` binary. No side effects, nothing here can make the plateau worse."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     def _kb_to_mb(kb):
         return round(kb / 1024, 1)
 
-    meminfo = {}
+    cgroup = _read_cgroup_memory()
+
+    host_meminfo = {}
     try:
         with open("/proc/meminfo") as f:
             for line in f:
@@ -2381,26 +2462,11 @@ def admin_mem_diag(request: Request):
                 if len(parts) != 2:
                     continue
                 key = parts[0].strip()
-                if key in ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SReclaimable", "Shmem"):
+                if key in ("MemTotal", "MemAvailable"):
                     value_kb = int(parts[1].strip().split()[0])
-                    meminfo[key + "_mb"] = _kb_to_mb(value_kb)
-    except Exception as e:
-        return JSONResponse({"error": f"could not read /proc/meminfo: {e}"}, status_code=500)
-
-    total = meminfo.get("MemTotal_mb", 0)
-    free_mem = meminfo.get("MemFree_mb", 0)
-    available = meminfo.get("MemAvailable_mb")
-    buffers = meminfo.get("Buffers_mb", 0)
-    cached = meminfo.get("Cached_mb", 0)
-    sreclaim = meminfo.get("SReclaimable_mb", 0)
-    # "reported_used" approximates what most container dashboards show
-    # (total minus what the kernel considers available, including
-    # reclaimable cache). "true_used" backs the reclaimable cache back out
-    # -- if that number is small while reported_used is huge, the gap is
-    # page cache, not a leak.
-    meminfo["reported_used_mb"] = round(total - available, 1) if available is not None else None
-    meminfo["reclaimable_cache_mb"] = round(buffers + cached + sreclaim, 1)
-    meminfo["true_used_mb"] = round(total - free_mem - buffers - cached - sreclaim, 1)
+                    host_meminfo[key + "_mb"] = _kb_to_mb(value_kb)
+    except Exception:
+        pass
 
     processes = []
     try:
@@ -2424,7 +2490,7 @@ def admin_mem_diag(request: Request):
         pass
     processes.sort(key=lambda p: p["rss_mb"], reverse=True)
 
-    return {"meminfo": meminfo, "processes": processes}
+    return {"cgroup": cgroup, "host_meminfo": host_meminfo, "processes": processes}
 
 @app.post("/api/admin/purge_old_jobs")
 def admin_purge_jobs(request: Request):
