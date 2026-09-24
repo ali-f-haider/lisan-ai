@@ -368,27 +368,33 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 jobs_progress[job_id]["status_text"] = f"Finishing speaker detection... ({waited}s elapsed)"
                 jobs_progress[job_id]["percent"] = min(70 + waited // 10, 85)
 
-            if diar_thread.is_alive():
-                warning = (warning + " | " if warning else "") + \
-                    "Speaker detection timed out; all lines assigned to Speaker 1."
-            elif diar_result["error"]:
-                warning = (warning + " | " if warning else "") + \
-                    f"Speaker detection failed: {diar_result['error']}. All lines assigned to Speaker 1."
+            turns = []
+            try:
+                if diar_thread.is_alive():
+                    warning = (warning + " | " if warning else "") + \
+                        "Speaker detection timed out; all lines assigned to Speaker 1."
+                elif diar_result["error"]:
+                    warning = (warning + " | " if warning else "") + \
+                        f"Speaker detection failed: {diar_result['error']}. All lines assigned to Speaker 1."
 
-            turns = diar_result["turns"]
-            for turn in sorted(turns, key=lambda x: x["start"]):
-                raw_speaker = turn["speaker"]
-                if raw_speaker not in speaker_label_map:
-                    speaker_label_map[raw_speaker] = f"Speaker {len(speaker_label_map) + 1}"
-            jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
-            if speaker_count and len(speaker_label_map) < int(speaker_count):
-                warning = (warning + " | " if warning else "") + \
-                    f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
-
-            # Free the diarization pipeline's RAM now that speaker detection
-            # is done for this job -- it isn't needed again until the next
-            # job that requests speaker detection.
-            _release_diarization_pipeline(hf_token)
+                turns = diar_result["turns"]
+                for turn in sorted(turns, key=lambda x: x["start"]):
+                    raw_speaker = turn["speaker"]
+                    if raw_speaker not in speaker_label_map:
+                        speaker_label_map[raw_speaker] = f"Speaker {len(speaker_label_map) + 1}"
+                jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
+                if speaker_count and len(speaker_label_map) < int(speaker_count):
+                    warning = (warning + " | " if warning else "") + \
+                        f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+            finally:
+                # Free the diarization pipeline's RAM now that speaker detection
+                # is done for this job -- it isn't needed again until the next
+                # job that requests speaker detection. In a finally block (like
+                # _release_model above) so it fires even if something in the
+                # turns-processing above raises -- the pipeline must never be
+                # left stranded in memory just because one job's results were
+                # malformed.
+                _release_diarization_pipeline(hf_token)
 
         jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
         jobs_progress[job_id]["percent"] = 90
