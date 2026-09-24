@@ -492,9 +492,48 @@ function insertSegmentAfter(i) {
 // usually has well under 0.5s between words, so this stays clear of that
 // and only catches a real, deliberate beat. (Was 0.45s; raised after that
 // setting caught too many ordinary breathing/comma pauses in real testing
-// and produced far more splits than were actually wanted.) Tune this
-// constant if it's flagging too much or too little.
+// and produced far more splits than were actually wanted.) Only used as a
+// last resort now, when a segment has no audio-measured pause_gaps at all
+// -- see detectInternalPause below for why that's the primary signal.
 const INTERNAL_PAUSE_THRESHOLD_SEC = 0.6;
+
+// Decides where to cut a segment, given a real, audio-measured silence
+// window for it (gapStart/gapEnd -- ffmpeg's silencedetect, independent of
+// Whisper entirely). Returns the index of the last word that belongs
+// BEFORE the pause, or -1 if no word clearly does.
+//
+// Real clips have shown Whisper's own per-word timestamps getting
+// unreliable right around a genuine pause, and not in just one direction:
+// the last word before a pause can have its END overrun into the silence;
+// a word can straddle the ENTIRE pause, starting before it and ending
+// after; and a word can have its START bleed backward, landing before the
+// pause even though it's actually spoken after it. Patching each of those
+// as its own special case doesn't scale -- comparing every word to the
+// pause as a whole window, using its MIDPOINT rather than either single
+// edge, handles all of them the same way: a word whose midpoint still
+// falls inside the real silence is never trusted as being cleanly on
+// either side of it, no matter which of its own edges is the one that
+// drifted. Once a later word's midpoint is clearly past the pause, the
+// boundary can't move any further -- so a bad backward-bled START on a
+// word that's actually after the pause can't override a good, earlier
+// boundary the way a simpler "word.start < gapStart" check could.
+function classifyPauseBoundary(words, gapStart, gapEnd) {
+    var idx = -1;
+    for (var m = 0; m < words.length - 1; m++) {
+        var mid = (words[m].start + words[m].end) / 2;
+        if (mid < gapStart) {
+            idx = m;
+        } else if (mid <= gapEnd) {
+            // Straddles the real pause too much to trust either way --
+            // don't let it move the boundary, but keep scanning in case
+            // a clean "before" word still follows (rare, but cheap to allow).
+            continue;
+        } else {
+            break; // clearly past the pause -- nothing later can be "before" it
+        }
+    }
+    return idx;
+}
 
 function detectInternalPause(seg) {
     var words = seg && seg.words;
@@ -504,24 +543,17 @@ function detectInternalPause(seg) {
     // suggest a split from stale data.
     if (Math.abs(words[0].start - seg.start) > 0.5) return null;
     if (Math.abs(words[words.length - 1].end - seg.end) > 0.5) return null;
-    var best = null;
-    for (var k = 0; k < words.length - 1; k++) {
-        var gap = words[k + 1].start - words[k].end;
-        if (gap >= INTERNAL_PAUSE_THRESHOLD_SEC && (!best || gap > best.gap)) {
-            best = { index: k, gap: gap };
-        }
-    }
-    if (best) return best;
-    // Fallback: Whisper's own word timestamps sometimes compress a real
-    // pause to near zero -- its timing alignment isn't silence-aware, so a
-    // genuine ~1-2s pause between phrases can come back with barely any gap
-    // between the surrounding words, hiding it from the check above. The
-    // backend separately measures silence directly from the audio for each
-    // segment (seg.pause_gaps); use the widest one here as a second signal.
-    // Only consider gaps that actually fall inside THIS segment's own
-    // start/end -- pause_gaps isn't re-partitioned word-by-word when a
-    // segment splits (see autoSplitAllPauses), so a stale gap belonging to
-    // a sibling piece must never be allowed to trigger another split here.
+
+    // Ground truth first: the backend measures real silence directly from
+    // the audio for each segment (seg.pause_gaps, via ffmpeg's
+    // silencedetect) -- that's far more trustworthy than anything inferred
+    // purely from Whisper's own word timings, which is exactly the part of
+    // its output that keeps turning out to be unreliable near a pause (see
+    // classifyPauseBoundary above). Only consider gaps that actually fall
+    // inside THIS segment's own start/end -- pause_gaps isn't
+    // re-partitioned word-by-word when a segment splits (see
+    // autoSplitAllPauses), so a stale gap belonging to a sibling piece must
+    // never be allowed to trigger another split here.
     var gaps = seg.pause_gaps;
     if (gaps && gaps.length) {
         var widest = null;
@@ -530,41 +562,24 @@ function detectInternalPause(seg) {
             if (!widest || (gaps[g].end - gaps[g].start) > (widest.end - widest.start)) widest = gaps[g];
         }
         if (widest) {
-            // Find the last word that STARTS before the silence begins --
-            // deliberately using each word's start, not its end, here.
-            // Whisper's own word timestamps get noticeably less precise for
-            // the very last word before a real pause (there's no following
-            // word for the model to sharpen that boundary against), so its
-            // recorded "end" can run a little past when the audio-measured
-            // silence actually starts. A word's start time isn't affected
-            // the same way, so it's the more reliable signal for "this
-            // word was still part of the phrase before the pause" --
-            // without it, that last word (e.g. "slaughtered" in "...cows
-            // being slaughtered <pause> and I saw...") could get bumped
-            // into the next line instead of staying on this one.
-            //
-            // One more failure mode, seen on a real clip: sometimes a
-            // single word's own timestamp doesn't just bleed slightly past
-            // the pause -- it swallows the ENTIRE pause, starting before it
-            // and ending after it (e.g. "inserting" recorded as 9.37s-11.51s
-            // around a real 9.69s-11.37s silence). That word isn't safely
-            // "before" the pause the way its start time alone suggests --
-            // it's the word Whisper's alignment got confused about right
-            // where the real pause is, and it belongs on the far side of
-            // the pause, not this one. Skip any word whose own span fully
-            // contains the measured silence when picking the boundary.
-            var idx = -1;
-            for (var m = 0; m < words.length - 1; m++) {
-                var w = words[m];
-                var spansPause = w.start <= widest.start + 0.05 && w.end >= widest.end - 0.05;
-                if (!spansPause && w.start < widest.start) idx = m;
-            }
+            var idx = classifyPauseBoundary(words, widest.start, widest.end);
             if (idx >= 0 && idx < words.length - 1) {
                 return { index: idx, gap: widest.end - widest.start, usedGap: widest };
             }
         }
     }
-    return null;
+
+    // Fallback: no usable audio-measured gap for this segment at all
+    // (ffmpeg failed, or nothing it found lines up inside these bounds) --
+    // the raw gap between consecutive words is the only signal left.
+    var best = null;
+    for (var k = 0; k < words.length - 1; k++) {
+        var gap = words[k + 1].start - words[k].end;
+        if (gap >= INTERNAL_PAUSE_THRESHOLD_SEC && (!best || gap > best.gap)) {
+            best = { index: k, gap: gap };
+        }
+    }
+    return best;
 }
 
 // Runs once, right after a fresh transcription lands (before the user has
@@ -577,6 +592,16 @@ function autoSplitAllPauses() {
     while (i < segmentsData.length) {
         var seg = segmentsData[i];
         var pause = detectInternalPause(seg);
+        // Kept on permanently (console only, no UI, negligible cost) so a
+        // wrong split can be diagnosed from a pasted console log alone,
+        // without needing a code change first just to capture the data.
+        if (seg && seg.words && seg.words.length > 1) {
+            try {
+                console.log("[pause-detect] seg " + i + " \"" + seg.text + "\" pause=" +
+                    JSON.stringify(pause) + " pause_gaps=" + JSON.stringify(seg.pause_gaps || []) +
+                    " words=" + JSON.stringify(seg.words.map(function (w) { return { w: (w.word || "").trim(), s: w.start, e: w.end }; })));
+            } catch (e) { /* never let logging break the split */ }
+        }
         if (!pause) { i++; continue; }
         var words = seg.words;
         var originalEnd = seg.end;
