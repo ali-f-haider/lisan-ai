@@ -2600,6 +2600,16 @@ checkTranscribeProgress = async function () {
                 s.tempo_mode = s.tempo_mode || "excellent";
             });
             remapDefaultSpeakerLabels();
+            // TEMP DEBUG (remove once the auto-split boundary bug is fully
+            // nailed down): dumps exactly what the backend handed back for
+            // each segment -- word timestamps and audio-measured pause_gaps
+            // -- before auto-split touches anything, so a real spurious
+            // split can be traced against real data instead of guesswork.
+            try {
+                console.log("[pause-debug] pre-split segments:", JSON.stringify(segmentsData.map(function (s) {
+                    return { start: s.start, end: s.end, text: s.text, words: s.words, pause_gaps: s.pause_gaps || null };
+                }), null, 2));
+            } catch (e) {}
             var autoSplitCount = autoSplitAllPauses();
 
             originalSegments = JSON.parse(JSON.stringify(segmentsData));
