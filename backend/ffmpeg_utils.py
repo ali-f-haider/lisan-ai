@@ -102,10 +102,27 @@ def separate_vocals(input_audio_path: str, output_dir: str):
 
 
 def compress_video_for_upload(video_path: Path, out_path: Path):
+    """Re-encodes the video before it goes to a lip-sync provider.
+    Previously: 720p cap + CRF 30 on "veryfast" -- fairly aggressive,
+    quality-losing settings. A lip-sync provider regenerates the
+    mouth/lower-face region from whatever it's given, so feeding it a
+    heavily downscaled, heavily compressed source gives it less real
+    detail to work from than the original video actually has.
+    Now: 1080p cap + CRF 20 (notably less lossy; x264's visually-lossless
+    range starts around 18) on the "medium" preset -- better quality per
+    byte than "veryfast" without jumping all the way to "slow", since this
+    runs on the same Railway service the memory/CPU monitoring was just
+    added for and shouldn't add a large CPU spike per job.
+    Note: Sync Labs enforces a hard 20MB cap on the upload (see the
+    "Video > 20MB" check in lipsync_service.py) -- these higher-quality
+    settings produce meaningfully larger files than before, so a video
+    that used to fit under that cap may not anymore. Not a concern for
+    VEED/ElevenLabs, which have no such limit in this codebase.
+    """
     cmd = [
         "ffmpeg", "-y", "-i", str(video_path),
-        "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
+        "-vf", "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-c:a", "aac", "-b:a", "96k",
         "-movflags", "+faststart",
         str(out_path)

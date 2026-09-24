@@ -892,7 +892,11 @@ async function checkGenerateProgress() {
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); var _lsEl = document.getElementById("lipsyncSection"); if (_lsEl) _lsEl.classList.remove("hidden"); }
+        // Step 7 (lip-sync) stays hidden -- disabled in config.py
+        // (LIPSYNC_ENABLED) until a provider proves reliable; see that
+        // comment for why. mergeSection (Step 6's "merge into video") is
+        // unrelated and still reveals normally.
+        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); }
         fetchUsage(); updateBadges();
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
@@ -1637,7 +1641,11 @@ checkGenerateProgress = async function() {
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); var _lsEl = document.getElementById("lipsyncSection"); if (_lsEl) _lsEl.classList.remove("hidden"); }
+        // Step 7 (lip-sync) stays hidden -- disabled in config.py
+        // (LIPSYNC_ENABLED) until a provider proves reliable; see that
+        // comment for why. mergeSection (Step 6's "merge into video") is
+        // unrelated and still reveals normally.
+        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); }
         fetchUsage(); updateBadges();
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
@@ -1725,7 +1733,11 @@ checkGenerateProgress = async function() {
             <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
-        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); var _lsEl = document.getElementById("lipsyncSection"); if (_lsEl) _lsEl.classList.remove("hidden"); }
+        // Step 7 (lip-sync) stays hidden -- disabled in config.py
+        // (LIPSYNC_ENABLED) until a provider proves reliable; see that
+        // comment for why. mergeSection (Step 6's "merge into video") is
+        // unrelated and still reveals normally.
+        if (isVideoUpload) { document.getElementById("mergeSection").classList.remove("hidden"); }
         fetchUsage(); updateBadges();
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
@@ -2504,8 +2516,8 @@ checkGenerateProgress = async function () {
 
             if (isVideoUpload) {
                 document.getElementById("mergeSection").classList.remove("hidden");
-                var lsEl2415 = document.getElementById("lipsyncSection");
-                if (lsEl2415) lsEl2415.classList.remove("hidden");
+                // Step 7 (lip-sync) stays hidden -- see LIPSYNC_ENABLED in
+                // config.py.
             }
 
             fetchUsage();

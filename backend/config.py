@@ -56,6 +56,17 @@ R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "")
 # --- fal.ai (hosts the VEED Lip Sync 2.0 model used for Step 7 lip-sync) ---
 FAL_API_KEY = os.environ.get("FAL_API_KEY", "")
 
+# Step 7 (lip-sync) is disabled: VEED Lip Sync 2.0's face regeneration
+# visibly alters the person (trimmed beard, changed skin) on real footage,
+# which isn't something to charge customers for or put Lisan AI's name on.
+# Set to True (and re-enable the two "hidden" removals in app.js's
+# checkGenerateProgress -- search for "isVideoUpload" -- plus the
+# lipsyncSection reveal calls) once a lip-sync provider proves reliable
+# enough to trust. /api/lipsync itself checks this flag and refuses the
+# request while it's off, so the feature stays off even if a stale client
+# somehow still shows the button.
+LIPSYNC_ENABLED = False
+
 # --- Contact form (optional; the /api/contact endpoint still validates
 # and rate-limits input without this, it just won't actually deliver mail
 # until you set RESEND_API_KEY) ---

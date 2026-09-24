@@ -17,7 +17,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
-                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY)
+                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
+                    LIPSYNC_ENABLED)
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -1450,6 +1451,12 @@ def merge_video(req: MergeRequest, request: Request):
 
 @app.post("/api/lipsync")
 def lipsync(req: LipSyncRequest, request: Request):
+    if not LIPSYNC_ENABLED:
+        # Backend gate, independent of the frontend hiding Step 7 -- so a
+        # stale/cached page, or someone calling this endpoint directly,
+        # still can't start (or get charged for) a lip-sync job while it's
+        # disabled. See the LIPSYNC_ENABLED comment in config.py.
+        return JSONResponse({"error": "Lip-sync is temporarily unavailable while we evaluate providers with better quality."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
