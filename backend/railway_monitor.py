@@ -33,6 +33,7 @@ import json
 import os
 import threading
 import time as _time
+import urllib.error
 import urllib.request
 
 from config import RESEND_API_KEY, CONTACT_TO_EMAIL
@@ -109,11 +110,33 @@ def fetch_memory_usage():
             headers={
                 "Authorization": f"Bearer {RAILWAY_API_TOKEN}",
                 "Content-Type": "application/json",
+                # Railway's API sits behind Cloudflare, same as Resend's --
+                # see _send_expiry_email in main.py for the identical fix.
+                # Python's default urllib User-Agent ("Python-urllib/3.x")
+                # gets blocked as a bot signature before the request ever
+                # reaches Railway's own auth/GraphQL logic, which surfaces
+                # as a bare "403 Forbidden" with no GraphQL error body --
+                # exactly what a bad/missing token would also look like,
+                # so this was easy to misdiagnose as a token problem.
+                "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
             },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as r:
             body = json.load(r)
+    except urllib.error.HTTPError as ex:
+        # Capture the response body (Cloudflare/WAF blocks usually explain
+        # themselves in plain text here) so a future failure is diagnosable
+        # from the admin panel's error message alone, without another
+        # round trip of guessing.
+        try:
+            detail = ex.read().decode("utf-8", errors="replace")[:300].strip()
+        except Exception:
+            detail = ""
+        msg = f"HTTP {ex.code} {ex.reason}"
+        if detail:
+            msg += f" -- {detail}"
+        return {"ok": False, "error": msg}
     except Exception as ex:
         return {"ok": False, "error": f"request failed: {ex}"}
 
