@@ -3055,13 +3055,17 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         };
     }
 
-    // Hide the disabled Lip-Sync card whatever its id is
-    document.querySelectorAll(".card h3").forEach(function (h) {
-        if (/Lip-Sync/i.test(h.textContent)) {
-            var c = h.closest(".card");
-            if (c) c.style.display = "none";
-        }
-    });
+    // NOTE: this used to force-hide the Lip-Sync card at page load via an
+    // inline style (c.style.display = "none"), from back when Step 7 was
+    // a disabled/placeholder feature with no working backend yet. That
+    // inline style overrides classList-based show/hide regardless of CSS
+    // specificity or !important, so once VEED Lip-Sync 2.0 shipped and the
+    // real reveal logic started doing lipsyncSection.classList.remove
+    // ("hidden") on job completion, this leftover block silently kept
+    // re-hiding the card on every page load anyway -- classList no longer
+    // had "hidden", but the inline style from here still did. That's the
+    // actual cause of "Step 7 never appears even after the job finishes".
+    // Removed now that lip-sync is a real, working feature.
 
     // Wrap every table in a horizontal scroll container (mobile)
     document.querySelectorAll("table").forEach(function (t) {
