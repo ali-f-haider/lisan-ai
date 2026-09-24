@@ -2349,6 +2349,83 @@ def admin_railway_memory(request: Request):
     data["alert_percent"] = railway_monitor.ALERT_PERCENT
     return data
 
+@app.get("/api/admin/mem_diag")
+def admin_mem_diag(request: Request):
+    """TEMPORARY diagnostic (Sept 2026 memory-plateau investigation, same
+    status as _log_mem in whisper_service.py -- remove once the plateau is
+    understood): a one-shot, read-only breakdown of the CONTAINER's actual
+    memory, not just this one process's. Answers the specific question of
+    whether a sustained multi-GB reading on Railway's own memory graph is
+    real application memory or reclaimable Linux page cache -- Railway
+    doesn't document what its metric includes, and a Railway support reply
+    claiming it's "just reporting what your app uses" hasn't been verified
+    against this app's own container.
+
+    Reads /proc/meminfo -- the exact same source the Linux `free` command
+    reads -- and walks /proc/<pid>/status for every process visible in this
+    container as a substitute for `ps aux`, since the slim python:3.12-slim
+    base image doesn't ship a `ps` binary (confirmed via the Dockerfile: it
+    apt-installs only ffmpeg and git). No side effects, nothing here can
+    make the plateau worse."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    def _kb_to_mb(kb):
+        return round(kb / 1024, 1)
+
+    meminfo = {}
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split(":")
+                if len(parts) != 2:
+                    continue
+                key = parts[0].strip()
+                if key in ("MemTotal", "MemFree", "MemAvailable", "Buffers", "Cached", "SReclaimable", "Shmem"):
+                    value_kb = int(parts[1].strip().split()[0])
+                    meminfo[key + "_mb"] = _kb_to_mb(value_kb)
+    except Exception as e:
+        return JSONResponse({"error": f"could not read /proc/meminfo: {e}"}, status_code=500)
+
+    total = meminfo.get("MemTotal_mb", 0)
+    free_mem = meminfo.get("MemFree_mb", 0)
+    available = meminfo.get("MemAvailable_mb")
+    buffers = meminfo.get("Buffers_mb", 0)
+    cached = meminfo.get("Cached_mb", 0)
+    sreclaim = meminfo.get("SReclaimable_mb", 0)
+    # "reported_used" approximates what most container dashboards show
+    # (total minus what the kernel considers available, including
+    # reclaimable cache). "true_used" backs the reclaimable cache back out
+    # -- if that number is small while reported_used is huge, the gap is
+    # page cache, not a leak.
+    meminfo["reported_used_mb"] = round(total - available, 1) if available is not None else None
+    meminfo["reclaimable_cache_mb"] = round(buffers + cached + sreclaim, 1)
+    meminfo["true_used_mb"] = round(total - free_mem - buffers - cached - sreclaim, 1)
+
+    processes = []
+    try:
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/status") as f:
+                    name = None
+                    rss_kb = None
+                    for line in f:
+                        if line.startswith("Name:"):
+                            name = line.split(":", 1)[1].strip()
+                        elif line.startswith("VmRSS:"):
+                            rss_kb = int(line.split()[1])
+                    if name and rss_kb:
+                        processes.append({"pid": int(entry), "name": name, "rss_mb": _kb_to_mb(rss_kb)})
+            except Exception:
+                continue
+    except Exception:
+        pass
+    processes.sort(key=lambda p: p["rss_mb"], reverse=True)
+
+    return {"meminfo": meminfo, "processes": processes}
+
 @app.post("/api/admin/purge_old_jobs")
 def admin_purge_jobs(request: Request):
     if not _admin_check(request):

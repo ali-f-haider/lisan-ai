@@ -216,6 +216,12 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" id="rmNote">—</p>
       </div>
       <div class="card">
+        <h3>🧠 Memory Diagnostic <span class="muted" style="font-weight:normal;font-size:0.8em;">(temporary -- Sept 2026 investigation)</span></h3>
+        <p class="muted" style="margin-bottom:12px;">Click any time -- including right now, while the plateau is sitting there -- to see a real breakdown of what the container's memory is actually holding: real application memory vs. reclaimable Linux page cache (the OS caching model/library files it already read, which isn't a leak and gets freed automatically if something else needs the RAM).</p>
+        <button class="btn" onclick="loadMemDiag()">🔍 Check memory now</button>
+        <pre id="memDiagOut" style="margin-top:12px;white-space:pre-wrap;font-size:0.85em;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;max-height:400px;overflow:auto;">Click "Check memory now" to run.</pre>
+      </div>
+      <div class="card">
         <h3>🚪 Danger Zone</h3>
         <p class="muted" style="margin-bottom:12px;">These actions cannot be undone.</p>
         <button class="btn btn-danger" onclick="purgeOldJobs()">🗑️ Purge jobs older than 30 days</button>
@@ -550,6 +556,28 @@ async function loadRailwayMemory() {
   document.getElementById('rmNote').textContent =
     'Polled every ~20 min. Alert email fires at ' + d.alert_percent + '% of limit.' +
     (age != null ? ' Last checked ' + age + ' min ago.' : '');
+}
+
+async function loadMemDiag() {
+  const out = document.getElementById('memDiagOut');
+  out.textContent = 'Checking...';
+  const r = await api('/api/admin/mem_diag');
+  if (!r.ok) { out.textContent = 'Failed: ' + (r.data && r.data.error ? r.data.error : 'unknown error'); return; }
+  const m = r.data.meminfo;
+  let text = '';
+  text += 'Total RAM:              ' + m.MemTotal_mb + ' MB\n';
+  text += 'Free (truly unused):    ' + m.MemFree_mb + ' MB\n';
+  text += 'Reclaimable page cache: ' + m.reclaimable_cache_mb + ' MB  <- model/library files Linux cached in RAM; not a leak, freed automatically under pressure\n';
+  text += '\n';
+  text += 'Railway-graph-style "used" (Total - Available): ' + m.reported_used_mb + ' MB   <- what a dashboard usually shows\n';
+  text += 'Real "used" (Total - Free - all reclaimable):    ' + m.true_used_mb + ' MB   <- what is actually pinned by processes\n';
+  text += '\n';
+  text += 'If "Real used" is small but the graph-style number is huge, the gap is page cache -- not a leak.\n';
+  text += '\n--- Top processes by memory ---\n';
+  r.data.processes.slice(0, 15).forEach(p => {
+    text += p.rss_mb.toString().padStart(8) + ' MB   ' + p.name + '  (pid ' + p.pid + ')\n';
+  });
+  out.textContent = text;
 }
 
 async function purgeOldJobs() {
