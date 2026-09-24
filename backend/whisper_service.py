@@ -38,6 +38,25 @@ def _trim_memory():
         pass
 
 
+def _log_mem(tag):
+    """TEMPORARY diagnostic: prints this process's actual current resident
+    memory (VmRSS from /proc/self/status, in MB) to the Railway logs at key
+    checkpoints in a job. Purely a print -- changes no behavior. Added to
+    pin down exactly which step a memory plateau survives past, since we
+    can't otherwise see the live process's memory from outside it. Remove
+    once the plateau is understood and fixed for real; not meant to stay
+    forever."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    kb = int(line.split()[1])
+                    print(f"[mem] {tag}: {kb / 1024:.0f} MB")
+                    return
+    except Exception:
+        pass
+
+
 # Loaded lazily on first use, and released after each job, instead of
 # staying resident in RAM for the entire lifetime of the process --
 # large-v3 is a big model and most of the time nobody is transcribing.
@@ -67,6 +86,7 @@ def _release_model():
     import gc
     gc.collect()
     _trim_memory()
+    _log_mem("after _release_model + trim")
 
 
 def _release_diarization_pipeline(hf_token):
@@ -79,6 +99,7 @@ def _release_diarization_pipeline(hf_token):
     import gc
     gc.collect()
     _trim_memory()
+    _log_mem("after _release_diarization_pipeline + trim")
 
 
 def split_segment(segment, max_duration=15.0):
@@ -283,6 +304,7 @@ def merge_mid_sentence_rows(rows):
 
 
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count):
+    _log_mem("job start")
     try:
         jobs_progress[job_id] = {
             "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
@@ -521,6 +543,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             import gc
             gc.collect()
             _trim_memory()
+            _log_mem("after VAD checks + trim")
 
         jobs_progress[job_id]["segments"] = result
         jobs_progress[job_id]["status"] = "done"
@@ -528,6 +551,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         jobs_progress[job_id]["full_duration"] = total_duration
         jobs_progress[job_id]["status_text"] = "Done"
         jobs_progress[job_id]["warning"] = warning
+        _log_mem("job end")
 
     except Exception as e:
         jobs_progress[job_id] = {
