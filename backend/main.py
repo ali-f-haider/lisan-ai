@@ -26,6 +26,7 @@ import eleven_service
 import ffmpeg_utils
 import lipsync_service
 import r2_backup
+import railway_monitor
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 # Sentry: reports unhandled exceptions from the live server automatically.
@@ -1034,6 +1035,7 @@ def _cleanup_worker():
 
 
 threading.Thread(target=_cleanup_worker, daemon=True).start()
+railway_monitor.start()
 
 # ==================== GEMINI HELPER ====================
 
@@ -2255,6 +2257,19 @@ def admin_storage(request: Request):
         "final_output_count": final_count,
         "final_output_gb": round(final_bytes / gb, 2),
     }
+
+@app.get("/api/admin/railway_memory")
+def admin_railway_memory(request: Request):
+    """Last-polled Railway memory reading for this service (see
+    railway_monitor.py) -- cached in-process, not a live Railway call, so
+    this is instant and never burns Railway's API rate limit. Returns
+    {"ok": false, "error": "RAILWAY_API_TOKEN not set"} until Ali adds
+    that env var on Railway; the admin page shows that message plainly."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    data = railway_monitor.get_cached()
+    data["alert_percent"] = railway_monitor.ALERT_PERCENT
+    return data
 
 @app.post("/api/admin/purge_old_jobs")
 def admin_purge_jobs(request: Request):
