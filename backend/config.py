@@ -5,7 +5,10 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # Bump this by hand whenever a batch of changes ships. Shown in the corner of
 # the admin dashboard (/admin) so it's easy to confirm what's actually live.
-APP_VERSION = "1.1.0"
+# The admin page also shows Railway's own deployment id next to it (auto-set
+# by Railway on every deploy, never stale) as a cross-check in case this
+# number is ever forgotten.
+APP_VERSION = "1.2.0"
 
 
 def _load_env():

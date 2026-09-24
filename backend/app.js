@@ -1609,6 +1609,12 @@ async function restretchLine(seg) {
 async function startTranscribe() {
     const file = document.getElementById("audioFile").files[0];
     if (!file) { notify("error", "Choose an audio or video file first."); return; }
+    const consentBox = document.getElementById("voiceConsentCheckbox");
+    if (consentBox && !consentBox.checked) {
+        notify("error", "Please check the voice-rights consent box in Step 1 before starting.");
+        consentBox.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+    }
     if (file.size > MAX_UPLOAD_BYTES) {
         notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.");
         return;
@@ -1629,6 +1635,7 @@ async function startTranscribe() {
     const form = new FormData();
     form.append("file", file);
     form.append("speaker_count", speakerCount);
+    form.append("voice_consent", "true");
     const pf = document.getElementById("progressFill");
     const pt = document.getElementById("progressText");
     document.getElementById("progressSection").classList.remove("hidden");

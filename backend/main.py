@@ -925,6 +925,59 @@ def _mark_notified(job_id, uid):
         print(f"[expiry-notice] could not record notice for {job_id}: {ex}")
 
 
+# ---------- Voice-cloning consent audit trail ----------
+# Needs one new Supabase table (run once in the SQL editor):
+#   CREATE TABLE IF NOT EXISTS consent_records (
+#     id bigserial PRIMARY KEY,
+#     job_id text,
+#     uid uuid,
+#     ip text,
+#     consent_text text,
+#     created_at timestamptz DEFAULT now()
+#   );
+# Enforcement itself already happened by the time this runs (/api/transcribe
+# rejects the upload outright if voice_consent wasn't sent) -- this is only
+# the paper trail of who certified what, for if it's ever needed later. Runs
+# in a background thread so a slow/down Supabase never delays the user's
+# upload, and silently does nothing if Supabase isn't configured.
+_VOICE_CONSENT_TEXT = (
+    "I hereby certify that I have all necessary rights or consents to "
+    "upload and translate this video, which results in the cloning of the "
+    "associated voices."
+)
+
+
+def _record_voice_consent(job_id, uid, request):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return
+    client_ip = request.client.host if request and request.client else None
+
+    def _run():
+        import urllib.request as _ur
+        body = json.dumps({
+            "job_id": job_id,
+            "uid": uid,
+            "ip": client_ip,
+            "consent_text": _VOICE_CONSENT_TEXT,
+        }).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/consent_records",
+            data=body,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            method="POST")
+        try:
+            _ur.urlopen(req, timeout=10)
+        except Exception as ex:
+            print(f"[voice-consent] could not record consent for {job_id}: {ex}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def _send_expiry_email(to_email, days_left):
     """Same Resend HTTP API call as /api/contact -- same 'from' domain,
     same Cloudflare-safe User-Agent. Silently does nothing if RESEND_API_KEY
@@ -1151,9 +1204,15 @@ def enhance_progress(job_id: str):
 # ==================== API ROUTES ====================
 
 @app.post("/api/transcribe")
-async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form("")):
+async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form("")):
     if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    # The client already blocks the button until the voice-rights checkbox is
+    # checked (Step 1), but that's JS and can't be trusted -- anyone posting
+    # directly to this endpoint bypasses it, so this is the enforcement that
+    # actually matters. Same reasoning as the duration cap a few lines below.
+    if voice_consent.strip().lower() not in ("true", "1", "yes", "on"):
+        return JSONResponse({"error": "You must certify you have the necessary rights or consents for the voices in this file before uploading."}, status_code=400)
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     transcribe_cost = int(_get_pricing_config().get("transcribeCredits", 3))
@@ -1188,6 +1247,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     threading.Thread(target=whisper_service.transcribe_worker,
                      args=(job_id, str(dest), HF_TOKEN, speaker_count), daemon=True).start()
     _watch_and_deduct(job_id, uid, "transcribe")
+    _record_voice_consent(job_id, uid, request)
     return {"job_id": job_id}
 
 @app.post("/api/attach_media")
@@ -2331,7 +2391,15 @@ def admin_page(request: Request):
     # Stamp the current APP_VERSION (config.py) into the page each time it's
     # served, so the admin dashboard always shows what's actually deployed
     # without admin.html itself needing to change when the version bumps.
-    html = p.read_text(encoding="utf-8").replace("{{APP_VERSION}}", APP_VERSION)
+    # Also stamp Railway's own deployment id, which Railway sets automatically
+    # on every deploy -- a self-updating cross-check for the hand-bumped
+    # version above, in case that one is ever forgotten.
+    deployment_id = os.environ.get("RAILWAY_DEPLOYMENT_ID", "local")[:8]
+    html = (
+        p.read_text(encoding="utf-8")
+        .replace("{{APP_VERSION}}", APP_VERSION)
+        .replace("{{RAILWAY_DEPLOYMENT_ID}}", deployment_id)
+    )
     return HTMLResponse(html)
 
 
