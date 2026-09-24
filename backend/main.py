@@ -942,8 +942,8 @@ def _mark_notified(job_id, uid):
 # upload, and silently does nothing if Supabase isn't configured.
 _VOICE_CONSENT_TEXT = (
     "I hereby certify that I have all necessary rights or consents to "
-    "upload and translate this video, which results in the cloning of the "
-    "associated voices."
+    "upload and translate this video, which could result in the cloning of "
+    "the associated voices."
 )
 
 

@@ -155,6 +155,47 @@ def mux_audio_into_video(video_path: Path, audio_path: Path, out_path: Path):
     run_ffmpeg(cmd)
 
 
+def detect_silence_gaps(file_path, min_silence_sec: float = 0.4, noise_db: str = "-30dB"):
+    """Real, audio-measured silence windows in a file (absolute seconds),
+    via ffmpeg's silencedetect filter. Independent of Whisper entirely --
+    Whisper's own per-word timestamps come from an attention-based DTW
+    alignment that isn't silence-aware, so a genuine ~1-2s pause between
+    phrases can come back compressed to a near-zero gap between the
+    surrounding words' timestamps. This gives the auto-split-at-pauses
+    feature (app.js: detectInternalPause) a second, ground-truth signal to
+    fall back on when the word timestamps alone don't show the pause.
+    Returns [] on any ffmpeg failure rather than raising -- this is a
+    best-effort enhancement, never something that should break a
+    transcription job."""
+    # silencedetect logs its start/end events at "info" level -- -v error
+    # (used elsewhere in this file) would silence exactly the output this
+    # function needs, so this stays at the default verbosity and only
+    # trims the per-frame progress spam instead.
+    cmd = ["ffmpeg", "-nostats", "-i", str(file_path),
+           "-af", f"silencedetect=noise={noise_db}:d={min_silence_sec}",
+           "-f", "null", "-"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except Exception:
+        return []
+    gaps = []
+    pending_start = None
+    for line in (p.stderr or "").splitlines():
+        if "silence_start:" in line:
+            try:
+                pending_start = float(line.split("silence_start:")[1].strip())
+            except Exception:
+                pending_start = None
+        elif "silence_end:" in line and pending_start is not None:
+            try:
+                end_str = line.split("silence_end:")[1].split("|")[0].strip()
+                gaps.append({"start": round(pending_start, 2), "end": round(float(end_str), 2)})
+            except Exception:
+                pass
+            pending_start = None
+    return gaps
+
+
 def measure_loudness_db(file_path, start: float = None, duration: float = None):
     """Mean loudness (dB) of a file or a time slice, via ffmpeg volumedetect."""
     cmd = ["ffmpeg", "-v", "error"]

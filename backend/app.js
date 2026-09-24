@@ -508,7 +508,33 @@ function detectInternalPause(seg) {
             best = { index: k, gap: gap };
         }
     }
-    return best;
+    if (best) return best;
+    // Fallback: Whisper's own word timestamps sometimes compress a real
+    // pause to near zero -- its timing alignment isn't silence-aware, so a
+    // genuine ~1-2s pause between phrases can come back with barely any gap
+    // between the surrounding words, hiding it from the check above. The
+    // backend separately measures silence directly from the audio for each
+    // segment (seg.pause_gaps); use the widest one here as a second signal.
+    var gaps = seg.pause_gaps;
+    if (gaps && gaps.length) {
+        var widest = null;
+        for (var g = 0; g < gaps.length; g++) {
+            if (!widest || (gaps[g].end - gaps[g].start) > (widest.end - widest.start)) widest = gaps[g];
+        }
+        if (widest) {
+            // Find the last word that finishes at or before the silence
+            // starts -- that word, paired with the one after it, is the
+            // real split point.
+            var idx = -1;
+            for (var m = 0; m < words.length - 1; m++) {
+                if (words[m].end <= widest.start + 0.1) idx = m;
+            }
+            if (idx >= 0 && idx < words.length - 1) {
+                return { index: idx, gap: widest.end - widest.start };
+            }
+        }
+    }
+    return null;
 }
 
 function splitSegmentAtPause(i) {

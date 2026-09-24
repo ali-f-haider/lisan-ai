@@ -13,6 +13,7 @@ from ffmpeg_utils import (
     extract_audio_from_video,
     normalize_audio_for_diarization,
     separate_vocals,
+    detect_silence_gaps,
 )
 
 # Match the container's 4 vCPUs — prevents thread oversubscription
@@ -457,6 +458,29 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                     seg_index += 1
 
         result = merge_mid_sentence_rows(result)
+
+        # Attach real, audio-measured silence windows to each segment, as a
+        # fallback signal for the frontend's auto-split-at-pauses feature.
+        # Whisper's own per-word timestamps come from an attention-based DTW
+        # alignment that isn't silence-aware -- a genuine ~1-2s pause between
+        # phrases can come back with the surrounding words' timestamps
+        # nearly touching, hiding the pause from a word-gap-only check. This
+        # measures silence directly from the audio instead, so it still
+        # catches the pause even when the word timestamps don't show it.
+        # Best-effort: a silence-detection hiccup should never break an
+        # otherwise-finished transcription.
+        try:
+            all_silences = detect_silence_gaps(audio_path)
+            for seg in result:
+                seg_gaps = [
+                    g for g in all_silences
+                    if g["start"] > seg["start"] + 0.15 and g["end"] < seg["end"] - 0.05
+                    and (g["end"] - g["start"]) >= 0.45
+                ]
+                if seg_gaps:
+                    seg["pause_gaps"] = seg_gaps
+        except Exception as e:
+            print(f"[transcribe] silence-gap detection failed, skipping: {e}")
 
         jobs_progress[job_id]["segments"] = result
         jobs_progress[job_id]["status"] = "done"
