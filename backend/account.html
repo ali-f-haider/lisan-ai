@@ -124,6 +124,20 @@
 </div>
 
 <script>
+// Measures #userBar's real height for the sticky table headers in
+// styles.css (thead th { top: var(--userbar-h, 58px) }) -- same fix as
+// app.js's copy of this for /app. Kept as its own small copy here rather
+// than loading app.js on this page, since this page is intentionally
+// self-contained and much smaller than the main app's script.
+(function () {
+    var bar = document.getElementById("userBar");
+    if (!bar) return;
+    function sync() { document.documentElement.style.setProperty("--userbar-h", bar.offsetHeight + "px"); }
+    sync();
+    window.addEventListener("resize", sync);
+    if (window.ResizeObserver) { new ResizeObserver(sync).observe(bar); }
+})();
+
 // Follows the main app's language choice -- this page has no toggle of its
 // own, it just reads the same "lisan_lang" localStorage key app.js writes
 // on /app, and renders once in that language on load. If main app is set to

@@ -191,8 +191,17 @@ thead th {
     letter-spacing: 0.5px;
     color: var(--text-muted);
     border-bottom: 2px solid var(--border);
+    /* Sticks just below #userBar, not at the very top of the viewport --
+       #userBar is ALSO sticky at top:0 with a higher z-index (50 vs this
+       2), so a naive "top: 0" here means this header tries to occupy the
+       same pixel row and loses, rendering hidden behind userBar the
+       moment it would start sticking. --userbar-h is measured live from
+       #userBar's real height by the IIFE in app.js (search "userbar-h"),
+       so this stays correct even if userBar's content ever changes
+       height; 58px is only the fallback for the brief instant before
+       that JS runs. */
     position: sticky;
-    top: 0;
+    top: var(--userbar-h, 58px);
     z-index: 2;
 }
 
@@ -356,6 +365,27 @@ video {
     .card { margin: 10px; padding: 18px; }
     h1 { font-size: 24px; }
     table { font-size: 12px; }
+
+    /* Touch targets: at the base 5px/10px padding + 12px font, 5 action
+       buttons (▶ 🔄 Insert Delete 🔒) packed into the segments table's
+       Actions column come out well under the ~44px minimum touch target
+       both iOS and Android guidelines call for -- easy to fat-finger the
+       wrong one on a real phone. Bumping size on touch screens and letting
+       the buttons wrap onto more than one line (rather than staying in a
+       single cramped row) fixes both the "too small" and "too squeezed"
+       parts of the same complaint, without touching desktop at all. */
+    .action-btn {
+        padding: 9px 12px;
+        font-size: 15px;
+        min-width: 40px;
+        min-height: 40px;
+    }
+    td:has(.action-btn) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+        border-bottom: 1px solid var(--border);
+    }
 }
 
 /* User bar */
