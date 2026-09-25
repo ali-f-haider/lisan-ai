@@ -1317,12 +1317,43 @@ const CLONE_QUALITY_WARN_SEC = 30;
 // toggled -- the actual enforcement happens in startTranscribe() below and
 // (for real, since JS can't be trusted) server-side in /api/transcribe;
 // this is just keeping the visible copy in sync with which range applies.
+//
+// This note has 3 distinct states (default explainer shown before the
+// checkbox is ever touched / checked / unchecked-after-having-been-checked),
+// so it can't safely go through the R-array translation path (which only
+// ever swaps a leading text node -- the <strong> tags here split the text
+// into multiple nodes) or the BANNERS map (a single fixed string per
+// language -- this note's text depends on checkbox state, not just
+// language, and BANNERS gets blindly re-applied on every DOM mutation
+// while in Arabic mode, which would stomp a just-set checked/unchecked
+// message back to some fixed text). Instead the current mode is tracked on
+// the element itself and re-rendered in the current language from here.
+const LIPSYNC_NOTE_TEXT = {
+    default: {
+        en: 'Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-60 seconds</strong>.',
+        ar: 'عند التفعيل: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>. بدون تفعيل: يجب أن تكون مدة المقطع <strong>4-60 ثانية</strong>.'
+    },
+    checked: {
+        en: 'Lip-sync selected: clip must be <strong>4-15 seconds</strong>.',
+        ar: 'تم اختيار مزامنة الشفاه: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>.'
+    },
+    unchecked: {
+        en: 'Clip must be <strong>4-60 seconds</strong>.',
+        ar: 'يجب أن تكون مدة المقطع <strong>4-60 ثانية</strong>.'
+    }
+};
+function renderLipsyncChoiceNote() {
+    const note = document.getElementById("lipsyncChoiceNote");
+    if (!note) return;
+    const mode = note.dataset.lipsyncNoteMode || "default";
+    const lang = (window.currentLang === "ar") ? "ar" : "en";
+    note.innerHTML = LIPSYNC_NOTE_TEXT[mode][lang];
+}
 function onLipsyncChoiceChanged(checkbox) {
     const note = document.getElementById("lipsyncChoiceNote");
     if (!note) return;
-    note.innerHTML = checkbox && checkbox.checked
-        ? "Lip-sync selected: clip must be <strong>4-15 seconds</strong>."
-        : "Clip must be <strong>4-60 seconds</strong>.";
+    note.dataset.lipsyncNoteMode = (checkbox && checkbox.checked) ? "checked" : "unchecked";
+    renderLipsyncChoiceNote();
 }
 
 function probeFileDuration(file) {
@@ -4139,8 +4170,12 @@ window.cleanOldClones = function () {
             ar: '✅ تم حفظ هذه النتيجة في صفحة <a href="/account" style="color:#92400e;">حسابك</a> لمدة 30 يومًا. ملفك المصدر المرفوع لا يزال مؤقتًا — نزّله أو استمر في التحرير قبل إغلاق هذه الجلسة.'
         },
         step1SupportsNote: {
-            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.',
-            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>الحدود: <strong>60 ثانية</strong> كحد أقصى للمدة، <strong>400 ميجابايت</strong> كحد أقصى لحجم الملف.'
+            // Text updated for the lip-sync duration split (v1.7.0) -- this
+            // BANNERS entry was left on the old pre-checkbox wording until
+            // now, so Arabic mode was showing a stale "60 seconds max"
+            // translation that no longer matched the real limits.
+            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-60 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>400 MB</strong> max file size.',
+            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>الحدود: مدة <strong>4-60 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه)، وحجم ملف أقصى <strong>400 ميجابايت</strong>.'
         },
         step1CreditsNote: {
             en: '💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
@@ -4534,6 +4569,10 @@ window.cleanOldClones = function () {
             if (helpEn) helpEn.style.display = (lang === "ar") ? "none" : "";
             var helpAr = document.getElementById("helpArPart");
             if (helpAr) helpAr.style.display = (lang === "ar") ? "" : "none";
+            // Re-render the lip-sync duration note (checkbox-state-dependent,
+            // handled outside the R-array/BANNERS paths -- see the comment
+            // by renderLipsyncChoiceNote()'s definition).
+            if (typeof renderLipsyncChoiceNote === "function") renderLipsyncChoiceNote();
         } catch (e) { console.error("applyLang:", e); }
     }
     window.applyLang = applyLang;
