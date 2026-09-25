@@ -8,6 +8,7 @@ import torch
 from faster_whisper import WhisperModel
 
 from config import UPLOAD_DIR, WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE
+import app_state
 from app_state import jobs_progress, diarization_pipelines
 from ffmpeg_utils import (
     extract_audio_from_video,
@@ -75,6 +76,59 @@ def _fadvise_dontneed(path):
             os.close(fd)
     except Exception:
         pass
+
+
+def _model_cache_dirs():
+    """Best-effort list of the on-disk directories where loading the Whisper
+    (faster-whisper/ctranslate2) and pyannote diarization models leaves their
+    weight files cached by the OS. These are DIFFERENT from the job-file
+    cache _fadvise_dontneed already handles above, and they're almost
+    certainly the biggest single piece of the memory plateau: _release_model
+    and _release_diarization_pipeline below already drop the *Python*
+    objects (and their "anon" memory) after every job -- they always have --
+    but nothing ever told the kernel it could drop the *raw file bytes* read
+    off disk to build those objects in the first place. That's a separate,
+    much bigger pool of page cache, roughly the size of the model files
+    themselves (a few GB for large-v3 + the diarization pipeline), and it
+    persists indefinitely once populated, regardless of whether a model
+    object is currently loaded or not.
+
+    Respects HF_HUB_CACHE / HF_HOME / TORCH_HOME if set (so this still finds
+    the right place if Railway's environment ever customizes them), and
+    falls back to the standard default locations otherwise. Only returns
+    directories that actually exist, so this is a safe no-op anywhere a path
+    isn't used."""
+    import os
+    candidates = []
+    hf_cache = os.environ.get("HF_HUB_CACHE") or os.environ.get("HF_HOME")
+    candidates.append(Path(hf_cache) if hf_cache else Path.home() / ".cache" / "huggingface")
+    torch_cache = os.environ.get("TORCH_HOME")
+    candidates.append(Path(torch_cache) if torch_cache else Path.home() / ".cache" / "torch")
+    return [d for d in candidates if d.exists()]
+
+
+def flush_model_file_cache():
+    """Drops the OS's cached pages for every file under the model-cache
+    directories above -- the fix for the large part of the memory plateau
+    that per-job file cleanup (_fadvise_dontneed on job audio files) never
+    touched. This is deliberately NOT called after every job, unlike that
+    one: these are multi-GB model files, and dropping their cache right
+    after every single job would force the very next job (even one starting
+    30 seconds later) to re-read gigabytes off disk instead of hitting warm
+    RAM, slowing down normal back-to-back usage for no real benefit. Instead
+    main.py's cleanup loop calls this only after a real stretch of idle time
+    (see MODEL_CACHE_IDLE_MINUTES there) -- exactly the "nobody's used the
+    site in hours but the memory graph won't come down" situation this is
+    for. Safe to call repeatedly; re-flushing an already-cold cache is a
+    fast no-op, not an error."""
+    import os
+    for cache_dir in _model_cache_dirs():
+        try:
+            for root, _dirs, files in os.walk(cache_dir):
+                for name in files:
+                    _fadvise_dontneed(os.path.join(root, name))
+        except Exception:
+            pass
 
 
 # Loaded lazily on first use, and released after each job, instead of
@@ -322,6 +376,14 @@ def merge_mid_sentence_rows(rows):
 
 
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count):
+    # Mark real activity -- main.py's cleanup loop uses this to tell a truly
+    # idle server (safe to drop the model-file cache) from one that's still
+    # actively being used (where dropping it would only slow the next job
+    # down for no reason). Must be a qualified attribute set (app_state.x =
+    # ...), not "from app_state import last_job_activity" + reassignment --
+    # the latter would just rebind a local name here and never touch the
+    # value main.py reads.
+    app_state.last_job_activity = time.time()
     try:
         jobs_progress[job_id] = {
             "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,

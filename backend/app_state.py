@@ -1,7 +1,18 @@
 # Shared mutable state for the whole app (progress bars, usage accounting).
+import time
+
 jobs_progress = {}
 USAGE = {}
 diarization_pipelines = {}
+
+# Last time a transcription job actually started. Set in whisper_service.py's
+# transcribe_worker. main.py's cleanup loop reads this (as app_state.last_job_
+# activity -- never imported by value, since that would freeze a stale copy)
+# to decide whether it's been idle long enough to safely drop the OS's cached
+# copy of the Whisper/pyannote model weight files without slowing down the
+# next job. Starts at import time so a freshly-booted server doesn't look
+# "idle for hours" before its first job has even run.
+last_job_activity = time.time()
 
 
 def usage_bucket(job_id: str) -> dict:

@@ -578,6 +578,14 @@ async function loadMemDiag() {
   if (h.MemTotal_mb) {
     text += '\n(For reference only -- this is the whole shared HOST machine, not just this container, so don\'t read it as this app\'s memory: ' + h.MemTotal_mb + ' MB total RAM on the host, ' + (h.MemAvailable_mb || '?') + ' MB available.)\n';
   }
+  if (r.data.model_cache_dirs && r.data.model_cache_dirs.length) {
+    text += '\n--- Whisper/pyannote model-cache directories on disk ---\n';
+    text += '(on-disk size, close to the ceiling of what could be cached in RAM from these files -- compare to "reclaimable page cache" above)\n';
+    r.data.model_cache_dirs.forEach(d => {
+      text += '  ' + d.size_mb + ' MB   ' + d.path + '  (' + d.file_count + ' files)\n';
+    });
+    text += 'Idle for ' + r.data.idle_minutes + ' min (flushes automatically after ' + r.data.model_cache_idle_threshold_minutes + ' min of no new job)\n';
+  }
   text += '\n--- Processes visible inside this container ---\n';
   r.data.processes.slice(0, 15).forEach(p => {
     text += p.rss_mb.toString().padStart(8) + ' MB   ' + p.name + '  (pid ' + p.pid + ')\n';

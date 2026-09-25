@@ -19,6 +19,7 @@ from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
                     LIPSYNC_ENABLED)
+import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
@@ -818,6 +819,17 @@ async def stripe_webhook(request: Request):
 CLEANUP_RETENTION_HOURS = 6
 CLEANUP_FINAL_OUTPUT_DAYS = 30
 CLEANUP_INTERVAL_MIN = 15
+# How long with no new transcription job before the cleanup loop drops the
+# OS's cached copy of the Whisper/pyannote model weight files (see
+# whisper_service.flush_model_file_cache). This is the actual multi-GB
+# memory plateau fix -- per-job file cleanup above only ever covered the
+# much smaller uploaded/intermediate audio files, not the model files
+# themselves. Long enough that normal back-to-back usage during an active
+# session never pays the cold-reload cost; short enough that a genuinely
+# idle server (nobody using the site) isn't billed for gigabytes of RAM it
+# isn't using. Raise this if jobs sometimes arrive minutes apart and a slow
+# first-job-after-a-gap turns out to matter more than the memory cost.
+MODEL_CACHE_IDLE_MINUTES = 20
 # How many days before the 30-day auto-delete to email the owner a
 # heads-up. Requires the `expiry_notices` table (see the SQL note above
 # _check_expiring_outputs below) and RESEND_API_KEY to actually be set --
@@ -1082,6 +1094,13 @@ def _cleanup_worker():
                 print(f"[cleanup] removed {removed} old file(s)")
         except Exception as e:
             print("[cleanup] error:", e)
+
+        try:
+            idle_minutes = (_time.time() - app_state.last_job_activity) / 60
+            if idle_minutes >= MODEL_CACHE_IDLE_MINUTES:
+                whisper_service.flush_model_file_cache()
+        except Exception as e:
+            print("[cleanup] model-cache flush error:", e)
 
         if _time.time() - _last_expiry_check > EXPIRY_CHECK_INTERVAL_HOURS * 3600:
             _last_expiry_check = _time.time()
@@ -2490,7 +2509,43 @@ def admin_mem_diag(request: Request):
         pass
     processes.sort(key=lambda p: p["rss_mb"], reverse=True)
 
-    return {"cgroup": cgroup, "host_meminfo": host_meminfo, "processes": processes}
+    # On-disk size of the Whisper/pyannote model-cache directories -- not the
+    # same thing as how much of them is currently resident in RAM (that would
+    # need a mincore() walk per file, which isn't worth the risk of a raw
+    # ctypes/mmap bug on a live server for a number this diagnostic), but a
+    # close proxy: these files get read start-to-finish on every model load,
+    # so their on-disk size is close to the ceiling of what could be cached.
+    # If this total is in the same ballpark as cgroup's "cache_mb" above
+    # (accounting for job files too), that confirms the model files -- not a
+    # leak -- are the bulk of the plateau.
+    model_cache_dirs = []
+    try:
+        for cache_dir in whisper_service._model_cache_dirs():
+            total_bytes = 0
+            file_count = 0
+            for root, _dirs, files in os.walk(cache_dir):
+                for name in files:
+                    try:
+                        total_bytes += os.path.getsize(os.path.join(root, name))
+                        file_count += 1
+                    except Exception:
+                        pass
+            model_cache_dirs.append({
+                "path": str(cache_dir),
+                "size_mb": _kb_to_mb(total_bytes / 1024),
+                "file_count": file_count,
+            })
+    except Exception:
+        pass
+
+    idle_minutes = round((_time.time() - app_state.last_job_activity) / 60, 1)
+
+    return {
+        "cgroup": cgroup, "host_meminfo": host_meminfo, "processes": processes,
+        "model_cache_dirs": model_cache_dirs,
+        "idle_minutes": idle_minutes,
+        "model_cache_idle_threshold_minutes": MODEL_CACHE_IDLE_MINUTES,
+    }
 
 @app.post("/api/admin/purge_old_jobs")
 def admin_purge_jobs(request: Request):
