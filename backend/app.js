@@ -2179,6 +2179,7 @@ async function autoAssignVoices() {
             credNum.textContent = data.credits;
             credEl.style.display = "inline-block";
         }
+        window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
     }).catch(function() {});
 })();
 
@@ -2233,6 +2234,7 @@ function onVoiceConsentChanged(checkbox) {
             credNum.textContent = data.credits;
             credEl.style.display = "inline-block";
         }
+        window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
     }).catch(function() {});
 })();
 
@@ -2849,8 +2851,14 @@ checkGenerateProgress = async function () {
 
             if (isVideoUpload) {
                 document.getElementById("mergeSection").classList.remove("hidden");
-                // Step 7 (lip-sync) stays hidden -- see LIPSYNC_ENABLED in
-                // config.py.
+                // Step 7 (lip-sync) only reveals once the backend says the
+                // feature is actually turned on (LIPSYNC_ENABLED in
+                // config.py) -- window.LIPSYNC_ENABLED is set from
+                // /api/user/info's lipsync_enabled field on page load.
+                if (window.LIPSYNC_ENABLED) {
+                    var lsSection = document.getElementById("lipsyncSection");
+                    if (lsSection) lsSection.classList.remove("hidden");
+                }
             }
 
             fetchUsage();

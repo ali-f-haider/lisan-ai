@@ -98,3 +98,50 @@ def backup_final_outputs(output_dir, is_final_output_fn):
             print(f"[r2-backup] upload failed for {key}: {e}")
     if uploaded:
         print(f"[r2-backup] uploaded {uploaded} new final output(s) to R2")
+
+
+def upload_temp_and_get_url(local_path, key, expires_in=3600):
+    """Upload a local file to R2 and hand back a time-limited presigned GET
+    URL for it, without making the bucket itself public. Used to stage a
+    video/audio file somewhere with a real public-ish URL before handing it
+    to a third-party API (e.g. Alibaba VideoRetalk lip-sync) that requires
+    an HTTP(S) URL rather than accepting raw uploaded bytes.
+
+    key should be namespaced (e.g. "lipsync-tmp/<job_id>_video.mp4") so
+    these never collide with the final-output backups above, which use the
+    bare filename as their key.
+
+    Returns the presigned URL, or None if R2 isn't configured or the upload
+    fails -- the caller should treat None as "can't proceed" rather than
+    retrying, same as every other best-effort R2 operation in this module.
+    """
+    if not _enabled():
+        return None
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        client.upload_file(str(local_path), R2_BUCKET_NAME, key)
+        return client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": R2_BUCKET_NAME, "Key": key},
+            ExpiresIn=expires_in,
+        )
+    except (ClientError, BotoCoreError, OSError) as e:
+        print(f"[r2-backup] temp upload failed for {key}: {e}")
+        return None
+
+
+def delete_temp_object(key):
+    """Best-effort cleanup of an object uploaded via upload_temp_and_get_url.
+    Never raises: a leftover temp object costs a little R2 storage, not
+    correctness, so a cleanup failure should never fail the caller's job."""
+    if not _enabled():
+        return
+    client = _get_client()
+    if client is None:
+        return
+    try:
+        client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+    except Exception as e:
+        print(f"[r2-backup] temp object cleanup failed for {key}: {e}")

@@ -4,10 +4,12 @@ import subprocess
 import time
 import urllib.request
 import urllib.error
+import uuid
 from pathlib import Path
 
 import urllib3
 
+import r2_backup
 from config import OUTPUT_DIR
 from app_state import jobs_progress
 from ffmpeg_utils import (
@@ -257,7 +259,97 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
         raw_video.write_bytes(resp.read())
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key=""):
+# Alibaba Cloud Model Studio's VideoRetalk -- true video-to-video lip
+# dubbing: takes an existing video plus a new audio track and replaces just
+# the mouth movements to match it, keeping the rest of the footage as-is
+# (unlike VEED Lip Sync 2.0 above, which regenerates the whole face). Docs:
+# https://www.alibabacloud.com/help/en/model-studio/videoretalk-api
+# IMPORTANT: this model is China (Beijing) region only -- DASHSCOPE_API_KEY
+# must be a key issued for that region; the international Model Studio
+# endpoint does not serve this model at all.
+DASHSCOPE_SUBMIT_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video/video-synthesis/"
+DASHSCOPE_TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+
+
+def _alibaba_videoretalk_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, raw_video: Path, progress: dict, job_id: str):
+    # VideoRetalk needs public HTTP(S) URLs for both inputs (no raw file
+    # upload), so stage the already-compressed video and the dubbed audio
+    # in R2 first via short-lived presigned URLs -- the bucket itself never
+    # has to be made public. Cleaned up in `finally` either way.
+    video_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_video.mp4"
+    audio_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_audio.mp3"
+
+    progress["message"] = "Staging files for lip-sync..."
+    video_url = r2_backup.upload_temp_and_get_url(upload_path, video_key)
+    if not video_url:
+        raise Exception("Could not stage the video for the lip-sync provider (R2 storage not configured, or the upload failed).")
+    audio_url = r2_backup.upload_temp_and_get_url(audio_path, audio_key)
+    if not audio_url:
+        r2_backup.delete_temp_object(video_key)
+        raise Exception("Could not stage the audio for the lip-sync provider (R2 storage not configured, or the upload failed).")
+
+    try:
+        progress["percent"] = 15
+        progress["message"] = "Submitting to lip-sync engine..."
+        body = json.dumps({
+            "model": "videoretalk",
+            "input": {"video_url": video_url, "audio_url": audio_url},
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            DASHSCOPE_SUBMIT_URL,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {dashscope_key}",
+                "X-DashScope-Async": "enable",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                created = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise Exception(f"Lip-sync create HTTP {e.code}: {e.read().decode(errors='ignore')[:500]}")
+
+        task_id = (created.get("output") or {}).get("task_id")
+        if not task_id:
+            raise Exception(f"Create failed: {json.dumps(created)[:400]}")
+
+        progress["generation_id"] = task_id
+        progress["percent"] = 20
+
+        video_url_out = None
+        for _ in range(120):  # up to ~20 minutes at 10s intervals
+            time.sleep(10)
+            poll_req = urllib.request.Request(
+                DASHSCOPE_TASK_URL.format(task_id=task_id),
+                headers={"Authorization": f"Bearer {dashscope_key}"},
+            )
+            try:
+                with urllib.request.urlopen(poll_req, timeout=30) as r:
+                    st = json.loads(r.read().decode())
+            except Exception:
+                continue
+            output = st.get("output") or {}
+            status = str(output.get("task_status") or "").upper()
+            progress["message"] = f"Lip-sync: {status}"
+            if status == "SUCCEEDED":
+                video_url_out = output.get("video_url")
+                break
+            if status in ("FAILED", "CANCELED", "UNKNOWN"):
+                raise Exception(f"Job {status}: {json.dumps(output)[:400]}")
+        if not video_url_out:
+            raise Exception(f"Timed out (~20 min). Task ID: {task_id}")
+
+        progress["message"] = "Downloading result..."
+        with urllib.request.urlopen(video_url_out, timeout=600) as resp:
+            raw_video.write_bytes(resp.read())
+    finally:
+        r2_backup.delete_temp_object(video_key)
+        r2_backup.delete_temp_object(audio_key)
+
+
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key=""):
     key = f"lipsync_{job_id}"
     upload_path = None
     try:
@@ -283,6 +375,9 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key=""):
             elif provider == "veed":
                 if not fal_key: raise Exception("Missing lip-sync engine key.")
                 _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
+            elif provider == "videoretalk":
+                if not dashscope_key: raise Exception("Missing lip-sync engine key.")
+                _alibaba_videoretalk_lipsync(upload_path, dubbed_audio, dashscope_key, raw_video, jobs_progress[key], job_id)
             else:
                 if not eleven_key: raise Exception("Missing lip-sync engine key.")
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])

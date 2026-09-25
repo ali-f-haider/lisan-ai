@@ -7,6 +7,7 @@ import threading
 import urllib.request
 import uuid
 import audio_enhance
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -18,7 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
-                    LIPSYNC_ENABLED)
+                    LIPSYNC_ENABLED, DASHSCOPE_API_KEY)
 import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
@@ -182,7 +183,7 @@ class MergeRequest(BaseModel):
 
 class LipSyncRequest(BaseModel):
     job_id: str
-    provider: str = "veed"
+    provider: str = "videoretalk"
     model: str = "lipsync-2"
     sync_key: str = ""
 
@@ -205,6 +206,74 @@ _sessions = set()
 _valid_tokens = {}
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+# ---- Durable backing store for login sessions ----
+# _sessions/_valid_tokens above are the fast path (checked on every request,
+# no network call), but they're plain in-memory Python state -- a Railway
+# restart (which happens on every deploy) wipes them, which used to log out
+# every logged-in user immediately, even though their login was still good.
+# Needs one new Supabase table (run once in the SQL editor):
+#   CREATE TABLE IF NOT EXISTS app_sessions (
+#     token text PRIMARY KEY,
+#     sb_access_token text,
+#     created_at timestamptz DEFAULT now()
+#   );
+# Written to (best-effort, background thread) whenever a session is created;
+# read from only as a fallback when the in-memory set doesn't recognize a
+# cookie -- normally that means "this process restarted since you logged
+# in", not "this cookie is invalid". A hit repopulates the in-memory caches
+# so the rest of that process's requests for this cookie stay fast again.
+# Requires SUPABASE_SERVICE_KEY (same one already used for credits/consent);
+# silently a no-op without it, same as _record_voice_consent below.
+def _persist_session(token, sb_access_token):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
+        return
+
+    def _run():
+        import urllib.request as _ur
+        body = json.dumps({
+            "token": token,
+            "sb_access_token": sb_access_token or None,
+        }).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/app_sessions",
+            data=body,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            method="POST")
+        try:
+            _ur.urlopen(req, timeout=10)
+        except Exception as ex:
+            print(f"[session] could not persist session: {ex}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _restore_session_from_db(token) -> bool:
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
+        return False
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/app_sessions?token=eq.{token}&select=sb_access_token"
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+    except Exception as ex:
+        print(f"[session] could not restore session: {ex}")
+        return False
+    if not rows:
+        return False
+    _sessions.add(token)
+    sb_access_token = rows[0].get("sb_access_token")
+    if sb_access_token:
+        _valid_tokens[token] = sb_access_token
+    return True
 
 
 def _verify_supabase_token(access_token: str) -> bool:
@@ -229,7 +298,9 @@ def _verify_supabase_token(access_token: str) -> bool:
 
 def _is_logged_in(request: Request) -> bool:
     cookie = request.cookies.get("session", "")
-    if not cookie or cookie not in _sessions:
+    if not cookie:
+        return False
+    if cookie not in _sessions and not _restore_session_from_db(cookie):
         return False
     sb_token = _valid_tokens.get(cookie, "")
     if sb_token and _verify_supabase_token(sb_token):
@@ -335,7 +406,7 @@ def user_info(request: Request):
     cookie = request.cookies.get("session", "")
     sb_token = _valid_tokens.get(cookie, "")
     if not sb_token or not SUPABASE_URL:
-        return {"name": "Guest", "credits": -1, "is_guest": True}
+        return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
     try:
         url = f"{SUPABASE_URL}/auth/v1/user"
         req = urllib.request.Request(url, headers={
@@ -372,9 +443,9 @@ def user_info(request: Request):
         except Exception:
             pass
             
-        return {"name": display_name, "credits": credits, "is_guest": False}
+        return {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED}
     except Exception:
-        return {"name": "Guest", "credits": -1, "is_guest": True}
+        return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
 
 @app.post("/api/logout")
 def logout(response: Response):
@@ -414,6 +485,7 @@ def auth_session(req: AuthRequest, response: Response):
         tok = secrets.token_hex(32)
         _sessions.add(tok)
         _valid_tokens[tok] = req.access_token
+        _persist_session(tok, req.access_token)
         response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
         return {"ok": True}
     return JSONResponse({"error": "Invalid session"}, status_code=401)
@@ -433,6 +505,7 @@ def login_legacy(req: LoginRequest, response: Response, request: Request):
     if APP_PASSWORD and hmac.compare_digest(str(req.password), str(APP_PASSWORD)):
         tok = secrets.token_hex(32)
         _sessions.add(tok)
+        _persist_session(tok, None)
         response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
         return {"ok": True}
     _record_login_fail(request)
@@ -535,6 +608,14 @@ def _current_uid(request: Request):
         return None
     if _session_users.get(cookie):
         return _session_users[cookie]
+    if cookie not in _valid_tokens and cookie not in _sessions:
+        # Cold in-memory cache (server restarted since login) -- most
+        # callers reach here only after AuthMiddleware's _is_logged_in
+        # already restored this cookie, but a couple of endpoints (e.g.
+        # /api/billing/checkout) are in PUBLIC_PATHS and call _current_uid
+        # directly without going through that middleware first, so this
+        # needs to be able to self-restore too.
+        _restore_session_from_db(cookie)
     sb_token = _valid_tokens.get(cookie, "")
     if not sb_token or not SUPABASE_URL:
         return None
@@ -1623,7 +1704,7 @@ def lipsync(req: LipSyncRequest, request: Request):
                                               "message": "Preparing...", "error": None,
                                               "result": None, "generation_id": None}
     threading.Thread(target=lipsync_service.lipsync_worker,
-                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY),
+                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY, DASHSCOPE_API_KEY),
                      daemon=True).start()
     return {"status": "started", "credits_charged": lipsync_cost if uid else 0}
 
@@ -1992,11 +2073,82 @@ import secrets
 _ADMIN_TOKENS = {}
 ADMIN_TOKEN_TTL = 4 * 3600  # 4 hours
 
+# ---- Durable backing store for admin sessions, same reasoning as
+# _persist_session/_restore_session_from_db up in AUTH: _ADMIN_TOKENS is
+# plain in-memory state, wiped on every Railway restart, which used to
+# force a fresh /admin login after every deploy even mid-session.
+# Needs one new Supabase table (run once in the SQL editor):
+#   CREATE TABLE IF NOT EXISTS admin_sessions (
+#     token text PRIMARY KEY,
+#     created_at timestamptz DEFAULT now()
+#   );
+def _persist_admin_session(token):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
+        return
+
+    def _run():
+        import urllib.request as _ur
+        body = json.dumps({"token": token}).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/admin_sessions",
+            data=body,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            method="POST")
+        try:
+            _ur.urlopen(req, timeout=10)
+        except Exception as ex:
+            print(f"[admin-session] could not persist session: {ex}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _restore_admin_session_from_db(token):
+    """Returns the session's created_at as epoch seconds if the token
+    exists and is still within ADMIN_TOKEN_TTL, else None. The expiry
+    check happens server-side in the query itself (created_at=gt.<cutoff>)
+    so an already-expired row is never even fetched."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
+        return None
+    import urllib.parse as _uparse
+    try:
+        cutoff = _uparse.quote(
+            (datetime.now(timezone.utc) - timedelta(seconds=ADMIN_TOKEN_TTL)).isoformat(), safe="")
+        url = (f"{SUPABASE_URL}/rest/v1/admin_sessions?token=eq.{token}"
+               f"&created_at=gt.{cutoff}&select=created_at")
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_SERVICE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+    except Exception as ex:
+        print(f"[admin-session] could not restore session: {ex}")
+        return None
+    if not rows:
+        return None
+    try:
+        return datetime.fromisoformat(rows[0]["created_at"].replace("Z", "+00:00")).timestamp()
+    except Exception:
+        # Found a valid, non-expired row but couldn't parse its timestamp --
+        # treat it as freshly restored rather than reject a legitimate login.
+        return time.time()
+
+
 def _admin_check(request):
     """Returns True if request has a valid admin token."""
     tok = request.headers.get("X-Admin-Token", "")
-    if not tok or tok not in _ADMIN_TOKENS:
+    if not tok:
         return False
+    if tok not in _ADMIN_TOKENS:
+        restored_ts = _restore_admin_session_from_db(tok)
+        if restored_ts is None:
+            return False
+        _ADMIN_TOKENS[tok] = restored_ts
     # Check expiry
     if time.time() - _ADMIN_TOKENS[tok] > ADMIN_TOKEN_TTL:
         del _ADMIN_TOKENS[tok]
@@ -2121,6 +2273,7 @@ def admin_login(req: AdminLoginRequest, request: Request):
         return JSONResponse({"error": "invalid code"}, status_code=401)
     token = secrets.token_urlsafe(32)
     _ADMIN_TOKENS[token] = _time.time()
+    _persist_admin_session(token)
     return {"token": token}
 def _get_generated_minutes():
     """Aggregate generated-audio duration from credit_spends (action='generate'
