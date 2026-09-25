@@ -271,11 +271,57 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
 # endpoint (international/Singapore by default) -- needs DASHSCOPE_API_KEY
 # plus DASHSCOPE_WORKSPACE_ID set on Railway.
 WAN3_MODEL = "wan3.0-video"
-WAN3_DUB_PROMPT = (
-    "Keep the video's background, character, camera movement, and actions "
-    "exactly unchanged. Only naturally synchronize the speaking character's "
-    "mouth and lip movements to match Audio 1."
-)
+# Verbatim -- Ali's own prompt, tested and confirmed working by hand. Do not
+# edit without his sign-off.
+WAN3_DUB_PROMPT = """IMPORTANT: THIS IS A LIP-SYNC TASK, NOT A SCENE REGENERATION TASK AND NOT A TRANSLATION TASK.
+Use the provided reference video as the primary and authoritative visual reference.
+Reproduce the video as identically as possible. Do NOT reinterpret or recreate the scene.
+
+PRESERVE EXACTLY
+The same two characters
+Their exact facial appearances and identities
+Their same clothing, colors, accessories, hair, beards, and physical characteristics
+The same historical environment and background
+The same positions and blocking
+The same camera angle and camera position
+The same framing and composition
+The same camera movement
+The same lighting, shadows, color, and visual style
+The same gestures, body movements, facial expressions, eye movements, and acting
+The same editing and cuts
+The same overall visual appearance
+
+Do not create a new version of the scene. Do not change the camera angle. Do not change the characters. Do not redesign anything.
+
+AUDIO
+The provided Arabic-language audio track is already finished — a complete, previously produced dub. Do NOT regenerate, resynthesize, retranslate, alter, or reinterpret this audio in any way.
+Do NOT generate new dialogue or new voices.
+Do NOT change the pitch, timbre, accent, pacing, or emotional delivery already present in the provided audio.
+Use the provided Arabic audio track exactly as supplied, unchanged, as the target audio for this video.
+
+ONLY CHANGE
+Adjust the characters' lip and mouth movements so they visually match the timing and phonetics of the provided Arabic audio track.
+
+ABSOLUTELY DO NOT
+Change the characters
+Change their faces
+Change their clothes
+Change the location
+Change the camera
+Change the shots
+Change the acting
+Change the lighting
+Change the choreography
+Add or remove actions
+Add new characters
+Change the audio in any way
+Add music
+Add subtitles
+Add captions
+Add text on screen
+Add visual effects
+
+The reference video is already the finished scene. Treat it as locked. The desired output is the SAME VIDEO with lips and mouth movements matching the provided Arabic audio instead of the original English audio."""
 
 
 def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str):
