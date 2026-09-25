@@ -95,7 +95,7 @@ function setBadge(id, credits) {
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
-window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, lipsyncCreditsPerSec: 10 };
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, lipsyncCreditsPerSec: 40 };
 async function loadRealPricing() {
     try {
         const res = await fetch("/api/pricing");

@@ -147,7 +147,7 @@ button.btn-success:hover { background: #15803d; }
         <div class="form-group">
           <label>Lip-sync (credits per second of video)</label>
           <input type="number" id="lipsyncCreditsPerSec" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Current default: 10 (= $0.10/sec at 100 credits = $1). VEED Lip Sync 2.0 (Step 7) actually costs this app $0.07/sec, so 10 leaves a margin — a 1-minute video costs the user 600 credits at the default rate.</span>
+          <span class="muted">Current default: 40 (= $0.40/sec at 100 credits = $1). Wan 3.0 (Step 7, via Alibaba Model Studio) actually costs this app ~$0.1153/sec (confirmed from a real 15-second 720P test: $1.73), so 40 leaves roughly 52–71% margin depending on which credit pack the user bought — a 1-minute video costs the user 2,400 credits at the default rate.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
       </div>
@@ -331,7 +331,7 @@ button.btn-success:hover { background: #15803d; }
   <h2>🔐 Admin Access</h2>
   <input type="password" id="adminCode" placeholder="Enter admin access code" onkeydown="if(event.key==='Enter')doLogin()">
   <button onclick="doLogin()">Login</button>
-  <p class="muted" style="margin-top:12px;text-align:center;font-size:12px;">Code is set via APP_PASSWORD in Railway env vars.</p>
+  <p class="muted" style="margin-top:12px;text-align:center;font-size:12px;">Code is set via ADMIN_PASSWORD in Railway env vars (falls back to APP_PASSWORD if ADMIN_PASSWORD isn't set).</p>
 </div>
 
 <script>
@@ -542,7 +542,7 @@ async function savePricing() {
     mergeCredits: parseInt(document.getElementById('mergeCredits')?.value || '1'),
     charsPerCredit: parseInt(document.getElementById('charsPerCredit')?.value || '60'),
     cloneCredits: parseInt(document.getElementById('cloneCredits')?.value || '5'),
-    lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '10'),
+    lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
     subscriptionName: (document.getElementById('subscriptionName')?.value || 'Pro Monthly').trim(),
