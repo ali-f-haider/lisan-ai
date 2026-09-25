@@ -84,12 +84,17 @@ def fetch_voices(api_key: str) -> dict:
 
 
 def get_subscription_usage(api_key: str) -> dict:
-    """Real character-quota usage for this ElevenLabs account, via
-    GET /v1/user/subscription. Returns character_count, character_limit,
-    tier, and next_character_count_reset_unix -- or {"error": ...} if the
-    call fails for any reason (bad key, network, unexpected response).
-    Used by service_usage_monitor.py for the admin dashboard's usage
-    monitoring, not by anything in the main dubbing pipeline."""
+    """Real character-quota AND cloned-voice-slot usage for this
+    ElevenLabs account, via GET /v1/user/subscription. Returns
+    character_count, character_limit, tier, next_character_count_reset_unix,
+    voice_slots_used, and voice_limit -- or {"error": ...} if the call
+    fails for any reason (bad key, network, unexpected response). Cloned
+    voice slots matter separately from character quota: this app clones a
+    fresh voice per distinct speaker per job (see clone_voices below), and
+    those slots are a hard cap independent of how many characters are left
+    -- running out blocks new clones even with plenty of character quota
+    remaining. Used by service_usage_monitor.py for the admin dashboard's
+    usage monitoring, not by anything in the main dubbing pipeline."""
     try:
         request = urllib.request.Request(
             "https://api.elevenlabs.io/v1/user/subscription",
@@ -102,6 +107,8 @@ def get_subscription_usage(api_key: str) -> dict:
             "character_limit": data.get("character_limit"),
             "tier": data.get("tier"),
             "next_reset_unix": data.get("next_character_count_reset_unix"),
+            "voice_slots_used": data.get("voice_slots_used"),
+            "voice_limit": data.get("voice_limit"),
         }
     except urllib.error.HTTPError as e:
         try:

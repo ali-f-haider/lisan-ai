@@ -3252,7 +3252,8 @@ function openBuyModal() {
                     '<span style="font-weight:700;color:#5b21b6;">🔁 ' + sub.name + '</span>' +
                     '<span style="font-weight:800;color:#7c3aed;">$' + sub.amount_usd.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
                 '</span>' +
-                '<span style="font-size:12px;color:#6b7280;">' + sub.credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا · تخزين الملفات 30 يومًا" : " every month · 30-day file storage") + '</span>';
+                '<span style="font-size:12px;color:#6b7280;">' + sub.credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا · تخزين الملفات 30 يومًا" : " every month · 30-day file storage") + '</span>' +
+                '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>';
             sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
             sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
             sb.onclick = function () { subscribeMonthly(sb); };
@@ -4267,12 +4268,17 @@ window.cleanOldClones = function () {
     // it isn't something a later wording edit broke.
     var BANNERS = {
         tempFileWarning: {
-            en: '⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it\'s saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days — download it any time from there.',
-            ar: '⚠️ <strong>مهم:</strong> ملفك المصدر المرفوع وأي تحرير جارٍ مؤقتان ويُفقدان عند انتهاء الجلسة أو إعادة تشغيل الخادم. بعد توليد النتيجة، تُحفظ في صفحة <a href="/account" style="color:#92400e;">حسابك</a> لمدة 30 يومًا — نزّلها في أي وقت من هناك.'
+            // Retention is now two-tier (subscribers: 30 days, pay-once/free:
+            // 48 hours -- see account.html and privacy.html), so this can't
+            // just say "30 days" for everyone anymore. Worded to be accurate
+            // either way without needing to know the viewer's subscription
+            // status at text-set time.
+            en: '⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it\'s saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise — download it any time from there.',
+            ar: '⚠️ <strong>مهم:</strong> ملفك المصدر المرفوع وأي تحرير جارٍ مؤقتان ويُفقدان عند انتهاء الجلسة أو إعادة تشغيل الخادم. بعد توليد النتيجة، تُحفظ في صفحة <a href="/account" style="color:#92400e;">حسابك</a> — 30 يومًا مع <a href="/account#subscription" style="color:#92400e;">اشتراك</a> فعّال، أو 48 ساعة بخلاف ذلك — نزّلها في أي وقت من هناك.'
         },
         resultSavedBanner: {
-            en: '✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days. Your uploaded source file is still temporary — download or keep editing before you close this session.',
-            ar: '✅ تم حفظ هذه النتيجة في صفحة <a href="/account" style="color:#92400e;">حسابك</a> لمدة 30 يومًا. ملفك المصدر المرفوع لا يزال مؤقتًا — نزّله أو استمر في التحرير قبل إغلاق هذه الجلسة.'
+            en: '✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise. Your uploaded source file is still temporary — download or keep editing before you close this session.',
+            ar: '✅ تم حفظ هذه النتيجة في صفحة <a href="/account" style="color:#92400e;">حسابك</a> — 30 يومًا مع <a href="/account#subscription" style="color:#92400e;">اشتراك</a> فعّال، أو 48 ساعة بخلاف ذلك. ملفك المصدر المرفوع لا يزال مؤقتًا — نزّله أو استمر في التحرير قبل إغلاق هذه الجلسة.'
         },
         step1SupportsNote: {
             // Text updated for the lip-sync duration split (v1.7.0) -- this

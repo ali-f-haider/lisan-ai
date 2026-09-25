@@ -211,6 +211,12 @@ button.btn-success:hover { background: #15803d; }
         <div class="metric"><div class="label">Supabase</div><div class="value" id="hSupabase">—</div></div>
         <div class="metric"><div class="label">ElevenLabs</div><div class="value" id="hEleven">—</div></div>
         <div class="metric"><div class="label">Gemini</div><div class="value" id="hGemini">—</div></div>
+        <div class="metric"><div class="label">DashScope (Alibaba)</div><div class="value" id="hDashscope">—</div></div>
+        <div class="metric"><div class="label">Stripe</div><div class="value" id="hStripe">—</div></div>
+        <div class="metric"><div class="label">Resend</div><div class="value" id="hResend">—</div></div>
+        <div class="metric"><div class="label">Cloudflare R2</div><div class="value" id="hR2">—</div></div>
+        <div class="metric"><div class="label">Sentry</div><div class="value" id="hSentry">—</div></div>
+        <p class="muted" style="margin-top:10px;">Amber = not configured (may be intentional). Red = configured but not responding -- that one needs attention.</p>
       </div>
       <div class="card">
         <h3>💾 Server Storage</h3>
@@ -236,6 +242,13 @@ button.btn-success:hover { background: #15803d; }
             <div id="suElevenBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
           </div>
           <p class="muted" id="suElevenNote" style="margin:0;">—</p>
+          <div style="margin-top:10px;">
+            <div class="metric"><div class="label">Cloned voice slots</div><div class="value" id="suElevenVoices">—</div></div>
+            <div style="background:#1e293b;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
+              <div id="suElevenVoiceBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+            </div>
+            <p class="muted" id="suElevenVoiceNote" style="margin:0;font-size:0.85em;">Cloning a new speaker's voice fails once this hits the limit, even with character quota left.</p>
+          </div>
         </div>
 
         <div style="margin-bottom:16px;">
@@ -561,15 +574,22 @@ async function loadAudit() {
 async function loadHealth() {
   const r = await api('/api/admin/health');
   if (!r.ok) return;
-  const map = { ok: '#16a34a', fail: '#dc2626', '?': '#64748b' };
+  const map = { ok: '#16a34a', fail: '#dc2626', not_configured: '#f59e0b', '?': '#64748b' };
+  const setStatus = (id, val) => {
+    const el = document.getElementById(id);
+    el.textContent = (val || '?').toUpperCase();
+    el.style.color = map[val] || '#dc2626';
+  };
   document.getElementById('hServer').textContent = '✓ OK';
   document.getElementById('hServer').style.color = '#16a34a';
-  document.getElementById('hSupabase').textContent = r.data.supabase.toUpperCase();
-  document.getElementById('hSupabase').style.color = map[r.data.supabase] || '#dc2626';
-  document.getElementById('hEleven').textContent = r.data.elevenlabs.toUpperCase();
-  document.getElementById('hEleven').style.color = map[r.data.elevenlabs] || '#dc2626';
-  document.getElementById('hGemini').textContent = r.data.gemini.toUpperCase();
-  document.getElementById('hGemini').style.color = map[r.data.gemini] || '#dc2626';
+  setStatus('hSupabase', r.data.supabase);
+  setStatus('hEleven', r.data.elevenlabs);
+  setStatus('hGemini', r.data.gemini);
+  setStatus('hDashscope', r.data.dashscope);
+  setStatus('hStripe', r.data.stripe);
+  setStatus('hResend', r.data.resend);
+  setStatus('hR2', r.data.r2);
+  setStatus('hSentry', r.data.sentry);
 }
 
 async function loadStorage() {
@@ -633,6 +653,8 @@ async function loadServiceUsage() {
     document.getElementById('suElevenPercent').textContent = '—';
     document.getElementById('suElevenBar').style.width = '0%';
     document.getElementById('suElevenNote').textContent = 'Unavailable: ' + (el.error || 'not polled yet') + '.';
+    document.getElementById('suElevenVoices').textContent = '—';
+    document.getElementById('suElevenVoiceBar').style.width = '0%';
   } else {
     document.getElementById('suElevenUsed').textContent = el.character_count != null ? el.character_count.toLocaleString() + ' chars' : '—';
     document.getElementById('suElevenLimit').textContent = el.character_limit != null ? el.character_limit.toLocaleString() + ' chars' : 'unknown';
@@ -645,6 +667,13 @@ async function loadServiceUsage() {
     document.getElementById('suElevenNote').textContent =
       (el.tier ? el.tier + ' tier. ' : '') + 'Polled every ~20 min. Alert email fires at ' + el.alert_percent + '% of quota.' +
       (age != null ? ' Last checked ' + age + ' min ago.' : '');
+
+    document.getElementById('suElevenVoices').textContent =
+      (el.voice_slots_used != null && el.voice_limit != null) ? el.voice_slots_used + ' / ' + el.voice_limit : '—';
+    const vpct = el.voice_percent != null ? el.voice_percent : 0;
+    const vbar = document.getElementById('suElevenVoiceBar');
+    vbar.style.width = Math.min(100, vpct) + '%';
+    vbar.style.background = vpct >= el.alert_percent ? '#dc2626' : (vpct >= el.alert_percent - 15 ? '#f59e0b' : '#16a34a');
   }
 
   // Alibaba (estimate, not live)

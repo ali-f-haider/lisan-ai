@@ -76,7 +76,10 @@
   <div class="card" id="subCard">
     <h3 id="subHeading">🔁 Subscription</h3>
     <p id="subStatusLine" class="note">—</p>
-    <button id="subManageBtn" class="btn-logout hidden" onclick="manageSubscription()">Manage Subscription</button>
+    <div class="hidden" id="subBtnRow" style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button id="subManageBtn" class="btn-logout" onclick="manageSubscription()">Manage Subscription</button>
+      <button id="subCancelBtn" class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>
+    </div>
   </div>
 </div>
 
@@ -101,6 +104,25 @@
     <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
+
+<div class="card" id="dangerZoneCard" style="border:1px solid #fecaca;">
+  <h3 id="dangerZoneHeading" style="color:#dc2626;">⚠️ Danger Zone</h3>
+  <p class="note" id="dangerZoneNote">Deleting your account permanently removes your data and cannot be undone.</p>
+  <button id="deleteAccountBtn" class="btn-danger" onclick="openDeleteAccountModal()">Delete Account</button>
+</div>
+
+<div class="modal-overlay hidden" id="deleteAccountModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeDeleteAccountModal()">&times;</button>
+    <h3 id="delModalTitle" style="color:#dc2626;">⚠️ Delete your account?</h3>
+    <p id="delModalWarning" class="note"></p>
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button id="delModalCancelBtn" class="btn-logout" onclick="closeDeleteAccountModal()">Cancel</button>
+      <button id="delModalConfirmBtn" class="btn-danger" onclick="confirmDeleteAccount()">Yes, delete permanently</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // Follows the main app's language choice -- this page has no toggle of its
 // own, it just reads the same "lisan_lang" localStorage key app.js writes
@@ -119,6 +141,9 @@ var T = {
     subActive: function () { return "You're subscribed — your monthly credits keep arriving and your finished videos are kept for 30 days."; },
     subNone: 'You\'re not subscribed. One-time credit purchases keep finished videos for only 48 hours — subscribe from the <a href="/app">app\'s Buy menu</a> for 30-day storage plus monthly credits.',
     subManage: "Manage Subscription",
+    subCancel: "Cancel Subscription",
+    confirmCancelSub: "Cancel your monthly subscription? You'll keep your current credits and access until the end of this billing period, then it won't renew. You can cancel any time.",
+    cancelSubFailed: "Couldn't open the cancellation page. Please try again.",
     filesHeading: "🎬 Your Finished Files",
     filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
     filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
@@ -133,7 +158,15 @@ var T = {
     dlVideo: "⬇️ Download Video", dlLipsync: "⬇️ Download Lip-Synced Video", dlMp3: "⬇️ Download MP3",
     del: "🗑️ Delete", deduction: "deduction",
     confirmDelete: "Delete this file permanently? This can't be undone.",
-    deleteFailed: "Couldn't delete this file. Please try again."
+    deleteFailed: "Couldn't delete this file. Please try again.",
+    dangerZoneHeading: "⚠️ Danger Zone",
+    dangerZoneNote: "Deleting your account permanently removes your data and cannot be undone.",
+    deleteAccountBtn: "Delete Account",
+    delModalTitle: "⚠️ Delete your account?",
+    delModalWarning: "This permanently deletes your account, credit balance, purchase history, and all finished files, and cancels any active subscription immediately. This cannot be undone.",
+    delModalCancel: "Cancel",
+    delModalConfirm: "Yes, delete permanently",
+    deleteAccountFailed: "Couldn't delete your account. Please try again or contact support."
   },
   ar: {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
@@ -145,6 +178,9 @@ var T = {
     subActive: function () { return "أنت مشترك — يصلك ائتمانك الشهري تلقائيًا، وتُحفظ فيديوهاتك الجاهزة لمدة 30 يومًا."; },
     subNone: 'أنت غير مشترك. شراء الرصيد لمرة واحدة يحفظ الفيديوهات الجاهزة لمدة 48 ساعة فقط — اشترك من <a href="/app">قائمة الشراء في التطبيق</a> للحصول على تخزين 30 يومًا وائتمان شهري.',
     subManage: "إدارة الاشتراك",
+    subCancel: "إلغاء الاشتراك",
+    confirmCancelSub: "هل تريد إلغاء اشتراكك الشهري؟ ستحتفظ برصيدك الحالي ووصولك حتى نهاية فترة الفوترة الحالية، ثم لن يتم التجديد. يمكنك الإلغاء في أي وقت.",
+    cancelSubFailed: "تعذّر فتح صفحة الإلغاء. حاول مرة أخرى.",
     filesHeading: "🎬 ملفاتك الجاهزة",
     filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
@@ -159,7 +195,15 @@ var T = {
     dlVideo: "⬇️ تنزيل الفيديو", dlLipsync: "⬇️ تنزيل الفيديو المتزامن مع الشفاه", dlMp3: "⬇️ تنزيل MP3",
     del: "🗑️ حذف", deduction: "خصم",
     confirmDelete: "حذف هذا الملف نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.",
-    deleteFailed: "تعذّر حذف هذا الملف. حاول مرة أخرى."
+    deleteFailed: "تعذّر حذف هذا الملف. حاول مرة أخرى.",
+    dangerZoneHeading: "⚠️ منطقة الخطر",
+    dangerZoneNote: "حذف حسابك يزيل بياناتك نهائيًا ولا يمكن التراجع عن ذلك.",
+    deleteAccountBtn: "حذف الحساب",
+    delModalTitle: "⚠️ هل تريد حذف حسابك؟",
+    delModalWarning: "سيؤدي هذا إلى حذف حسابك ورصيدك وسجل مشترياتك وجميع ملفاتك الجاهزة نهائيًا، وإلغاء أي اشتراك فعّال فورًا. لا يمكن التراجع عن هذا الإجراء.",
+    delModalCancel: "إلغاء",
+    delModalConfirm: "نعم، احذف نهائيًا",
+    deleteAccountFailed: "تعذّر حذف حسابك. حاول مرة أخرى أو تواصل مع الدعم."
   }
 }[LANG];
 
@@ -180,6 +224,7 @@ var T = {
   document.getElementById("balanceNote").textContent = T.balanceNote;
   document.getElementById("subHeading").textContent = T.subHeading;
   document.getElementById("subManageBtn").textContent = T.subManage;
+  document.getElementById("subCancelBtn").textContent = T.subCancel;
   document.getElementById("filesHeading").textContent = T.filesHeading;
   // filesNote depends on subscription status, set once /api/user/info
   // resolves below (not known yet at static-text time).
@@ -193,6 +238,13 @@ var T = {
   document.getElementById("thSAction").textContent = T.thSAction;
   document.getElementById("thSJob").textContent = T.thSJob;
   document.getElementById("thSCredits").textContent = T.thSCredits;
+  document.getElementById("dangerZoneHeading").textContent = T.dangerZoneHeading;
+  document.getElementById("dangerZoneNote").textContent = T.dangerZoneNote;
+  document.getElementById("deleteAccountBtn").textContent = T.deleteAccountBtn;
+  document.getElementById("delModalTitle").textContent = T.delModalTitle;
+  document.getElementById("delModalWarning").textContent = T.delModalWarning;
+  document.getElementById("delModalCancelBtn").textContent = T.delModalCancel;
+  document.getElementById("delModalConfirmBtn").textContent = T.delModalConfirm;
 })();
 
 // Tabs. Same click-to-switch pattern as admin.html's .tab/.panel, plus a
@@ -218,13 +270,13 @@ fetch("/api/user/info").then(function(r){return r.json();}).then(function(d){
   window._subActive = d.subscription_status === "active";
   document.getElementById("filesNote").innerHTML = window._subActive ? T.filesNoteSub : T.filesNotePayonce;
   var subLine = document.getElementById("subStatusLine");
-  var subBtn = document.getElementById("subManageBtn");
+  var subBtnRow = document.getElementById("subBtnRow");
   if (window._subActive) {
     subLine.innerHTML = T.subActive();
-    subBtn.classList.remove("hidden");
+    subBtnRow.classList.remove("hidden");
   } else {
     subLine.innerHTML = T.subNone;
-    subBtn.classList.add("hidden");
+    subBtnRow.classList.add("hidden");
   }
   // /api/my_jobs may have already rendered its empty state using the
   // window._subActive default (false) if it resolved first -- re-render
@@ -241,6 +293,29 @@ function manageSubscription() {
     if (d.error) { alert(d.error); return; }
     window.location.href = d.url;
   }).catch(function(e){ btn.disabled = false; alert(e.message); });
+}
+
+function cancelSubscription() {
+  if (!confirm(T.confirmCancelSub)) return;
+  var btn = document.getElementById("subCancelBtn");
+  btn.disabled = true;
+  fetch("/api/billing/cancel", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+    btn.disabled = false;
+    if (d.error) { alert(d.error); return; }
+    window.location.href = d.url;
+  }).catch(function(){ btn.disabled = false; alert(T.cancelSubFailed); });
+}
+
+function openDeleteAccountModal() { document.getElementById("deleteAccountModal").classList.remove("hidden"); }
+function closeDeleteAccountModal() { document.getElementById("deleteAccountModal").classList.add("hidden"); }
+
+function confirmDeleteAccount() {
+  var btn = document.getElementById("delModalConfirmBtn");
+  btn.disabled = true;
+  fetch("/api/account/delete", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+    if (d.error) { btn.disabled = false; alert(d.error); return; }
+    window.location.href = "/login";
+  }).catch(function(){ btn.disabled = false; alert(T.deleteAccountFailed); });
 }
 fetch("/api/account/summary").then(function(r){return r.json();}).then(function(d){
   var pt = document.querySelector("#purchasesTable tbody");

@@ -147,6 +147,24 @@ def delete_temp_object(key):
         print(f"[r2-backup] temp object cleanup failed for {key}: {e}")
 
 
+def check_reachable():
+    """Lightweight, free, read-only reachability check for the admin
+    dashboard's Health panel -- a head_bucket call confirms both that the
+    R2 credentials are valid AND that the configured bucket actually
+    exists, without listing or transferring anything. Returns "ok",
+    "not_configured", or "fail"."""
+    if not _enabled():
+        return "not_configured"
+    client = _get_client()
+    if client is None:
+        return "fail"
+    try:
+        client.head_bucket(Bucket=R2_BUCKET_NAME)
+        return "ok"
+    except Exception:
+        return "fail"
+
+
 def get_storage_usage():
     """Sums the size of every object currently in the R2 bucket, via a
     paginated list_objects_v2 walk. This is real, live usage -- but R2's

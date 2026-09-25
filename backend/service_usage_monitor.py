@@ -64,7 +64,8 @@ ALERT_RENOTIFY_HOURS = 12
 _eleven_latest = {
     "ok": False, "error": "not polled yet", "character_count": None,
     "character_limit": None, "percent": None, "tier": None,
-    "next_reset_unix": None, "ts": None,
+    "next_reset_unix": None, "voice_slots_used": None, "voice_limit": None,
+    "voice_percent": None, "ts": None,
 }
 _eleven_lock = threading.Lock()
 _eleven_alert_active = False
@@ -82,7 +83,14 @@ def _configured():
 
 def fetch_eleven_usage():
     """One-shot live call to ElevenLabs' subscription endpoint. Never
-    raises -- any failure comes back as {"ok": False, "error": ...}."""
+    raises -- any failure comes back as {"ok": False, "error": ...}.
+
+    Tracks two independent quotas: character usage (the TTS budget) and
+    cloned-voice slots (a hard cap on how many distinct voices can be
+    cloned at once, unrelated to characters remaining -- this app clones
+    one voice per distinct speaker per job, so running out blocks new
+    dubbing jobs with new speakers even when there's plenty of character
+    quota left)."""
     if not _configured():
         return {"ok": False, "error": "ELEVENLABS_API_KEY not set"}
     data = eleven_service.get_subscription_usage(ELEVENLABS_API_KEY)
@@ -93,6 +101,9 @@ def fetch_eleven_usage():
     if count is None:
         return {"ok": False, "error": "unexpected response shape from ElevenLabs"}
     percent = round(count / limit * 100, 1) if limit else None
+    voices_used = data.get("voice_slots_used")
+    voice_limit = data.get("voice_limit")
+    voice_percent = round(voices_used / voice_limit * 100, 1) if (voices_used is not None and voice_limit) else None
     return {
         "ok": True,
         "character_count": count,
@@ -100,6 +111,9 @@ def fetch_eleven_usage():
         "percent": percent,
         "tier": data.get("tier"),
         "next_reset_unix": data.get("next_reset_unix"),
+        "voice_slots_used": voices_used,
+        "voice_limit": voice_limit,
+        "voice_percent": voice_percent,
     }
 
 
@@ -127,21 +141,39 @@ def get_resend_cached():
         return dict(_resend_latest)
 
 
-def _send_eleven_alert_email(count, limit, percent, tier):
+def _send_eleven_alert_email(result):
     if not RESEND_API_KEY or not CONTACT_TO_EMAIL:
         return False
-    subject = f"Lisan AI: ElevenLabs character quota is high -- {percent:.0f}% used"
+    tier = result.get("tier") or "unknown"
+    lines = []
+    percent = result.get("percent")
+    if percent is not None and percent >= ALERT_PERCENT:
+        lines.append(
+            f"- Character quota: {result['character_count']:,} of "
+            f"{result['character_limit']:,} used ({percent:.0f}%)."
+        )
+    voice_percent = result.get("voice_percent")
+    if voice_percent is not None and voice_percent >= ALERT_PERCENT:
+        lines.append(
+            f"- Cloned voice slots: {result['voice_slots_used']} of "
+            f"{result['voice_limit']} used ({voice_percent:.0f}%). Running "
+            "out blocks cloning any NEW speaker's voice, even with plenty "
+            "of character quota left -- existing dubbing jobs aren't "
+            "affected until a job needs a voice that hasn't been cloned yet."
+        )
+    if not lines:
+        return False
+    subject = f"Lisan AI: ElevenLabs usage is high ({tier} tier)"
     body_text = (
         "Hi,\n\n"
-        f"Your ElevenLabs account ({tier or 'unknown'} tier) has used "
-        f"{count:,} of its {limit:,} character quota ({percent:.0f}%) for "
-        "the current billing period.\n\n"
-        "If this keeps climbing, voice generation will start failing for "
-        "users once the quota runs out. Consider upgrading the ElevenLabs "
-        "plan (or waiting for the next reset) before that happens.\n\n"
+        f"Your ElevenLabs account ({tier} tier) is running high on:\n\n"
+        + "\n".join(lines) +
+        "\n\nConsider upgrading the ElevenLabs plan (or, for character "
+        "quota, waiting for the next reset) before this starts failing "
+        "for users.\n\n"
         "This is an automatic check (polling every "
         f"{MONITOR_INTERVAL_MIN} minutes) -- see the admin dashboard's "
-        "Health tab for the live number.\n\n"
+        "Health tab for the live numbers.\n\n"
         "-- Lisan AI monitoring"
     )
     payload = json.dumps({
@@ -187,14 +219,14 @@ def _poll_once():
         return
 
     percent = result.get("percent")
-    over_threshold = percent is not None and percent >= ALERT_PERCENT
+    voice_percent = result.get("voice_percent")
+    over_threshold = (percent is not None and percent >= ALERT_PERCENT) or \
+                      (voice_percent is not None and voice_percent >= ALERT_PERCENT)
 
     if over_threshold:
         now = _time.time()
         should_send = (not _eleven_alert_active) or (now - _eleven_last_alert_sent > ALERT_RENOTIFY_HOURS * 3600)
-        if should_send and _send_eleven_alert_email(
-            result["character_count"], result["character_limit"], percent, result.get("tier")
-        ):
+        if should_send and _send_eleven_alert_email(result):
             _eleven_last_alert_sent = now
         _eleven_alert_active = True
     else:

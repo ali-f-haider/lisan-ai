@@ -47,6 +47,13 @@ from media_paths import resolve_job_audio, find_job_video, job_background_audio
 # "AttributeError: type object 'InferenceClient' has no attribute
 # 'chat_completion'" on every single startup and Sentry never initialized --
 # confirmed by reproducing it locally against the exact pinned versions.
+# SENTRY_INITIALIZED tracks whether sentry_sdk.init() actually SUCCEEDED,
+# not just whether SENTRY_DSN is set -- the admin Health panel checks this
+# flag rather than the DSN string, since this exact init call has silently
+# failed before (see the huggingface_hub AttributeError above) while the
+# DSN itself stayed configured the whole time, which a DSN-presence check
+# would have missed entirely.
+SENTRY_INITIALIZED = False
 try:
     if SENTRY_DSN:
         import sentry_sdk
@@ -57,6 +64,7 @@ try:
             send_default_pii=False,
             disabled_integrations=[HuggingfaceHubIntegration()],
         )
+        SENTRY_INITIALIZED = True
 except Exception as _sentry_ex:
     print(f"[sentry] init skipped: {_sentry_ex}")
 
@@ -313,7 +321,8 @@ def _is_logged_in(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
-    "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/contact"
+    "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact",
+    "/api/account/delete"
 , "/help.html", "/admin"])
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -915,6 +924,150 @@ def billing_portal(request: Request):
     except Exception as e:
         return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
     return {"url": portal.url}
+
+
+@app.post("/api/billing/cancel")
+def billing_cancel(request: Request):
+    """Same Stripe-hosted Billing Portal as /api/billing/portal above, but
+    deep-linked straight to the portal's built-in "cancel this subscription"
+    flow (Stripe's documented flow_data[type]=subscription_cancel) instead
+    of the general account-management screen -- Ali asked for an explicit
+    Cancel button on the account page, separate from "Manage Subscription".
+    Still entirely Stripe's own hosted flow: we never implement cancellation
+    logic ourselves, same reasoning as /api/billing/portal (EU
+    distance-selling rules want an easy, unambiguous cancel path)."""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({"error": "Not configured."}, status_code=503)
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_customer_id,stripe_subscription_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        customer_id = rows[0].get("stripe_customer_id") if rows else None
+        subscription_id = rows[0].get("stripe_subscription_id") if rows else None
+    except Exception:
+        customer_id = None
+        subscription_id = None
+    if not customer_id or not subscription_id:
+        return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
+    stripe.api_key = STRIPE_SECRET_KEY
+    origin = str(request.base_url).rstrip("/")
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=origin + "/account#subscription",
+            flow_data={
+                "type": "subscription_cancel",
+                "subscription_cancel": {"subscription": subscription_id},
+                "after_completion": {
+                    "type": "redirect",
+                    "redirect": {"return_url": origin + "/account#subscription"},
+                },
+            },
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+    return {"url": portal.url}
+
+
+@app.post("/api/account/delete")
+def delete_account(request: Request, response: Response):
+    """Permanently deletes the caller's account -- irreversible, as warned
+    on the account page's confirmation dialog before this is ever called.
+    In order:
+      1. Cancel any active Stripe subscription immediately (not at period
+         end -- once the account is gone there's nothing left to bill for).
+      2. Delete this user's finished job output files from disk (same
+         suffixes /api/my_jobs already tracks).
+      3. Explicitly delete the profiles row via PostgREST -- done even
+         though Supabase's recommended profiles-table setup has an
+         ON DELETE CASCADE FK to auth.users, so this doesn't silently
+         no-op if that FK was never actually added.
+      4. Delete the Supabase Auth user itself via the GoTrue Admin API
+         (DELETE /auth/v1/admin/users/{id}).
+      5. Clear the session cookie, same as /api/logout.
+    credit_spends/credit_orders/subscription_invoices rows are intentionally
+    left alone -- they're financial/audit records, not account data, and
+    privacy.html already tells users that deleting their account removes
+    "stored account data", not transaction history. Every step is
+    best-effort logged and continues past a single failure except the auth
+    delete itself, so a partial failure never leaves the account half-open
+    with no way for the user to know."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({"error": "Not configured."}, status_code=503)
+    sb_hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+
+    # 1) Cancel any active Stripe subscription immediately.
+    if stripe and STRIPE_SECRET_KEY:
+        try:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_subscription_id",
+                headers=sb_hdrs)
+            with urllib.request.urlopen(req, timeout=10) as r:
+                rows = json.load(r)
+            sub_id = rows[0].get("stripe_subscription_id") if rows else None
+            if sub_id:
+                stripe.api_key = STRIPE_SECRET_KEY
+                stripe.Subscription.delete(sub_id)
+        except Exception as e:
+            print(f"[delete-account] subscription cancel failed for {uid}: {e}")
+
+    # 2) Delete this user's finished job output files from disk.
+    try:
+        url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=job_id&limit=1000"
+        req = urllib.request.Request(url, headers=sb_hdrs)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r) or []
+        job_ids = {row.get("job_id") for row in rows if row.get("job_id")}
+        for job_id in job_ids:
+            if "/" in job_id or "\\" in job_id or ".." in job_id:
+                continue
+            for suffix in _MY_JOB_FILE_SUFFIXES.values():
+                p = OUTPUT_DIR / f"{job_id}{suffix}"
+                try:
+                    if p.exists():
+                        p.unlink()
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[delete-account] file cleanup failed for {uid}: {e}")
+
+    # 3) Explicitly delete the profiles row.
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}",
+            headers={**sb_hdrs, "Prefer": "return=minimal"},
+            method="DELETE")
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        print(f"[delete-account] profile row delete failed for {uid}: {e}")
+
+    # 4) Delete the Supabase Auth user itself. If this fails, the account
+    # data above is already gone but the login isn't -- tell the user
+    # plainly instead of reporting success on a half-finished deletion.
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/auth/v1/admin/users/{uid}",
+            headers=sb_hdrs,
+            method="DELETE")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            pass
+    except Exception as e:
+        print(f"[delete-account] auth user delete failed for {uid}: {e}")
+        return JSONResponse({"error": "Your data was cleared, but we couldn't fully remove your login. Please contact support to finish closing your account."}, status_code=502)
+
+    # 5) Clear the session cookie, same as /api/logout.
+    response.delete_cookie("session")
+    return {"ok": True}
 
 
 @app.get("/api/billing/sync")
@@ -2971,9 +3124,22 @@ def admin_audit(request: Request):
 
 @app.get("/api/admin/health")
 def admin_health(request: Request):
+    """Wired-or-not check for every third-party service this app depends
+    on. Three different depths of "check" here, same honesty rule as
+    service_usage_monitor.py: a real reachability call where one exists
+    for free and without side effects (Supabase, Stripe, Resend, R2), and
+    a plain "is the key/config present" check where it doesn't (ElevenLabs,
+    Gemini, DashScope -- an ElevenLabs/Gemini call here would cost real
+    quota just to check the light is green, and DashScope has no free
+    reachability endpoint at all with the credentials this app has -- see
+    service_usage_monitor.py's module docstring). Sentry is a special
+    case: it checks whether sentry_sdk.init() actually succeeded (see
+    SENTRY_INITIALIZED above), not just whether SENTRY_DSN is set, since
+    that init call has silently failed before while the DSN stayed set."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     import urllib.request as _ur
+    import base64 as _b64
     def _check(url, hdrs):
         try:
             req = _ur.Request(url, headers=hdrs)
@@ -2982,10 +3148,27 @@ def admin_health(request: Request):
         except Exception:
             return "fail"
     supabase = _check(f"{SUPABASE_URL}/rest/v1/profiles?limit=1",
-                       {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
-    eleven = "ok" if ELEVENLABS_API_KEY else "fail"
-    gemini = "ok" if GEMINI_API_KEY else "fail"
-    return {"supabase": supabase, "elevenlabs": eleven, "gemini": gemini}
+                       {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}) \
+        if (SUPABASE_URL and SUPABASE_SERVICE_KEY) else "not_configured"
+    eleven = "ok" if ELEVENLABS_API_KEY else "not_configured"
+    gemini = "ok" if GEMINI_API_KEY else "not_configured"
+    dashscope = "ok" if (DASHSCOPE_API_KEY and DASHSCOPE_WORKSPACE_ID) else "not_configured"
+    if STRIPE_SECRET_KEY:
+        basic = _b64.b64encode(f"{STRIPE_SECRET_KEY}:".encode("utf-8")).decode("ascii")
+        stripe_status = _check("https://api.stripe.com/v1/balance", {"Authorization": f"Basic {basic}"})
+    else:
+        stripe_status = "not_configured"
+    if RESEND_API_KEY:
+        resend_status = _check("https://api.resend.com/domains", {"Authorization": f"Bearer {RESEND_API_KEY}"})
+    else:
+        resend_status = "not_configured"
+    r2_status = r2_backup.check_reachable()
+    sentry_status = "ok" if SENTRY_INITIALIZED else ("fail" if SENTRY_DSN else "not_configured")
+    return {
+        "supabase": supabase, "elevenlabs": eleven, "gemini": gemini,
+        "dashscope": dashscope, "stripe": stripe_status, "resend": resend_status,
+        "r2": r2_status, "sentry": sentry_status,
+    }
 
 @app.get("/api/admin/storage")
 def admin_storage(request: Request):
