@@ -1238,6 +1238,11 @@ async function checkLipsyncProgress() {
             if (btn) btn.disabled = false;
             if (fill) fill.style.width = "100%";
             if (txt) txt.textContent = "100% — Lip-sync complete.";
+            // Hide the whole progress block (loading animation + bar + text)
+            // once done -- previously only shown on error, so the loading gif
+            // just kept spinning forever above the finished video.
+            const progDoneEl = document.getElementById("lipsyncProgress");
+            if (progDoneEl) progDoneEl.classList.add("hidden");
             const videoFile = (data.result && data.result.video) || (currentJobId + "_final_lipsync.mp4");
             const costNote = window._lipsyncCost ? (" Cost: " + window._lipsyncCost + " credits.") : "";
             const resultsEl = document.getElementById("lipsyncResults");
