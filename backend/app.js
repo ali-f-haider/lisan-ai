@@ -3238,6 +3238,30 @@ function openBuyModal() {
     modal.style.display = "flex";
     fetch("/api/billing/packs").then(function (r) { return r.json(); }).then(function (data) {
         wrap.innerHTML = "";
+        // Monthly subscription tile first, visually set apart from the
+        // one-time packs below it (Ali's request, 2026-09-26): the main
+        // extra benefit is 30-day file retention instead of the short
+        // pay-once window, called out right on the tile so it's clear why
+        // it's priced the way it is relative to the packs.
+        var sub = data.subscription;
+        if (sub && sub.credits) {
+            var sb = document.createElement("button");
+            sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #7c3aed;background:#faf5ff;cursor:pointer;font-family:inherit;text-align:left;";
+            sb.innerHTML =
+                '<span style="display:flex;justify-content:space-between;width:100%;">' +
+                    '<span style="font-weight:700;color:#5b21b6;">🔁 ' + sub.name + '</span>' +
+                    '<span style="font-weight:800;color:#7c3aed;">$' + sub.amount_usd.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
+                '</span>' +
+                '<span style="font-size:12px;color:#6b7280;">' + sub.credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا · تخزين الملفات 30 يومًا" : " every month · 30-day file storage") + '</span>';
+            sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
+            sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
+            sb.onclick = function () { subscribeMonthly(sb); };
+            wrap.appendChild(sb);
+            var divider = document.createElement("p");
+            divider.style.cssText = "font-size:11px;color:#9ca3af;margin:2px 0 0;";
+            divider.textContent = isAr ? "أو باقة رصيد لمرة واحدة (تخزين الملفات 48 ساعة):" : "Or a one-time pack (48-hour file storage):";
+            wrap.appendChild(divider);
+        }
         // Loop over whatever pack keys the admin panel actually defines,
         // instead of a fixed ["starter","standard","pro","business"] list —
         // that hardcoded list silently hid any pack with a different key
@@ -3269,6 +3293,15 @@ function buyPack(key, btn) {
     }).catch(function (e) { notify("error", e.message); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
+function subscribeMonthly(btn) {
+    btn.disabled = true; btn.style.opacity = "0.6";
+    fetch("/api/billing/subscribe", { method: "POST" })
+        .then(function (r) { return r.json(); }).then(function (data) {
+            if (data.error) { notify("error", data.error); btn.disabled = false; btn.style.opacity = "1"; return; }
+            window.location.href = data.url;
+        }).catch(function (e) { notify("error", e.message); btn.disabled = false; btn.style.opacity = "1"; });
+}
+
 // Returning from Stripe success
 if (window.location.hash.indexOf("credits-purchased") > -1) {
     setTimeout(function () {
@@ -3276,6 +3309,21 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
         refreshCredits();
         history.replaceState(null, "", "/app");
     }, 800);
+}
+
+// Returning from Stripe subscription checkout success. Unlike the one-time
+// "credits-purchased" hash above, this deliberately does NOT call
+// /api/billing/sync -- that endpoint only reconciles one-time payment-mode
+// sessions (see billing_sync's "mode" == "subscription" skip); a
+// subscription's credits are granted by the stripe_webhook's invoice.paid
+// handler instead, which can take a few seconds longer than the redirect
+// itself, hence the longer delay before refreshing the badge.
+if (window.location.hash.indexOf("subscription-active") > -1) {
+    setTimeout(function () {
+        notify("success", "🎉 Subscription active! Your monthly credits will appear shortly.");
+        refreshCredits();
+        history.replaceState(null, "", "/app");
+    }, 2500);
 }
 
 // Refresh badge after transcription completes (deduction happens server-side)

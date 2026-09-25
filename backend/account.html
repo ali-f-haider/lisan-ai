@@ -44,6 +44,11 @@
   <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
   <p id="balanceNote" class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
 </div>
+<div class="card" id="subCard">
+  <h3 id="subHeading">🔁 Subscription</h3>
+  <p id="subStatusLine" class="note">—</p>
+  <button id="subManageBtn" class="btn-logout hidden" onclick="manageSubscription()">Manage Subscription</button>
+</div>
 <div class="card">
   <h3 id="filesHeading">🎬 Your Finished Files</h3>
   <p id="filesNote" class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
@@ -69,15 +74,20 @@ var T = {
     title: "Lisan AI — My Usage", credits: "credits", back: "← Back to App", logout: "Log Out",
     balanceHeading: "💰 Current balance",
     balanceNote: "100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.",
+    subHeading: "🔁 Subscription",
+    subActive: function () { return "You're subscribed — your monthly credits keep arriving and your finished videos are kept for 30 days."; },
+    subNone: 'You\'re not subscribed. One-time credit purchases keep finished videos for only 48 hours — subscribe from the <a href="/app">app\'s Buy menu</a> for 30-day storage plus monthly credits.',
+    subManage: "Manage Subscription",
     filesHeading: "🎬 Your Finished Files",
-    filesNote: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
+    filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
+    filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
     loading: "Loading…",
     purchasesHeading: "🛒 Credit purchases", thPDate: "Date", thPCredits: "Credits", thPSession: "Stripe session",
     spendsHeading: "📉 Credit consumption", thSDate: "Date", thSAction: "Action", thSJob: "Job", thSCredits: "Credits",
     noPurchases: "No purchases yet.", noSpends: "No consumption recorded yet.",
     expiringSoon: "expiring soon", expiresOneDay: "expires in 1 day",
     expiresDays: function (n) { return "expires in " + n + " days"; },
-    nothingYet: "Nothing here yet — files you generate will show up here for 30 days.",
+    nothingYet: function (isSub) { return "Nothing here yet — files you generate will show up here for " + (isSub ? "30 days" : "48 hours") + "."; },
     couldntLoad: "Couldn't load your files right now.",
     dlVideo: "⬇️ Download Video", dlLipsync: "⬇️ Download Lip-Synced Video", dlMp3: "⬇️ Download MP3",
     del: "🗑️ Delete", deduction: "deduction",
@@ -88,15 +98,20 @@ var T = {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
     balanceHeading: "💰 الرصيد الحالي",
     balanceNote: "100 ائتمان = 1.00 دولار · التفريغ 3 · التوليد ≈ الأحرف/60 · الدمج 1. الائتمانات لا تنتهي صلاحيتها.",
+    subHeading: "🔁 الاشتراك",
+    subActive: function () { return "أنت مشترك — يصلك ائتمانك الشهري تلقائيًا، وتُحفظ فيديوهاتك الجاهزة لمدة 30 يومًا."; },
+    subNone: 'أنت غير مشترك. شراء الرصيد لمرة واحدة يحفظ الفيديوهات الجاهزة لمدة 48 ساعة فقط — اشترك من <a href="/app">قائمة الشراء في التطبيق</a> للحصول على تخزين 30 يومًا وائتمان شهري.',
+    subManage: "إدارة الاشتراك",
     filesHeading: "🎬 ملفاتك الجاهزة",
-    filesNote: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     loading: "جارٍ التحميل…",
     purchasesHeading: "🛒 مشتريات الائتمان", thPDate: "التاريخ", thPCredits: "الائتمانات", thPSession: "جلسة Stripe",
     spendsHeading: "📉 استهلاك الائتمان", thSDate: "التاريخ", thSAction: "الإجراء", thSJob: "المهمة", thSCredits: "الائتمانات",
     noPurchases: "لا توجد مشتريات بعد.", noSpends: "لم يُسجَّل أي استهلاك بعد.",
     expiringSoon: "تنتهي صلاحيته قريبًا", expiresOneDay: "تنتهي صلاحيته خلال يوم واحد",
     expiresDays: function (n) { return "تنتهي صلاحيته خلال " + n + " يومًا"; },
-    nothingYet: "لا يوجد شيء هنا بعد — ستظهر الملفات التي تولّدها هنا لمدة 30 يومًا.",
+    nothingYet: function (isSub) { return "لا يوجد شيء هنا بعد — ستظهر الملفات التي تولّدها هنا لمدة " + (isSub ? "30 يومًا" : "48 ساعة") + "."; },
     couldntLoad: "تعذّر تحميل ملفاتك الآن.",
     dlVideo: "⬇️ تنزيل الفيديو", dlLipsync: "⬇️ تنزيل الفيديو المتزامن مع الشفاه", dlMp3: "⬇️ تنزيل MP3",
     del: "🗑️ حذف", deduction: "خصم",
@@ -115,8 +130,11 @@ var T = {
   document.getElementById("logoutBtn").textContent = T.logout;
   document.getElementById("balanceHeading").textContent = T.balanceHeading;
   document.getElementById("balanceNote").textContent = T.balanceNote;
+  document.getElementById("subHeading").textContent = T.subHeading;
+  document.getElementById("subManageBtn").textContent = T.subManage;
   document.getElementById("filesHeading").textContent = T.filesHeading;
-  document.getElementById("filesNote").innerHTML = T.filesNote;
+  // filesNote depends on subscription status, set once /api/user/info
+  // resolves below (not known yet at static-text time).
   document.getElementById("loadingText").textContent = T.loading;
   document.getElementById("purchasesHeading").textContent = T.purchasesHeading;
   document.getElementById("thPDate").textContent = T.thPDate;
@@ -129,10 +147,37 @@ var T = {
   document.getElementById("thSCredits").textContent = T.thSCredits;
 })();
 
+window._subActive = false;
 fetch("/api/user/info").then(function(r){return r.json();}).then(function(d){
   document.getElementById("creditsNum").textContent = d.credits;
   document.getElementById("balanceLine").textContent = d.credits + " " + T.credits;
+  window._subActive = d.subscription_status === "active";
+  document.getElementById("filesNote").innerHTML = window._subActive ? T.filesNoteSub : T.filesNotePayonce;
+  var subLine = document.getElementById("subStatusLine");
+  var subBtn = document.getElementById("subManageBtn");
+  if (window._subActive) {
+    subLine.innerHTML = T.subActive();
+    subBtn.classList.remove("hidden");
+  } else {
+    subLine.innerHTML = T.subNone;
+    subBtn.classList.add("hidden");
+  }
+  // /api/my_jobs may have already rendered its empty state using the
+  // window._subActive default (false) if it resolved first -- re-render
+  // once we actually know the subscription status, so "48 hours" doesn't
+  // linger incorrectly for a subscriber with no jobs yet.
+  if (window._lastMyJobs) renderMyJobs(window._lastMyJobs);
 }).catch(function(){});
+
+function manageSubscription() {
+  var btn = document.getElementById("subManageBtn");
+  btn.disabled = true;
+  fetch("/api/billing/portal", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+    btn.disabled = false;
+    if (d.error) { alert(d.error); return; }
+    window.location.href = d.url;
+  }).catch(function(e){ btn.disabled = false; alert(e.message); });
+}
 fetch("/api/account/summary").then(function(r){return r.json();}).then(function(d){
   var pt = document.querySelector("#purchasesTable tbody");
   (d.purchases || []).forEach(function(p){
@@ -172,7 +217,7 @@ function daysUntil(iso) {
 function renderMyJobs(jobs) {
   var list = document.getElementById("myJobsList");
   if (!jobs.length) {
-    list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet + '</p>';
+    list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet(window._subActive) + '</p>';
     return;
   }
   list.innerHTML = "";
@@ -206,7 +251,8 @@ function renderMyJobs(jobs) {
 
 function loadMyJobs() {
   fetch("/api/my_jobs").then(function (r) { return r.json(); }).then(function (d) {
-    renderMyJobs(d.jobs || []);
+    window._lastMyJobs = d.jobs || [];
+    renderMyJobs(window._lastMyJobs);
   }).catch(function () {
     document.getElementById("myJobsList").innerHTML = '<p style="color:#6b7280;">' + T.couldntLoad + '</p>';
   });
@@ -219,7 +265,7 @@ function deleteMyJob(jobId) {
     if (el) el.remove();
     var list = document.getElementById("myJobsList");
     if (list && !list.children.length) {
-      list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet + '</p>';
+      list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet(window._subActive) + '</p>';
     }
   }).catch(function () { alert(T.deleteFailed); });
 }

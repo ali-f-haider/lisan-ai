@@ -312,7 +312,7 @@ def _is_logged_in(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
-    "/api/billing/packs", "/api/billing/checkout", "/api/contact"
+    "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/contact"
 , "/help.html", "/admin"])
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -430,8 +430,9 @@ def user_info(request: Request):
         if credits is None:
             credits = int(_get_pricing_config().get("freeCredits", 100))
             
+        subscription_status = "none"
         try:
-            prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name"
+            prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name,subscription_status"
             prof_req = urllib.request.Request(prof_url, headers={
                 "Authorization": f"Bearer {sb_token}",
                 "apikey": SUPABASE_ANON_KEY
@@ -440,10 +441,12 @@ def user_info(request: Request):
                 prof_data = json.load(pr)
             if prof_data:
                 display_name = prof_data[0].get("display_name", display_name)
+                subscription_status = prof_data[0].get("subscription_status") or "none"
         except Exception:
             pass
-            
-        return {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED}
+
+        return {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
+                "subscription_status": subscription_status}
     except Exception:
         return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
 
@@ -827,6 +830,92 @@ def billing_checkout(payload: dict, request: Request):
     return {"url": session.url}
 
 
+@app.post("/api/billing/subscribe")
+def billing_subscribe(request: Request):
+    """Monthly subscription checkout (Ali's request, 2026-09-26) -- a
+    recurring alternative to the one-time packs above. Uses inline
+    price_data with recurring set, same as billing_checkout's inline
+    price_data, so it never needs a Product/Price pre-created in the Stripe
+    dashboard -- the plan's name/credits/price come from the admin-editable
+    pricing_config (see _get_pricing_config's subscriptionName/
+    subscriptionCredits/subscriptionPriceUsd), same single source of truth
+    as the packs. subscription_data.metadata carries uid so
+    customer.subscription.* webhook events (which never see our uid
+    directly, only Stripe's own ids) can still be tied back to a user
+    immediately, in addition to the stripe_subscription_id we store on
+    profiles once checkout.session.completed fires below."""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required to subscribe."}, status_code=401)
+    cfg = _get_pricing_config()
+    plan_name = cfg.get("subscriptionName") or "Pro Monthly"
+    plan_credits = int(cfg.get("subscriptionCredits") or 4000)
+    plan_price = float(cfg.get("subscriptionPriceUsd") or 29.0)
+    stripe.api_key = STRIPE_SECRET_KEY
+    origin = str(request.base_url).rstrip("/")
+    try:
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            client_reference_id=uid,
+            metadata={"uid": uid, "credits": str(plan_credits)},
+            subscription_data={"metadata": {"uid": uid, "credits": str(plan_credits)}},
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "recurring": {"interval": "month"},
+                    "product_data": {"name": f"Lisan AI {plan_name} - {plan_credits} credits/month"},
+                    "unit_amount": int(round(plan_price * 100)),
+                },
+                "quantity": 1,
+            }],
+            success_url=origin + "/app#subscription-active",
+            cancel_url=origin + "/app",
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+    return {"url": session.url}
+
+
+@app.post("/api/billing/portal")
+def billing_portal(request: Request):
+    """Opens Stripe's own hosted Billing Portal so a subscriber can update
+    their card or cancel -- required so cancelling is genuinely easy (not
+    just 'email us'), which matters both for user trust and, given Lisan
+    AI's EU customers, EU distance-selling rules on recurring subscriptions.
+    We never build our own cancel/payment-method UI; Stripe's portal handles
+    that entirely off our servers."""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({"error": "Not configured."}, status_code=503)
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_customer_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        customer_id = rows[0].get("stripe_customer_id") if rows else None
+    except Exception:
+        customer_id = None
+    if not customer_id:
+        return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
+    stripe.api_key = STRIPE_SECRET_KEY
+    origin = str(request.base_url).rstrip("/")
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=origin + "/account",
+        )
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+    return {"url": portal.url}
+
+
 @app.get("/api/billing/sync")
 def billing_sync(request: Request):
     if not stripe or not STRIPE_SECRET_KEY:
@@ -840,6 +929,14 @@ def billing_sync(request: Request):
         sessions = stripe.checkout.Session.list(limit=100)
         for s in sessions.data:
             if s.get("client_reference_id") != uid:
+                continue
+            # Subscription-mode sessions are reconciled by the invoice.paid
+            # webhook (_grant_subscription_credits), never here -- this
+            # one-time _fulfill_order path would otherwise also match a
+            # subscription checkout (its metadata carries "credits" too, for
+            # the webhook's benefit) and hand out an extra one-time lump on
+            # top of the correct recurring grant.
+            if s.get("mode") == "subscription":
                 continue
             if s.get("payment_status") == "paid":
                 credits = int((s.get("metadata") or {}).get("credits", 0))
@@ -872,12 +969,91 @@ async def stripe_webhook(request: Request):
         if etype == "checkout.session.completed":
             session = event["data"]["object"]
             uid = session.get("client_reference_id") or (session.get("metadata") or {}).get("uid")
-            credits = int((session.get("metadata") or {}).get("credits", 0))
-            print("[stripe-webhook] uid=", uid, "credits=", credits)
-            if uid and credits:
-                print("[stripe-webhook] SUPABASE_SERVICE_KEY present:", bool(SUPABASE_SERVICE_KEY))
-                res = _fulfill_order(uid, session.get("id", ""), credits)
-                print("[stripe] fulfill result:", res)
+            if session.get("mode") == "subscription":
+                # Just record the subscription + customer id here -- credits
+                # are granted by invoice.paid below (fires for this first
+                # invoice too, not just renewals), never here, so a
+                # subscription checkout never double-grants.
+                sub_id = session.get("subscription") or ""
+                cust_id = session.get("customer") or ""
+                print("[stripe-webhook] subscription checkout uid=", uid, "sub=", sub_id, "customer=", cust_id)
+                if uid and sub_id:
+                    _set_subscription_fields(
+                        uid,
+                        subscription_status="active",
+                        stripe_subscription_id=sub_id,
+                        stripe_customer_id=cust_id,
+                    )
+            else:
+                credits = int((session.get("metadata") or {}).get("credits", 0))
+                print("[stripe-webhook] uid=", uid, "credits=", credits)
+                if uid and credits:
+                    print("[stripe-webhook] SUPABASE_SERVICE_KEY present:", bool(SUPABASE_SERVICE_KEY))
+                    res = _fulfill_order(uid, session.get("id", ""), credits)
+                    print("[stripe] fulfill result:", res)
+        elif etype == "invoice.paid":
+            # Fires for the subscription's very first charge AND every
+            # monthly renewal -- the one place credits actually get granted
+            # for a subscription, idempotent per invoice id (see
+            # _grant_subscription_credits), so a webhook retry never
+            # double-grants a period's credits.
+            invoice = event["data"]["object"]
+            sub_id = invoice.get("subscription") or ""
+            invoice_id = invoice.get("id") or ""
+            uid = _uid_for_subscription(sub_id) if sub_id else None
+            if not uid and sub_id:
+                # Stripe doesn't guarantee checkout.session.completed (which
+                # is what normally stores stripe_subscription_id on the
+                # profile) arrives before this invoice.paid for the very
+                # first charge -- if the profile lookup above came up empty
+                # because of that race, fall back to the uid we stamped
+                # directly onto the Subscription's own metadata at creation
+                # (see /api/billing/subscribe's subscription_data.metadata),
+                # and self-heal the profile fields while we're at it so the
+                # normal lookup path works for every event after this one.
+                try:
+                    stripe.api_key = STRIPE_SECRET_KEY
+                    sub_obj = stripe.Subscription.retrieve(sub_id)
+                    uid = (sub_obj.get("metadata") or {}).get("uid")
+                    if uid:
+                        _set_subscription_fields(
+                            uid,
+                            subscription_status="active",
+                            stripe_subscription_id=sub_id,
+                            stripe_customer_id=sub_obj.get("customer") or "",
+                        )
+                except Exception as e:
+                    print("[stripe-webhook] subscription metadata fallback failed:", e)
+            print("[stripe-webhook] invoice.paid sub=", sub_id, "uid=", uid)
+            if uid:
+                credits = int(_get_pricing_config().get("subscriptionCredits") or 4000)
+                res = _grant_subscription_credits(uid, invoice_id, credits)
+                print("[stripe-webhook] subscription credit grant result:", res)
+        elif etype in ("customer.subscription.updated", "customer.subscription.created"):
+            sub = event["data"]["object"]
+            sub_id = sub.get("id") or ""
+            uid = _uid_for_subscription(sub_id) if sub_id else None
+            if not uid:
+                # This event's payload IS the Subscription object, so the
+                # metadata fallback (see invoice.paid above) needs no extra
+                # API call here -- it's right there on `sub`.
+                uid = (sub.get("metadata") or {}).get("uid")
+            status = sub.get("status") or "active"
+            period_end_ts = sub.get("current_period_end")
+            print("[stripe-webhook] subscription updated sub=", sub_id, "uid=", uid, "status=", status)
+            if uid:
+                fields = {"subscription_status": status}
+                if period_end_ts:
+                    fields["subscription_current_period_end"] = _time.strftime(
+                        "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(period_end_ts))
+                _set_subscription_fields(uid, **fields)
+        elif etype == "customer.subscription.deleted":
+            sub = event["data"]["object"]
+            sub_id = sub.get("id") or ""
+            uid = _uid_for_subscription(sub_id) if sub_id else None
+            print("[stripe-webhook] subscription canceled sub=", sub_id, "uid=", uid)
+            if uid:
+                _set_subscription_fields(uid, subscription_status="none")
         return {"ok": True}
     except Exception as e:
         print("[stripe-webhook] UNEXPECTED ERROR:", str(e))
@@ -895,10 +1071,17 @@ async def stripe_webhook(request: Request):
 #    come back and download later, matched by the job-scoped filenames below
 #    -- is kept for CLEANUP_FINAL_OUTPUT_DAYS instead, so it survives long
 #    enough to show up on the Account page (see /api/my_jobs).
-# Update privacy.html and terms.html if either number changes -- both make a
-# stated retention-time commitment to users.
+#  - CLEANUP_FINAL_OUTPUT_DAYS only applies to a job owned by a user whose
+#    profiles.subscription_status is 'active' (see the monthly-subscription
+#    billing further down). Everyone else's finished output gets only
+#    PAYONCE_OUTPUT_HOURS -- Ali's call (2026-09-26): pay-once credit-pack
+#    buyers shouldn't cost us a full 30 days of Cloudflare storage for a
+#    video they made once and left. See _final_output_cutoff().
+# Update privacy.html and terms.html if any of these numbers change -- all
+# three make a stated retention-time commitment to users.
 CLEANUP_RETENTION_HOURS = 6
 CLEANUP_FINAL_OUTPUT_DAYS = 30
+PAYONCE_OUTPUT_HOURS = 48
 CLEANUP_INTERVAL_MIN = 15
 # How long with no new transcription job before the cleanup loop drops the
 # OS's cached copy of the Whisper/pyannote model weight files (see
@@ -965,6 +1148,132 @@ def _uid_for_job(job_id):
             rows = json.load(r)
         return rows[0].get("uid") if rows else None
     except Exception:
+        return None
+
+
+def _subscription_active(uid):
+    """True only if this user currently has an active monthly subscription
+    (see the Stripe subscription billing section below) -- controls which
+    retention window their finished outputs get (CLEANUP_FINAL_OUTPUT_DAYS
+    vs PAYONCE_OUTPUT_HOURS). Fails closed (False) on any error/missing
+    config, same reasoning as _already_notified: better to under-retain a
+    file than silently treat everyone as a paying subscriber."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_status"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return bool(rows) and rows[0].get("subscription_status") == "active"
+    except Exception:
+        return False
+
+
+def _final_output_cutoff(path, now, sub_cache):
+    """The mtime cutoff below which a *finished* output file (see
+    _is_final_output) gets deleted: CLEANUP_FINAL_OUTPUT_DAYS ago for a job
+    owned by an active subscriber, PAYONCE_OUTPUT_HOURS ago for everyone
+    else (no owner found at all -- e.g. a guest/free job -- is treated as
+    pay-once too, the cheaper/shorter side, not the free 30-day tier).
+    sub_cache is a plain dict the caller reuses across one cleanup sweep so
+    the same uid's subscription status is only looked up once even if they
+    have several finished files sitting in OUTPUT_DIR."""
+    payonce_cutoff = now - PAYONCE_OUTPUT_HOURS * 3600
+    job_id = _job_id_from_output_path(path)
+    if not job_id:
+        return payonce_cutoff
+    uid = _uid_for_job(job_id)
+    if not uid:
+        return payonce_cutoff
+    if uid not in sub_cache:
+        sub_cache[uid] = _subscription_active(uid)
+    return (now - CLEANUP_FINAL_OUTPUT_DAYS * 86400) if sub_cache[uid] else payonce_cutoff
+
+
+def _uid_for_subscription(stripe_subscription_id):
+    """Maps a Stripe subscription id back to our uid, via the
+    stripe_subscription_id we store on profiles when the subscription is
+    created (see /api/billing/subscribe's webhook handling below). Used by
+    the invoice.paid / customer.subscription.* webhook events, which only
+    ever give us Stripe's own ids, never our uid directly."""
+    if not stripe_subscription_id or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    import urllib.parse as _up
+    url = (f"{SUPABASE_URL}/rest/v1/profiles?stripe_subscription_id=eq."
+           f"{_up.quote(stripe_subscription_id)}&select=id&limit=1")
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return rows[0].get("id") if rows else None
+    except Exception:
+        return None
+
+
+def _set_subscription_fields(uid, **fields):
+    """PATCHes any subset of profiles.subscription_status /
+    stripe_subscription_id / stripe_customer_id /
+    subscription_current_period_end for this uid. Same PATCH-profiles
+    pattern as set_credits() above."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not fields:
+        return False
+    import urllib.request as _ur
+    body = json.dumps(fields).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[subscription] _set_subscription_fields error: {ex}")
+        return False
+
+
+def _grant_subscription_credits(uid, invoice_id, credits):
+    """Idempotently grants one billing period's credits for a paid
+    subscription invoice -- exact same idempotency pattern as
+    _fulfill_order() for one-time packs (a subscription_invoices row per
+    invoice id, checked before granting), just against invoice id instead
+    of checkout session id. Needs the subscription_invoices table -- see
+    the SQL note above _check_expiring_outputs / the SQL block given to
+    Ali for this feature."""
+    if not uid or not invoice_id or not credits or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    try:
+        chk = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/subscription_invoices?invoice_id=eq.{invoice_id}&select=invoice_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        )
+        with _ur.urlopen(chk, timeout=10) as r:
+            if json.load(r):
+                return "already-fulfilled"
+        body = json.dumps({"invoice_id": invoice_id, "uid": uid, "credits": credits}).encode("utf-8")
+        ins = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/subscription_invoices",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            },
+        )
+        with _ur.urlopen(ins, timeout=10) as r:
+            r.read()
+        return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+    except Exception as e:
+        print("[subscription] grant credits error:", e)
         return None
 
 
@@ -1116,7 +1425,15 @@ def _check_expiring_outputs():
     """Emails a job's owner once when their finished output enters the
     CLEANUP_WARNING_DAYS window before CLEANUP_FINAL_OUTPUT_DAYS auto-delete.
     De-duped via the expiry_notices table (see the SQL note above), so this
-    is safe to call repeatedly -- a job already recorded there is skipped."""
+    is safe to call repeatedly -- a job already recorded there is skipped.
+
+    Only applies to active subscribers (the 30-day retention tier) -- a
+    pay-once job is only ever kept PAYONCE_OUTPUT_HOURS (see
+    _final_output_cutoff), far shorter than this 3-day-out warning window
+    could ever fire meaningfully, and this email's copy explicitly says
+    "30-day storage policy", which would be wrong for that user. No
+    equivalent warning is sent for the short pay-once window in this first
+    pass -- flagged to Ali as a known gap, not an oversight."""
     try:
         now = _time.time()
         warn_after_days = CLEANUP_FINAL_OUTPUT_DAYS - CLEANUP_WARNING_DAYS
@@ -1130,7 +1447,9 @@ def _check_expiring_outputs():
             if not job_id or _already_notified(job_id):
                 continue
             uid = _uid_for_job(job_id)
-            email = _email_for_uid(uid) if uid else None
+            if not uid or not _subscription_active(uid):
+                continue
+            email = _email_for_uid(uid)
             if not email:
                 continue
             days_left = max(1, round(CLEANUP_FINAL_OUTPUT_DAYS - age_days))
@@ -1154,14 +1473,19 @@ def _cleanup_worker():
         try:
             now = _time.time()
             short_cutoff = now - CLEANUP_RETENTION_HOURS * 3600
-            final_cutoff = now - CLEANUP_FINAL_OUTPUT_DAYS * 86400
+            # One Supabase lookup per distinct uid per sweep, not per file --
+            # see _final_output_cutoff().
+            sub_cache = {}
             removed = 0
             for d in (UPLOAD_DIR, OUTPUT_DIR):
                 for p in d.glob("*"):
                     try:
                         if not p.is_file():
                             continue
-                        cutoff = final_cutoff if _is_final_output(p) else short_cutoff
+                        if _is_final_output(p):
+                            cutoff = _final_output_cutoff(p, now, sub_cache)
+                        else:
+                            cutoff = short_cutoff
                         if p.stat().st_mtime < cutoff:
                             p.unlink()
                             removed += 1
@@ -2231,7 +2555,19 @@ def _get_pricing_config():
         # below injects Google's gtag.js snippet server-side into the page
         # only when this is set, so nothing is tracked until admin turns it on.
         "gaMeasurementId": "",
-        "packs": DEFAULT_PACKS
+        "packs": DEFAULT_PACKS,
+        # Monthly subscription (Ali's request, 2026-09-26): an alternative to
+        # the one-time packs above -- recurring monthly charge that grants
+        # this many credits every billing period AND keeps that user's
+        # finished outputs for the full CLEANUP_FINAL_OUTPUT_DAYS (30) instead
+        # of the short PAYONCE_OUTPUT_HOURS (48h) window pay-once/free users
+        # get. See /api/billing/subscribe and the stripe_webhook handling of
+        # invoice.paid / customer.subscription.* further down. Editable live
+        # from the admin panel (Pricing tab) -- these are only the fallback
+        # defaults used if that panel has never saved a value.
+        "subscriptionName": "Pro Monthly",
+        "subscriptionCredits": 4000,
+        "subscriptionPriceUsd": 29.0,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -2254,7 +2590,14 @@ def _get_pricing_config():
                 "cloneCredits": row.get("clone_credits", defaults["cloneCredits"]),
                 "lipsyncCreditsPerSec": row.get("lipsync_credits_per_sec", defaults["lipsyncCreditsPerSec"]),
                 "gaMeasurementId": row.get("ga_measurement_id", defaults["gaMeasurementId"]),
-                "packs": row.get("packs", defaults["packs"])
+                "packs": row.get("packs", defaults["packs"]),
+                # "or" (not a plain .get default) -- once the column exists,
+                # an untouched singleton row has it present but NULL, and
+                # .get()'s default only fires when the key is missing
+                # entirely, not when its value is None.
+                "subscriptionName": row.get("subscription_name") or defaults["subscriptionName"],
+                "subscriptionCredits": row.get("subscription_credits") or defaults["subscriptionCredits"],
+                "subscriptionPriceUsd": row.get("subscription_price_usd") or defaults["subscriptionPriceUsd"],
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -2291,6 +2634,9 @@ def _save_pricing_config(config):
             "lipsync_credits_per_sec": config.get("lipsyncCreditsPerSec", 10),
             "ga_measurement_id": _clean_ga,
             "packs": config.get("packs", []),
+            "subscription_name": config.get("subscriptionName", "Pro Monthly"),
+            "subscription_credits": config.get("subscriptionCredits", 4000),
+            "subscription_price_usd": config.get("subscriptionPriceUsd", 29.0),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
         url = f"{SUPABASE_URL}/rest/v1/pricing_config"
@@ -2869,10 +3215,21 @@ def billing_packs_dynamic():
     keyed by each pack's own 'key' field — see _keyed_packs(). This is what
     the landing page and the in-app buy modal both fetch to render pack
     cards, and both now loop over whatever keys come back here instead of
-    a fixed list, so any number of packs with any keys will show up."""
+    a fixed list, so any number of packs with any keys will show up.
+
+    Also returns the monthly subscription plan (name/credits/price) so the
+    buy modal can render it alongside the one-time packs -- see
+    /api/billing/subscribe."""
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
-    return {"packs": _keyed_packs(packs_array)}
+    return {
+        "packs": _keyed_packs(packs_array),
+        "subscription": {
+            "name": cfg.get("subscriptionName") or "Pro Monthly",
+            "credits": int(cfg.get("subscriptionCredits") or 4000),
+            "amount_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
+        },
+    }
 
 @app.post("/api/contact")
 def contact_form(req: ContactRequest, request: Request):
