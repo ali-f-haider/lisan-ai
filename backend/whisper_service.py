@@ -375,7 +375,7 @@ def merge_mid_sentence_rows(rows):
     return merged
 
 
-def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count):
+def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False):
     # Mark real activity -- main.py's cleanup loop uses this to tell a truly
     # idle server (safe to drop the model-file cache) from one that's still
     # actively being used (where dropping it would only slow the next job
@@ -388,7 +388,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         jobs_progress[job_id] = {
             "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
             "status_text": "Starting...", "warning": None, "detected_speakers": 0,
-            "is_video": False, "has_background": False,
+            "is_video": False, "has_background": False, "lipsync_wanted": lipsync_wanted,
         }
 
         file_path = Path(input_path)
