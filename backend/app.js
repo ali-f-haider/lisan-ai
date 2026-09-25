@@ -4681,6 +4681,15 @@ window.cleanOldClones = function () {
             if (helpEn) helpEn.style.display = (lang === "ar") ? "none" : "";
             var helpAr = document.getElementById("helpArPart");
             if (helpAr) helpAr.style.display = (lang === "ar") ? "" : "none";
+            // Mobile-block overlay text (see #mobileBlockOverlay in index.html)
+            var mbEn = document.getElementById("mobileBlockEn");
+            if (mbEn) mbEn.style.display = (lang === "ar") ? "none" : "";
+            var mbAr = document.getElementById("mobileBlockAr");
+            if (mbAr) mbAr.style.display = (lang === "ar") ? "" : "none";
+            var mbdEn = document.getElementById("mobileBlockDismissEn");
+            if (mbdEn) mbdEn.style.display = (lang === "ar") ? "none" : "";
+            var mbdAr = document.getElementById("mobileBlockDismissAr");
+            if (mbdAr) mbdAr.style.display = (lang === "ar") ? "" : "none";
             // Re-render the lip-sync duration note (checkbox-state-dependent,
             // handled outside the R-array/BANNERS paths -- see the comment
             // by renderLipsyncChoiceNote()'s definition).
@@ -5831,6 +5840,32 @@ window.cleanOldClones = function () {
     // The credits badge and other userBar contents can show/hide after
     // login finishes, which can change its height after this first run.
     if (window.ResizeObserver) { new ResizeObserver(sync).observe(bar); }
+})();
+
+// ===== Mobile block overlay (#mobileBlockOverlay in index.html) =====
+// Below the 768px breakpoint the page is blurred/masked with a message
+// telling the user to open Lisan AI on a computer -- the editing tools
+// (especially Step 2's tables) don't work on a phone screen. "Continue
+// anyway" is an escape hatch for a user who insists; the choice is
+// remembered only for this browser tab's session (sessionStorage), not
+// persisted across visits, so returning next time shows the overlay again.
+(function () {
+    var overlay = document.getElementById("mobileBlockOverlay");
+    if (!overlay) return;
+    var KEY = "lisan_mobile_block_dismissed";
+    try {
+        if (sessionStorage.getItem(KEY) === "1") {
+            overlay.classList.add("dismissed");
+        }
+    } catch (e) { /* sessionStorage unavailable -- overlay just stays shown */ }
+    var dismiss = document.getElementById("mobileBlockDismiss");
+    if (dismiss) {
+        dismiss.addEventListener("click", function (e) {
+            e.preventDefault();
+            overlay.classList.add("dismissed");
+            try { sessionStorage.setItem(KEY, "1"); } catch (e2) { /* ignore */ }
+        });
+    }
 })();
 
 // ===== Floating quick-nav between steps (hover the edge tab to jump) =====

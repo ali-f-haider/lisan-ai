@@ -386,6 +386,32 @@ video {
         gap: 2px;
         border-bottom: 1px solid var(--border);
     }
+
+    #mobileBlockOverlay:not(.dismissed) { display: flex; }
+}
+
+/* Mobile block overlay -- see index.html's comment above the markup and
+   app.js's dismiss handler. Hidden by default (and on desktop, always);
+   the @media rule above is what turns it on below 768px. */
+#mobileBlockOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(15, 23, 42, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+#mobileBlockOverlay .mobile-block-box {
+    background: #fff;
+    border-radius: 16px;
+    padding: 32px 26px;
+    max-width: 340px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
 }
 
 /* User bar */

@@ -10,6 +10,23 @@
 <style>#userName:hover { text-decoration: underline; color: #1a237e !important; }</style>
 </head>
 <body>
+<!-- Mobile block: Step 2's editing table alone has 9 columns of controls --
+     no responsive tweak makes that genuinely usable on a phone, so below
+     768px this masks the page and asks the person to switch to a computer
+     instead of letting them fight an editor that was never going to work
+     there. Dismissible ("Continue anyway") rather than a hard wall -- see
+     styles.css's #mobileBlockOverlay and app.js's dismiss handler. -->
+<div id="mobileBlockOverlay">
+    <div class="mobile-block-box">
+        <div style="font-size:40px;margin-bottom:10px;">💻</div>
+        <p id="mobileBlockEn" style="margin:0 0 14px;font-weight:700;font-size:16px;color:#1a237e;line-height:1.5;">For the best experience, please open Lisan AI on a computer — the editing tools need a larger screen.</p>
+        <p id="mobileBlockAr" dir="rtl" style="display:none;margin:0 0 14px;font-weight:700;font-size:16px;color:#1a237e;line-height:1.5;">للحصول على أفضل تجربة، يرجى فتح ليسان AI على جهاز كمبيوتر — أدوات التحرير تحتاج إلى شاشة أكبر.</p>
+        <a href="#" id="mobileBlockDismiss" style="display:inline-block;font-size:13px;color:#6b7280;text-decoration:underline;">
+            <span id="mobileBlockDismissEn">Continue anyway</span><span id="mobileBlockDismissAr" dir="rtl" style="display:none;">المتابعة على أي حال</span>
+        </a>
+    </div>
+</div>
+
 <div id="notifyPanel"></div>
 
 <!-- User Header Bar -->
