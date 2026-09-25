@@ -38,21 +38,41 @@ def _trim_memory():
         pass
 
 
-def _log_mem(tag):
-    """TEMPORARY diagnostic: prints this process's actual current resident
-    memory (VmRSS from /proc/self/status, in MB) to the Railway logs at key
-    checkpoints in a job. Purely a print -- changes no behavior. Added to
-    pin down exactly which step a memory plateau survives past, since we
-    can't otherwise see the live process's memory from outside it. Remove
-    once the plateau is understood and fixed for real; not meant to stay
-    forever."""
+def _fadvise_dontneed(path):
+    """Hints the kernel that this process is done with a file's contents for
+    now, so it can drop that file's pages from the OS page cache -- without
+    deleting the file itself. This is a DIFFERENT problem from _trim_memory
+    above: that one reclaims heap memory Python/PyTorch allocated; this one
+    targets file-backed cache built up by ffmpeg/faster-whisper/pyannote
+    reading these audio files off disk during a job.
+
+    Why this exists: intermediate job files (extracted audio, separated
+    vocals, etc.) are deliberately kept on disk for CLEANUP_RETENTION_HOURS
+    (6 hours, see main.py) so a user can resume/download mid-session work --
+    but nothing was telling the kernel it could stop caching their contents
+    in RAM during that whole window, once a job is actually done reading
+    them. That's a real, billable cost on Railway (memory is metered per
+    MB/minute, and page cache counts toward the reported "used" figure the
+    same as real memory) -- not just a cosmetic dashboard number. This does
+    NOT touch the file on disk at all, only its cached copy in RAM, so the
+    6-hour retention window for resuming/downloading is completely
+    unaffected.
+
+    posix_fadvise(DONTNEED) only advises the kernel; it's a normal,
+    unprivileged operation any process can do on files it can read -- unlike
+    forcing a global cache drop (/proc/sys/vm/drop_caches), which needs
+    host-level root that a shared platform like Railway never grants a
+    single tenant's container. If the kernel later needs that file's data
+    again (e.g. a later export step reads background_path), it just reads
+    it fresh off disk -- slightly slower once, never broken. Safe no-op on
+    any platform/filesystem where this isn't supported."""
     try:
-        with open("/proc/self/status") as f:
-            for line in f:
-                if line.startswith("VmRSS:"):
-                    kb = int(line.split()[1])
-                    print(f"[mem] {tag}: {kb / 1024:.0f} MB")
-                    return
+        import os
+        fd = os.open(str(path), os.O_RDONLY)
+        try:
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+        finally:
+            os.close(fd)
     except Exception:
         pass
 
@@ -86,7 +106,6 @@ def _release_model():
     import gc
     gc.collect()
     _trim_memory()
-    _log_mem("after _release_model + trim")
 
 
 def _release_diarization_pipeline(hf_token):
@@ -99,7 +118,6 @@ def _release_diarization_pipeline(hf_token):
     import gc
     gc.collect()
     _trim_memory()
-    _log_mem("after _release_diarization_pipeline + trim")
 
 
 def split_segment(segment, max_duration=15.0):
@@ -304,7 +322,6 @@ def merge_mid_sentence_rows(rows):
 
 
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count):
-    _log_mem("job start")
     try:
         jobs_progress[job_id] = {
             "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
@@ -316,6 +333,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         is_video = file_path.suffix.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.webm']
         audio_path = input_path
         background_path = None
+        extracted_audio = None
 
         if is_video:
             jobs_progress[job_id]["status_text"] = "Extracting audio from video..."
@@ -543,7 +561,17 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             import gc
             gc.collect()
             _trim_memory()
-            _log_mem("after VAD checks + trim")
+
+        # This job is done reading every audio file it touched -- drop their
+        # cached pages now instead of leaving them in RAM for the full
+        # CLEANUP_RETENTION_HOURS window before the file itself is deleted
+        # (see _fadvise_dontneed's docstring above for why this matters and
+        # why it's safe). The files themselves are untouched -- a later
+        # step (e.g. the mix/export step reading background_path) just
+        # re-reads from disk as normal if it runs before deletion.
+        for p in {input_path, audio_path, extracted_audio, background_path}:
+            if p:
+                _fadvise_dontneed(p)
 
         jobs_progress[job_id]["segments"] = result
         jobs_progress[job_id]["status"] = "done"
@@ -551,7 +579,6 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         jobs_progress[job_id]["full_duration"] = total_duration
         jobs_progress[job_id]["status_text"] = "Done"
         jobs_progress[job_id]["warning"] = warning
-        _log_mem("job end")
 
     except Exception as e:
         jobs_progress[job_id] = {
