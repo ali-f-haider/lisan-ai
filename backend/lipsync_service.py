@@ -418,7 +418,12 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
                 continue
             output = st.get("output") or {}
             status = str(output.get("task_status") or "").upper()
-            progress["message"] = f"Lip-sync: {status}"
+            if status == "RUNNING":
+                # Ali tested this himself: RUNNING alone can sit for ~15 minutes
+                # depending on model load, and with no extra text it looks frozen.
+                progress["message"] = "Lip-sync: RUNNING -- this can take up to 15 minutes depending on model load. Do not close or refresh the page."
+            else:
+                progress["message"] = f"Lip-sync: {status}"
             if status == "SUCCEEDED":
                 video_url_out = output.get("video_url")
                 break
@@ -448,8 +453,8 @@ def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
         (15, "Staging files for lip-sync...", 2),
         (20, "Submitting to lip-sync engine...", 2),
         (35, "Lip-sync: PENDING", 2),
-        (55, "Lip-sync: RUNNING", 3),
-        (75, "Lip-sync: RUNNING", 3),
+        (55, "Lip-sync: RUNNING -- this can take up to 15 minutes depending on model load. Do not close or refresh the page.", 3),
+        (75, "Lip-sync: RUNNING -- this can take up to 15 minutes depending on model load. Do not close or refresh the page.", 3),
         (90, "Downloading result...", 2),
     ]
     for percent, message, delay in steps:
