@@ -84,17 +84,28 @@ def fetch_voices(api_key: str) -> dict:
 
 
 def get_subscription_usage(api_key: str) -> dict:
-    """Real character-quota AND cloned-voice-slot usage for this
-    ElevenLabs account, via GET /v1/user/subscription. Returns
-    character_count, character_limit, tier, next_character_count_reset_unix,
-    voice_slots_used, and voice_limit -- or {"error": ...} if the call
-    fails for any reason (bad key, network, unexpected response). Cloned
-    voice slots matter separately from character quota: this app clones a
-    fresh voice per distinct speaker per job (see clone_voices below), and
-    those slots are a hard cap independent of how many characters are left
-    -- running out blocks new clones even with plenty of character quota
-    remaining. Used by service_usage_monitor.py for the admin dashboard's
-    usage monitoring, not by anything in the main dubbing pipeline."""
+    """Real character-quota, cloned-voice-slot, AND voice-cloning-credit
+    usage for this ElevenLabs account, via GET /v1/user/subscription.
+    Returns character_count, character_limit, tier,
+    next_character_count_reset_unix, voice_slots_used, voice_limit,
+    voice_add_edit_counter, and max_voice_add_edits -- or {"error": ...}
+    if the call fails for any reason (bad key, network, unexpected
+    response). Used by service_usage_monitor.py for the admin dashboard's
+    usage monitoring, not by anything in the main dubbing pipeline.
+
+    Three genuinely different numbers here, easy to conflate:
+      - voice_slots_used / voice_limit: how many cloned voices are sitting
+        in the account RIGHT NOW. Deleting a voice frees a slot -- this app
+        deletes every cloned voice via cleanup_cloned_voices() as soon as a
+        job is done with it, so this stays low even after heavy use.
+      - voice_add_edit_counter / max_voice_add_edits: ElevenLabs' actual
+        monthly quota for "create or edit a voice" operations. This does
+        NOT free up when a voice is deleted -- it only resets on your
+        billing cycle. This is the number that matches "I've used them all"
+        even while voice_slots_used looks small, and it's what the admin
+        dashboard's "Voice cloning credits" metric now shows.
+      - character_count / character_limit: the completely separate TTS
+        character budget, unrelated to either of the above."""
     try:
         request = urllib.request.Request(
             "https://api.elevenlabs.io/v1/user/subscription",
@@ -109,6 +120,8 @@ def get_subscription_usage(api_key: str) -> dict:
             "next_reset_unix": data.get("next_character_count_reset_unix"),
             "voice_slots_used": data.get("voice_slots_used"),
             "voice_limit": data.get("voice_limit"),
+            "voice_add_edit_counter": data.get("voice_add_edit_counter"),
+            "max_voice_add_edits": data.get("max_voice_add_edits"),
         }
     except urllib.error.HTTPError as e:
         try:
@@ -900,6 +913,37 @@ def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
         return {"deleted": deleted, "errors": errors}
     except Exception as e:
         return {"deleted": 0, "errors": [str(e)]}
+
+
+def delete_voice(voice_id: str, api_key: str) -> dict:
+    """Deletes exactly ONE voice by id -- unlike cleanup_cloned_voices()
+    above, which sweeps every Cloned_*/Custom_* voice in the whole
+    account. Used by the admin "Compare Voice Providers" tool so a
+    comparison run can never risk deleting a real user's in-flight cloned
+    voice just because it happened to be running at the same time."""
+    try:
+        req = urllib.request.Request(f"https://api.elevenlabs.io/v1/voices/{voice_id}", method="DELETE", headers={"xi-api-key": api_key})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            r.read()
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def generate_sample(voice_id: str, text: str, api_key: str) -> bytes:
+    """Minimal one-off TTS call: given a voice_id and plain text, returns
+    the generated audio bytes. Same model/language as the real dubbing
+    pipeline (see generate_worker's eleven_v3 + language_code='ar' call)
+    so the admin comparison tool is a fair, representative test -- but
+    this bypasses all of the dubbing-specific machinery (timing, mixing,
+    emotion-tag lookup, credit accounting). Only used by the admin
+    "Compare Voice Providers" tool. Raises on failure; caller catches."""
+    global eleven_client
+    if eleven_client is None:
+        eleven_client = ElevenLabs(api_key=api_key)
+    response = eleven_client.text_to_speech.convert(text=text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
+    return response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
+
 
 def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
     safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"

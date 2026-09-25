@@ -65,7 +65,8 @@ _eleven_latest = {
     "ok": False, "error": "not polled yet", "character_count": None,
     "character_limit": None, "percent": None, "tier": None,
     "next_reset_unix": None, "voice_slots_used": None, "voice_limit": None,
-    "voice_percent": None, "ts": None,
+    "voice_percent": None, "clone_ops_used": None, "clone_ops_limit": None,
+    "clone_ops_percent": None, "ts": None,
 }
 _eleven_lock = threading.Lock()
 _eleven_alert_active = False
@@ -85,12 +86,12 @@ def fetch_eleven_usage():
     """One-shot live call to ElevenLabs' subscription endpoint. Never
     raises -- any failure comes back as {"ok": False, "error": ...}.
 
-    Tracks two independent quotas: character usage (the TTS budget) and
-    cloned-voice slots (a hard cap on how many distinct voices can be
-    cloned at once, unrelated to characters remaining -- this app clones
-    one voice per distinct speaker per job, so running out blocks new
-    dubbing jobs with new speakers even when there's plenty of character
-    quota left)."""
+    Tracks THREE independent quotas -- see eleven_service.get_subscription_
+    usage()'s docstring for the full explanation of why they're different
+    numbers: character usage (the TTS budget), cloned-voice slots (a live
+    snapshot, frees up on delete), and voice cloning credits (a monthly
+    quota that does NOT free up on delete -- this is the one that actually
+    answers "how many clones do I have left this month")."""
     if not _configured():
         return {"ok": False, "error": "ELEVENLABS_API_KEY not set"}
     data = eleven_service.get_subscription_usage(ELEVENLABS_API_KEY)
@@ -104,6 +105,9 @@ def fetch_eleven_usage():
     voices_used = data.get("voice_slots_used")
     voice_limit = data.get("voice_limit")
     voice_percent = round(voices_used / voice_limit * 100, 1) if (voices_used is not None and voice_limit) else None
+    clone_ops_used = data.get("voice_add_edit_counter")
+    clone_ops_limit = data.get("max_voice_add_edits")
+    clone_ops_percent = round(clone_ops_used / clone_ops_limit * 100, 1) if (clone_ops_used is not None and clone_ops_limit) else None
     return {
         "ok": True,
         "character_count": count,
@@ -114,6 +118,9 @@ def fetch_eleven_usage():
         "voice_slots_used": voices_used,
         "voice_limit": voice_limit,
         "voice_percent": voice_percent,
+        "clone_ops_used": clone_ops_used,
+        "clone_ops_limit": clone_ops_limit,
+        "clone_ops_percent": clone_ops_percent,
     }
 
 
@@ -160,6 +167,17 @@ def _send_eleven_alert_email(result):
             "out blocks cloning any NEW speaker's voice, even with plenty "
             "of character quota left -- existing dubbing jobs aren't "
             "affected until a job needs a voice that hasn't been cloned yet."
+        )
+    clone_ops_percent = result.get("clone_ops_percent")
+    if clone_ops_percent is not None and clone_ops_percent >= ALERT_PERCENT:
+        lines.append(
+            f"- Voice cloning credits (monthly quota): {result['clone_ops_used']} of "
+            f"{result['clone_ops_limit']} used ({clone_ops_percent:.0f}%). "
+            "This is the one that matters most -- unlike voice slots above, "
+            "it does NOT free up when a cloned voice is deleted, only on "
+            "your next billing-cycle reset. Once it hits the limit, no new "
+            "speaker can be cloned at all until the reset, regardless of "
+            "how much character quota or how many free voice slots remain."
         )
     if not lines:
         return False
@@ -220,8 +238,10 @@ def _poll_once():
 
     percent = result.get("percent")
     voice_percent = result.get("voice_percent")
+    clone_ops_percent = result.get("clone_ops_percent")
     over_threshold = (percent is not None and percent >= ALERT_PERCENT) or \
-                      (voice_percent is not None and voice_percent >= ALERT_PERCENT)
+                      (voice_percent is not None and voice_percent >= ALERT_PERCENT) or \
+                      (clone_ops_percent is not None and clone_ops_percent >= ALERT_PERCENT)
 
     if over_threshold:
         now = _time.time()

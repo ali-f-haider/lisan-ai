@@ -248,8 +248,13 @@ button.btn-success:hover { background: #15803d; }
               <div id="suElevenVoiceBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
             </div>
             <p class="muted" id="suElevenVoiceNote" style="margin:0;font-size:0.85em;">Cloning a new speaker's voice fails once this hits the limit, even with character quota left. This is a live snapshot, not cumulative -- the app deletes each cloned voice once a job is done with it, so this number stays low even after heavy use.</p>
-            <div class="metric" style="margin-top:8px;"><div class="label">Cloning operations this month</div><div class="value" id="suElevenCloneOps">—</div></div>
-            <p class="muted" id="suElevenCloneOpsNote" style="margin:0;font-size:0.85em;">The cumulative count you actually want -- every clone operation logged this month, regardless of whether the voice was deleted afterward.</p>
+          </div>
+          <div style="margin-top:10px;">
+            <div class="metric"><div class="label">Voice cloning credits</div><div class="value" id="suElevenCloneOps">—</div></div>
+            <div style="background:#1e293b;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
+              <div id="suElevenCloneOpsBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+            </div>
+            <p class="muted" id="suElevenCloneOpsNote" style="margin:0;font-size:0.85em;">This is ElevenLabs' real monthly quota for creating/editing voices -- and it's the one that answers "how many clones do I have left." Unlike the voice slots above, it does NOT free up when a cloned voice is deleted, only on your next billing-cycle reset -- so this can hit its limit even while the slots above look nearly empty.</p>
           </div>
         </div>
 
@@ -287,6 +292,30 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" style="margin-bottom:12px;">Click any time -- including right now, while the plateau is sitting there -- to see a real breakdown of what the container's memory is actually holding: real application memory vs. reclaimable Linux page cache (the OS caching model/library files it already read, which isn't a leak and gets freed automatically if something else needs the RAM).</p>
         <button class="btn" onclick="loadMemDiag()">🔍 Check memory now</button>
         <pre id="memDiagOut" style="margin-top:12px;white-space:pre-wrap;font-size:0.85em;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;max-height:400px;overflow:auto;">Click "Check memory now" to run.</pre>
+      </div>
+      <div class="card">
+        <h3>🔬 Compare Voice Providers</h3>
+        <p class="muted" style="margin-bottom:12px;">Clones the SAME reference clip with ElevenLabs (the current production engine) and Qwen-Audio-TTS (Alibaba, Singapore region) and synthesizes the SAME Arabic text with both, so you can just listen and compare. This is a diagnostic only -- no credits are charged, nothing here touches a real dubbing job, and every cloned voice it creates on both sides is deleted again as soon as the run finishes. Requires <code>DASHSCOPE_SG_API_KEY</code> / <code>DASHSCOPE_SG_WORKSPACE_ID</code> to be set (the Singapore-region workspace, separate from the lip-sync one) -- Qwen's side will show a clear "not configured" error until those are added.</p>
+        <div style="margin-bottom:10px;">
+          <label class="muted" style="display:block;margin-bottom:4px;font-size:0.85em;">Reference voice clip (MP3 or WAV, max 10 MB, a few seconds of clean single-speaker audio)</label>
+          <input type="file" id="cmpFile" accept=".mp3,.wav,audio/mpeg,audio/wav">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label class="muted" style="display:block;margin-bottom:4px;font-size:0.85em;">Arabic text to synthesize</label>
+          <textarea id="cmpText" rows="2" style="width:100%;box-sizing:border-box;" placeholder="مرحبا، هذا اختبار لمقارنة جودة الصوت.">مرحبا، هذا اختبار لمقارنة جودة الصوت.</textarea>
+        </div>
+        <button class="btn" id="cmpRunBtn" onclick="runVoiceComparison()">▶️ Run Comparison</button>
+        <p class="muted" id="cmpStatus" style="margin-top:10px;"></p>
+        <div style="display:flex;gap:20px;margin-top:14px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:240px;">
+            <strong>ElevenLabs</strong>
+            <div id="cmpElevenResult" style="margin-top:6px;"><p class="muted" style="margin:0;">Not run yet.</p></div>
+          </div>
+          <div style="flex:1;min-width:240px;">
+            <strong>Qwen-Audio-TTS (Singapore)</strong>
+            <div id="cmpQwenResult" style="margin-top:6px;"><p class="muted" style="margin:0;">Not run yet.</p></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -651,6 +680,8 @@ async function loadServiceUsage() {
     document.getElementById('suElevenNote').textContent = 'Unavailable: ' + (el.error || 'not polled yet') + '.';
     document.getElementById('suElevenVoices').textContent = '—';
     document.getElementById('suElevenVoiceBar').style.width = '0%';
+    document.getElementById('suElevenCloneOps').textContent = '—';
+    document.getElementById('suElevenCloneOpsBar').style.width = '0%';
   } else {
     document.getElementById('suElevenUsed').textContent = el.character_count != null ? el.character_count.toLocaleString() + ' chars' : '—';
     document.getElementById('suElevenLimit').textContent = el.character_limit != null ? el.character_limit.toLocaleString() + ' chars' : 'unknown';
@@ -670,13 +701,16 @@ async function loadServiceUsage() {
     const vbar = document.getElementById('suElevenVoiceBar');
     vbar.style.width = Math.min(100, vpct) + '%';
     vbar.style.background = vpct >= el.alert_percent ? '#dc2626' : (vpct >= el.alert_percent - 15 ? '#f59e0b' : '#16a34a');
-  }
 
-  // Cumulative clone-operation count comes from our own DB, not the
-  // ElevenLabs API poll above, so it renders regardless of el.ok.
-  const cloneOps = el.clone_ops || {};
-  document.getElementById('suElevenCloneOps').textContent =
-    cloneOps.count_this_month != null ? cloneOps.count_this_month.toLocaleString() : '—';
+    document.getElementById('suElevenCloneOps').textContent =
+      (el.clone_ops_used != null && el.clone_ops_limit != null)
+        ? el.clone_ops_used + ' / ' + el.clone_ops_limit + ' used (' + Math.max(0, el.clone_ops_limit - el.clone_ops_used) + ' remaining)'
+        : '—';
+    const cpct = el.clone_ops_percent != null ? el.clone_ops_percent : 0;
+    const cbar = document.getElementById('suElevenCloneOpsBar');
+    cbar.style.width = Math.min(100, cpct) + '%';
+    cbar.style.background = cpct >= el.alert_percent ? '#dc2626' : (cpct >= el.alert_percent - 15 ? '#f59e0b' : '#16a34a');
+  }
 
   // Alibaba (estimate, not live)
   const al = d.alibaba || {};
@@ -696,6 +730,61 @@ async function loadServiceUsage() {
   } else {
     document.getElementById('suR2Bytes').textContent = _fmtBytes(r2.bytes);
     document.getElementById('suR2Count').textContent = r2.count != null ? r2.count.toLocaleString() : '—';
+  }
+}
+
+function _renderCmpResult(el, res) {
+  if (!res) { el.innerHTML = '<p class="muted" style="margin:0;">Not run yet.</p>'; return; }
+  if (res.ok) {
+    el.innerHTML = '<audio controls style="width:100%;" src="' + escapeHtml(res.audio_url) + '"></audio>';
+  } else {
+    el.innerHTML = '<p style="margin:0;color:#dc2626;font-size:0.9em;">' + escapeHtml(res.error || 'Failed.') + '</p>';
+  }
+}
+
+async function runVoiceComparison() {
+  const fileInput = document.getElementById('cmpFile');
+  const text = document.getElementById('cmpText').value.trim();
+  const btn = document.getElementById('cmpRunBtn');
+  const status = document.getElementById('cmpStatus');
+  const elevenEl = document.getElementById('cmpElevenResult');
+  const qwenEl = document.getElementById('cmpQwenResult');
+
+  if (!fileInput.files || !fileInput.files[0]) { status.textContent = 'Choose a reference clip first.'; return; }
+  if (!text) { status.textContent = 'Enter some Arabic text first.'; return; }
+
+  btn.disabled = true;
+  status.textContent = '⏳ Cloning + synthesizing on both sides -- this can take 20-60 seconds...';
+  elevenEl.innerHTML = '<p class="muted" style="margin:0;">Running…</p>';
+  qwenEl.innerHTML = '<p class="muted" style="margin:0;">Running…</p>';
+
+  try {
+    const fd = new FormData();
+    fd.append('file', fileInput.files[0]);
+    fd.append('text', text);
+    // Not using the api() helper here -- it forces Content-Type: application/json,
+    // which breaks multipart file uploads. The browser sets the correct
+    // multipart boundary itself as long as Content-Type is left unset.
+    const res = await fetch('/api/admin/compare_voice_providers', {
+      method: 'POST',
+      headers: { 'X-Admin-Token': ADMIN_TOKEN },
+      body: fd,
+    });
+    if (res.status === 401) { sessionStorage.removeItem('adminToken'); location.reload(); return; }
+    const data = await res.json();
+    if (!res.ok) {
+      status.textContent = '❌ ' + (data.error || 'Request failed.');
+      _renderCmpResult(elevenEl, null);
+      _renderCmpResult(qwenEl, null);
+    } else {
+      status.textContent = '✅ Done -- listen to both below.';
+      _renderCmpResult(elevenEl, data.elevenlabs);
+      _renderCmpResult(qwenEl, data.qwen);
+    }
+  } catch (e) {
+    status.textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 

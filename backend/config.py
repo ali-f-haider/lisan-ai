@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.17.0"
+APP_VERSION = "1.18.0"
 
 
 def _load_env():
@@ -78,6 +78,22 @@ DASHSCOPE_WORKSPACE_ID = os.environ.get("DASHSCOPE_WORKSPACE_ID", "")
 # recognize a key issued for a different region). Only change this if your
 # workspace moves or support says otherwise.
 DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "eu-central-1")
+
+# --- Alibaba Cloud Model Studio -- a SEPARATE Singapore-region workspace,
+# used ONLY by the admin "Compare Voice Providers" tool (Qwen-Audio-TTS
+# voice cloning + Arabic synthesis, see qwen_voice_service.py). Deliberately
+# NOT the same key/workspace as DASHSCOPE_API_KEY/DASHSCOPE_WORKSPACE_ID
+# above -- those are scoped to eu-central-1 and used only for the real
+# Wan 3.0 lip-sync pipeline. Voice cloning (creating a cloned voice AND
+# synthesizing speech from one) is documented by Alibaba as available only
+# in the Beijing and Singapore regions, not eu-central-1 -- confirmed via
+# Alibaba's own docs (Sept 2026) after the eu-central-1 workspace turned out
+# not to support it at all. This needs its own key + workspace created in
+# ap-southeast-1 (Model Studio console). qwen_voice_service.py checks both
+# of these are set and returns a clear "not configured" error instead of
+# guessing if either is blank.
+DASHSCOPE_SG_API_KEY = os.environ.get("DASHSCOPE_SG_API_KEY", "")
+DASHSCOPE_SG_WORKSPACE_ID = os.environ.get("DASHSCOPE_SG_WORKSPACE_ID", "")
 
 # Step 7 (lip-sync) now runs on Wan 3.0 (see DASHSCOPE_API_KEY above)
 # instead of VEED Lip Sync 2.0 -- VEED's face regeneration visibly altered

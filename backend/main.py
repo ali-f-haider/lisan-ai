@@ -31,6 +31,7 @@ import lipsync_service
 import r2_backup
 import railway_monitor
 import service_usage_monitor
+import qwen_voice_service
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 # Sentry: reports unhandled exceptions from the live server automatically.
@@ -2908,36 +2909,16 @@ def _get_lipsync_spend_this_month():
     }
 
 
-def _get_clone_count_this_month():
-    """How many times voice cloning actually ran this month (both paths:
-    'clone' is the automatic per-speaker cloning in clone_voices(),
-    'custom_voice' is the manual upload-a-sample path in
-    add_custom_voice() -- see eleven_service.py) -- a CUMULATIVE count,
-    unlike ElevenLabs' own voice_slots_used figure.
-
-    voice_slots_used only reflects voices sitting in the account RIGHT
-    NOW, and this app deletes each cloned voice via /api/cleanup_voices
-    as soon as a job is done with it (see cleanup_cloned_voices()) to
-    stay under ElevenLabs' slot cap -- so a live snapshot will always
-    look small even after hundreds of real cloning operations. This
-    counts every operation from our own credit_spends log instead, the
-    same way _get_lipsync_spend_this_month() does for Alibaba spend."""
-    import urllib.request as _ur
-    now = time.gmtime()
-    month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
-    url = f"{SUPABASE_URL}/rest/v1/credit_spends?action=in.(clone,custom_voice)&select=action,created_at&limit=5000&order=created_at.desc"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
-    try:
-        req = _ur.Request(url, headers=hdrs)
-        with _ur.urlopen(req, timeout=10) as r:
-            rows = json.load(r) or []
-    except Exception:
-        rows = []
-    month_rows = [row for row in rows if (row.get("created_at") or "") >= month_start]
-    return {
-        "count_this_month": len(month_rows),
-        "count_all_time_capped": len(rows),  # capped at the 5000-row query limit above
-    }
+# Removed 2026-09-25 (Ali): _get_clone_count_this_month(), a DB-side
+# "cumulative clone operations this month" estimate that turned out to
+# answer the wrong question -- Ali actually wanted ElevenLabs' own
+# voice-cloning-credit quota (voice_add_edit_counter / max_voice_add_edits,
+# a real monthly quota ElevenLabs itself enforces and that does NOT free up
+# when a cloned voice is deleted), not a count of operations this app
+# happened to log. That real number now comes straight from ElevenLabs via
+# service_usage_monitor.get_eleven_cached() (clone_ops_used/clone_ops_limit/
+# clone_ops_percent) -- see eleven_service.get_subscription_usage()'s
+# docstring for the full explanation of the three different quotas.
 
 
 @app.get("/api/admin/service_usage")
@@ -2952,11 +2933,108 @@ def admin_service_usage(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     eleven = service_usage_monitor.get_eleven_cached()
     eleven["alert_percent"] = service_usage_monitor.ALERT_PERCENT
-    eleven["clone_ops"] = _get_clone_count_this_month()
     resend = service_usage_monitor.get_resend_cached()
     r2 = r2_backup.get_storage_usage()
     alibaba = _get_lipsync_spend_this_month()
     return {"elevenlabs": eleven, "resend": resend, "r2": r2, "alibaba": alibaba}
+
+
+@app.post("/api/admin/compare_voice_providers")
+async def admin_compare_voice_providers(request: Request, file: UploadFile = File(...), text: str = Form(...)):
+    """Admin-only diagnostic: clones the SAME uploaded reference clip with
+    both ElevenLabs (the proven, production cloning/generation path) and
+    Qwen-Audio-TTS (the Singapore-region candidate -- see
+    qwen_voice_service.py's module docstring for why it needs its own
+    separate key/workspace), then synthesizes the SAME Arabic text with
+    both, so the two results can just be listened to side by side.
+
+    Deliberately isolated from the real dubbing pipeline: no credits are
+    charged, nothing here touches a real job's voices or the
+    /api/cleanup_voices flow, and every cloned voice this creates (on
+    BOTH sides) is deleted again before the response goes out, success or
+    failure -- via eleven_service.delete_voice() and
+    qwen_voice_service.delete_voice(), which each remove exactly the one
+    voice_id this call created, never a blanket sweep, so a comparison
+    run can never touch a real user's in-flight cloned voice."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    nm = (file.filename or "").lower()
+    if not nm.endswith((".mp3", ".wav")):
+        return JSONResponse({"error": "Only MP3 or WAV reference clips are allowed."}, status_code=400)
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        return JSONResponse({"error": "Reference clip too large (max 10 MB)."}, status_code=400)
+    text = (text or "").strip()
+    if not text:
+        return JSONResponse({"error": "Arabic text is required."}, status_code=400)
+
+    import uuid as _u
+
+    # Sweep any leftover comparison files from a previous run more than an
+    # hour ago -- this tool's outputs aren't covered by the normal job
+    # retention sweep (_cleanup_worker), since they're not tied to a job_id.
+    now_ts = time.time()
+    for old in OUTPUT_DIR.glob("qwen_cmp_*"):
+        try:
+            if now_ts - old.stat().st_mtime > 3600:
+                old.unlink()
+        except Exception:
+            pass
+
+    ref_ext = ".wav" if nm.endswith(".wav") else ".mp3"
+    ref_name = f"qwen_cmp_ref_{_u.uuid4().hex}{ref_ext}"
+    ref_path = OUTPUT_DIR / ref_name
+    ref_path.write_bytes(data)
+    origin = str(request.base_url).rstrip("/")
+    ref_url = f"{origin}/api/download/{ref_name}"
+
+    result = {"elevenlabs": {"ok": False, "error": "not run"}, "qwen": {"ok": False, "error": "not run"}}
+    eleven_voice_id = None
+    qwen_voice_id = None
+
+    # --- ElevenLabs side: the exact same cloning + generation calls the real app uses ---
+    try:
+        vid = eleven_service.add_custom_voice("admin_compare", "CompareVoice", ref_path, ELEVENLABS_API_KEY)
+        if isinstance(vid, str) and vid.startswith("ERROR"):
+            result["elevenlabs"] = {"ok": False, "error": vid}
+        else:
+            eleven_voice_id = vid
+            audio_bytes = eleven_service.generate_sample(vid, text, ELEVENLABS_API_KEY)
+            out_name = f"qwen_cmp_el_{_u.uuid4().hex}.mp3"
+            (OUTPUT_DIR / out_name).write_bytes(audio_bytes)
+            result["elevenlabs"] = {"ok": True, "audio_url": f"{origin}/api/download/{out_name}"}
+    except Exception as e:
+        result["elevenlabs"] = {"ok": False, "error": str(e)}
+
+    # --- Qwen side: Singapore-region cloning + synthesis (see qwen_voice_service.py) ---
+    try:
+        cr = qwen_voice_service.create_voice(ref_url, prefix="cmp")
+        if not cr.get("ok"):
+            result["qwen"] = cr
+        else:
+            qwen_voice_id = cr["voice_id"]
+            sr = qwen_voice_service.synthesize(qwen_voice_id, text)
+            if not sr.get("ok"):
+                result["qwen"] = sr
+            else:
+                out_name = f"qwen_cmp_qw_{_u.uuid4().hex}.mp3"
+                (OUTPUT_DIR / out_name).write_bytes(sr["audio_bytes"])
+                result["qwen"] = {"ok": True, "audio_url": f"{origin}/api/download/{out_name}"}
+    except Exception as e:
+        result["qwen"] = {"ok": False, "error": str(e)}
+    finally:
+        # Reference clip and both cloned voices are cleaned up regardless
+        # of outcome -- this diagnostic should never leave state behind.
+        try:
+            ref_path.unlink()
+        except Exception:
+            pass
+        if eleven_voice_id:
+            eleven_service.delete_voice(eleven_voice_id, ELEVENLABS_API_KEY)
+        if qwen_voice_id:
+            qwen_voice_service.delete_voice(qwen_voice_id)
+
+    return result
 
 
 @app.get("/api/admin/overview")
