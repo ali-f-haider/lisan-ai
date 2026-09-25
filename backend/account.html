@@ -25,6 +25,23 @@
      on the main app page. */
   #myJobsList video { max-width: 500px; max-height: 500px; }
   #myJobsList audio { max-width: 500px; }
+  /* Tabs, added so the page isn't one long scroll of cards -- light theme
+     to match this page (admin.html has its own dark-themed .tab/.panel,
+     not reused here), scoped with an "acct-" prefix so nothing here can
+     collide with tab/panel styles added elsewhere later. */
+  .acct-tabbar {
+    display: flex; gap: 4px; border-bottom: 2px solid #e5e7eb;
+    margin-bottom: 16px; overflow-x: auto;
+  }
+  .acct-tab {
+    padding: 10px 16px; cursor: pointer; font-size: 14px; font-weight: 600;
+    color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px;
+    white-space: nowrap; user-select: none;
+  }
+  .acct-tab:hover { color: #1a237e; }
+  .acct-tab.active { color: #1a237e; border-bottom-color: #1a237e; }
+  .acct-panel { display: none; }
+  .acct-panel.active { display: block; }
 </style>
 </head>
 <body>
@@ -39,28 +56,50 @@
     <button id="logoutBtn" class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
   </div>
 </div>
-<div class="card">
-  <h3 id="balanceHeading">💰 Current balance</h3>
-  <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
-  <p id="balanceNote" class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
+<div class="acct-tabbar" id="acctTabbar">
+  <div class="acct-tab active" data-tab="balance" id="tabBalance">💰 Balance</div>
+  <div class="acct-tab" data-tab="subscription" id="tabSubscription">🔁 Subscription</div>
+  <div class="acct-tab" data-tab="files" id="tabFiles">🎬 Files</div>
+  <div class="acct-tab" data-tab="purchases" id="tabPurchases">🛒 Purchases</div>
+  <div class="acct-tab" data-tab="usage" id="tabUsage">📉 Usage</div>
 </div>
-<div class="card" id="subCard">
-  <h3 id="subHeading">🔁 Subscription</h3>
-  <p id="subStatusLine" class="note">—</p>
-  <button id="subManageBtn" class="btn-logout hidden" onclick="manageSubscription()">Manage Subscription</button>
+
+<div class="acct-panel active" id="panel-balance">
+  <div class="card">
+    <h3 id="balanceHeading">💰 Current balance</h3>
+    <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
+    <p id="balanceNote" class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
+  </div>
 </div>
-<div class="card">
-  <h3 id="filesHeading">🎬 Your Finished Files</h3>
-  <p id="filesNote" class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
-  <div id="myJobsList"><p style="color:#6b7280;" id="loadingText">Loading…</p></div>
+
+<div class="acct-panel" id="panel-subscription">
+  <div class="card" id="subCard">
+    <h3 id="subHeading">🔁 Subscription</h3>
+    <p id="subStatusLine" class="note">—</p>
+    <button id="subManageBtn" class="btn-logout hidden" onclick="manageSubscription()">Manage Subscription</button>
+  </div>
 </div>
-<div class="card">
-  <h3 id="purchasesHeading">🛒 Credit purchases</h3>
-  <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPCredits">Credits</th><th id="thPSession">Stripe session</th></tr></thead><tbody></tbody></table>
+
+<div class="acct-panel" id="panel-files">
+  <div class="card">
+    <h3 id="filesHeading">🎬 Your Finished Files</h3>
+    <p id="filesNote" class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
+    <div id="myJobsList"><p style="color:#6b7280;" id="loadingText">Loading…</p></div>
+  </div>
 </div>
-<div class="card">
-  <h3 id="spendsHeading">📉 Credit consumption</h3>
-  <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
+
+<div class="acct-panel" id="panel-purchases">
+  <div class="card">
+    <h3 id="purchasesHeading">🛒 Credit purchases</h3>
+    <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPCredits">Credits</th><th id="thPSession">Stripe session</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<div class="acct-panel" id="panel-usage">
+  <div class="card">
+    <h3 id="spendsHeading">📉 Credit consumption</h3>
+    <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
+  </div>
 </div>
 <script>
 // Follows the main app's language choice -- this page has no toggle of its
@@ -72,6 +111,8 @@ var LANG = (localStorage.getItem("lisan_lang") === "ar") ? "ar" : "en";
 var T = {
   en: {
     title: "Lisan AI — My Usage", credits: "credits", back: "← Back to App", logout: "Log Out",
+    tabBalance: "💰 Balance", tabSubscription: "🔁 Subscription", tabFiles: "🎬 Files",
+    tabPurchases: "🛒 Purchases", tabUsage: "📉 Usage",
     balanceHeading: "💰 Current balance",
     balanceNote: "100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.",
     subHeading: "🔁 Subscription",
@@ -96,6 +137,8 @@ var T = {
   },
   ar: {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
+    tabBalance: "💰 الرصيد", tabSubscription: "🔁 الاشتراك", tabFiles: "🎬 الملفات",
+    tabPurchases: "🛒 المشتريات", tabUsage: "📉 الاستهلاك",
     balanceHeading: "💰 الرصيد الحالي",
     balanceNote: "100 ائتمان = 1.00 دولار · التفريغ 3 · التوليد ≈ الأحرف/60 · الدمج 1. الائتمانات لا تنتهي صلاحيتها.",
     subHeading: "🔁 الاشتراك",
@@ -128,6 +171,11 @@ var T = {
   document.getElementById("creditsWord").textContent = T.credits;
   document.getElementById("backBtn").firstChild.nodeValue = T.back;
   document.getElementById("logoutBtn").textContent = T.logout;
+  document.getElementById("tabBalance").textContent = T.tabBalance;
+  document.getElementById("tabSubscription").textContent = T.tabSubscription;
+  document.getElementById("tabFiles").textContent = T.tabFiles;
+  document.getElementById("tabPurchases").textContent = T.tabPurchases;
+  document.getElementById("tabUsage").textContent = T.tabUsage;
   document.getElementById("balanceHeading").textContent = T.balanceHeading;
   document.getElementById("balanceNote").textContent = T.balanceNote;
   document.getElementById("subHeading").textContent = T.subHeading;
@@ -145,6 +193,22 @@ var T = {
   document.getElementById("thSAction").textContent = T.thSAction;
   document.getElementById("thSJob").textContent = T.thSJob;
   document.getElementById("thSCredits").textContent = T.thSCredits;
+})();
+
+// Tabs. Same click-to-switch pattern as admin.html's .tab/.panel, plus a
+// #hash deep link (e.g. /account#purchases) so a link elsewhere in the app
+// can open straight to one tab instead of always landing on Balance.
+(function setupTabs() {
+  function activate(name) {
+    document.querySelectorAll(".acct-tab").forEach(function (t) { t.classList.toggle("active", t.dataset.tab === name); });
+    document.querySelectorAll(".acct-panel").forEach(function (p) { p.classList.toggle("active", p.id === "panel-" + name); });
+  }
+  document.querySelectorAll(".acct-tab").forEach(function (tab) {
+    tab.onclick = function () { activate(tab.dataset.tab); history.replaceState(null, "", "#" + tab.dataset.tab); };
+  });
+  var fromHash = (window.location.hash || "").replace("#", "");
+  var valid = ["balance", "subscription", "files", "purchases", "usage"];
+  if (valid.indexOf(fromHash) > -1) activate(fromHash);
 })();
 
 window._subActive = false;
