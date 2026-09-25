@@ -187,9 +187,9 @@ def flag_suspect_word_gaps(result, audio_path, min_gap_sec=1.0, _precomputed=Non
                 suspects.append({
                     "start": round(gap_start, 2), "end": round(gap_end, 2),
                     "probability": round(m, 3),
-                    "reason": (f'Whisper\'s timing shows a {gap_end - gap_start:.1f}s gap here between '
-                               f'"{w1}" and "{w2}", but voice-activity detection finds likely speech in '
-                               f'that stretch -- the word timestamp may be wrong rather than this being '
+                    "reason": (f'This looks like a {gap_end - gap_start:.1f}s pause here between '
+                               f'"{w1}" and "{w2}", but the audio actually seems to have speech in '
+                               f'that stretch -- the timing here may be off rather than this being '
                                f'a real pause. Worth checking before generating.'),
                 })
         if suspects:
@@ -270,10 +270,10 @@ def flag_misaligned_words(result, audio_path, min_word_sec=0.12, min_speech_frac
             entry = {
                 "start": round(w0, 2), "end": round(w1, 2),
                 "probability": round(sum(vals) / len(vals), 3),
-                "reason": (f'Whisper places "{word_text}" at {w0:.2f}s-{w1:.2f}s, right next to an unusually '
-                           f'large timing gap, but voice-activity detection finds almost no real speech in '
-                           f'that exact window -- the word may be anchored to the wrong point in the audio '
-                           f'entirely, not just mistimed. Worth checking before generating.'),
+                "reason": (f'The word "{word_text}" is timed at {w0:.2f}s-{w1:.2f}s, right next to an unusually '
+                           f'large gap, but the audio doesn\'t seem to actually have speech in that exact '
+                           f'window -- this word may be placed at the wrong point in the audio entirely, '
+                           f'not just slightly mistimed. Worth checking before generating.'),
             }
             seg.setdefault("suspect_gaps", []).append(entry)
 
