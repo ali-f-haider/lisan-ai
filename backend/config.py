@@ -59,27 +59,29 @@ R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "")
 # --- fal.ai (hosts the VEED Lip Sync 2.0 model used for Step 7 lip-sync) ---
 FAL_API_KEY = os.environ.get("FAL_API_KEY", "")
 
-# --- Alibaba Cloud Model Studio -- VideoRetalk, the lip-sync provider
-# replacing VEED, see LIPSYNC_ENABLED below. NOT the Wan family (that only
-# generates brand-new video, not video-to-video lip dubbing) -- VideoRetalk
-# is a separate model, and it's China (Beijing) region only:
-# https://www.alibabacloud.com/help/en/model-studio/videoretalk-api
-# DASHSCOPE_API_KEY must be a key issued for that region -- an
-# international/Singapore Model Studio key will not work with this model.
+# --- Alibaba Cloud Model Studio -- Wan 3.0 (model string "wan3.0-video"),
+# the lip-sync provider replacing VEED, see LIPSYNC_ENABLED below. Called in
+# its reference_video + reference_audio dubbing mode:
+# https://www.alibabacloud.com/help/en/model-studio/wan3-video-generation-guide
 DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
-# Kept for now in case a future provider needs them -- VideoRetalk's own
-# endpoint (dashscope.aliyuncs.com, no workspace subdomain) doesn't use
-# either of these.
+# Model Studio's international (outside mainland China) endpoints are
+# scoped to a specific Workspace ID as part of the URL itself, not just the
+# API key -- found in the Model Studio console (Workspace settings, or
+# visible in the console's own URL). Required for the Wan 3.0 lip-sync call
+# to work at all; /api/lipsync will fail cleanly with a clear error if this
+# is blank.
 DASHSCOPE_WORKSPACE_ID = os.environ.get("DASHSCOPE_WORKSPACE_ID", "")
+# Region the workspace above lives in -- "ap-southeast-1" (Singapore) is
+# the usual international region; change only if your workspace was
+# created somewhere else.
 DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "ap-southeast-1")
 
-# Step 7 (lip-sync) now runs on VideoRetalk (see DASHSCOPE_API_KEY above)
+# Step 7 (lip-sync) now runs on Wan 3.0 (see DASHSCOPE_API_KEY above)
 # instead of VEED Lip Sync 2.0 -- VEED's face regeneration visibly altered
-# the person (trimmed beard, changed skin) on real footage; VideoRetalk
-# only replaces the mouth/lower-face region, keeping the rest of the
-# original footage untouched. /api/lipsync checks this flag and refuses
-# the request while it's off. Set back to False if VideoRetalk turns out
-# to be unreliable in practice.
+# the person (trimmed beard, changed skin) on real footage; Wan 3.0 was
+# hand-tested against several lip-sync providers and was the one that held
+# up. /api/lipsync checks this flag and refuses the request while it's
+# off. Set back to False if Wan 3.0 turns out to be unreliable in practice.
 LIPSYNC_ENABLED = True
 
 # --- Contact form (optional; the /api/contact endpoint still validates

@@ -19,7 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
-                    LIPSYNC_ENABLED, DASHSCOPE_API_KEY)
+                    LIPSYNC_ENABLED, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION)
 import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
@@ -183,7 +183,7 @@ class MergeRequest(BaseModel):
 
 class LipSyncRequest(BaseModel):
     job_id: str
-    provider: str = "videoretalk"
+    provider: str = "wan3"
     model: str = "lipsync-2"
     sync_key: str = ""
 
@@ -1704,7 +1704,8 @@ def lipsync(req: LipSyncRequest, request: Request):
                                               "message": "Preparing...", "error": None,
                                               "result": None, "generation_id": None}
     threading.Thread(target=lipsync_service.lipsync_worker,
-                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY, DASHSCOPE_API_KEY),
+                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY,
+                           DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION),
                      daemon=True).start()
     return {"status": "started", "credits_charged": lipsync_cost if uid else 0}
 

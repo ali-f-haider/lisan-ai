@@ -259,20 +259,31 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
         raw_video.write_bytes(resp.read())
 
 
-# Alibaba Cloud Model Studio's VideoRetalk -- true video-to-video lip
-# dubbing: takes an existing video plus a new audio track and replaces just
-# the mouth movements to match it, keeping the rest of the footage as-is
-# (unlike VEED Lip Sync 2.0 above, which regenerates the whole face). Docs:
-# https://www.alibabacloud.com/help/en/model-studio/videoretalk-api
-# IMPORTANT: this model is China (Beijing) region only -- DASHSCOPE_API_KEY
-# must be a key issued for that region; the international Model Studio
-# endpoint does not serve this model at all.
-DASHSCOPE_SUBMIT_URL = "https://dashscope.aliyuncs.com/api/v1/services/aigc/image2video/video-synthesis/"
-DASHSCOPE_TASK_URL = "https://dashscope.aliyuncs.com/api/v1/tasks/{task_id}"
+# Alibaba Cloud Model Studio's Wan 3.0 video model, called in its
+# reference_video + reference_audio dubbing mode -- confirmed working
+# by hand (Ali tested several lip-sync providers; this is the one that
+# held up). Model string, endpoint shape, and media/parameters schema are
+# all from Alibaba's own docs:
+# https://www.alibabacloud.com/help/en/model-studio/wan3-video-generation-guide
+# Note this is a reference-guided GENERATION, not literal pixel-patching of
+# just the mouth region -- so the prompt matters; it explicitly tells the
+# model to keep everything except lip movement unchanged. Workspace-scoped
+# endpoint (international/Singapore by default) -- needs DASHSCOPE_API_KEY
+# plus DASHSCOPE_WORKSPACE_ID set on Railway.
+WAN3_MODEL = "wan3.0-video"
+WAN3_DUB_PROMPT = (
+    "Keep the video's background, character, camera movement, and actions "
+    "exactly unchanged. Only naturally synchronize the speaking character's "
+    "mouth and lip movements to match Audio 1."
+)
 
 
-def _alibaba_videoretalk_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, raw_video: Path, progress: dict, job_id: str):
-    # VideoRetalk needs public HTTP(S) URLs for both inputs (no raw file
+def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str):
+    if not workspace_id:
+        raise Exception("Missing DASHSCOPE_WORKSPACE_ID (required for the Wan 3.0 lip-sync call).")
+    base_url = f"https://{workspace_id}.{region}.maas.aliyuncs.com"
+
+    # Wan 3.0 needs public HTTP(S) URLs for both references (no raw file
     # upload), so stage the already-compressed video and the dubbed audio
     # in R2 first via short-lived presigned URLs -- the bucket itself never
     # has to be made public. Cleaned up in `finally` either way.
@@ -292,11 +303,25 @@ def _alibaba_videoretalk_lipsync(upload_path: Path, audio_path: Path, dashscope_
         progress["percent"] = 15
         progress["message"] = "Submitting to lip-sync engine..."
         body = json.dumps({
-            "model": "videoretalk",
-            "input": {"video_url": video_url, "audio_url": audio_url},
+            "model": WAN3_MODEL,
+            "input": {
+                "prompt": WAN3_DUB_PROMPT,
+                "media": [
+                    {"type": "reference_video", "url": video_url},
+                    {"type": "reference_audio", "url": audio_url},
+                ],
+            },
+            "parameters": {
+                "resolution": "720P",
+                "ratio": "adaptive",
+                # -1 = auto: preserves the reference video's own duration
+                # instead of us having to compute/pass one.
+                "duration": -1,
+                "prompt_extend": True,
+            },
         }).encode("utf-8")
         req = urllib.request.Request(
-            DASHSCOPE_SUBMIT_URL,
+            f"{base_url}/api/v1/services/aigc/video-generation/video-synthesis",
             data=body,
             headers={
                 "Content-Type": "application/json",
@@ -322,7 +347,7 @@ def _alibaba_videoretalk_lipsync(upload_path: Path, audio_path: Path, dashscope_
         for _ in range(120):  # up to ~20 minutes at 10s intervals
             time.sleep(10)
             poll_req = urllib.request.Request(
-                DASHSCOPE_TASK_URL.format(task_id=task_id),
+                f"{base_url}/api/v1/tasks/{task_id}",
                 headers={"Authorization": f"Bearer {dashscope_key}"},
             )
             try:
@@ -349,7 +374,7 @@ def _alibaba_videoretalk_lipsync(upload_path: Path, audio_path: Path, dashscope_
         r2_backup.delete_temp_object(audio_key)
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key=""):
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1"):
     key = f"lipsync_{job_id}"
     upload_path = None
     try:
@@ -375,9 +400,9 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             elif provider == "veed":
                 if not fal_key: raise Exception("Missing lip-sync engine key.")
                 _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
-            elif provider == "videoretalk":
+            elif provider == "wan3":
                 if not dashscope_key: raise Exception("Missing lip-sync engine key.")
-                _alibaba_videoretalk_lipsync(upload_path, dubbed_audio, dashscope_key, raw_video, jobs_progress[key], job_id)
+                _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id)
             else:
                 if not eleven_key: raise Exception("Missing lip-sync engine key.")
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])
