@@ -105,7 +105,7 @@ def _strip_code_fences(text: str) -> str:
 def translate_segments(job_id: str, segments: list, api_key: str) -> dict:
     """Translate all segments to Arabic (MSA + Tashkeel) and detect emotions."""
     if not api_key:
-        return {"error": "Missing Gemini API key."}
+        return {"error": "Missing Translation AI key."}
     if not segments:
         return {"error": "No segments to translate."}
 
@@ -155,7 +155,7 @@ Segments:
     data, err = call_gemini(api_key, payload, timeout=120)
     record_gemini(job_id, data)
     if data is None:
-        return {"error": f"Gemini API failed on all models. Last error: {err}"}
+        return {"error": f"Translation AI failed on all models. Last error: {err}"}
 
     result_text = _strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"])
     translated_segments = json.loads(result_text)

@@ -276,7 +276,7 @@ def _stretch_to_wav(src: Path, out: Path, tempo: float, rate: int):
 
 def _save_gemini_audio(data_bytes: bytes, base_path: Path, rate: int) -> Path:
     if not data_bytes:
-        raise Exception("Gemini TTS returned empty audio.")
+        raise Exception("Audio engine returned empty audio.")
     if data_bytes[:4] == b"RIFF":
         out = base_path.with_suffix(".wav")
         out.write_bytes(data_bytes)
@@ -336,7 +336,7 @@ def _gemini_tts_call(api_key: str, text: str, voice: str):
             last_err = f"[{model_name}] No audio data in response"
             continue
         return data, model_name
-    raise Exception(f"Gemini TTS failed on all models. Last: {last_err}")
+    raise Exception(f"Audio engine failed on all models. Last: {last_err}")
 
 
 def generate_worker(req):
@@ -358,7 +358,7 @@ def generate_worker(req):
 
             if req.tts_provider == "gemini":
                 if not req.gemini_api_key:
-                    raise Exception("Missing Gemini API key.")
+                    raise Exception("Missing audio engine key.")
                 
                 try:
                     data, used_model = _gemini_tts_call(req.gemini_api_key, seg.arabic_text, req.gemini_voice or "Kore")
@@ -384,7 +384,7 @@ def generate_worker(req):
             else:
                 api_key = req.elevenlabs_api_key.strip()
                 if not api_key:
-                    raise Exception("Missing ElevenLabs API key.")
+                    raise Exception("Missing voice engine key.")
                 if eleven_client is None:
                     eleven_client = ElevenLabs(api_key=api_key)
                 voice_id = req.speaker_voices.get(seg.speaker, "").strip() or req.default_voice_id.strip()

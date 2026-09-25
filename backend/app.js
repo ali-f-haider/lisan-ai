@@ -41,7 +41,7 @@ function allowedWindowFor(seg) {
 function friendly(msg) {
     msg = String(msg || "");
     if (/voice_add_edit_limit_reached|monthly limit of voice add\/edit/i.test(msg)) {
-        return "🎙️ Voice cloning limit reached: your ElevenLabs account has hit its monthly cap for creating/editing voices. This resets automatically next month, or you can upgrade your ElevenLabs plan to raise the limit. Meanwhile you can skip cloning and pick a numbered studio voice for this speaker in Step 4.";
+        return "🎙️ Voice cloning limit reached: your voice engine account has hit its monthly cap for creating/editing voices. This resets automatically next month, or you can upgrade your voice engine plan to raise the limit. Meanwhile you can skip cloning and pick a numbered studio voice for this speaker in Step 4.";
     }
     if (/voice_not_found|was not found/i.test(msg)) {
         return "🎙️ The voice assigned to this speaker no longer exists in your connected voice account (old cloned voices were removed). Re-clone it in Step 3.5 or pick a numbered library voice in Step 4, then try again.";
@@ -182,7 +182,7 @@ async function geminiTextCall(key, prompt) {
             lastErr = "empty response";
         } catch (e) { lastErr = e.message; }
     }
-    throw new Error(lastErr || "Gemini call failed");
+    throw new Error(lastErr || "Text engine call failed");
 }
 function stripFences(t) {
     t = String(t).trim();
@@ -1309,6 +1309,21 @@ window.addEventListener('DOMContentLoaded', loadRealPricing);
 
 const MAX_UPLOAD_BYTES = 400 * 1024 * 1024;
 const MAX_DURATION_SEC = 60.5;
+const MIN_DURATION_SEC = 4;
+const LIPSYNC_MAX_DURATION_SEC = 15;
+const CLONE_QUALITY_WARN_SEC = 30;
+
+// Updates the helper note under the lip-sync checkbox in Step 1 as it's
+// toggled -- the actual enforcement happens in startTranscribe() below and
+// (for real, since JS can't be trusted) server-side in /api/transcribe;
+// this is just keeping the visible copy in sync with which range applies.
+function onLipsyncChoiceChanged(checkbox) {
+    const note = document.getElementById("lipsyncChoiceNote");
+    if (!note) return;
+    note.innerHTML = checkbox && checkbox.checked
+        ? "Lip-sync selected: clip must be <strong>4-15 seconds</strong>."
+        : "Clip must be <strong>4-60 seconds</strong>.";
+}
 
 function probeFileDuration(file) {
     return new Promise((resolve) => {
@@ -1764,10 +1779,26 @@ async function startTranscribe() {
         notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.");
         return;
     }
+    const lipsyncBox = document.getElementById("lipsyncWantedCheckbox");
+    const lipsyncWanted = !!(lipsyncBox && lipsyncBox.checked);
+    const maxDur = lipsyncWanted ? LIPSYNC_MAX_DURATION_SEC : MAX_DURATION_SEC;
     const dur = await probeFileDuration(file);
-    if (dur !== null && dur > MAX_DURATION_SEC) {
-        notify("error", "This clip is " + Math.round(dur) + " seconds long. This build accepts up to 60 seconds — please trim it first.");
+    if (dur !== null && dur < MIN_DURATION_SEC) {
+        notify("error", "This clip is only " + dur.toFixed(1) + " seconds long. The minimum is " + MIN_DURATION_SEC + " seconds.");
         return;
+    }
+    if (dur !== null && dur > maxDur) {
+        const limitDesc = lipsyncWanted ? "For a lip-synced clip, the" : "The";
+        notify("error", "This clip is " + Math.round(dur) + " seconds long. " + limitDesc + " limit is " + maxDur + " seconds — please trim it first.");
+        return;
+    }
+    // Not a blocker -- cloning can still run on a shorter clip, it just may
+    // not sound as convincing (ElevenLabs' own guidance: ~30s of clean
+    // audio is where they've seen consistently good results). Worth
+    // telling the user up front rather than only after they've spent
+    // credits on a clone that doesn't sound like the speaker.
+    if (dur !== null && dur < CLONE_QUALITY_WARN_SEC) {
+        notify("info", "Heads up: this clip is under " + CLONE_QUALITY_WARN_SEC + " seconds. Voice cloning can still run, but a longer clip usually sounds more convincing.");
     }
     // Blank field -> 0, which whisper_service.py already treats as "no
     // hint, auto-detect" (both in the diarization call and in the "only
@@ -1781,6 +1812,7 @@ async function startTranscribe() {
     form.append("file", file);
     form.append("speaker_count", speakerCount);
     form.append("voice_consent", "true");
+    form.append("lipsync", lipsyncWanted ? "true" : "false");
     const pf = document.getElementById("progressFill");
     const pt = document.getElementById("progressText");
     document.getElementById("progressSection").classList.remove("hidden");
@@ -4215,7 +4247,9 @@ window.cleanOldClones = function () {
         ["Generate the final Arabic audio with emotions and exact timing.", "ولّد الصوت العربي النهائي بالمشاعر والتوقيت الدقيق."],
         ["kept", "محتفظ به"],
         ["faded / trimmed", "تلاشٍ / تقليم"],
-        ["overlap allowed", "يُسمح بالتداخل"]
+        ["overlap allowed", "يُسمح بالتداخل"],
+        ["Also generate a lip-synced video", "أنشئ أيضًا فيديو بمزامنة الشفاه"],
+        ["I hereby certify that I have all necessary rights or consents to upload and translate this audio/video, which could result in the cloning of the associated voices.", "أقرّ بأنني أملك جميع الحقوق أو الموافقات اللازمة لرفع هذا الملف الصوتي أو المرئي وترجمته، وهو ما قد يؤدي إلى استنساخ الأصوات المرتبطة به."]
     ];
     var N = [
         ["Transcription complete.", "اكتملت التفريغة."],
@@ -4381,6 +4415,15 @@ window.cleanOldClones = function () {
         [". Pick voices in Step 4 (or Auto-Assign) first.", ". اختر أصواتًا في الخطوة 4 (أو التعيين التلقائي) أولاً."],
         [". Pick one in Step 4 first.", ". اختر صوتًا في الخطوة 4 أولاً."],
         [" seconds long. This build accepts up to 60 seconds — please trim it first.", " ثانية. يقبل هذا الإصدار حتى 60 ثانية — يرجى تقليمه أولاً."],
+        ["This clip is only ", "مدة هذا المقطع فقط "],
+        [" seconds long. The minimum is ", " ثانية. الحد الأدنى "],
+        ["For a lip-synced clip, the limit is ", "بالنسبة لمقطع بمزامنة الشفاه، الحد الأقصى هو "],
+        [" seconds — please trim it first.", " ثانية — يرجى تقليمه أولاً."],
+        ["Heads up: this clip is under ", "تنبيه: مدة هذا المقطع أقل من "],
+        [" seconds. Voice cloning can still run, but a longer clip usually sounds more convincing.", " ثانية. لا يزال بإمكان استنساخ الصوت العمل، لكن المقطع الأطول عادةً ما يبدو أكثر إقناعًا."],
+        ["Also generate a lip-synced video", "أنشئ أيضًا فيديو بمزامنة الشفاه"],
+        ["Lip-sync selected: clip must be ", "تم اختيار مزامنة الشفاه: يجب أن تكون مدة المقطع "],
+        ["Clip must be ", "يجب أن تكون مدة المقطع "],
         [" MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.", " ميجابايت). الحد الأقصى 400 ميجابايت — عادةً ما يكون مقطع بدقة 1080p لمدة دقيقة واحدة أقل من 150 ميجابايت بكثير."],
         [" ⚠️ stretched to the limit.", " ⚠️ تم التمديد إلى الحد الأقصى."],
         [" lines. The Step 6 player now uses it.", " أسطر. مشغّل الخطوة 6 يستخدمه الآن."],

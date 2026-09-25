@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.8.0"
 
 
 def _load_env():
@@ -59,6 +59,20 @@ R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "")
 # --- fal.ai (hosts the VEED Lip Sync 2.0 model used for Step 7 lip-sync) ---
 FAL_API_KEY = os.environ.get("FAL_API_KEY", "")
 
+# --- Alibaba Cloud Model Studio (Wan 3.0 -- the new lip-sync provider
+# replacing VEED, see LIPSYNC_ENABLED below) ---
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+# Model Studio's international (outside mainland China) endpoints are
+# scoped to a specific Workspace ID as part of the URL itself, not just the
+# API key -- found in the Model Studio console (Workspace settings, or
+# visible in the console's own URL). Still needed before the Wan 3.0 call
+# can actually be wired up; blank until then.
+DASHSCOPE_WORKSPACE_ID = os.environ.get("DASHSCOPE_WORKSPACE_ID", "")
+# Region the workspace above lives in -- "ap-southeast-1" (Singapore) is
+# the usual international region; change only if your workspace was
+# created somewhere else.
+DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "ap-southeast-1")
+
 # Step 7 (lip-sync) is disabled: VEED Lip Sync 2.0's face regeneration
 # visibly alters the person (trimmed beard, changed skin) on real footage,
 # which isn't something to charge customers for or put Lisan AI's name on.
@@ -67,7 +81,8 @@ FAL_API_KEY = os.environ.get("FAL_API_KEY", "")
 # lipsyncSection reveal calls) once a lip-sync provider proves reliable
 # enough to trust. /api/lipsync itself checks this flag and refuses the
 # request while it's off, so the feature stays off even if a stale client
-# somehow still shows the button.
+# somehow still shows the button. Stays False until the Wan 3.0 integration
+# itself is wired up and tested (see DASHSCOPE_WORKSPACE_ID above).
 LIPSYNC_ENABLED = False
 
 # --- Contact form (optional; the /api/contact endpoint still validates

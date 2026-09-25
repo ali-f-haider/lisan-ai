@@ -78,7 +78,7 @@ def fetch_voices(api_key: str) -> dict:
             error_body = e.read().decode(errors="ignore")
         except Exception:
             error_body = str(e)
-        return {"error": f"ElevenLabs API error {e.code}: {error_body}"}
+        return {"error": f"Voice engine error {e.code}: {error_body}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -147,7 +147,7 @@ def search_voice_library(api_key: str, language=None, accent=None, gender=None, 
             error_body = e.read().decode(errors="ignore")
         except Exception:
             error_body = str(e)
-        return {"error": f"ElevenLabs API error {e.code}: {error_body}"}
+        return {"error": f"Voice engine error {e.code}: {error_body}"}
     except Exception as e:
         return {"error": str(e)}
 
@@ -164,7 +164,7 @@ def add_shared_voice(api_key: str, public_owner_id: str, voice_id: str, new_name
     after your first real add here to confirm."""
     try:
         if not public_owner_id or not voice_id:
-            return {"error": "This voice is missing an owner id and can't be added automatically — try adding it from the ElevenLabs website instead."}
+            return {"error": "This voice is missing an owner id and can't be added automatically — try adding it from the voice engine's own website instead."}
         url = f"https://api.elevenlabs.io/v1/voices/add/{public_owner_id}/{voice_id}"
         body = json.dumps({"new_name": new_name or "Voice"}).encode("utf-8")
         request = urllib.request.Request(url, data=body, method="POST",
@@ -177,7 +177,7 @@ def add_shared_voice(api_key: str, public_owner_id: str, voice_id: str, new_name
             error_body = e.read().decode(errors="ignore")
         except Exception:
             error_body = str(e)
-        return {"error": f"ElevenLabs API error {e.code}: {error_body}"}
+        return {"error": f"Voice engine error {e.code}: {error_body}"}
     except Exception as e:
         return {"error": str(e)}
 

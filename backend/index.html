@@ -46,7 +46,14 @@
     <h3>Step 1: Upload Audio or Video</h3>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
-            <p class="note" id="step1SupportsNote">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>60 seconds</strong> max duration, <strong>400 MB</strong> max file size.</p>
+            <p class="note" id="step1SupportsNote">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-60 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>400 MB</strong> max file size.</p>
+            <div id="lipsyncChoiceSection" style="margin:8px 0 0 0;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0;">
+                    <input type="checkbox" id="lipsyncWantedCheckbox" onchange="onLipsyncChoiceChanged(this)">
+                    <span id="lipsyncChoiceLabel">Also generate a lip-synced video</span>
+                </label>
+                <p class="note" id="lipsyncChoiceNote" style="margin:6px 0 0 0;border:none;background:none;padding:0;font-size:12px;">Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-60 seconds</strong>.</p>
+            </div>
             <div id="step1UploadRow" style="display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:8px;">
                 <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">
                     <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
@@ -59,19 +66,19 @@
                 <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
             </div>
 
+            <div id="voiceConsentSection" class="hidden" style="margin-top:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;">
+                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin:0;">
+                    <input type="checkbox" id="voiceConsentCheckbox" onchange="onVoiceConsentChanged(this)" style="margin-top:2px;">
+                    <span id="voiceConsentLabel">I hereby certify that I have all necessary rights or consents to upload and translate this audio/video, which could result in the cloning of the associated voices.</span>
+                </label>
+            </div>
+
             <div id="attachMediaSection" class="hidden" style="margin-top:16px; padding:16px; background:#fef3c7; border:1px solid #fbbf24; border-radius:8px;">
                 <p id="attachMediaNote" style="margin:0 0 12px 0; color:#92400e; font-size:14px;">
                     📼 <strong>Project loaded.</strong> Upload the matching original audio/video file to enable preview, re-speak, emotion detection, auto-fix, and video merge.
                 </p>
                 <input type="file" id="attachMediaFile" accept="audio/*,video/*,.mp3,.wav,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="attachMedia(this)">
                 <button onclick="document.getElementById('attachMediaFile').click()">Choose Media File</button>
-            </div>
-
-            <div id="voiceConsentSection" class="hidden" style="margin-top:16px; padding:12px 14px; background:#f0f9ff; border:1px solid #bae6fd; border-radius:8px;">
-                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; font-size:13px; line-height:1.5; color:#0c4a6e; margin:0;">
-                    <input type="checkbox" id="voiceConsentCheckbox" style="margin-top:3px; flex-shrink:0;" onchange="onVoiceConsentChanged(this)">
-                    <span>I hereby certify that I have all necessary rights or consents to upload and translate this audio/video, which could result in the cloning of the associated voices.</span>
-                </label>
             </div>
         </div>
         <div class="credits-info-box">

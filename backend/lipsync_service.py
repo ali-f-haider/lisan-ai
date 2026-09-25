@@ -78,7 +78,7 @@ def _synclabs_get(gen_id, sync_key):
 
 
 def _elevenlabs_lipsync(upload_path: Path, audio_path: Path, eleven_key: str, raw_video: Path, progress: dict):
-    progress["message"] = f"Uploading to ElevenLabs via system uploader ({upload_path.stat().st_size // 1024 // 1024}MB)..."
+    progress["message"] = f"Uploading ({upload_path.stat().st_size // 1024 // 1024}MB)..."
     resp_status, resp_text, used_url = 0, "", None
     for url in ELEVEN_LIPSYNC_ENDPOINTS:
         resp_status, resp_text = _curl_post_multipart(url, eleven_key, upload_path, audio_path)
@@ -90,8 +90,8 @@ def _elevenlabs_lipsync(upload_path: Path, audio_path: Path, eleven_key: str, ra
         break
     if resp_status != 200:
         if resp_status == 404:
-            raise Exception("ElevenLabs lip-sync returned 404 on all known endpoints: the Lip Sync feature is not enabled for this account/plan (ElevenLabs confirmed there is no public lip-sync API). Use Sync Labs.")
-        raise Exception(f"ElevenLabs create HTTP {resp_status}: {resp_text[:500]}")
+            raise Exception("Lip-sync returned 404 on all known endpoints: this provider isn't enabled for this account/plan. Use another provider.")
+        raise Exception(f"Lip-sync create HTTP {resp_status}: {resp_text[:500]}")
 
     created = json.loads(resp_text)
     job_lsid = created.get("id") or created.get("lip_sync_id")
@@ -112,7 +112,7 @@ def _elevenlabs_lipsync(upload_path: Path, audio_path: Path, eleven_key: str, ra
         except Exception:
             continue
         status = str(st.get("status") or "").lower()
-        progress["message"] = f"ElevenLabs: {status}"
+        progress["message"] = f"Lip-sync: {status}"
         if status in ("completed", "succeeded", "success"):
             video_url = st.get("video_url") or st.get("download_url") or st.get("output_url") or st.get("url")
             break
@@ -134,22 +134,22 @@ def _synclabs_lipsync(upload_path: Path, audio_path: Path, sync_key: str, model:
 
     if not recover_id:
         if upload_path.stat().st_size > 20 * 1024 * 1024:
-            raise Exception("Video > 20MB (Sync Labs limit). Use a shorter clip.")
+            raise Exception("Video > 20MB (provider limit). Use a shorter clip.")
         fields = {
             "model": model or "lipsync-2",
             "video": ("source.mp4", upload_path.read_bytes(), "video/mp4"),
             "audio": ("dub.mp3", audio_path.read_bytes(), "audio/mpeg"),
         }
-        progress["message"] = "Uploading to Sync Labs..."
+        progress["message"] = "Uploading..."
         auth_header = {"x-api-key": sync_key}
         resp = http.request("POST", "https://api.sync.so/v2/generate", headers=auth_header, fields=fields, encode_multipart=True)
         if resp.status == 403:
             auth_header = {"Authorization": f"Bearer {sync_key}"}
             resp = http.request("POST", "https://api.sync.so/v2/generate", headers=auth_header, fields=fields, encode_multipart=True)
         if resp.status == 403:
-            raise Exception("Sync Labs 403 on create: free-tier quota exhausted or key problem. Check sync.so billing.")
+            raise Exception("Lip-sync provider 403 on create: free-tier quota exhausted or key problem. Check the provider's billing.")
         if resp.status not in (200, 201, 202):
-            raise Exception(f"Sync Labs HTTP {resp.status}: {resp.data.decode(errors='ignore')[:800]}")
+            raise Exception(f"Lip-sync provider HTTP {resp.status}: {resp.data.decode(errors='ignore')[:800]}")
         created = json.loads(resp.data.decode(errors="ignore"))
         gen_id = created.get("id")
         if not gen_id:
@@ -167,10 +167,10 @@ def _synclabs_lipsync(upload_path: Path, audio_path: Path, sync_key: str, model:
         if st is None:
             if code == 403:
                 # WAF/Rate-limit block: back off for 60 seconds and retry, don't fail immediately
-                progress["message"] = f"Sync Labs: 403 (rate limit?), backing off 60s... (ID: {gen_id[:8]}...)"
+                progress["message"] = f"Lip-sync: 403 (rate limit?), backing off 60s... (ID: {gen_id[:8]}...)"
                 time.sleep(60)
                 continue
-            
+
             # If it's another error after many retries, save the ID and fail gracefully
             if attempt > 10:
                 billed_file = OUTPUT_DIR / f"lipsync_billed_{job_id}.txt"
@@ -179,17 +179,17 @@ def _synclabs_lipsync(upload_path: Path, audio_path: Path, sync_key: str, model:
                 except Exception:
                     pass
                 raise Exception(
-                    f"Sync Labs error while polling generation {gen_id}. "
+                    f"Lip-sync provider error while polling generation {gen_id}. "
                     f"The ID was saved to outputs/lipsync_billed_{job_id}.txt."
                 )
             continue
-            
+
         status = (st.get("status") or "").upper()
         prog = st.get("progress_percent")
         if prog is not None:
             try: progress["percent"] = min(90, 20 + int(float(prog) * 0.7))
             except Exception: pass
-        progress["message"] = f"Sync Labs: {status} (ID: {gen_id[:8]}...)"
+        progress["message"] = f"Lip-sync: {status} (ID: {gen_id[:8]}...)"
         if status == "COMPLETED":
             output_url = st.get("outputUrl") or st.get("output_url")
             break
@@ -217,12 +217,12 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
 
     client = fal_client.SyncClient(key=fal_key)
 
-    progress["message"] = "Uploading to fal.ai (VEED Lip Sync)..."
+    progress["message"] = "Uploading..."
     video_url = client.upload_file(str(upload_path))
     audio_url = client.upload_file(str(audio_path))
     progress["percent"] = 15
 
-    progress["message"] = "Submitting to VEED Lip Sync..."
+    progress["message"] = "Submitting to lip-sync engine..."
     handle = client.submit(
         FAL_VEED_LIPSYNC_MODEL,
         arguments={"video_url": video_url, "audio_url": audio_url},
@@ -235,13 +235,13 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
         time.sleep(5)
         status = handle.status()
         if isinstance(status, fal_client.Queued):
-            progress["message"] = f"VEED: queued (position {status.position})"
+            progress["message"] = f"Lip-sync: queued (position {status.position})"
         elif isinstance(status, fal_client.InProgress):
-            progress["message"] = "VEED: processing..."
+            progress["message"] = "Lip-sync: processing..."
             progress["percent"] = min(85, progress["percent"] + 2)
         elif isinstance(status, fal_client.Completed):
             if status.error:
-                raise Exception(f"VEED lip-sync failed: {status.error}")
+                raise Exception(f"Lip-sync failed: {status.error}")
             completed = status
             break
     if completed is None:
@@ -252,7 +252,7 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
     video_obj = result.get("video") if isinstance(result, dict) else None
     video_url_out = video_obj.get("url") if isinstance(video_obj, dict) else None
     if not video_url_out:
-        raise Exception(f"Unexpected response from VEED: {json.dumps(result)[:400]}")
+        raise Exception(f"Unexpected response from lip-sync engine: {json.dumps(result)[:400]}")
     with urllib.request.urlopen(video_url_out, timeout=600) as resp:
         raw_video.write_bytes(resp.read())
 
@@ -278,17 +278,17 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key=""):
             upload_path = OUTPUT_DIR / f"lipsync_upload_{job_id}.mp4"
             compress_video_for_upload(video_path, upload_path)
             if provider == "synclabs":
-                if not sync_key: raise Exception("Missing Sync Labs API key.")
+                if not sync_key: raise Exception("Missing lip-sync engine key.")
                 _synclabs_lipsync(upload_path, dubbed_audio, sync_key, model, raw_video, jobs_progress[key], job_id)
             elif provider == "veed":
-                if not fal_key: raise Exception("Missing fal.ai API key.")
+                if not fal_key: raise Exception("Missing lip-sync engine key.")
                 _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
             else:
-                if not eleven_key: raise Exception("Missing ElevenLabs API key.")
+                if not eleven_key: raise Exception("Missing lip-sync engine key.")
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])
         else:
-            if not sync_key: raise Exception("Missing Sync Labs API key.")
-            jobs_progress[key]["message"] = "Recovering existing Sync Labs generation..."
+            if not sync_key: raise Exception("Missing lip-sync engine key.")
+            jobs_progress[key]["message"] = "Recovering existing generation..."
             _synclabs_lipsync(None, dubbed_audio, sync_key, model, raw_video, jobs_progress[key], job_id)
 
         jobs_progress[key]["percent"] = 92

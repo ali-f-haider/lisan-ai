@@ -1130,7 +1130,7 @@ def _gemini_text(prompt: str):
             last = "empty response"
         except Exception as e:
             last = str(e)
-    raise Exception(last or "Gemini call failed")
+    raise Exception(last or "Translation AI call failed")
 
 # ==================== STATIC FILES ====================
 
@@ -1222,8 +1222,30 @@ def enhance_progress(job_id: str):
 
 # ==================== API ROUTES ====================
 
+# Upload duration gates for Step 1. Two ranges, chosen by the "generate
+# lip-sync too" checkbox in the upload form: lip-sync goes straight to Wan
+# 3.0's own native single-call limits (no chunking/merging -- Ali decided
+# against that approach since a chunk boundary isn't guaranteed to land on
+# a silence gap), so a job that wants lip-sync must already fit inside that
+# window at upload time. A job that doesn't want lip-sync uses the wider
+# range instead -- unchanged from what the app already enforced (the
+# frontend has capped uploads at 60s for a while; see MAX_DURATION_SEC in
+# app.js). Both share the same 4-second floor: below that there usually
+# isn't enough clean audio for voice cloning to have a chance, or for Wan
+# 3.0 to accept the clip at all.
+LIPSYNC_MIN_SEC = 4
+LIPSYNC_MAX_SEC = 15
+NO_LIPSYNC_MIN_SEC = 4
+NO_LIPSYNC_MAX_SEC = 60
+# Below this, cloning is still allowed (see the 4s floor above) but the
+# result may not sound convincing -- ElevenLabs' own guidance is that ~30s
+# of clean audio is where they've seen consistently good clones. This only
+# drives a non-blocking warning shown to the user, not a rejection.
+CLONE_QUALITY_WARN_SEC = 30
+
+
 @app.post("/api/transcribe")
-async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form("")):
+async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form(""), lipsync: str = Form("false")):
     if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     # The client already blocks the button until the voice-rights checkbox is
@@ -1243,28 +1265,40 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     dest = UPLOAD_DIR / f"{job_id}{ext}"
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
-    # Server-side duration cap (maxVideoMin, admin-configurable). The
-    # client already blocks long clips in its own UI, but that check runs
-    # in JavaScript and can't be trusted -- anyone posting directly to this
-    # endpoint bypasses it entirely, so this is the only enforcement that
-    # actually matters.
+    # Server-side duration cap. The client already blocks out-of-range
+    # clips in its own UI, but that check runs in JavaScript and can't be
+    # trusted -- anyone posting directly to this endpoint bypasses it
+    # entirely, so this is the enforcement that actually matters. Which
+    # range applies depends on whether this upload wants lip-sync (see the
+    # LIPSYNC_MIN_SEC block above) -- a real duration probe decides, not a
+    # client-supplied flag alone, since a wrong duration here means either
+    # blocking a valid upload or letting through one that will only fail
+    # later, after the user has already waited through transcription.
+    lipsync_wanted = lipsync.strip().lower() in ("true", "1", "yes", "on")
+    min_sec = LIPSYNC_MIN_SEC if lipsync_wanted else NO_LIPSYNC_MIN_SEC
+    max_sec = LIPSYNC_MAX_SEC if lipsync_wanted else NO_LIPSYNC_MAX_SEC
     dur = None
     try:
         dur = ffmpeg_utils.get_media_duration(dest)
     except Exception as _dur_ex:
         print(f"[transcribe] duration probe failed, allowing upload through: {_dur_ex}")
     if dur is not None:
-        max_video_min = float(_get_pricing_config().get("maxVideoMin", 60))
-        if max_video_min > 0 and dur > max_video_min * 60:
+        if dur < min_sec:
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
-            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. The limit is {int(max_video_min * 60)} seconds — please trim it first."}, status_code=413)
+            return JSONResponse({"error": f"This clip is only {round(dur, 1)} seconds long. The minimum is {min_sec} seconds."}, status_code=413)
+        if dur > max_sec:
+            try: dest.unlink()
+            except Exception: pass
+            _job_started.pop(job_id, None)
+            limit_desc = "For a lip-synced clip, the" if lipsync_wanted else "The"
+            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. {limit_desc} limit is {max_sec} seconds — please trim it first."}, status_code=413)
     jobs_progress[job_id] = {"status": "processing", "percent": 0,
                              "status_text": "Upload done, starting transcription...",
                              "is_video": ext in VIDEO_EXTS}
     threading.Thread(target=whisper_service.transcribe_worker,
-                     args=(job_id, str(dest), HF_TOKEN, speaker_count), daemon=True).start()
+                     args=(job_id, str(dest), HF_TOKEN, speaker_count, lipsync_wanted), daemon=True).start()
     _watch_and_deduct(job_id, uid, "transcribe")
     _record_voice_consent(job_id, uid, request)
     return {"job_id": job_id}
@@ -1568,6 +1602,13 @@ def lipsync(req: LipSyncRequest, request: Request):
         dur = None
     if not dur or dur <= 0:
         return JSONResponse({"error": "Could not determine this video's length. Please try again."}, status_code=500)
+    # Re-check against Wan 3.0's real limits here too, not just at upload
+    # time (LIPSYNC_MIN_SEC/LIPSYNC_MAX_SEC, defined above /api/transcribe)
+    # -- duration is ground truth, and checking it again right before the
+    # paid call is what actually prevents a charge for a job that can't
+    # succeed, regardless of what was chosen back at Step 1.
+    if dur < LIPSYNC_MIN_SEC or dur > LIPSYNC_MAX_SEC:
+        return JSONResponse({"error": f"Lip-sync only works on clips between {LIPSYNC_MIN_SEC} and {LIPSYNC_MAX_SEC} seconds. This video is {round(dur, 1)} seconds."}, status_code=413)
 
     per_sec = float(_get_pricing_config().get("lipsyncCreditsPerSec", 10))
     lipsync_cost = max(1, round(dur * per_sec))
