@@ -139,9 +139,20 @@ function updateBadges() {
     // call), so it's free -- shown explicitly rather than left with no badge.
     setBadge("badgeApplyVolumes", 0);
     // Lip-sync is billed per second of video, not a flat fee, so it doesn't use
-    // the coin-badge pattern -- just update the rate shown in Step 7's note.
+    // the coin-badge pattern -- update the rate shown in Step 7's note, and the
+    // actual total-credits estimate shown right on the button (same formula as
+    // the server's real charge in /api/lipsync: max(1, round(duration * rate))).
     var lsRate = document.getElementById("lipsyncRateNote");
     if (lsRate) lsRate.textContent = window._realPricing.lipsyncCreditsPerSec;
+    var lsCostNote = document.getElementById("lipsyncCostNote");
+    if (lsCostNote) {
+        if (typeof totalDuration === "number" && totalDuration > 0) {
+            var lsCost = Math.max(1, Math.round(totalDuration * window._realPricing.lipsyncCreditsPerSec));
+            lsCostNote.textContent = "(" + lsCost + " credits)";
+        } else {
+            lsCostNote.textContent = "";
+        }
+    }
 }
 async function fetchUsage() {
     const box = document.getElementById("usageBox");
@@ -1141,6 +1152,33 @@ async function mergeVideo() {
             </div>`;
         notify("success", "Video merged successfully!");
     } catch (e) { document.getElementById("mergeButton").disabled = false; notify("error", e.message); }
+}
+
+async function onLipsyncRefImagesSelected(input) {
+    var listEl = document.getElementById("lipsyncRefImagesList");
+    if (!input.files || !input.files.length) { if (listEl) listEl.textContent = ""; return; }
+    if (!currentJobId) { notify("error", "No job found."); input.value = ""; return; }
+    var files = Array.prototype.slice.call(input.files, 0, 5);
+    if (input.files.length > 5) notify("info", "Only the first 5 photos will be used.");
+    if (listEl) listEl.textContent = "Uploading " + files.length + " photo(s)...";
+    var fd = new FormData();
+    fd.append("job_id", currentJobId);
+    files.forEach(function (f) { fd.append("files", f); });
+    try {
+        var res = await fetch("/api/lipsync/reference-images", { method: "POST", body: fd });
+        var data = null;
+        try { data = await res.json(); } catch (e) { data = null; }
+        if (!res.ok || !data || data.status !== "ok") {
+            notify("error", "Reference photo upload failed: " + ((data && data.error) || ("Server error " + res.status)));
+            if (listEl) listEl.textContent = "";
+            return;
+        }
+        window._lipsyncRefImageCount = data.count || files.length;
+        if (listEl) listEl.textContent = "✅ " + window._lipsyncRefImageCount + " reference photo(s) attached.";
+    } catch (e) {
+        notify("error", "Reference photo upload failed: " + e.message);
+        if (listEl) listEl.textContent = "";
+    }
 }
 
 async function runLipsync() {
@@ -2957,6 +2995,12 @@ function resetWorkspace() {
     var cb = document.querySelector("#cloneAnalysisTable tbody"); if (cb) cb.innerHTML = "";
     var vb = document.querySelector("#speakerVoicesTable tbody"); if (vb) vb.innerHTML = "";
     var ar = document.getElementById("audioResults"); if (ar) ar.innerHTML = "";
+    // Step 7's reference-photo picker is per-job (uploaded against a
+    // job_id) -- clear it so leftover photos from a previous job never get
+    // silently carried into a new one.
+    var lriInput = document.getElementById("lipsyncRefImages"); if (lriInput) lriInput.value = "";
+    var lriList = document.getElementById("lipsyncRefImagesList"); if (lriList) lriList.textContent = "";
+    window._lipsyncRefImageCount = 0;
     var vr = document.getElementById("videoResults");
     if (vr) { vr.innerHTML = ""; vr.classList.add("hidden"); }
     var tw = document.getElementById("timelineWrap"); if (tw) tw.innerHTML = "";

@@ -17,7 +17,7 @@ from ffmpeg_utils import (
     mix_two_audio,
     mux_audio_into_video,
 )
-from media_paths import find_job_video, job_background_audio
+from media_paths import find_job_video, job_background_audio, job_reference_images
 
 # One shared pool: the SAME client/headers for create AND poll
 http = urllib3.PoolManager(timeout=urllib3.Timeout(connect=30, read=900))
@@ -324,7 +324,7 @@ Add visual effects
 The reference video is already the finished scene. Treat it as locked. The desired output is the SAME VIDEO with lips and mouth movements matching the provided Arabic audio instead of the original English audio."""
 
 
-def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str):
+def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None):
     if not workspace_id:
         raise Exception("Missing DASHSCOPE_WORKSPACE_ID (required for the Wan 3.0 lip-sync call).")
     base_url = f"https://{workspace_id}.{region}.maas.aliyuncs.com"
@@ -345,6 +345,21 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
         r2_backup.delete_temp_object(video_key)
         raise Exception("Could not stage the audio for the lip-sync provider (R2 storage not configured, or the upload failed).")
 
+    # Optional reference photos (Step 7's "reference photos" upload, see
+    # /api/lipsync/reference-images in main.py) -- fed in as reference_image
+    # entries to help Wan 3.0 keep the speaker's exact face/appearance,
+    # reinforcing the "PRESERVE EXACTLY" identity instructions in the prompt
+    # above. Best-effort: a photo that fails to stage is just skipped rather
+    # than failing the whole job over a supplementary reference.
+    image_keys = []
+    image_media = []
+    for img_path in (ref_image_paths or []):
+        img_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_ref{img_path.suffix.lower()}"
+        img_url = r2_backup.upload_temp_and_get_url(img_path, img_key)
+        if img_url:
+            image_keys.append(img_key)
+            image_media.append({"type": "reference_image", "url": img_url})
+
     try:
         progress["percent"] = 15
         progress["message"] = "Submitting to lip-sync engine..."
@@ -352,7 +367,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
             "model": WAN3_MODEL,
             "input": {
                 "prompt": WAN3_DUB_PROMPT,
-                "media": [
+                "media": image_media + [
                     {"type": "reference_video", "url": video_url},
                     {"type": "reference_audio", "url": audio_url},
                 ],
@@ -418,6 +433,8 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
     finally:
         r2_backup.delete_temp_object(video_key)
         r2_backup.delete_temp_object(audio_key)
+        for img_key in image_keys:
+            r2_backup.delete_temp_object(img_key)
 
 
 def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1"):
@@ -448,7 +465,8 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                 _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
             elif provider == "wan3":
                 if not dashscope_key: raise Exception("Missing lip-sync engine key.")
-                _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id)
+                ref_images = job_reference_images(job_id)
+                _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id, ref_images)
             else:
                 if not eleven_key: raise Exception("Missing lip-sync engine key.")
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])

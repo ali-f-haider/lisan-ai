@@ -1654,6 +1654,44 @@ def merge_video(req: MergeRequest, request: Request):
     
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background}
 
+# Optional reference photos for Step 7 -- uploaded separately from the
+# /api/lipsync call itself (this just saves them to disk under the job's
+# id), then picked up by lipsync_service.job_reference_images() when the
+# job actually runs. Kept as its own small endpoint rather than folded into
+# LipSyncRequest so the JSON POST that actually starts the job stays simple.
+LIPSYNC_REF_IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+LIPSYNC_REF_IMAGE_MAX = 5
+LIPSYNC_REF_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+
+@app.post("/api/lipsync/reference-images")
+async def lipsync_reference_images(request: Request, job_id: str = Form(...), files: List[UploadFile] = File(...)):
+    if not LIPSYNC_ENABLED:
+        return JSONResponse({"error": "Lip-sync is temporarily unavailable while we evaluate providers with better quality."}, status_code=503)
+    if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    if find_job_video(job_id) is None:
+        return JSONResponse({"error": "Job not found."}, status_code=404)
+
+    # Replace, not append -- re-picking files in the UI shouldn't keep
+    # piling old photos onto the new set.
+    for old in OUTPUT_DIR.glob(f"lipsync_ref_{job_id}_*"):
+        try: old.unlink()
+        except Exception: pass
+
+    saved = 0
+    for f in files[:LIPSYNC_REF_IMAGE_MAX]:
+        ext = LIPSYNC_REF_IMAGE_TYPES.get((f.content_type or "").lower())
+        if not ext:
+            continue
+        data = await f.read()
+        if not data or len(data) > LIPSYNC_REF_IMAGE_MAX_BYTES:
+            continue
+        (OUTPUT_DIR / f"lipsync_ref_{job_id}_{saved}{ext}").write_bytes(data)
+        saved += 1
+    if saved == 0:
+        return JSONResponse({"error": "No valid photos were saved -- use JPG, PNG, or WebP, under 20MB each."}, status_code=400)
+    return {"status": "ok", "count": saved}
+
 @app.post("/api/lipsync")
 def lipsync(req: LipSyncRequest, request: Request):
     if not LIPSYNC_ENABLED:
