@@ -4336,7 +4336,8 @@ window.cleanOldClones = function () {
         ["faded / trimmed", "تلاشٍ / تقليم"],
         ["overlap allowed", "يُسمح بالتداخل"],
         ["Also generate a lip-synced video", "أنشئ أيضًا فيديو بمزامنة الشفاه"],
-        ["I hereby certify that I have all necessary rights or consents to upload and translate this audio/video, which could result in the cloning of the associated voices.", "أقرّ بأنني أملك جميع الحقوق أو الموافقات اللازمة لرفع هذا الملف الصوتي أو المرئي وترجمته، وهو ما قد يؤدي إلى استنساخ الأصوات المرتبطة به."]
+        ["I hereby certify that I have all necessary rights or consents to upload and translate this audio/video, which could result in the cloning of the associated voices.", "أقرّ بأنني أملك جميع الحقوق أو الموافقات اللازمة لرفع هذا الملف الصوتي أو المرئي وترجمته، وهو ما قد يؤدي إلى استنساخ الأصوات المرتبطة به."],
+        ["Upload up to 5 clear photos of the speaker(s)' faces to help the AI keep their exact appearance. Not required.", "ارفع حتى 5 صور واضحة لوجوه المتحدثين لمساعدة الذكاء الاصطناعي على الحفاظ على مظهرهم الدقيق. غير مطلوب."]
     ];
     var N = [
         ["Transcription complete.", "اكتملت التفريغة."],
