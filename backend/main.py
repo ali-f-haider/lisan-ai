@@ -19,7 +19,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
-                    LIPSYNC_ENABLED, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION)
+                    LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION)
 import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
@@ -1732,11 +1732,16 @@ def lipsync(req: LipSyncRequest, request: Request):
     per_sec = float(_get_pricing_config().get("lipsyncCreditsPerSec", 10))
     lipsync_cost = max(1, round(dur * per_sec))
 
-    bal = get_credits(uid) if uid else None
-    if bal is not None and bal < lipsync_cost:
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use ➕ Buy."}, status_code=402)
-    if uid:
-        deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
+    # LIPSYNC_TEST_MODE (config.py): no real API call happens below, so
+    # don't check or charge real credits for it either -- see that flag's
+    # comment. The button/UI still shows the normal cost estimate, this
+    # just doesn't act on it while testing.
+    if not LIPSYNC_TEST_MODE:
+        bal = get_credits(uid) if uid else None
+        if bal is not None and bal < lipsync_cost:
+            return JSONResponse({"error": f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use ➕ Buy."}, status_code=402)
+        if uid:
+            deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
 
     jobs_progress[f"lipsync_{req.job_id}"] = {"status": "processing", "percent": 5,
                                               "message": "Preparing...", "error": None,
@@ -1745,7 +1750,7 @@ def lipsync(req: LipSyncRequest, request: Request):
                      args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY,
                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION),
                      daemon=True).start()
-    return {"status": "started", "credits_charged": lipsync_cost if uid else 0}
+    return {"status": "started", "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
 
 @app.get("/api/progress/lipsync/{job_id}")
 def lipsync_progress(job_id: str):
@@ -2208,12 +2213,19 @@ def _get_pricing_config():
         "mergeCredits": 1,
         "charsPerCredit": 60,
         "cloneCredits": 5,
-        # Lip-sync (Step 7, VEED Lip Sync 2.0 via fal.ai) is billed per
-        # second of the source video, not a flat fee -- fal.ai charges this
-        # app $0.07/sec, so the default of 10 credits/sec (= $0.10/sec at
-        # 100 credits = $1) leaves a real margin instead of losing money on
-        # every lip-sync request. See /api/lipsync for how it's charged.
-        "lipsyncCreditsPerSec": 10,
+        # Lip-sync (Step 7, Wan 3.0 via Alibaba Model Studio) is billed per
+        # second of the source video, not a flat fee. Real cost, confirmed
+        # by Ali's own test: $1.73 for a 15-second clip at 720P = ~$0.1153/sec.
+        # Credit packs sell for as little as $0.006/credit (the 25,000-credit
+        # Studio pack), so pricing has to clear the cost even at that bulk
+        # rate, not just at the $0.01/credit starter rate. 40 credits/sec
+        # gives ~52% margin at the cheapest pack and up to ~71% at the
+        # starter pack (2025-09 numbers -- re-check if Alibaba's per-second
+        # rate changes, or if the resolution in lipsync_service.py's Wan 3.0
+        # call ever changes from 720P). See /api/lipsync for how it's charged.
+        # Editable live from the admin panel without a redeploy -- this is
+        # only the fallback used if that panel has never set a value.
+        "lipsyncCreditsPerSec": 40,
         # Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"), set from
         # the admin panel. Empty string = analytics off. The landing() route
         # below injects Google's gtag.js snippet server-side into the page

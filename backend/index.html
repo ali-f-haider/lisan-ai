@@ -236,7 +236,7 @@
 
 <div id="lipsyncSection" class="card hidden">
     <h3>Step 7: Lip-Sync (Premium)</h3>
-    <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using a premium third-party AI service. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video.</p>
+    <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using a premium third-party AI service. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video. <strong id="lipsyncTimeNote">This can take up to about 15 minutes -- please keep this tab open and be patient.</strong></p>
     <div class="note" id="lipsyncRefImagesWrap" style="margin-bottom:10px;">
         <label for="lipsyncRefImages" style="font-weight:600;display:block;margin-bottom:4px;" id="lipsyncRefImagesLabel">Reference photos (optional):</label>
         <p class="note" style="margin:0 0 6px;" id="lipsyncRefImagesHint">Upload up to 5 clear photos of the speaker(s)' faces to help the AI keep their exact appearance. Not required.</p>
@@ -245,6 +245,12 @@
     </div>
     <button class="green" id="lipsyncButton" onclick="runLipsync()">🎭 Lip-Sync Video <span id="lipsyncCostNote"></span></button>
     <div id="lipsyncProgress" class="hidden">
+        <div style="display:flex;justify-content:center;">
+            <picture>
+                <source srcset="/static/loading-spinner.webp" type="image/webp">
+                <img src="/static/loading-spinner.gif" alt="" id="lipsyncLoadingAnim" style="width:90px;height:90px;display:block;">
+            </picture>
+        </div>
         <div class="progress-bar"><div class="progress-fill green" id="lipsyncProgressFill" style="width:0%"></div></div>
         <p id="lipsyncProgressText" class="progress-status">Starting...</p>
     </div>

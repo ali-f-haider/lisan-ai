@@ -10,7 +10,7 @@ from pathlib import Path
 import urllib3
 
 import r2_backup
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, LIPSYNC_TEST_MODE
 from app_state import jobs_progress
 from ffmpeg_utils import (
     compress_video_for_upload,
@@ -437,6 +437,28 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
             r2_backup.delete_temp_object(img_key)
 
 
+# UI/UX test double for the real provider calls above -- see
+# LIPSYNC_TEST_MODE in config.py. Runs through the same progress
+# percentages/messages a real Wan 3.0 call goes through, but in ~15 seconds
+# instead of ~15 minutes and with no real API call or charge. Copies the
+# original video through unchanged as the "result" so the results
+# player/download UI can be checked too -- just not real lip-sync output.
+def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
+    steps = [
+        (15, "Staging files for lip-sync...", 2),
+        (20, "Submitting to lip-sync engine...", 2),
+        (35, "Lip-sync: PENDING", 2),
+        (55, "Lip-sync: RUNNING", 3),
+        (75, "Lip-sync: RUNNING", 3),
+        (90, "Downloading result...", 2),
+    ]
+    for percent, message, delay in steps:
+        progress["percent"] = percent
+        progress["message"] = message
+        time.sleep(delay)
+    shutil.copy(source_video, raw_video)
+
+
 def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1"):
     key = f"lipsync_{job_id}"
     upload_path = None
@@ -453,7 +475,9 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
         is_recover = provider == "synclabs" and model.startswith("recover:")
         raw_video = OUTPUT_DIR / f"lipsync_raw_{job_id}.mp4"
 
-        if not is_recover:
+        if LIPSYNC_TEST_MODE:
+            _simulate_lipsync(video_path, raw_video, jobs_progress[key])
+        elif not is_recover:
             jobs_progress[key]["message"] = "Compressing video for upload..."
             upload_path = OUTPUT_DIR / f"lipsync_upload_{job_id}.mp4"
             compress_video_for_upload(video_path, upload_path)

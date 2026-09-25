@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.11.1"
+APP_VERSION = "1.13.0"
 
 
 def _load_env():
@@ -86,6 +86,17 @@ DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "eu-central-1")
 # up. /api/lipsync checks this flag and refuses the request while it's
 # off. Set back to False if Wan 3.0 turns out to be unreliable in practice.
 LIPSYNC_ENABLED = True
+
+# TEMPORARY, set True at Ali's request (2026-09-25) so he can check Step 7's
+# progress bar / loading-animation text and positioning without spending
+# real money or waiting ~15 minutes per real Wan 3.0 call. While True,
+# /api/lipsync runs a fast (~15 second) simulated progress sequence instead
+# of calling Wan 3.0 -- same progress messages, no real API call, no credit
+# charge, and the "result" is just the original video copied through (so
+# the results player/download UI can be checked too, just not the actual
+# lip-sync quality). See lipsync_service.py's _simulate_lipsync().
+# >>> SET BACK TO False BEFORE ANY REAL USE OF STEP 7. <<<
+LIPSYNC_TEST_MODE = True
 
 # --- Contact form (optional; the /api/contact endpoint still validates
 # and rate-limits input without this, it just won't actually deliver mail
