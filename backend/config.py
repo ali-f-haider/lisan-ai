@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.11.0"
+APP_VERSION = "1.11.1"
 
 
 def _load_env():
@@ -71,10 +71,13 @@ DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 # to work at all; /api/lipsync will fail cleanly with a clear error if this
 # is blank.
 DASHSCOPE_WORKSPACE_ID = os.environ.get("DASHSCOPE_WORKSPACE_ID", "")
-# Region the workspace above lives in -- "ap-southeast-1" (Singapore) is
-# the usual international region; change only if your workspace was
-# created somewhere else.
-DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "ap-southeast-1")
+# Region the workspace above actually lives in. Confirmed with Alibaba
+# Cloud support directly (Sept 2026) for this workspace: "eu-central-1",
+# not "ap-southeast-1" -- the wrong region here is what caused the earlier
+# 401 InvalidApiKey error (the workspace-scoped subdomain simply doesn't
+# recognize a key issued for a different region). Only change this if your
+# workspace moves or support says otherwise.
+DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "eu-central-1")
 
 # Step 7 (lip-sync) now runs on Wan 3.0 (see DASHSCOPE_API_KEY above)
 # instead of VEED Lip Sync 2.0 -- VEED's face regeneration visibly altered
