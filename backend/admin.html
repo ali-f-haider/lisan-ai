@@ -224,6 +224,40 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" id="sFinalOutputs">—</p>
       </div>
       <div class="card">
+        <h3>🔌 Service Usage</h3>
+        <p class="muted" style="margin-bottom:12px;">What each third-party service is actually using right now, so you can see which one needs a plan/credit top-up before a user hits an error. Not all of these have a real "remaining balance" API -- see the note under each one.</p>
+
+        <div style="margin-bottom:16px;">
+          <strong>ElevenLabs (voice generation)</strong>
+          <div class="metric"><div class="label">Used</div><div class="value" id="suElevenUsed">—</div></div>
+          <div class="metric"><div class="label">Limit</div><div class="value" id="suElevenLimit">—</div></div>
+          <div class="metric"><div class="label">% Used</div><div class="value" id="suElevenPercent">—</div></div>
+          <div style="background:#1e293b;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
+            <div id="suElevenBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+          </div>
+          <p class="muted" id="suElevenNote" style="margin:0;">—</p>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <strong>Alibaba / DashScope (lip-sync, Step 7)</strong>
+          <div class="metric"><div class="label">Est. spend this month</div><div class="value" id="suAlibabaUsd">—</div></div>
+          <p class="muted" id="suAlibabaNote" style="margin:0;">Alibaba has no "remaining balance" API reachable with the current key -- this is an estimate computed from your own lip-sync usage logs (credits charged ÷ 40 × $0.1153/sec), not a live balance. Check the actual balance in the Alibaba Model Studio console.</p>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <strong>Resend (email)</strong>
+          <div class="metric"><div class="label">Used this month</div><div class="value" id="suResendUsed">—</div></div>
+          <p class="muted" id="suResendNote" style="margin:0;">Resend has no quota-check endpoint -- this is the count from the last email actually sent (contact form or file-expiry notice), not a live reading.</p>
+        </div>
+
+        <div>
+          <strong>Cloudflare R2 (file storage)</strong>
+          <div class="metric"><div class="label">Stored</div><div class="value" id="suR2Bytes">—</div></div>
+          <div class="metric"><div class="label">Objects</div><div class="value" id="suR2Count">—</div></div>
+          <p class="muted" id="suR2Note" style="margin:0;">Real live total. Cloudflare's API doesn't expose your plan's storage limit here, so compare this against your actual R2 plan in the Cloudflare dashboard.</p>
+        </div>
+      </div>
+      <div class="card">
         <h3>📈 Railway Memory</h3>
         <div class="metric"><div class="label">Used</div><div class="value" id="rmUsed">—</div></div>
         <div class="metric"><div class="label">Limit</div><div class="value" id="rmLimit">—</div></div>
@@ -307,7 +341,7 @@ function doLogin() {
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory();
+  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -577,6 +611,61 @@ async function loadRailwayMemory() {
   document.getElementById('rmNote').textContent =
     'Polled every ~20 min. Alert email fires at ' + d.alert_percent + '% of limit.' +
     (age != null ? ' Last checked ' + age + ' min ago.' : '');
+}
+
+function _fmtBytes(n) {
+  if (n == null) return '—';
+  const gb = n / (1024 ** 3);
+  if (gb >= 1) return gb.toFixed(2) + ' GB';
+  return (n / (1024 ** 2)).toFixed(1) + ' MB';
+}
+
+async function loadServiceUsage() {
+  const r = await api('/api/admin/service_usage');
+  if (!r.ok) return;
+  const d = r.data;
+
+  // ElevenLabs
+  const el = d.elevenlabs || {};
+  if (!el.ok) {
+    document.getElementById('suElevenUsed').textContent = '—';
+    document.getElementById('suElevenLimit').textContent = '—';
+    document.getElementById('suElevenPercent').textContent = '—';
+    document.getElementById('suElevenBar').style.width = '0%';
+    document.getElementById('suElevenNote').textContent = 'Unavailable: ' + (el.error || 'not polled yet') + '.';
+  } else {
+    document.getElementById('suElevenUsed').textContent = el.character_count != null ? el.character_count.toLocaleString() + ' chars' : '—';
+    document.getElementById('suElevenLimit').textContent = el.character_limit != null ? el.character_limit.toLocaleString() + ' chars' : 'unknown';
+    document.getElementById('suElevenPercent').textContent = el.percent != null ? el.percent + '%' : '—';
+    const pct = el.percent != null ? el.percent : 0;
+    const bar = document.getElementById('suElevenBar');
+    bar.style.width = Math.min(100, pct) + '%';
+    bar.style.background = pct >= el.alert_percent ? '#dc2626' : (pct >= el.alert_percent - 15 ? '#f59e0b' : '#16a34a');
+    const age = el.ts ? Math.round((Date.now() / 1000 - el.ts) / 60) : null;
+    document.getElementById('suElevenNote').textContent =
+      (el.tier ? el.tier + ' tier. ' : '') + 'Polled every ~20 min. Alert email fires at ' + el.alert_percent + '% of quota.' +
+      (age != null ? ' Last checked ' + age + ' min ago.' : '');
+  }
+
+  // Alibaba (estimate, not live)
+  const al = d.alibaba || {};
+  document.getElementById('suAlibabaUsd').textContent = al.estimated_usd != null ? '$' + al.estimated_usd.toFixed(2) : '—';
+
+  // Resend (last-seen only)
+  const rs = d.resend || {};
+  const rsAge = rs.ts ? Math.round((Date.now() / 1000 - rs.ts) / 60) : null;
+  document.getElementById('suResendUsed').textContent = rs.used != null ? rs.used.toLocaleString() + ' emails' + (rsAge != null ? ' (as of ' + rsAge + ' min ago)' : '') : '— (no email sent yet since last restart)';
+
+  // R2 storage
+  const r2 = d.r2 || {};
+  if (r2.error) {
+    document.getElementById('suR2Bytes').textContent = '—';
+    document.getElementById('suR2Count').textContent = '—';
+    document.getElementById('suR2Note').textContent = 'Unavailable: ' + r2.error;
+  } else {
+    document.getElementById('suR2Bytes').textContent = _fmtBytes(r2.bytes);
+    document.getElementById('suR2Count').textContent = r2.count != null ? r2.count.toLocaleString() : '—';
+  }
 }
 
 async function loadMemDiag() {

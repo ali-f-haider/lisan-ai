@@ -145,3 +145,32 @@ def delete_temp_object(key):
         client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
     except Exception as e:
         print(f"[r2-backup] temp object cleanup failed for {key}: {e}")
+
+
+def get_storage_usage():
+    """Sums the size of every object currently in the R2 bucket, via a
+    paginated list_objects_v2 walk. This is real, live usage -- but R2's
+    S3-compatible API has no endpoint for the account's *plan limit*, so
+    there's nothing to compute a percentage against here; the admin panel
+    just shows the raw total for Ali to compare against whatever his
+    Cloudflare plan actually allows. Used by /api/admin/service_usage.
+
+    Returns {"bytes": int, "count": int} or {"error": ...}."""
+    if not _enabled():
+        return {"error": "R2 not configured"}
+    client = _get_client()
+    if client is None:
+        return {"error": "could not create R2 client"}
+    try:
+        total_bytes = 0
+        count = 0
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME):
+            for obj in page.get("Contents", []):
+                total_bytes += obj["Size"]
+                count += 1
+        return {"bytes": total_bytes, "count": count}
+    except (ClientError, BotoCoreError) as e:
+        return {"error": str(e)}
+    except Exception as e:
+        return {"error": str(e)}

@@ -30,6 +30,7 @@ import ffmpeg_utils
 import lipsync_service
 import r2_backup
 import railway_monitor
+import service_usage_monitor
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
 # Sentry: reports unhandled exceptions from the live server automatically.
@@ -1380,6 +1381,18 @@ def _record_voice_consent(job_id, uid, request):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def _resend_quota_header(response):
+    """Best-effort read of Resend's x-resend-monthly-quota response header
+    (a running count of emails sent this month) -- the only usage signal
+    Resend exposes at all; see service_usage_monitor.py's module docstring
+    for why there's no endpoint to actually poll for remaining quota."""
+    try:
+        val = response.headers.get("x-resend-monthly-quota")
+        return int(val) if val is not None else None
+    except Exception:
+        return None
+
+
 def _send_expiry_email(to_email, days_left):
     """Same Resend HTTP API call as /api/contact -- same 'from' domain,
     same Cloudflare-safe User-Agent. Silently does nothing if RESEND_API_KEY
@@ -1415,6 +1428,10 @@ def _send_expiry_email(to_email, days_left):
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as r:
+            try:
+                service_usage_monitor.record_resend_usage(_resend_quota_header(r))
+            except Exception:
+                pass
             return r.status in (200, 201)
     except Exception as ex:
         print(f"[expiry-notice] Resend send failed: {ex}")
@@ -1514,6 +1531,7 @@ def _cleanup_worker():
 
 threading.Thread(target=_cleanup_worker, daemon=True).start()
 railway_monitor.start()
+service_usage_monitor.start()
 
 # ==================== GEMINI HELPER ====================
 
@@ -2699,6 +2717,62 @@ def _get_generated_minutes():
             month_total += secs
     return per_user, month_total
 
+
+def _get_lipsync_spend_this_month():
+    """Estimated real-dollar Alibaba/DashScope spend this month, computed
+    from our own credit_spends log rather than a live Alibaba balance API
+    (DashScope has no such endpoint reachable with the API key this app
+    has -- see service_usage_monitor.py's module docstring). Lip-sync is
+    charged at a fixed 40 credits/sec (see _get_pricing_config's comment
+    on lipsyncCredits... the real per-second Alibaba cost that rate was
+    set against is ~$0.1153/sec, confirmed by Ali's own test), so credits
+    charged translates directly back to real spend: credits / 40 * 0.1153.
+    This is an estimate of money already spent, not a "balance remaining"
+    figure -- Alibaba doesn't expose one to this app at all."""
+    import urllib.request as _ur
+    now = time.gmtime()
+    month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?action=eq.lipsync&select=credits,created_at&limit=5000&order=created_at.desc"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r) or []
+    except Exception:
+        rows = []
+    month_credits = sum(
+        float(row.get("credits") or 0) for row in rows
+        if (row.get("created_at") or "") >= month_start
+    )
+    LIPSYNC_CREDITS_PER_SEC = 40
+    LIPSYNC_COST_PER_SEC_USD = 0.1153
+    seconds = month_credits / LIPSYNC_CREDITS_PER_SEC
+    usd = seconds * LIPSYNC_COST_PER_SEC_USD
+    return {
+        "credits_this_month": month_credits,
+        "estimated_seconds": round(seconds, 1),
+        "estimated_usd": round(usd, 2),
+    }
+
+
+@app.get("/api/admin/service_usage")
+def admin_service_usage(request: Request):
+    """Real (or best-available-estimate) usage numbers for every
+    third-party service this app depends on, so the admin dashboard can
+    show which one needs a plan/credit top-up before a user hits an
+    error. See service_usage_monitor.py's module docstring for exactly
+    what's real-time, what's cached, and what's an estimate for each
+    service, and why."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    eleven = service_usage_monitor.get_eleven_cached()
+    eleven["alert_percent"] = service_usage_monitor.ALERT_PERCENT
+    resend = service_usage_monitor.get_resend_cached()
+    r2 = r2_backup.get_storage_usage()
+    alibaba = _get_lipsync_spend_this_month()
+    return {"elevenlabs": eleven, "resend": resend, "r2": r2, "alibaba": alibaba}
+
+
 @app.get("/api/admin/overview")
 def admin_overview(request: Request):
     if not _admin_check(request):
@@ -3288,6 +3362,10 @@ def contact_form(req: ContactRequest, request: Request):
         with urllib.request.urlopen(contact_req, timeout=10) as r:
             if r.status not in (200, 201):
                 raise RuntimeError(f"Resend returned status {r.status}")
+            try:
+                service_usage_monitor.record_resend_usage(_resend_quota_header(r))
+            except Exception:
+                pass
         return {"ok": True}
     except urllib.error.HTTPError as ex:
         try:

@@ -83,6 +83,36 @@ def fetch_voices(api_key: str) -> dict:
         return {"error": str(e)}
 
 
+def get_subscription_usage(api_key: str) -> dict:
+    """Real character-quota usage for this ElevenLabs account, via
+    GET /v1/user/subscription. Returns character_count, character_limit,
+    tier, and next_character_count_reset_unix -- or {"error": ...} if the
+    call fails for any reason (bad key, network, unexpected response).
+    Used by service_usage_monitor.py for the admin dashboard's usage
+    monitoring, not by anything in the main dubbing pipeline."""
+    try:
+        request = urllib.request.Request(
+            "https://api.elevenlabs.io/v1/user/subscription",
+            headers={"xi-api-key": api_key},
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.load(response)
+        return {
+            "character_count": data.get("character_count"),
+            "character_limit": data.get("character_limit"),
+            "tier": data.get("tier"),
+            "next_reset_unix": data.get("next_character_count_reset_unix"),
+        }
+    except urllib.error.HTTPError as e:
+        try:
+            error_body = e.read().decode(errors="ignore")
+        except Exception:
+            error_body = str(e)
+        return {"error": f"ElevenLabs subscription check error {e.code}: {error_body}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def search_voice_library(api_key: str, language=None, accent=None, gender=None, age=None,
                           category=None, high_quality=None, search=None,
                           voice_type="community", page_size=30, next_page_token=None) -> dict:
