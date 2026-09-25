@@ -295,9 +295,13 @@ button.btn-success:hover { background: #15803d; }
       </div>
       <div class="card">
         <h3>🔬 Compare Voice Providers</h3>
-        <p class="muted" style="margin-bottom:12px;">Clones the SAME reference clip with ElevenLabs (the current production engine) and Qwen-Audio-TTS (Alibaba, Singapore region) and synthesizes the SAME Arabic text with both, so you can just listen and compare. This is a diagnostic only -- no credits are charged, nothing here touches a real dubbing job, and every cloned voice it creates on both sides is deleted again as soon as the run finishes. Requires <code>DASHSCOPE_SG_API_KEY</code> / <code>DASHSCOPE_SG_WORKSPACE_ID</code> to be set (the Singapore-region workspace, separate from the lip-sync one) -- Qwen's side will show a clear "not configured" error until those are added.</p>
+        <p class="muted" style="margin-bottom:12px;">Generates the SAME Arabic text with an ElevenLabs voice you already own and with a fresh Qwen-Audio-TTS clone (Alibaba, Singapore region), so you can just listen and compare. The ElevenLabs side is plain text-to-speech on an EXISTING voice -- it never creates a new clone, so it costs character quota only, never a voice cloning credit, and works fine even at 0 cloning credits remaining. Requires <code>DASHSCOPE_SG_API_KEY</code> / <code>DASHSCOPE_SG_WORKSPACE_ID</code> to be set (the Singapore-region workspace, separate from the lip-sync one) -- Qwen's side will show a clear "not configured" error until those are added.</p>
         <div style="margin-bottom:10px;">
-          <label class="muted" style="display:block;margin-bottom:4px;font-size:0.85em;">Reference voice clip (MP3 or WAV, max 10 MB, a few seconds of clean single-speaker audio)</label>
+          <label class="muted" style="display:block;margin-bottom:4px;font-size:0.85em;">ElevenLabs voice (an existing cloned voice from your account)</label>
+          <select id="cmpVoiceSelect" style="width:100%;box-sizing:border-box;"><option value="">Loading voices…</option></select>
+        </div>
+        <div style="margin-bottom:10px;">
+          <label class="muted" style="display:block;margin-bottom:4px;font-size:0.85em;">Reference clip for Qwen's clone (optional -- MP3 or WAV, max 10 MB). If left blank, Qwen clones from the selected voice's own ElevenLabs preview clip instead, so you can test a voice you no longer have the original recording for.</label>
           <input type="file" id="cmpFile" accept=".mp3,.wav,audio/mpeg,audio/wav">
         </div>
         <div style="margin-bottom:10px;">
@@ -379,7 +383,7 @@ function doLogin() {
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
+  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage(); loadElevenVoicesForCompare();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -742,26 +746,46 @@ function _renderCmpResult(el, res) {
   }
 }
 
+async function loadElevenVoicesForCompare() {
+  const sel = document.getElementById('cmpVoiceSelect');
+  try {
+    const r = await api('/api/admin/eleven_voices', { method: 'GET' });
+    const voices = (r.ok && r.data && r.data.voices) || [];
+    if (!voices.length) {
+      sel.innerHTML = '<option value="">No voices found on this ElevenLabs account.</option>';
+      return;
+    }
+    sel.innerHTML = voices.map(v =>
+      '<option value="' + escapeHtml(v.voice_id) + '">' + escapeHtml(v.name || v.voice_id) +
+      (v.category ? ' (' + escapeHtml(v.category) + ')' : '') + '</option>'
+    ).join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Failed to load voices.</option>';
+  }
+}
+
 async function runVoiceComparison() {
   const fileInput = document.getElementById('cmpFile');
+  const voiceId = document.getElementById('cmpVoiceSelect').value;
   const text = document.getElementById('cmpText').value.trim();
   const btn = document.getElementById('cmpRunBtn');
   const status = document.getElementById('cmpStatus');
   const elevenEl = document.getElementById('cmpElevenResult');
   const qwenEl = document.getElementById('cmpQwenResult');
 
-  if (!fileInput.files || !fileInput.files[0]) { status.textContent = 'Choose a reference clip first.'; return; }
+  if (!voiceId) { status.textContent = 'Choose an ElevenLabs voice first.'; return; }
   if (!text) { status.textContent = 'Enter some Arabic text first.'; return; }
 
   btn.disabled = true;
-  status.textContent = '⏳ Cloning + synthesizing on both sides -- this can take 20-60 seconds...';
+  status.textContent = '⏳ Generating on both sides -- this can take 20-60 seconds...';
   elevenEl.innerHTML = '<p class="muted" style="margin:0;">Running…</p>';
   qwenEl.innerHTML = '<p class="muted" style="margin:0;">Running…</p>';
 
   try {
     const fd = new FormData();
-    fd.append('file', fileInput.files[0]);
+    fd.append('voice_id', voiceId);
     fd.append('text', text);
+    if (fileInput.files && fileInput.files[0]) fd.append('file', fileInput.files[0]);
     // Not using the api() helper here -- it forces Content-Type: application/json,
     // which breaks multipart file uploads. The browser sets the correct
     // multipart boundary itself as long as Content-Type is left unset.

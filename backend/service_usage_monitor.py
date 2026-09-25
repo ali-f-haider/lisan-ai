@@ -56,10 +56,23 @@ MONITOR_INTERVAL_MIN = 20
 # ALERT_PERCENT so both monitors mean the same thing by "high".
 ALERT_PERCENT = 75
 
-# Once alerted, don't send another email until usage drops back under the
-# threshold -- but re-send at most this often even if it never drops, so a
-# permanently-maxed-out quota doesn't go silent forever.
-ALERT_RENOTIFY_HOURS = 12
+# Once alerted, don't send another email for the SAME crossing unless
+# either (a) usage climbs meaningfully further (see ALERT_RENOTIFY_PERCENT_
+# STEP below) or (b) this much time has passed with no re-send at all -- a
+# long-tail safety net so a quota stuck high for weeks doesn't go silent
+# forever, not the main re-notify mechanism. This used to be 12 hours,
+# which meant a quota sitting flat at (say) 93% for the rest of a billing
+# cycle emailed Ali every 12 hours with nothing new to report and nothing
+# he could do about it -- see ALERT_RENOTIFY_PERCENT_STEP for the real fix.
+ALERT_RENOTIFY_HOURS = 24 * 7
+
+# Re-send immediately (bypassing the long timer above) if any of the three
+# tracked percentages climbs by at least this many more points since the
+# last email actually sent -- e.g. first alert at 76%, no further email
+# until either 7 days pass or usage climbs to ~86%+. This is what actually
+# stops the flood: real movement still gets reported promptly, a quota
+# sitting flat near its cap does not re-trigger an email every poll.
+ALERT_RENOTIFY_PERCENT_STEP = 10
 
 _eleven_latest = {
     "ok": False, "error": "not polled yet", "character_count": None,
@@ -71,6 +84,12 @@ _eleven_latest = {
 _eleven_lock = threading.Lock()
 _eleven_alert_active = False
 _eleven_last_alert_sent = 0.0
+# The percent values (character/voice-slot/clone-ops) as of the last email
+# actually sent -- compared against the current poll to decide whether
+# usage has moved enough to justify a fresh email. Reset to None whenever
+# usage drops back under ALERT_PERCENT, so the next crossing always sends
+# one email immediately regardless of these.
+_eleven_last_alert_percents = {"percent": None, "voice_percent": None, "clone_ops_percent": None}
 
 # Resend's used-count is never "polled" -- only ever updated by main.py
 # right after a real send, via record_resend_usage().
@@ -225,7 +244,7 @@ def _send_eleven_alert_email(result):
 
 
 def _poll_once():
-    global _eleven_alert_active, _eleven_last_alert_sent
+    global _eleven_alert_active, _eleven_last_alert_sent, _eleven_last_alert_percents
     result = fetch_eleven_usage()
     with _eleven_lock:
         _eleven_latest.clear()
@@ -245,12 +264,28 @@ def _poll_once():
 
     if over_threshold:
         now = _time.time()
-        should_send = (not _eleven_alert_active) or (now - _eleven_last_alert_sent > ALERT_RENOTIFY_HOURS * 3600)
+        # Has any tracked metric climbed by ALERT_RENOTIFY_PERCENT_STEP+
+        # points since the last email actually sent? If so, that's real
+        # news worth a fresh email regardless of the long timer below.
+        moved = False
+        for key in ("percent", "voice_percent", "clone_ops_percent"):
+            cur = result.get(key)
+            last = _eleven_last_alert_percents.get(key)
+            if cur is not None and (last is None or cur >= last + ALERT_RENOTIFY_PERCENT_STEP):
+                moved = True
+                break
+        should_send = (not _eleven_alert_active) or moved or (now - _eleven_last_alert_sent > ALERT_RENOTIFY_HOURS * 3600)
         if should_send and _send_eleven_alert_email(result):
             _eleven_last_alert_sent = now
+            _eleven_last_alert_percents = {
+                "percent": result.get("percent"),
+                "voice_percent": result.get("voice_percent"),
+                "clone_ops_percent": result.get("clone_ops_percent"),
+            }
         _eleven_alert_active = True
     else:
         _eleven_alert_active = False
+        _eleven_last_alert_percents = {"percent": None, "voice_percent": None, "clone_ops_percent": None}
 
 
 def _worker():

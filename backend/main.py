@@ -2939,31 +2939,46 @@ def admin_service_usage(request: Request):
     return {"elevenlabs": eleven, "resend": resend, "r2": r2, "alibaba": alibaba}
 
 
-@app.post("/api/admin/compare_voice_providers")
-async def admin_compare_voice_providers(request: Request, file: UploadFile = File(...), text: str = Form(...)):
-    """Admin-only diagnostic: clones the SAME uploaded reference clip with
-    both ElevenLabs (the proven, production cloning/generation path) and
-    Qwen-Audio-TTS (the Singapore-region candidate -- see
-    qwen_voice_service.py's module docstring for why it needs its own
-    separate key/workspace), then synthesizes the SAME Arabic text with
-    both, so the two results can just be listened to side by side.
-
-    Deliberately isolated from the real dubbing pipeline: no credits are
-    charged, nothing here touches a real job's voices or the
-    /api/cleanup_voices flow, and every cloned voice this creates (on
-    BOTH sides) is deleted again before the response goes out, success or
-    failure -- via eleven_service.delete_voice() and
-    qwen_voice_service.delete_voice(), which each remove exactly the one
-    voice_id this call created, never a blanket sweep, so a comparison
-    run can never touch a real user's in-flight cloned voice."""
+@app.get("/api/admin/eleven_voices")
+def admin_eleven_voices(request: Request):
+    """Lists your existing ElevenLabs voices (voice_id, name, preview_url,
+    ...) for the Compare Voice Providers tool's dropdown below --
+    admin-gated wrapper around the same eleven_service.fetch_voices() the
+    main app's /api/voices uses for the dubbing UI's voice picker."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    nm = (file.filename or "").lower()
-    if not nm.endswith((".mp3", ".wav")):
-        return JSONResponse({"error": "Only MP3 or WAV reference clips are allowed."}, status_code=400)
-    data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
-        return JSONResponse({"error": "Reference clip too large (max 10 MB)."}, status_code=400)
+    return eleven_service.fetch_voices(ELEVENLABS_API_KEY)
+
+
+@app.post("/api/admin/compare_voice_providers")
+async def admin_compare_voice_providers(request: Request, voice_id: str = Form(...), text: str = Form(...), file: UploadFile = File(None)):
+    """Admin-only diagnostic: generates the SAME Arabic text with an
+    EXISTING ElevenLabs voice you already own, and with a fresh Qwen-
+    Audio-TTS clone (Singapore region -- see qwen_voice_service.py's
+    module docstring), so the two can just be listened to side by side.
+
+    Deliberately does NOT create a new ElevenLabs clone (never did the
+    old version have to, this was simplified after Ali pointed out his
+    voice-add/edit quota is at 0 -- see the "Voice cloning credits"
+    metric in the Service Usage card above). generate_sample() below is
+    plain text-to-speech against a voice_id you already have, which only
+    spends character quota, not a cloning credit -- so this tool can be
+    run freely regardless of that quota's balance.
+
+    Reference audio for the Qwen clone: if you upload a clip, that's
+    used. If you don't, this falls back to the selected ElevenLabs
+    voice's own preview_url (a short sample ElevenLabs already generated
+    for that voice) -- so you can compare an old cloned voice you have
+    no original source file for anymore, at the cost of Qwen cloning
+    from an ElevenLabs-generated sample rather than the original human
+    recording (Qwen's own quota is not scarce, so this side still clones
+    fresh every run and is cleaned up afterward via
+    qwen_voice_service.delete_voice())."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    voice_id = (voice_id or "").strip()
+    if not voice_id:
+        return JSONResponse({"error": "Choose an ElevenLabs voice first."}, status_code=400)
     text = (text or "").strip()
     if not text:
         return JSONResponse({"error": "Arabic text is required."}, status_code=400)
@@ -2981,58 +2996,73 @@ async def admin_compare_voice_providers(request: Request, file: UploadFile = Fil
         except Exception:
             pass
 
-    ref_ext = ".wav" if nm.endswith(".wav") else ".mp3"
-    ref_name = f"qwen_cmp_ref_{_u.uuid4().hex}{ref_ext}"
-    ref_path = OUTPUT_DIR / ref_name
-    ref_path.write_bytes(data)
     origin = str(request.base_url).rstrip("/")
-    ref_url = f"{origin}/api/download/{ref_name}"
-
     result = {"elevenlabs": {"ok": False, "error": "not run"}, "qwen": {"ok": False, "error": "not run"}}
-    eleven_voice_id = None
     qwen_voice_id = None
+    ref_path = None
 
-    # --- ElevenLabs side: the exact same cloning + generation calls the real app uses ---
+    # --- ElevenLabs side: plain TTS on a voice you already own -- no cloning, no cloning credit spent ---
     try:
-        vid = eleven_service.add_custom_voice("admin_compare", "CompareVoice", ref_path, ELEVENLABS_API_KEY)
-        if isinstance(vid, str) and vid.startswith("ERROR"):
-            result["elevenlabs"] = {"ok": False, "error": vid}
-        else:
-            eleven_voice_id = vid
-            audio_bytes = eleven_service.generate_sample(vid, text, ELEVENLABS_API_KEY)
-            out_name = f"qwen_cmp_el_{_u.uuid4().hex}.mp3"
-            (OUTPUT_DIR / out_name).write_bytes(audio_bytes)
-            result["elevenlabs"] = {"ok": True, "audio_url": f"{origin}/api/download/{out_name}"}
+        audio_bytes = eleven_service.generate_sample(voice_id, text, ELEVENLABS_API_KEY)
+        out_name = f"qwen_cmp_el_{_u.uuid4().hex}.mp3"
+        (OUTPUT_DIR / out_name).write_bytes(audio_bytes)
+        result["elevenlabs"] = {"ok": True, "audio_url": f"{origin}/api/download/{out_name}"}
     except Exception as e:
         result["elevenlabs"] = {"ok": False, "error": str(e)}
 
-    # --- Qwen side: Singapore-region cloning + synthesis (see qwen_voice_service.py) ---
-    try:
-        cr = qwen_voice_service.create_voice(ref_url, prefix="cmp")
-        if not cr.get("ok"):
-            result["qwen"] = cr
+    # --- Figure out the reference audio URL for Qwen's clone ---
+    ref_url = None
+    if file is not None and (file.filename or ""):
+        nm = file.filename.lower()
+        if not nm.endswith((".mp3", ".wav")):
+            result["qwen"] = {"ok": False, "error": "Only MP3 or WAV reference clips are allowed."}
         else:
-            qwen_voice_id = cr["voice_id"]
-            sr = qwen_voice_service.synthesize(qwen_voice_id, text)
-            if not sr.get("ok"):
-                result["qwen"] = sr
+            data = await file.read()
+            if len(data) > 10 * 1024 * 1024:
+                result["qwen"] = {"ok": False, "error": "Reference clip too large (max 10 MB)."}
             else:
-                out_name = f"qwen_cmp_qw_{_u.uuid4().hex}.mp3"
-                (OUTPUT_DIR / out_name).write_bytes(sr["audio_bytes"])
-                result["qwen"] = {"ok": True, "audio_url": f"{origin}/api/download/{out_name}"}
-    except Exception as e:
-        result["qwen"] = {"ok": False, "error": str(e)}
-    finally:
-        # Reference clip and both cloned voices are cleaned up regardless
-        # of outcome -- this diagnostic should never leave state behind.
+                ref_ext = ".wav" if nm.endswith(".wav") else ".mp3"
+                ref_name = f"qwen_cmp_ref_{_u.uuid4().hex}{ref_ext}"
+                ref_path = OUTPUT_DIR / ref_name
+                ref_path.write_bytes(data)
+                ref_url = f"{origin}/api/download/{ref_name}"
+    if ref_url is None and result["qwen"].get("error") == "not run":
+        # No clip uploaded (or it was rejected above, which already set an
+        # error) -- fall back to the selected voice's own ElevenLabs
+        # preview clip as the source Qwen clones from.
+        voices = eleven_service.fetch_voices(ELEVENLABS_API_KEY).get("voices", [])
+        match = next((v for v in voices if v.get("voice_id") == voice_id), None)
+        preview = (match or {}).get("preview_url") or ""
+        if preview:
+            ref_url = preview
+        else:
+            result["qwen"] = {"ok": False, "error": "This voice has no ElevenLabs preview clip to clone from -- upload a reference clip to test it on Qwen."}
+
+    # --- Qwen side: Singapore-region cloning + synthesis (see qwen_voice_service.py) ---
+    if ref_url:
+        try:
+            cr = qwen_voice_service.create_voice(ref_url, prefix="cmp")
+            if not cr.get("ok"):
+                result["qwen"] = cr
+            else:
+                qwen_voice_id = cr["voice_id"]
+                sr = qwen_voice_service.synthesize(qwen_voice_id, text)
+                if not sr.get("ok"):
+                    result["qwen"] = sr
+                else:
+                    out_name = f"qwen_cmp_qw_{_u.uuid4().hex}.mp3"
+                    (OUTPUT_DIR / out_name).write_bytes(sr["audio_bytes"])
+                    result["qwen"] = {"ok": True, "audio_url": f"{origin}/api/download/{out_name}"}
+        except Exception as e:
+            result["qwen"] = {"ok": False, "error": str(e)}
+
+    if ref_path is not None:
         try:
             ref_path.unlink()
         except Exception:
             pass
-        if eleven_voice_id:
-            eleven_service.delete_voice(eleven_voice_id, ELEVENLABS_API_KEY)
-        if qwen_voice_id:
-            qwen_voice_service.delete_voice(qwen_voice_id)
+    if qwen_voice_id:
+        qwen_voice_service.delete_voice(qwen_voice_id)
 
     return result
 
