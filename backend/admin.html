@@ -247,7 +247,9 @@ button.btn-success:hover { background: #15803d; }
             <div style="background:#1e293b;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
               <div id="suElevenVoiceBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
             </div>
-            <p class="muted" id="suElevenVoiceNote" style="margin:0;font-size:0.85em;">Cloning a new speaker's voice fails once this hits the limit, even with character quota left.</p>
+            <p class="muted" id="suElevenVoiceNote" style="margin:0;font-size:0.85em;">Cloning a new speaker's voice fails once this hits the limit, even with character quota left. This is a live snapshot, not cumulative -- the app deletes each cloned voice once a job is done with it, so this number stays low even after heavy use.</p>
+            <div class="metric" style="margin-top:8px;"><div class="label">Cloning operations this month</div><div class="value" id="suElevenCloneOps">—</div></div>
+            <p class="muted" id="suElevenCloneOpsNote" style="margin:0;font-size:0.85em;">The cumulative count you actually want -- every clone operation logged this month, regardless of whether the voice was deleted afterward.</p>
           </div>
         </div>
 
@@ -285,12 +287,6 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" style="margin-bottom:12px;">Click any time -- including right now, while the plateau is sitting there -- to see a real breakdown of what the container's memory is actually holding: real application memory vs. reclaimable Linux page cache (the OS caching model/library files it already read, which isn't a leak and gets freed automatically if something else needs the RAM).</p>
         <button class="btn" onclick="loadMemDiag()">🔍 Check memory now</button>
         <pre id="memDiagOut" style="margin-top:12px;white-space:pre-wrap;font-size:0.85em;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;max-height:400px;overflow:auto;">Click "Check memory now" to run.</pre>
-      </div>
-      <div class="card">
-        <h3>🚪 Danger Zone</h3>
-        <p class="muted" style="margin-bottom:12px;">These actions cannot be undone.</p>
-        <button class="btn btn-danger" onclick="purgeOldJobs()">🗑️ Purge jobs older than 30 days</button>
-        <button class="btn btn-danger" onclick="clearBrokenSessions()">🧹 Clear broken sessions</button>
       </div>
     </div>
 
@@ -676,6 +672,12 @@ async function loadServiceUsage() {
     vbar.style.background = vpct >= el.alert_percent ? '#dc2626' : (vpct >= el.alert_percent - 15 ? '#f59e0b' : '#16a34a');
   }
 
+  // Cumulative clone-operation count comes from our own DB, not the
+  // ElevenLabs API poll above, so it renders regardless of el.ok.
+  const cloneOps = el.clone_ops || {};
+  document.getElementById('suElevenCloneOps').textContent =
+    cloneOps.count_this_month != null ? cloneOps.count_this_month.toLocaleString() : '—';
+
   // Alibaba (estimate, not live)
   const al = d.alibaba || {};
   document.getElementById('suAlibabaUsd').textContent = al.estimated_usd != null ? '$' + al.estimated_usd.toFixed(2) : '—';
@@ -730,18 +732,6 @@ async function loadMemDiag() {
     text += p.rss_mb.toString().padStart(8) + ' MB   ' + p.name + '  (pid ' + p.pid + ')\n';
   });
   out.textContent = text;
-}
-
-async function purgeOldJobs() {
-  if (!confirm('Delete all job folders older than 30 days? This cannot be undone.')) return;
-  const r = await api('/api/admin/purge_old_jobs', { method: 'POST' });
-  toast(r.ok ? 'Purged ' + r.data.purged + ' jobs' : 'Failed', !r.ok);
-}
-
-async function clearBrokenSessions() {
-  if (!confirm('Clear all sessions older than 7 days?')) return;
-  const r = await api('/api/admin/clear_sessions', { method: 'POST' });
-  toast(r.ok ? 'Cleared ' + r.data.cleared + ' sessions' : 'Failed', !r.ok);
 }
 
 if (ADMIN_TOKEN) showAdmin();

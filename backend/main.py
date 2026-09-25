@@ -2908,6 +2908,38 @@ def _get_lipsync_spend_this_month():
     }
 
 
+def _get_clone_count_this_month():
+    """How many times voice cloning actually ran this month (both paths:
+    'clone' is the automatic per-speaker cloning in clone_voices(),
+    'custom_voice' is the manual upload-a-sample path in
+    add_custom_voice() -- see eleven_service.py) -- a CUMULATIVE count,
+    unlike ElevenLabs' own voice_slots_used figure.
+
+    voice_slots_used only reflects voices sitting in the account RIGHT
+    NOW, and this app deletes each cloned voice via /api/cleanup_voices
+    as soon as a job is done with it (see cleanup_cloned_voices()) to
+    stay under ElevenLabs' slot cap -- so a live snapshot will always
+    look small even after hundreds of real cloning operations. This
+    counts every operation from our own credit_spends log instead, the
+    same way _get_lipsync_spend_this_month() does for Alibaba spend."""
+    import urllib.request as _ur
+    now = time.gmtime()
+    month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?action=in.(clone,custom_voice)&select=action,created_at&limit=5000&order=created_at.desc"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r) or []
+    except Exception:
+        rows = []
+    month_rows = [row for row in rows if (row.get("created_at") or "") >= month_start]
+    return {
+        "count_this_month": len(month_rows),
+        "count_all_time_capped": len(rows),  # capped at the 5000-row query limit above
+    }
+
+
 @app.get("/api/admin/service_usage")
 def admin_service_usage(request: Request):
     """Real (or best-available-estimate) usage numbers for every
@@ -2920,6 +2952,7 @@ def admin_service_usage(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     eleven = service_usage_monitor.get_eleven_cached()
     eleven["alert_percent"] = service_usage_monitor.ALERT_PERCENT
+    eleven["clone_ops"] = _get_clone_count_this_month()
     resend = service_usage_monitor.get_resend_cached()
     r2 = r2_backup.get_storage_usage()
     alibaba = _get_lipsync_spend_this_month()
@@ -3127,15 +3160,20 @@ def admin_health(request: Request):
     """Wired-or-not check for every third-party service this app depends
     on. Three different depths of "check" here, same honesty rule as
     service_usage_monitor.py: a real reachability call where one exists
-    for free and without side effects (Supabase, Stripe, Resend, R2), and
-    a plain "is the key/config present" check where it doesn't (ElevenLabs,
-    Gemini, DashScope -- an ElevenLabs/Gemini call here would cost real
-    quota just to check the light is green, and DashScope has no free
-    reachability endpoint at all with the credentials this app has -- see
-    service_usage_monitor.py's module docstring). Sentry is a special
-    case: it checks whether sentry_sdk.init() actually succeeded (see
-    SENTRY_INITIALIZED above), not just whether SENTRY_DSN is set, since
-    that init call has silently failed before while the DSN stayed set."""
+    for free, without side effects, AND without false negatives for a
+    legitimately-scoped key (Supabase, Stripe, R2), and a plain "is the
+    key/config present" check everywhere that isn't true (ElevenLabs,
+    Gemini, DashScope, Resend). ElevenLabs/Gemini would cost real quota
+    just to check the light is green; DashScope has no free reachability
+    endpoint at all with the credentials this app has (see
+    service_usage_monitor.py's module docstring); Resend's only read
+    endpoints require a "Full access" key and 401 for a "Sending access
+    only" key even though that key sends mail fine, so a live check there
+    would cry wolf for the more common, more secure key setup. Sentry is
+    a special case: it checks whether sentry_sdk.init() actually
+    succeeded (see SENTRY_INITIALIZED above), not just whether
+    SENTRY_DSN is set, since that init call has silently failed before
+    while the DSN stayed set."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     import urllib.request as _ur
@@ -3158,10 +3196,14 @@ def admin_health(request: Request):
         stripe_status = _check("https://api.stripe.com/v1/balance", {"Authorization": f"Basic {basic}"})
     else:
         stripe_status = "not_configured"
-    if RESEND_API_KEY:
-        resend_status = _check("https://api.resend.com/domains", {"Authorization": f"Bearer {RESEND_API_KEY}"})
-    else:
-        resend_status = "not_configured"
+    # Resend: NOT a real reachability check, on purpose -- GET /domains
+    # requires a "Full access" API key, and 401s/403s for a key scoped to
+    # "Sending access only" even though that key sends mail just fine.
+    # A live check here would show a false red FAIL for exactly the safer,
+    # more common key setup, so this stays a shallow "key is set" check
+    # like ElevenLabs/Gemini/DashScope above, all of which have the same
+    # problem (no side-effect-free way to verify the key actually works).
+    resend_status = "ok" if RESEND_API_KEY else "not_configured"
     r2_status = r2_backup.check_reachable()
     sentry_status = "ok" if SENTRY_INITIALIZED else ("fail" if SENTRY_DSN else "not_configured")
     return {
@@ -3395,35 +3437,20 @@ def admin_mem_diag(request: Request):
         "model_cache_idle_threshold_minutes": MODEL_CACHE_IDLE_MINUTES,
     }
 
-@app.post("/api/admin/purge_old_jobs")
-def admin_purge_jobs(request: Request):
-    if not _admin_check(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    import os, shutil, time
-    purge_before = time.time() - 30 * 86400  # 30 days ago
-    purged = 0
-    try:
-        for d in os.listdir(OUTPUT_DIR):
-            full = os.path.join(OUTPUT_DIR, d)
-            if os.path.isdir(full) and os.path.getmtime(full) < purge_before:
-                shutil.rmtree(full, ignore_errors=True)
-                purged += 1
-    except Exception:
-        pass
-    return {"purged": purged}
-
-@app.post("/api/admin/clear_sessions")
-def admin_clear_sessions(request: Request):
-    if not _admin_check(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    cleared = 0
-    cutoff = time.time() - 7 * 86400
-    for tok in list(_session_users.keys()):
-        # _session_users values are UIDs, not timestamps — we'd need to track timestamps
-        # For now, clear all sessions (admin's call)
-        del _session_users[tok]
-        cleared += 1
-    return {"cleared": cleared}
+# Removed 2026-09-26 (Ali confirmed): /api/admin/purge_old_jobs and
+# /api/admin/clear_sessions, formerly wired to admin.html's "Danger Zone"
+# card. Both were no-ops. purge_old_jobs looked for subdirectories under
+# OUTPUT_DIR, but every job's files are stored flat (job_id_final_dubbed.mp3,
+# etc.) -- os.path.isdir() was never true, so it always reported "Purged 0"
+# regardless of file age, and real retention is already handled correctly
+# by _cleanup_worker()'s two-tier (30d subscriber / 48h pay-once) sweep.
+# clear_sessions only cleared _session_users, a minor uid-lookup cache --
+# it never touched _valid_tokens, _sessions, or the persistent app_sessions
+# table that actually decide whether a cookie is logged in, so it logged
+# out precisely nobody; the cache just silently repopulated on the next
+# request. If a real "force everyone to log out right now" tool is wanted
+# later (e.g. after a key rotation), it would need to clear all three of
+# those plus truncate app_sessions.
 
 # Serve the admin HTML page
 @app.get("/admin")
