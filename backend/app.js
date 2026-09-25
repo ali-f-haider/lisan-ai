@@ -5820,28 +5820,6 @@ window.cleanOldClones = function () {
     });
 })();
 
-// ===== Measure #userBar's real height for sticky table headers =====
-// #userBar is sticky at top:0. Table headers (thead th, styles.css) are
-// ALSO sticky and need to sit just below it, not at top:0 too -- two
-// sticky elements both claiming pixel 0 means the lower-z-index one (the
-// table header) ends up rendered underneath userBar and effectively
-// invisible once it starts sticking. Rather than hardcode userBar's
-// height (which silently goes stale the moment its content changes --
-// e.g. the credits badge toggling on), measure it for real and expose it
-// as a CSS variable every table header's "top" reads from.
-(function () {
-    var bar = document.getElementById("userBar");
-    if (!bar) return;
-    function sync() {
-        document.documentElement.style.setProperty("--userbar-h", bar.offsetHeight + "px");
-    }
-    sync();
-    window.addEventListener("resize", sync);
-    // The credits badge and other userBar contents can show/hide after
-    // login finishes, which can change its height after this first run.
-    if (window.ResizeObserver) { new ResizeObserver(sync).observe(bar); }
-})();
-
 // ===== Mobile block overlay (#mobileBlockOverlay in index.html) =====
 // Below the 768px breakpoint the page is blurred/masked with a message
 // telling the user to open Lisan AI on a computer -- the editing tools

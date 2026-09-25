@@ -191,17 +191,13 @@ thead th {
     letter-spacing: 0.5px;
     color: var(--text-muted);
     border-bottom: 2px solid var(--border);
-    /* Sticks just below #userBar, not at the very top of the viewport --
-       #userBar is ALSO sticky at top:0 with a higher z-index (50 vs this
-       2), so a naive "top: 0" here means this header tries to occupy the
-       same pixel row and loses, rendering hidden behind userBar the
-       moment it would start sticking. --userbar-h is measured live from
-       #userBar's real height by the IIFE in app.js (search "userbar-h"),
-       so this stays correct even if userBar's content ever changes
-       height; 58px is only the fallback for the brief instant before
-       that JS runs. */
+    /* Reverted (2026-09) -- a JS-measured "--userbar-h" offset was tried
+       here to stop the header hiding behind #userBar, but it caused a
+       worse bug: the sticky header landing on top of / hiding the first
+       table row on Step 2. Back to the simple original behavior (Ali's
+       call) until there's a real fix. */
     position: sticky;
-    top: var(--userbar-h, 58px);
+    top: 0;
     z-index: 2;
 }
 
