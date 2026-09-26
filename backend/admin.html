@@ -171,6 +171,16 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
+        <h3>🔒 Site Access Gate</h3>
+        <p class="muted" style="margin-bottom:16px;">A password wall in front of the ENTIRE site — landing page, login, everything — for while the product is still being tested. Random visitors see an "Under Construction" message instead of the real site; testers with the access code get straight in. The actual password only lives in Railway's <code>SITE_GATE_PASSWORD</code> environment variable (never shown here) — this switch just turns enforcement of it on or off. Leave <code>SITE_GATE_PASSWORD</code> unset in Railway and this switch does nothing either way.</p>
+        <div class="form-group">
+          <label><input type="checkbox" id="siteGateEnabled" style="width:auto;vertical-align:middle;"> Enable the access gate</label>
+          <span class="muted">Takes effect within ~20 seconds of saving. Turn this off any time to instantly reopen the site without touching Railway.</span>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save Gate Setting</button>
+      </div>
+
+      <div class="card">
         <h3>📊 Analytics</h3>
         <div class="form-group">
           <label>Google Analytics 4 Measurement ID</label>
@@ -458,6 +468,10 @@ async function loadPricing() {
   ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
+  // Checkbox, not a text/number field -- .checked, not .value, and defaults
+  // to true (matches _get_pricing_config()'s server-side default) if the
+  // key isn't present yet (e.g. before the DB column has ever been saved).
+  document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
   let html = '';
   r.data.packs.forEach((p, i) => {
     const key = p.key || slugifyPackKey(p.name);
@@ -519,7 +533,8 @@ async function savePricing() {
     packs: packs,
     subscriptionName: (document.getElementById('subscriptionName')?.value || 'Pro Monthly').trim(),
     subscriptionCredits: parseInt(document.getElementById('subscriptionCredits')?.value || '4000'),
-    subscriptionPriceUsd: parseFloat(document.getElementById('subscriptionPriceUsd')?.value || '29')
+    subscriptionPriceUsd: parseFloat(document.getElementById('subscriptionPriceUsd')?.value || '29'),
+    siteGateEnabled: document.getElementById('siteGateEnabled')?.checked ?? true
   };
 
   console.log('Saving pricing:', update);

@@ -324,12 +324,42 @@ def _is_logged_in(request: Request) -> bool:
 # (the admin panel's own login) -- this one gates being able to reach ANY
 # page at all, including the public landing page and /login itself, so a
 # stranger who finds the URL while the product is still being tested sees
-# nothing until they enter this password. Only takes effect once
-# SITE_GATE_PASSWORD is set in Railway's environment; leave it unset (the
-# default) and this whole gate is a no-op, restoring today's fully-public
-# behavior with no code change needed either way.
+# nothing until they enter this password. The real password only ever
+# lives in Railway's SITE_GATE_PASSWORD env var (never in the DB, never
+# sent to a browser) -- leave that unset and this whole gate is a no-op,
+# restoring today's fully-public behavior with no code change needed
+# either way. Whether the gate is actually ENFORCED right now is a
+# separate on/off switch, saved in pricing_config and flippable from the
+# admin panel (Ali's request, Sept 2026: a way to instantly shut it off
+# without a trip to Railway, while keeping the password saved for next
+# time). See _site_gate_active below.
 SITE_GATE_COOKIE = "site_gate_ok"
 GATE_EXEMPT_PATHS = frozenset(["/gate", "/api/site-gate", "/api/stripe/webhook"])
+
+# Cache the admin toggle briefly instead of hitting Supabase on literally
+# every request this server handles (this check runs in AuthMiddleware,
+# ahead of every page, asset and API call) -- 20 seconds is fast enough
+# that flipping the admin switch takes effect almost immediately, without
+# adding a DB round-trip to the site's hot path.
+_site_gate_cache = {"enabled": True, "checked_at": 0.0}
+SITE_GATE_CACHE_TTL_SEC = 20
+
+def _site_gate_active() -> bool:
+    """Whether the gate should block requests right now. Requires BOTH the
+    Railway env var (the actual password) to be set AND the admin panel's
+    toggle to be on -- defaults to on (True) so setting the env var alone
+    reproduces the original always-on behavior until someone visits the
+    admin panel and changes it."""
+    if not SITE_GATE_PASSWORD:
+        return False
+    now = time.time()
+    if now - _site_gate_cache["checked_at"] > SITE_GATE_CACHE_TTL_SEC:
+        try:
+            _site_gate_cache["enabled"] = bool(_get_pricing_config().get("siteGateEnabled", True))
+        except Exception:
+            pass  # Supabase hiccup -- keep the last known value rather than fail open or crash
+        _site_gate_cache["checked_at"] = now
+    return _site_gate_cache["enabled"]
 
 def _site_gate_token() -> str:
     # Derived from the password rather than storing it verbatim in the
@@ -340,8 +370,8 @@ def _site_gate_token() -> str:
     return hashlib.sha256(f"site-gate:{SITE_GATE_PASSWORD}".encode()).hexdigest()
 
 def _site_gate_ok(request: Request) -> bool:
-    if not SITE_GATE_PASSWORD:
-        return True  # gate disabled entirely
+    if not _site_gate_active():
+        return True  # gate disabled (env var unset, or admin switched it off)
     cookie = request.cookies.get(SITE_GATE_COOKIE, "")
     return bool(cookie) and hmac.compare_digest(cookie, _site_gate_token())
 
@@ -355,12 +385,22 @@ PUBLIC_PATHS = frozenset([
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        # The site-wide testing gate runs first and applies to EVERY path,
-        # including ones PUBLIC_PATHS and the /api/admin/ bypass below would
-        # otherwise let straight through -- that's the whole point while
-        # SITE_GATE_PASSWORD is set. It's a pure no-op when that env var is
-        # empty (see _site_gate_ok above).
-        if path not in GATE_EXEMPT_PATHS and not _site_gate_ok(request):
+        # /gate and /api/site-gate must ALWAYS be reachable no matter what,
+        # bypassing every check below -- not just the gate check itself.
+        # Bug fixed here (Ali reported the URL bouncing between /login and
+        # /gate): /gate used to only skip the SITE GATE check, but then
+        # fell through to the old "are you logged in" check further down,
+        # which isn't satisfied either -- so it redirected to /login,
+        # which then wasn't gate-exempt, which redirected back to /gate,
+        # forever. Returning immediately here means these two paths never
+        # touch the login check at all.
+        if path in GATE_EXEMPT_PATHS:
+            return await call_next(request)
+        # The site-wide testing gate runs next and applies to EVERY other
+        # path, including ones PUBLIC_PATHS and the /api/admin/ bypass below
+        # would otherwise let straight through -- that's the whole point
+        # while the gate is active (see _site_gate_active above).
+        if not _site_gate_ok(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Site is in private testing"}, status_code=401)
             import urllib.parse
@@ -582,28 +622,47 @@ def site_gate_page(next: str = "/"):
     # exempted.
     safe_next = next if next.startswith("/") and not next.startswith("//") else "/"
     import json as _json
+    # Leads with a plain "under construction" message for the vast majority
+    # of visitors (random people who found the URL, not testers) -- Ali's
+    # request (Sept 2026). The access-code field still works exactly the
+    # same underneath, just styled as a small, secondary detail rather than
+    # the headline, so it doesn't read as "this is a private beta with a
+    # login" to someone who isn't a tester.
     return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lisan AI</title>
 <style>
 body{{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}}
-.box{{background:#1e293b;border-radius:16px;padding:32px;max-width:360px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.4)}}
-h1{{font-size:18px;margin:0 0 8px}}
-p{{font-size:13px;color:#94a3b8;margin:0 0 18px}}
-input{{width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid #334155;background:#0f172a;color:#fff;font-size:14px;box-sizing:border-box}}
-button{{width:100%;margin-top:12px;padding:10px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-weight:600;cursor:pointer;font-size:14px}}
-#err{{color:#f87171;font-size:13px;margin-top:10px;min-height:16px}}
+.box{{background:#1e293b;border-radius:16px;padding:36px 32px;max-width:380px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.4);text-align:center}}
+.icon{{font-size:34px;margin-bottom:6px}}
+h1{{font-size:20px;margin:0 0 10px}}
+p{{font-size:14px;color:#94a3b8;margin:0;line-height:1.5}}
+.divider{{border:none;border-top:1px solid #334155;margin:26px 0 16px}}
+.code-toggle{{font-size:12px;color:#64748b;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline}}
+.code-form{{display:none;margin-top:14px;text-align:left}}
+.code-form.open{{display:block}}
+input{{width:100%;padding:9px 11px;border-radius:8px;border:1.5px solid #334155;background:#0f172a;color:#fff;font-size:13px;box-sizing:border-box}}
+button[type="submit"]{{width:100%;margin-top:10px;padding:9px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-weight:600;cursor:pointer;font-size:13px}}
+#err{{color:#f87171;font-size:12px;margin-top:8px;min-height:14px}}
 </style></head><body>
 <div class="box">
-<h1>Private testing</h1>
-<p>Lisan AI isn't public yet. Enter the access password to continue.</p>
-<form id="f">
-<input type="password" id="pw" placeholder="Access password" autofocus autocomplete="off">
+<div class="icon">🚧</div>
+<h1>Under Construction</h1>
+<p>Lisan AI is being tested right now and will be available soon. Thanks for checking back!</p>
+<hr class="divider">
+<button type="button" class="code-toggle" id="codeToggle">Have an access code?</button>
+<form id="f" class="code-form">
+<input type="password" id="pw" placeholder="Access code" autocomplete="off">
 <button type="submit">Continue</button>
 <div id="err"></div>
 </form>
 </div>
 <script>
+document.getElementById('codeToggle').addEventListener('click', function () {{
+  var f = document.getElementById('f');
+  f.classList.toggle('open');
+  if (f.classList.contains('open')) document.getElementById('pw').focus();
+}});
 document.getElementById('f').addEventListener('submit', async function (e) {{
   e.preventDefault();
   var err = document.getElementById('err');
@@ -616,7 +675,7 @@ document.getElementById('f').addEventListener('submit', async function (e) {{
     }});
     var data = await res.json();
     if (data.ok) {{ window.location.href = {_json.dumps(safe_next)}; }}
-    else {{ err.textContent = res.status === 429 ? (data.error || 'Too many attempts.') : 'Wrong password.'; }}
+    else {{ err.textContent = res.status === 429 ? (data.error || 'Too many attempts.') : 'Wrong code.'; }}
   }} catch (e2) {{ err.textContent = 'Something went wrong. Try again.'; }}
 }});
 </script>
@@ -2928,6 +2987,14 @@ def _get_pricing_config():
         "subscriptionName": "Pro Monthly",
         "subscriptionCredits": 4000,
         "subscriptionPriceUsd": 29.0,
+        # On/off switch for the site-wide "private testing" access gate
+        # (see SITE_GATE_PASSWORD in config.py and AuthMiddleware in this
+        # file). The actual password lives only in Railway's env var --
+        # this is just whether that gate is currently enforced, so Ali can
+        # flip it off/on from the admin panel without a Railway trip.
+        # Defaults to True so setting the env var alone reproduces the
+        # original always-on behavior until someone changes this in admin.
+        "siteGateEnabled": True,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -2973,6 +3040,13 @@ def _get_pricing_config():
                 "subscriptionName": row.get("subscription_name") or defaults["subscriptionName"],
                 "subscriptionCredits": row.get("subscription_credits") or defaults["subscriptionCredits"],
                 "subscriptionPriceUsd": row.get("subscription_price_usd") or defaults["subscriptionPriceUsd"],
+                # NOT the "or" pattern used above -- this is a boolean, and
+                # "False or True" would wrongly become True, silently
+                # ignoring an admin who turned the gate off. None (column
+                # missing OR present-but-NULL) is the only case that should
+                # fall back to the default; an explicit True/False from the
+                # admin panel must always win.
+                "siteGateEnabled": defaults["siteGateEnabled"] if row.get("site_gate_enabled") is None else bool(row.get("site_gate_enabled")),
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -3012,6 +3086,7 @@ def _save_pricing_config(config):
             "subscription_name": config.get("subscriptionName", "Pro Monthly"),
             "subscription_credits": config.get("subscriptionCredits", 4000),
             "subscription_price_usd": config.get("subscriptionPriceUsd", 29.0),
+            "site_gate_enabled": bool(config.get("siteGateEnabled", True)),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
         # on_conflict=id -- without this, "resolution=merge-duplicates" only
