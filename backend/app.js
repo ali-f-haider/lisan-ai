@@ -1350,8 +1350,8 @@ async function confirmTimeline() {
 
 window.addEventListener('DOMContentLoaded', loadRealPricing);
 
-const MAX_UPLOAD_BYTES = 400 * 1024 * 1024;
-const MAX_DURATION_SEC = 60.5;
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_DURATION_SEC = 30.5;
 const MIN_DURATION_SEC = 4;
 const LIPSYNC_MAX_DURATION_SEC = 15;
 const CLONE_QUALITY_WARN_SEC = 30;
@@ -1373,16 +1373,16 @@ const CLONE_QUALITY_WARN_SEC = 30;
 // the element itself and re-rendered in the current language from here.
 const LIPSYNC_NOTE_TEXT = {
     default: {
-        en: 'Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-60 seconds</strong>.',
-        ar: 'عند التفعيل: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>. بدون تفعيل: يجب أن تكون مدة المقطع <strong>4-60 ثانية</strong>.'
+        en: 'Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-30 seconds</strong>.',
+        ar: 'عند التفعيل: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>. بدون تفعيل: يجب أن تكون مدة المقطع <strong>4-30 ثانية</strong>.'
     },
     checked: {
         en: 'Lip-sync selected: clip must be <strong>4-15 seconds</strong>.',
         ar: 'تم اختيار مزامنة الشفاه: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>.'
     },
     unchecked: {
-        en: 'Clip must be <strong>4-60 seconds</strong>.',
-        ar: 'يجب أن تكون مدة المقطع <strong>4-60 ثانية</strong>.'
+        en: 'Clip must be <strong>4-30 seconds</strong>.',
+        ar: 'يجب أن تكون مدة المقطع <strong>4-30 ثانية</strong>.'
     }
 };
 function renderLipsyncChoiceNote() {
@@ -1416,12 +1416,12 @@ async function startTranscribe() {
     const file = document.getElementById("audioFile").files[0];
     if (!file) { notify("error", "Choose an audio or video file."); return; }
     if (file.size > MAX_UPLOAD_BYTES) {
-        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.");
+        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 50 MB — please trim or compress it first.");
         return;
     }
     const dur = await probeFileDuration(file);
     if (dur !== null && dur > MAX_DURATION_SEC) {
-        notify("error", "This clip is " + Math.round(dur) + " seconds long. This build accepts up to 60 seconds — please trim it first.");
+        notify("error", "This clip is " + Math.round(dur) + " seconds long. This build accepts up to 30 seconds — please trim it first.");
         return;
     }
     const form = new FormData();
@@ -1850,7 +1850,7 @@ async function startTranscribe() {
         return;
     }
     if (file.size > MAX_UPLOAD_BYTES) {
-        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.");
+        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 50 MB — please trim or compress it first.");
         return;
     }
     const lipsyncBox = document.getElementById("lipsyncWantedCheckbox");
@@ -4311,8 +4311,8 @@ window.cleanOldClones = function () {
             // BANNERS entry was left on the old pre-checkbox wording until
             // now, so Arabic mode was showing a stale "60 seconds max"
             // translation that no longer matched the real limits.
-            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-60 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>400 MB</strong> max file size.',
-            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>الحدود: مدة <strong>4-60 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه)، وحجم ملف أقصى <strong>400 ميجابايت</strong>.'
+            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-30 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>50 MB</strong> max file size.',
+            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>الحدود: مدة <strong>4-30 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه)، وحجم ملف أقصى <strong>50 ميجابايت</strong>.'
         },
         step1CreditsNote: {
             en: '💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
@@ -4587,7 +4587,7 @@ window.cleanOldClones = function () {
         [" unlocked line(s) to Arabic (locked lines skipped)...", " سطرًا غير مقفل إلى العربية (الأسطر المقفلة مستثناة)..."],
         [". Pick voices in Step 4 (or Auto-Assign) first.", ". اختر أصواتًا في الخطوة 4 (أو التعيين التلقائي) أولاً."],
         [". Pick one in Step 4 first.", ". اختر صوتًا في الخطوة 4 أولاً."],
-        [" seconds long. This build accepts up to 60 seconds — please trim it first.", " ثانية. يقبل هذا الإصدار حتى 60 ثانية — يرجى تقليمه أولاً."],
+        [" seconds long. This build accepts up to 30 seconds — please trim it first.", " ثانية. يقبل هذا الإصدار حتى 30 ثانية — يرجى تقليمه أولاً."],
         ["This clip is only ", "مدة هذا المقطع فقط "],
         [" seconds long. The minimum is ", " ثانية. الحد الأدنى "],
         ["For a lip-synced clip, the limit is ", "بالنسبة لمقطع بمزامنة الشفاه، الحد الأقصى هو "],
@@ -4597,7 +4597,7 @@ window.cleanOldClones = function () {
         ["Also generate a lip-synced video", "أنشئ أيضًا فيديو بمزامنة الشفاه"],
         ["Lip-sync selected: clip must be ", "تم اختيار مزامنة الشفاه: يجب أن تكون مدة المقطع "],
         ["Clip must be ", "يجب أن تكون مدة المقطع "],
-        [" MB). The limit is 400 MB — a 1-minute 1080p clip is usually well under 150 MB.", " ميجابايت). الحد الأقصى 400 ميجابايت — عادةً ما يكون مقطع بدقة 1080p لمدة دقيقة واحدة أقل من 150 ميجابايت بكثير."],
+        [" MB). The limit is 50 MB — please trim or compress it first.", " ميجابايت). الحد الأقصى 50 ميجابايت — يرجى تقليمه أو ضغطه أولاً."],
         [" ⚠️ stretched to the limit.", " ⚠️ تم التمديد إلى الحد الأقصى."],
         [" lines. The Step 6 player now uses it.", " أسطر. مشغّل الخطوة 6 يستخدمه الآن."],
         [" only...", " فقط..."],

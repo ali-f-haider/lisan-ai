@@ -64,13 +64,13 @@
     <h3>Step 1: Upload Audio or Video</h3>
     <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
         <div style="flex:1;min-width:280px;">
-            <p class="note" id="step1SupportsNote">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-60 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>400 MB</strong> max file size.</p>
+            <p class="note" id="step1SupportsNote">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-30 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>50 MB</strong> max file size.</p>
             <div id="lipsyncChoiceSection" style="margin:8px 0 0 0;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0;">
                     <input type="checkbox" id="lipsyncWantedCheckbox" onchange="onLipsyncChoiceChanged(this)">
                     <span id="lipsyncChoiceLabel">Also generate a lip-synced video</span>
                 </label>
-                <p class="note" id="lipsyncChoiceNote" style="margin:6px 0 0 0;border:none;background:none;padding:0;font-size:12px;">Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-60 seconds</strong>.</p>
+                <p class="note" id="lipsyncChoiceNote" style="margin:6px 0 0 0;border:none;background:none;padding:0;font-size:12px;">Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-30 seconds</strong>.</p>
             </div>
             <div id="step1UploadRow" style="display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:8px;">
                 <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">

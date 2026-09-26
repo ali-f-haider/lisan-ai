@@ -1838,7 +1838,24 @@ def enhance_progress(job_id: str):
 LIPSYNC_MIN_SEC = 4
 LIPSYNC_MAX_SEC = 15
 NO_LIPSYNC_MIN_SEC = 4
-NO_LIPSYNC_MAX_SEC = 60
+# Lowered from 60 to 30 (Sept 2026, same OOM investigation as the
+# concurrency cap above): a real 49-second/82MB test upload alone pushed
+# this container to 7.5 of its 7.6GB limit even with the concurrency fix in
+# place (most of that was the one-time Whisper/pyannote model-load spike,
+# not the clip itself, but the part that DOES scale with the clip -- audio
+# decode buffers, Demucs vocal separation, Whisper's own attention buffers
+# -- still matters at the margin). Ali's choice: cut the safety margin
+# clips can eat into by half.
+NO_LIPSYNC_MAX_SEC = 30
+# No file-size cap existed here at all before this (only duration was
+# checked) -- app.js's own client-side check quietly allowed up to 400MB,
+# unenforced server-side, so a direct POST to this endpoint could bypass it
+# entirely. 50MB pairs naturally with the 30s duration cap above: Ali's
+# daughter's real test clip was 82MB for 49 seconds (~13-14Mbps, ordinary
+# smartphone 1080p) -- at that same bitrate a 30-second clip lands right
+# around 50MB, so this isn't an arbitrary number, it's sized to match real
+# phone-video bitrates at the new duration cap.
+MAX_UPLOAD_MB = 50
 # Below this, cloning is still allowed (see the 4s floor above) but the
 # result may not sound convincing -- ElevenLabs' own guidance is that ~30s
 # of clean audio is where they've seen consistently good clones. This only
@@ -1867,6 +1884,17 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     dest = UPLOAD_DIR / f"{job_id}{ext}"
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
+    # Server-side file-size cap (Sept 2026 OOM investigation). app.js's own
+    # client-side check (MAX_UPLOAD_BYTES) allowed up to 400MB, but that's
+    # JavaScript and can't be trusted -- exactly like the duration check
+    # below, anyone posting directly to this endpoint bypassed it entirely
+    # until now. See MAX_UPLOAD_MB's own comment above for why 50MB.
+    size_mb = dest.stat().st_size / (1024 * 1024)
+    if size_mb > MAX_UPLOAD_MB:
+        try: dest.unlink()
+        except Exception: pass
+        _job_started.pop(job_id, None)
+        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB — please trim or compress it first."}, status_code=413)
     # Server-side duration cap. The client already blocks out-of-range
     # clips in its own UI, but that check runs in JavaScript and can't be
     # trusted -- anyone posting directly to this endpoint bypasses it
