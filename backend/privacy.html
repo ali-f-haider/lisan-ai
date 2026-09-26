@@ -48,7 +48,13 @@
   <li><strong>Google</strong> — "Sign in with Google" authentication.</li>
   <li><strong>Translation AI provider</strong> — used for translation, tashkeel, and emotion detection when selected.</li>
   <li><strong>Voice engine provider</strong> — used for AI voice generation and cloning.</li>
+  <li><strong>Lip-sync provider</strong> — used to generate a lip-synced video when you choose that option; your uploaded video is sent to this provider for that processing only.</li>
+  <li><strong>Sentry</strong> — automated error monitoring so we can catch and fix bugs; receives limited technical error data, not your media content.</li>
+  <li><strong>Cloudflare R2</strong> — off-site backup storage for finished dubbing outputs.</li>
 </ul>
+
+<h2>Voice data &amp; cloning</h2>
+<p>If you use voice cloning, the reference audio and the resulting cloned voice model are treated as biometric data. They're used only to generate your dubbing: old cloned voices are removed automatically rather than kept around indefinitely, and the isolated reference recording is deleted once your project resets or a new one starts.</p>
 
 <h2>Cookies &amp; local storage</h2>
 <p>We use essential cookies/local storage only to keep you signed in and to remember your in-progress project. We do not use third-party advertising or tracking cookies.</p>
