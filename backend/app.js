@@ -4769,6 +4769,33 @@ window.cleanOldClones = function () {
         if (lb) lb.onclick = function () { applyLang(window.currentLang === "en" ? "ar" : "en"); };
     })();
 
+    // ===== Dark mode toggle (persisted in localStorage "lisan_dark_mode",
+    // same pattern as "lisan_lang" above). account.html has its own small
+    // copy of this same logic since it doesn't load app.js. =====
+    function applyDarkMode(on) {
+        try {
+            document.body.classList.toggle("dark", !!on);
+            localStorage.setItem("lisan_dark_mode", on ? "1" : "0");
+            var db = document.getElementById("darkModeBtn");
+            if (db) db.textContent = on ? "☀️" : "🌙";
+        } catch (e) { /* ignore -- localStorage unavailable, dark mode just won't persist */ }
+    }
+    window.applyDarkMode = applyDarkMode;
+
+    // Dark mode button (create or reuse) -- same insertion pattern as the
+    // language button just above, so it lands right next to it in #userBar.
+    (function () {
+        var bar = document.getElementById("userBar");
+        var db = document.getElementById("darkModeBtn");
+        if (!db && bar && bar.children[1]) {
+            db = document.createElement("button");
+            db.id = "darkModeBtn"; db.className = "btn-logout";
+            db.title = "Toggle dark mode";
+            bar.children[1].insertBefore(db, bar.children[1].firstElementChild);
+        }
+        if (db) db.onclick = function () { applyDarkMode(!document.body.classList.contains("dark")); };
+    })();
+
     var t = null;
     new MutationObserver(function () {
         clearTimeout(t);
@@ -4782,6 +4809,7 @@ window.cleanOldClones = function () {
     repairCvBox();
     bindCv();
     applyLang(localStorage.getItem("lisan_lang") || "en");
+    applyDarkMode(localStorage.getItem("lisan_dark_mode") === "1");
 })();
 
 // ===== No clean button: voice cleanup is automatic only =====

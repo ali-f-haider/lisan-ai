@@ -42,6 +42,23 @@
   .acct-tab.active { color: #1a237e; border-bottom-color: #1a237e; }
   .acct-panel { display: none; }
   .acct-panel.active { display: block; }
+
+  /* Dark mode -- see this page's own toggle script near the bottom (this
+     page doesn't load app.js, so it can't reuse app.js's applyDarkMode()).
+     The generic color:#xxxxxx overrides for this page's inline style=""
+     colors already live in styles.css's dark-mode block (shared by both
+     pages); only the classes defined in THIS <style> tag need their own
+     dark rules here. */
+  body.dark .job-item { border-top-color: var(--border); }
+  body.dark .job-date { color: var(--primary-fg); }
+  body.dark .job-expiry { background: var(--logout-bg); color: var(--text-muted); }
+  body.dark .btn-danger { background: var(--card); color: var(--error); border-color: #7f1d1d; }
+  body.dark .btn-danger:hover { background: rgba(248,113,113,0.12); }
+  body.dark .acct-tabbar { border-bottom-color: var(--border); }
+  body.dark .acct-tab { color: var(--text-muted); }
+  body.dark .acct-tab:hover { color: var(--primary-fg); }
+  body.dark .acct-tab.active { color: var(--primary-fg); border-bottom-color: var(--primary-fg); }
+  body.dark [style*="border:1px solid #fecaca"] { border-color: #7f1d1d !important; }
 </style>
 </head>
 <body>
@@ -51,6 +68,7 @@
     <strong id="pageTitle" style="color:#1a237e;">Lisan AI — My Usage</strong>
   </div>
   <div style="display:flex;gap:8px;align-items:center;">
+    <button id="darkModeBtn" class="btn-logout" title="Toggle dark mode" onclick="window._toggleDarkMode()">🌙</button>
     <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">0</span> <span id="creditsWord">credits</span></span>
     <button id="backBtn" class="btn-logout" onclick="location.href='/app'">← Back to App</button>
     <button id="logoutBtn" class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
@@ -124,6 +142,25 @@
 </div>
 
 <script>
+// Dark mode -- own small copy of app.js's applyDarkMode()/toggle logic
+// (this page doesn't load app.js, see the file-level comment near the top
+// of this file for why). Same localStorage key ("lisan_dark_mode") so the
+// choice carries over between /app and /account either direction.
+(function () {
+  function apply(on) {
+    try {
+      document.body.classList.toggle("dark", !!on);
+      localStorage.setItem("lisan_dark_mode", on ? "1" : "0");
+      var db = document.getElementById("darkModeBtn");
+      if (db) db.textContent = on ? "☀️" : "🌙";
+    } catch (e) { /* ignore -- localStorage unavailable, dark mode just won't persist */ }
+  }
+  window._toggleDarkMode = function () { apply(!document.body.classList.contains("dark")); };
+  var saved;
+  try { saved = localStorage.getItem("lisan_dark_mode"); } catch (e) { saved = null; }
+  apply(saved === "1");
+})();
+
 // Follows the main app's language choice -- this page has no toggle of its
 // own, it just reads the same "lisan_lang" localStorage key app.js writes
 // on /app, and renders once in that language on load. If main app is set to
