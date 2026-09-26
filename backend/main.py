@@ -19,7 +19,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
-                    LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION)
+                    LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION,
+                    SITE_GATE_PASSWORD)
 import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
@@ -318,6 +319,32 @@ def _is_logged_in(request: Request) -> bool:
         return True
     return False
 
+# --- Site-wide "private testing" gate (Sept 2026) ---
+# Separate from APP_PASSWORD (the shared *login*) and from ADMIN_PASSWORD
+# (the admin panel's own login) -- this one gates being able to reach ANY
+# page at all, including the public landing page and /login itself, so a
+# stranger who finds the URL while the product is still being tested sees
+# nothing until they enter this password. Only takes effect once
+# SITE_GATE_PASSWORD is set in Railway's environment; leave it unset (the
+# default) and this whole gate is a no-op, restoring today's fully-public
+# behavior with no code change needed either way.
+SITE_GATE_COOKIE = "site_gate_ok"
+GATE_EXEMPT_PATHS = frozenset(["/gate", "/api/site-gate", "/api/stripe/webhook"])
+
+def _site_gate_token() -> str:
+    # Derived from the password rather than storing it verbatim in the
+    # cookie. Also means changing SITE_GATE_PASSWORD in Railway harmlessly
+    # signs out everyone already past the gate (their old cookie no longer
+    # matches), with no extra code needed to "revoke" old gate cookies.
+    import hashlib
+    return hashlib.sha256(f"site-gate:{SITE_GATE_PASSWORD}".encode()).hexdigest()
+
+def _site_gate_ok(request: Request) -> bool:
+    if not SITE_GATE_PASSWORD:
+        return True  # gate disabled entirely
+    cookie = request.cookies.get(SITE_GATE_COOKIE, "")
+    return bool(cookie) and hmac.compare_digest(cookie, _site_gate_token())
+
 PUBLIC_PATHS = frozenset([
     "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
@@ -328,6 +355,17 @@ PUBLIC_PATHS = frozenset([
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
+        # The site-wide testing gate runs first and applies to EVERY path,
+        # including ones PUBLIC_PATHS and the /api/admin/ bypass below would
+        # otherwise let straight through -- that's the whole point while
+        # SITE_GATE_PASSWORD is set. It's a pure no-op when that env var is
+        # empty (see _site_gate_ok above).
+        if path not in GATE_EXEMPT_PATHS and not _site_gate_ok(request):
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "Site is in private testing"}, status_code=401)
+            import urllib.parse
+            next_q = urllib.parse.quote(path, safe="")
+            return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
         if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
             return await call_next(request)
         if path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".mp4", ".webm")):            return await call_next(request)
@@ -523,6 +561,66 @@ def login_legacy(req: LoginRequest, response: Response, request: Request):
         return {"ok": True}
     _record_login_fail(request)
     return {"ok": False}
+
+
+@app.post("/api/site-gate")
+def site_gate_submit(req: LoginRequest, response: Response, request: Request):
+    if _login_rate_limited(request):
+        return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
+    if SITE_GATE_PASSWORD and hmac.compare_digest(str(req.password), str(SITE_GATE_PASSWORD)):
+        response.set_cookie(SITE_GATE_COOKIE, _site_gate_token(), httponly=True, max_age=86400 * 30, samesite="lax")
+        return {"ok": True}
+    _record_login_fail(request)
+    return {"ok": False}
+
+
+@app.get("/gate")
+def site_gate_page(next: str = "/"):
+    # Deliberately self-contained (no external CSS/JS/images) -- this page
+    # itself must always be reachable even when everything else is gated,
+    # so it can't depend on any other route (e.g. /logo.png) also being
+    # exempted.
+    safe_next = next if next.startswith("/") and not next.startswith("//") else "/"
+    import json as _json
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lisan AI</title>
+<style>
+body{{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}}
+.box{{background:#1e293b;border-radius:16px;padding:32px;max-width:360px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.4)}}
+h1{{font-size:18px;margin:0 0 8px}}
+p{{font-size:13px;color:#94a3b8;margin:0 0 18px}}
+input{{width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid #334155;background:#0f172a;color:#fff;font-size:14px;box-sizing:border-box}}
+button{{width:100%;margin-top:12px;padding:10px;border:none;border-radius:8px;background:#4f46e5;color:#fff;font-weight:600;cursor:pointer;font-size:14px}}
+#err{{color:#f87171;font-size:13px;margin-top:10px;min-height:16px}}
+</style></head><body>
+<div class="box">
+<h1>Private testing</h1>
+<p>Lisan AI isn't public yet. Enter the access password to continue.</p>
+<form id="f">
+<input type="password" id="pw" placeholder="Access password" autofocus autocomplete="off">
+<button type="submit">Continue</button>
+<div id="err"></div>
+</form>
+</div>
+<script>
+document.getElementById('f').addEventListener('submit', async function (e) {{
+  e.preventDefault();
+  var err = document.getElementById('err');
+  err.textContent = '';
+  try {{
+    var res = await fetch('/api/site-gate', {{
+      method: 'POST',
+      headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{password: document.getElementById('pw').value}})
+    }});
+    var data = await res.json();
+    if (data.ok) {{ window.location.href = {_json.dumps(safe_next)}; }}
+    else {{ err.textContent = res.status === 429 ? (data.error || 'Too many attempts.') : 'Wrong password.'; }}
+  }} catch (e2) {{ err.textContent = 'Something went wrong. Try again.'; }}
+}});
+</script>
+</body></html>""")
 
 
 @app.get("/login")

@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.23.5"
+APP_VERSION = "1.24.0"
 
 
 def _load_env():
@@ -40,6 +40,21 @@ APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # environment, admin login falls back to APP_PASSWORD (the previous
 # behavior), so nothing breaks until you choose to set a distinct one.
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "") or APP_PASSWORD
+
+# --- Site-wide "private testing" access gate (Sept 2026) ---
+# Separate from both passwords above: while the product is still being
+# tested, a random visitor who finds the URL can view the public landing
+# page and even create a real account (signup goes straight from the
+# browser to Supabase, bypassing this backend entirely -- this is exactly
+# how a test account got created by someone just clicking around). Setting
+# SITE_GATE_PASSWORD here turns on a single shared password required
+# before ANY page loads at all -- the landing page, /login, /help, every
+# static asset -- so a stranger with the link sees nothing until they
+# enter it (see /gate and the AuthMiddleware check in main.py). Leave this
+# unset/empty (the default) to keep the site fully public -- this is a
+# pure on/off switch you can flip from the Railway dashboard alone, with
+# no code change or redeploy needed either way.
+SITE_GATE_PASSWORD = os.environ.get("SITE_GATE_PASSWORD", "")
 
 # Sentry error monitoring: reports unhandled exceptions from the live server
 # so problems surface immediately instead of waiting for a user to report a
