@@ -2814,7 +2814,7 @@ def _save_pricing_config(config):
     returned success without writing anything, so admin edits looked saved
     but never actually persisted (and public pages kept showing defaults)."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return False  # not in DB, but UI already shows current values
+        return False, "Supabase not configured"  # not in DB, but UI already shows current values
     try:
         import re as _re
         import urllib.request as _ur
@@ -2842,7 +2842,19 @@ def _save_pricing_config(config):
             "subscription_price_usd": config.get("subscriptionPriceUsd", 29.0),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
-        url = f"{SUPABASE_URL}/rest/v1/pricing_config"
+        # on_conflict=id -- without this, "resolution=merge-duplicates" only
+        # upserts correctly if PostgREST can already tell "id" is this
+        # table's unique/primary key on its own. If it can't (a very plausible
+        # explanation for the flakiness reported here: an edit shows up once,
+        # then reverts), every save silently INSERTs another row instead of
+        # updating the one row this table is meant to hold -- explicit
+        # on_conflict=id forces the ON CONFLICT target instead of leaving it
+        # to guesswork. If "id" genuinely has no unique constraint in
+        # Supabase, this makes the save fail loudly (surfaced to the admin
+        # panel below) instead of quietly misbehaving -- that failure would
+        # mean a UNIQUE constraint on pricing_config.id needs adding directly
+        # in Supabase, which isn't something this code can do on its own.
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config?on_conflict=id"
         hdrs = {
             "apikey": SUPABASE_SERVICE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
@@ -2852,10 +2864,11 @@ def _save_pricing_config(config):
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=10) as r:
             pass
-        return True
+        return True, None
     except Exception as ex:
-        print(f"[admin] pricing_config save error: {_http_error_detail(ex)}")
-        return False
+        detail = _http_error_detail(ex)
+        print(f"[admin] pricing_config save error: {detail}")
+        return False, detail
 
 class AdminLoginRequest(BaseModel):
     code: str = ""
@@ -3148,8 +3161,11 @@ async def admin_save_pricing(request: Request):
         body = await request.json()
     except Exception:
         body = {}
-    ok = _save_pricing_config(body)
-    return {"ok": ok}
+    ok, err = _save_pricing_config(body)
+    # Surface the real reason to the admin panel instead of a bare "ok:
+    # false" -- previously a failed save just showed "unknown error" since
+    # nothing but the server logs ever saw the actual exception.
+    return {"ok": ok, "error": err}
 
 @app.get("/api/admin/audit")
 def admin_audit(request: Request):
