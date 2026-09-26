@@ -2761,7 +2761,22 @@ def _get_pricing_config():
         return defaults
     try:
         import urllib.request as _ur
-        url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=*"
+        # order=updated_at.desc&limit=1 -- this table is meant to hold exactly
+        # one row (id="singleton"), but nothing in Supabase actually enforces
+        # that uniqueness, and the upsert in _save_pricing_config() below can
+        # only truly merge into the existing row if "id" is a real primary/
+        # unique key there. If it isn't, every save quietly INSERTs another
+        # "singleton" row instead of updating one, and a plain SELECT with no
+        # ORDER BY returns them in whatever order Postgres feels like -- which
+        # is exactly the "admin edit shows up, then reverts" flicker Ali saw
+        # with the subscription name. Explicitly taking the most-recently-
+        # updated row makes every read deterministic regardless of whether
+        # duplicates exist underneath; it's a no-op if there's truly only one
+        # row. Worth checking Supabase's table editor for multiple rows with
+        # id="singleton" -- if there are several, a UNIQUE constraint on id
+        # would stop new ones from being created (this fix only papers over
+        # existing duplicates, it doesn't prevent new ones).
+        url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=*&order=updated_at.desc&limit=1"
         hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=5) as r:
@@ -3586,73 +3601,17 @@ def contact_form(req: ContactRequest, request: Request):
 
 
 
-# TEMPORARY DIAGNOSTIC ROUTE — delete after we fix the bug
-@app.get("/api/admin/test_save")
-async def admin_test_save(request: Request):
-    """Diagnoses why pricing_config saves are failing. Delete after fix."""
-    if not _admin_check(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    
-    import urllib.request as _ur
-    
-    result = {
-        "env": {
-            "SUPABASE_URL_set": bool(SUPABASE_URL),
-            "SUPABASE_SERVICE_KEY_set": bool(SUPABASE_SERVICE_KEY),
-            "url_prefix": SUPABASE_URL[:30] if SUPABASE_URL else None,
-            "key_length": len(SUPABASE_SERVICE_KEY) if SUPABASE_SERVICE_KEY else 0,
-        }
-    }
-    
-    # Test 1: Can we READ pricing_config?
-    try:
-        url = f"{SUPABASE_URL}/rest/v1/pricing_config?select=*"
-        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
-        req = _ur.Request(url, headers=hdrs)
-        with _ur.urlopen(req, timeout=10) as r:
-            rows = json.load(r)
-        result["read_test"] = {"ok": True, "row_count": len(rows) if isinstance(rows, list) else 0, "rows": rows}
-    except Exception as e:
-        err_msg = str(e)
-        err_body = ""
-        if hasattr(e, "read"):
-            try: err_body = e.read().decode()[:500]
-            except: pass
-        result["read_test"] = {"ok": False, "error": err_msg, "body": err_body}
-    
-    # Test 2: Can we WRITE pricing_config (with corrected Prefer header)?
-    try:
-        body = json.dumps({
-            "id": "singleton",
-            "price_per_min": 150,
-            "free_credits": 150,
-            "min_reserve": 150,
-            "max_video_min": 60,
-            "markup": 4.0,
-            "packs": [],
-            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        }).encode("utf-8")
-        url = f"{SUPABASE_URL}/rest/v1/pricing_config"
-        hdrs = {
-            "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-            "Content-Type": "application/json",
-            "Prefer": "resolution=merge-duplicates"  # ← corrected header
-        }
-        req = _ur.Request(url, data=body, headers=hdrs, method="POST")
-        with _ur.urlopen(req, timeout=10) as r:
-            result["write_test"] = {"ok": True, "status": r.status}
-    except Exception as e:
-        err_msg = str(e)
-        err_body = ""
-        if hasattr(e, "read"):
-            try: err_body = e.read().decode()[:500]
-            except: pass
-        result["write_test"] = {"ok": False, "error": err_msg, "body": err_body}
-    
-    return result
-
-
+# Removed 2026-09-26: the temporary /api/admin/test_save diagnostic route
+# that used to live here. Its own "Test 2: can we WRITE pricing_config"
+# check POSTed a hardcoded body containing "packs": [] straight to the real
+# pricing_config singleton row on every single GET of this route (no admin
+# button, just loading the URL) -- so any time it was hit (e.g. while
+# debugging something unrelated in the admin panel), it silently wiped the
+# live one-time-pack list back to empty. This is almost certainly why packs
+# stopped showing on the landing page: _save_pricing_config() itself was
+# never the problem, this leftover diagnostic route was overwriting its
+# result behind the scenes. Re-add your packs in the admin Pricing tab and
+# hit Save once to restore them -- this route can no longer wipe them again.
 @app.get("/api/admin/diag_bg/{job_id}")
 async def diag_bg(job_id: str, request: Request):
     """Diagnostic: list separated folder contents for a job."""

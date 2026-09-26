@@ -241,19 +241,24 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
 var PACK_NAME_AR = {starter: "أساسية", standard: "قياسية", pro: "احترافية", business: "أعمال"};
 fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
   if (!d || !d.packs) return;
-  var box = document.getElementById("packCards"); var html = "";
-  // Subscription card first (admin-configurable name/credits/price -- see
-  // /api/billing/packs in main.py) so it leads the same way it does in the
-  // in-app Buy Credits modal (app.js's openBuyModal).
-  if (d.subscription && d.subscription.credits) {
-    var s = d.subscription;
-    html += '<div class="pack" style="border-color:#7c3aed;"><div class="k">🔁 ' + s.name + '<span class="ar2">🔁 اشتراك شهري</span></div><div class="p">$' + s.amount_usd.toFixed(2) + '/mo<span class="ar2">' + s.amount_usd.toFixed(2) + '$/شهر</span></div><div class="c">' + s.credits.toLocaleString() + ' credits every month<span class="ar2">' + s.credits.toLocaleString() + ' رصيد كل شهر</span></div><div class="n">30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا للملفات · إلغاء في أي وقت</span></div></div>';
-  }
+  var box = document.getElementById("packCards");
+  // Build the one-time-pack cards FIRST and bail out entirely if none come
+  // back -- otherwise (see the bug this replaced) a subscription card alone
+  // would overwrite the static fallback markup and the page would show a
+  // monthly plan with no one-time option at all, instead of just leaving
+  // the hardcoded fallback (which already covers both) in place.
+  var packHtml = "";
   ["starter","standard","pro","business"].forEach(function (k) {
     var p = d.packs[k]; if (!p) return;
-    html += '<div class="pack"><div class="k">' + k + '<span class="ar2">' + (PACK_NAME_AR[k] || k) + '</span></div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits<span class="ar2">' + p.credits.toLocaleString() + ' رصيد</span></div><div class="n">one-time · never expires<span class="ar2">لمرة واحدة · لا تنتهي صلاحيته</span></div></div>';
+    packHtml += '<div class="pack"><div class="k">' + k + '<span class="ar2">' + (PACK_NAME_AR[k] || k) + '</span></div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits<span class="ar2">' + p.credits.toLocaleString() + ' رصيد</span></div><div class="n">one-time · never expires<span class="ar2">لمرة واحدة · لا تنتهي صلاحيته</span></div></div>';
   });
-  if (html) box.innerHTML = html;
+  if (!packHtml) return;
+  var subHtml = "";
+  if (d.subscription && d.subscription.credits) {
+    var s = d.subscription;
+    subHtml = '<div class="pack" style="border-color:#7c3aed;"><div class="k">🔁 ' + s.name + '<span class="ar2">🔁 اشتراك شهري</span></div><div class="p">$' + s.amount_usd.toFixed(2) + '/mo<span class="ar2">' + s.amount_usd.toFixed(2) + '$/شهر</span></div><div class="c">' + s.credits.toLocaleString() + ' credits every month<span class="ar2">' + s.credits.toLocaleString() + ' رصيد كل شهر</span></div><div class="n">30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا للملفات · إلغاء في أي وقت</span></div></div>';
+  }
+  box.innerHTML = subHtml + packHtml;
 }).catch(function () {});
 // Demo clips: show placeholders until real files exist at /static/demo_*.mp4
 [
