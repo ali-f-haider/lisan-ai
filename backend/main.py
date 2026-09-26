@@ -1939,7 +1939,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "login required"}, status_code=401)
-    
+
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
@@ -1947,6 +1947,36 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
 
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
+
+    # Same size/duration enforcement as /api/transcribe (Sept 2026 OOM
+    # investigation) -- this route runs the identical Demucs vocal-
+    # separation step below, so it's exactly as capable of triggering the
+    # same memory spike, and had none of these checks at all before now.
+    # No lipsync flag exists on this endpoint, so it's held to the plain
+    # (non-lipsync) NO_LIPSYNC_MIN_SEC/NO_LIPSYNC_MAX_SEC range -- the only
+    # duration policy this endpoint can apply without that information.
+    size_mb = dest.stat().st_size / (1024 * 1024)
+    if size_mb > MAX_UPLOAD_MB:
+        try: dest.unlink()
+        except Exception: pass
+        _job_started.pop(job_id, None)
+        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB — please trim or compress it first."}, status_code=413)
+    try:
+        dur = ffmpeg_utils.get_media_duration(dest)
+    except Exception as _dur_ex:
+        dur = None
+        print(f"[attach_media] duration probe failed, allowing upload through: {_dur_ex}")
+    if dur is not None:
+        if dur < NO_LIPSYNC_MIN_SEC:
+            try: dest.unlink()
+            except Exception: pass
+            _job_started.pop(job_id, None)
+            return JSONResponse({"error": f"This clip is only {round(dur, 1)} seconds long. The minimum is {NO_LIPSYNC_MIN_SEC} seconds."}, status_code=413)
+        if dur > NO_LIPSYNC_MAX_SEC:
+            try: dest.unlink()
+            except Exception: pass
+            _job_started.pop(job_id, None)
+            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. The limit is {NO_LIPSYNC_MAX_SEC} seconds — please trim it first."}, status_code=413)
 
     is_video = ext in VIDEO_EXTS
     if is_video:

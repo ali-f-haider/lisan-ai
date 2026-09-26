@@ -359,6 +359,27 @@ async function attachMedia(input) {
     const file = input.files[0];
     if (!file) return;
 
+    // Same client-side pre-checks startTranscribe() does -- instant feedback
+    // instead of uploading a doomed file first and finding out from the
+    // server's response. The server enforces these for real (see
+    // /api/attach_media in main.py); this just avoids the wasted upload.
+    if (file.size > MAX_UPLOAD_BYTES) {
+        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 50 MB — please trim or compress it first.");
+        input.value = "";
+        return;
+    }
+    const attachDur = await probeFileDuration(file);
+    if (attachDur !== null && attachDur < MIN_DURATION_SEC) {
+        notify("error", "This clip is only " + attachDur.toFixed(1) + " seconds long. The minimum is " + MIN_DURATION_SEC + " seconds.");
+        input.value = "";
+        return;
+    }
+    if (attachDur !== null && attachDur > MAX_DURATION_SEC) {
+        notify("error", "This clip is " + Math.round(attachDur) + " seconds long. This build accepts up to 30 seconds — please trim it first.");
+        input.value = "";
+        return;
+    }
+
     const form = new FormData();
     form.append("file", file);
 
