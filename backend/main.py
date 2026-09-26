@@ -1759,7 +1759,16 @@ def landing():
             "</script>\n"
         )
         html = html.replace("<head>", "<head>\n" + snippet, 1)
-    return HTMLResponse(html)
+    # no-cache (see _NO_CACHE_HEADERS below, which this predates in the file
+    # but not in spirit) -- this route already re-reads landing.html and
+    # pricing_config fresh on every request, but without this header nothing
+    # stops a browser from serving an already-open tab's cached copy of the
+    # page instead of re-requesting it, so an admin-panel change (like the
+    # subscription plan name) can look like it never took effect even though
+    # the server-side data is correct. Same class of bug _NO_CACHE_HEADERS
+    # was added for on app.js/index.html/styles.css; this route just never
+    # got it.
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 # "no-cache" (despite the name) still lets the browser cache these -- it
@@ -3533,14 +3542,19 @@ def billing_packs_dynamic():
     /api/billing/subscribe."""
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
-    return {
+    # no-cache -- this is live, admin-editable data (the exact field that
+    # prompted this: the subscription plan name), so a browser silently
+    # reusing a cached copy of this response would show stale pricing
+    # indefinitely after an admin change, same reasoning as landing()'s
+    # HTMLResponse above.
+    return JSONResponse({
         "packs": _keyed_packs(packs_array),
         "subscription": {
             "name": cfg.get("subscriptionName") or "Pro Monthly",
             "credits": int(cfg.get("subscriptionCredits") or 4000),
             "amount_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         },
-    }
+    }, headers={"Cache-Control": "no-cache"})
 
 @app.post("/api/contact")
 def contact_form(req: ContactRequest, request: Request):
