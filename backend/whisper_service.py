@@ -150,15 +150,74 @@ _model_lock = threading.Lock()
 # moment simply multiplied all of the above with nothing to stop it.
 #
 # Ali's choice: only ONE transcription job actually runs at a time.
-# Anyone else's upload waits here for a free slot (see the status-text
-# update in transcribe_worker below) instead of piling straight onto
-# memory. This trades some wait time during a busy moment for the
-# crash never being able to happen this way again. If real usage grows
-# enough that queuing becomes the bottleneck rather than memory, raise
-# this number -- but only after confirming the container has headroom to
-# match (see the admin panel's Memory Diagnostic card).
+# Anyone else's upload waits here for a free slot instead of piling
+# straight onto memory. This trades some wait time during a busy moment
+# for the crash never being able to happen this way again. If real usage
+# grows enough that queuing becomes the bottleneck rather than memory,
+# raise this number -- but only after confirming the container has
+# headroom to match (see the admin panel's Memory Diagnostic card).
 MAX_CONCURRENT_TRANSCRIPTIONS = 1
-_transcribe_semaphore = threading.Semaphore(MAX_CONCURRENT_TRANSCRIPTIONS)
+
+
+class _JobQueue:
+    """FIFO wait queue for the transcription concurrency cap above.
+
+    A plain threading.Semaphore was tried first (v1.22.2), but it can only
+    say "you're waiting" -- it has no concept of queue position, and its
+    wake order isn't something Python's docs promise to be FIFO. Ali asked
+    for the actual number of jobs ahead to be shown, and for that number to
+    keep updating as the queue moves -- this class tracks real arrival
+    order and lets a waiting job poll its own position so its status text
+    can say "3 jobs ahead of you", then "2", then "1", then start.
+
+    capacity is how many jobs may hold a slot (run) at once -- currently 1
+    (see MAX_CONCURRENT_TRANSCRIPTIONS), but this works unchanged if that's
+    ever raised."""
+
+    def __init__(self, capacity):
+        self._capacity = capacity
+        self._lock = threading.Lock()
+        self._in_use = 0
+        self._waiting = []  # [(job_id, threading.Event), ...] in arrival order
+
+    def _try_advance(self):
+        # Caller must already hold self._lock.
+        while self._in_use < self._capacity and self._waiting:
+            _jid, event = self._waiting.pop(0)
+            self._in_use += 1
+            event.set()
+
+    def ahead_count(self, job_id):
+        """How many jobs must finish before this one starts: every job
+        currently running (they all hold a slot ahead of anyone still
+        queued) plus anyone still queued ahead of job_id. Returns 0 once
+        job_id itself is no longer in the waiting list (its slot is free
+        or about to be)."""
+        with self._lock:
+            for i, (jid, _ev) in enumerate(self._waiting):
+                if jid == job_id:
+                    return self._in_use + i
+            return 0
+
+    def acquire(self, job_id, on_update=None):
+        """Blocks until a slot is free and job_id is next in line. Calls
+        on_update(ahead_count) roughly every 2 seconds while waiting, so
+        the caller can refresh a live "N jobs ahead of you" status."""
+        my_event = threading.Event()
+        with self._lock:
+            self._waiting.append((job_id, my_event))
+            self._try_advance()
+        while not my_event.wait(timeout=2.0):
+            if on_update:
+                on_update(self.ahead_count(job_id))
+
+    def release(self):
+        with self._lock:
+            self._in_use -= 1
+            self._try_advance()
+
+
+_transcribe_queue = _JobQueue(MAX_CONCURRENT_TRANSCRIPTIONS)
 
 
 def _get_model():
@@ -399,20 +458,35 @@ def merge_mid_sentence_rows(rows):
 
 
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False):
-    # Only MAX_CONCURRENT_TRANSCRIPTIONS jobs actually run at once (see the
-    # comment on _transcribe_semaphore above) -- everyone else blocks here
-    # until a slot frees up. Show a real status first so a queued job
-    # doesn't just look stuck at "Upload done..." while it waits; in the
-    # common case (a free slot already) the "with" below acquires
-    # immediately and this is overwritten by "Starting..." before anyone
-    # ever polls it.
+    # Only MAX_CONCURRENT_TRANSCRIPTIONS jobs actually run at once (see
+    # _JobQueue above) -- everyone else waits in line here for a slot. Show
+    # a real status first so a queued job doesn't just look stuck at
+    # "Upload done..." while it waits; in the common case (a free slot
+    # already) acquire() below returns immediately and this is overwritten
+    # by "Starting..." before anyone ever polls it.
     jobs_progress[job_id] = {
         "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
         "status_text": "Waiting for a free processing slot (server is busy with another job)...",
         "warning": None, "detected_speakers": 0, "is_video": False,
         "has_background": False, "lipsync_wanted": lipsync_wanted,
     }
-    with _transcribe_semaphore:
+
+    def _on_queue_update(ahead):
+        # Called every ~2s while this job is still queued (see
+        # _JobQueue.acquire), so the frontend's progress poll always shows
+        # a current, moving number instead of a static "please wait".
+        job = jobs_progress.get(job_id)
+        if job is None:
+            return
+        if ahead <= 0:
+            job["status_text"] = "Waiting for a free processing slot (server is busy with another job)..."
+        elif ahead == 1:
+            job["status_text"] = "Waiting in queue -- 1 job ahead of you..."
+        else:
+            job["status_text"] = f"Waiting in queue -- {ahead} jobs ahead of you..."
+
+    _transcribe_queue.acquire(job_id, on_update=_on_queue_update)
+    try:
         # Mark real activity -- main.py's cleanup loop uses this to tell a truly
         # idle server (safe to drop the model-file cache) from one that's still
         # actively being used (where dropping it would only slow the next job
@@ -686,3 +760,9 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 "detected_speakers": 0, "is_video": False, "has_background": False,
                 "error_trace": traceback.format_exc(),
             }
+    finally:
+        # Always give up this job's slot -- on success, on a caught error
+        # above, or on some unexpected exception the except clause itself
+        # didn't anticipate -- so a queued job is never stuck behind one
+        # that failed to release properly.
+        _transcribe_queue.release()
