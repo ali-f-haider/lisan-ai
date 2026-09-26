@@ -1664,6 +1664,23 @@ def _cleanup_worker():
             for jid in list(_job_started.keys()):
                 if _job_started[jid] < short_cutoff:
                     jobs_progress.pop(jid, None)
+                    # /api/emotions, /api/generate, and /api/lipsync each track
+                    # their own progress under a differently-prefixed key (not
+                    # the plain job_id the line above already pops), so those
+                    # were silently accumulating forever -- one dict entry per
+                    # job ever run since the process last restarted, no matter
+                    # how old. This is what was behind idle RAM slowly
+                    # climbing over the process's lifetime even with nobody
+                    # using the site (see mem_diag's "anon" figure). Same fix
+                    # for USAGE/_job_charges/_abandoned_jobs below -- all three
+                    # are keyed by job_id and had the identical never-purged
+                    # bug.
+                    jobs_progress.pop(f"emotions_{jid}", None)
+                    jobs_progress.pop(f"generate_{jid}", None)
+                    jobs_progress.pop(f"lipsync_{jid}", None)
+                    app_state.USAGE.pop(jid, None)
+                    _job_charges.pop(jid, None)
+                    _abandoned_jobs.discard(jid)
                     _job_started.pop(jid, None)
             if removed:
                 print(f"[cleanup] removed {removed} old file(s)")
