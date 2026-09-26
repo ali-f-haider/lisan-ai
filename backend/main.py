@@ -3156,6 +3156,37 @@ def _log_audit(target_uid, delta, reason):
         print(f"[admin] log_audit error: {detail}")
         return detail
 
+@app.get("/api/admin/pricing_debug")
+def admin_pricing_debug(request: Request):
+    """Read-only diagnostic: shows exactly what Supabase's REST API returns
+    for the pricing_config singleton row -- the real HTTP status and body,
+    or the exact exception -- instead of _get_pricing_config()'s silent
+    fall-through to hardcoded defaults on ANY failure (which is the right
+    behavior for public-facing pages during a real Supabase outage, but
+    makes a permissions or schema problem invisible from the outside).
+    Use this whenever Supabase's own Table Editor shows a value saved
+    correctly but it still isn't showing up on the public site -- this
+    tells you whether the read itself is being blocked or erroring (e.g. a
+    Row Level Security policy on this table with no SELECT rule for
+    whatever role SUPABASE_SERVICE_KEY actually authenticates as) rather
+    than just silently returning nothing. Safe to leave in permanently --
+    unlike the old test_save route this replaces in spirit, this makes no
+    writes at all."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return {"error": "SUPABASE_URL/SUPABASE_SERVICE_KEY not configured"}
+    import urllib.request as _ur
+    url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=*&order=updated_at.desc&limit=1"
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(url, headers=hdrs)
+        with _ur.urlopen(req, timeout=10) as r:
+            body = r.read().decode("utf-8")
+        return {"http_status": r.status, "body": body}
+    except Exception as ex:
+        return {"error": _http_error_detail(ex)}
+
 @app.get("/api/admin/pricing")
 def admin_get_pricing(request: Request):
     if not _admin_check(request):
