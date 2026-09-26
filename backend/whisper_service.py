@@ -137,6 +137,29 @@ def flush_model_file_cache():
 _model = None
 _model_lock = threading.Lock()
 
+# --- Concurrency cap (Sept 2026 Railway OOM crash investigation) ---
+# /api/transcribe used to spawn a new thread per upload with no limit at
+# all on how many could actually be processing at once. A single job
+# already loads the full Whisper large-v3 model AND (for a video, via
+# separate_vocals) runs a Demucs subprocess AND (when speaker detection is
+# requested) loads the pyannote diarization pipeline -- all sharing this
+# one container's memory, with no per-job ceiling anywhere. The server's
+# own logs showed multiple transcription jobs actively overlapping right
+# before a crash, which is almost certainly what pushed total memory past
+# the container's limit: two or three uploads landing around the same
+# moment simply multiplied all of the above with nothing to stop it.
+#
+# Ali's choice: only ONE transcription job actually runs at a time.
+# Anyone else's upload waits here for a free slot (see the status-text
+# update in transcribe_worker below) instead of piling straight onto
+# memory. This trades some wait time during a busy moment for the
+# crash never being able to happen this way again. If real usage grows
+# enough that queuing becomes the bottleneck rather than memory, raise
+# this number -- but only after confirming the container has headroom to
+# match (see the admin panel's Memory Diagnostic card).
+MAX_CONCURRENT_TRANSCRIPTIONS = 1
+_transcribe_semaphore = threading.Semaphore(MAX_CONCURRENT_TRANSCRIPTIONS)
+
 
 def _get_model():
     """Load the Whisper model on first use (thread-safe), and reuse it
@@ -376,276 +399,290 @@ def merge_mid_sentence_rows(rows):
 
 
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False):
-    # Mark real activity -- main.py's cleanup loop uses this to tell a truly
-    # idle server (safe to drop the model-file cache) from one that's still
-    # actively being used (where dropping it would only slow the next job
-    # down for no reason). Must be a qualified attribute set (app_state.x =
-    # ...), not "from app_state import last_job_activity" + reassignment --
-    # the latter would just rebind a local name here and never touch the
-    # value main.py reads.
-    app_state.last_job_activity = time.time()
-    try:
-        jobs_progress[job_id] = {
-            "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
-            "status_text": "Starting...", "warning": None, "detected_speakers": 0,
-            "is_video": False, "has_background": False, "lipsync_wanted": lipsync_wanted,
-        }
-
-        file_path = Path(input_path)
-        is_video = file_path.suffix.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.webm']
-        audio_path = input_path
-        background_path = None
-        extracted_audio = None
-
-        if is_video:
-            jobs_progress[job_id]["status_text"] = "Extracting audio from video..."
-            jobs_progress[job_id]["percent"] = 3
-            jobs_progress[job_id]["is_video"] = True
-            extracted_audio = UPLOAD_DIR / f"{job_id}_audio.wav"
-            extract_audio_from_video(input_path, str(extracted_audio))
-            audio_path = str(extracted_audio)
-
-            jobs_progress[job_id]["status_text"] = "Separating vocals from background (this takes a while)..."
-            jobs_progress[job_id]["percent"] = 8
-            try:
-                vocals_path, background_path = separate_vocals(audio_path, str(UPLOAD_DIR / f"{job_id}_separated"))
-                audio_path = vocals_path
-                jobs_progress[job_id]["has_background"] = True
-                jobs_progress[job_id]["background_path"] = background_path
-            except Exception as e:
-                jobs_progress[job_id]["warning"] = f"Vocal separation failed: {str(e)}. Using full audio instead."
-                jobs_progress[job_id]["has_background"] = False
-
-        turns = []
-        speaker_label_map = {}
-        warning = jobs_progress[job_id].get("warning")
-
-        # ---------- Speaker detection runs IN PARALLEL with transcription ----------
-        diar_result = {"turns": [], "error": None}
-
-        def diarize():
-            if not hf_token:
-                return
-            try:
-                diar_result["turns"] = get_speaker_turns(audio_path, hf_token, speaker_count)
-            except Exception as e:
-                diar_result["error"] = str(e)
-
-        diar_thread = None
-        if hf_token:
-            torch.set_num_threads(4)  # diarization gets core #4...
-            jobs_progress[job_id]["status_text"] = "Detecting speakers + transcribing in parallel..."
-            jobs_progress[job_id]["percent"] = 15
-            diar_thread = threading.Thread(target=diarize, daemon=True)
-            diar_thread.start()
-
-        # ...Whisper gets core #2 (cpu_threads=1 at model init)
-        jobs_progress[job_id]["status_text"] = "Transcribing audio (speakers detected in background)..."
-        segments_gen, info = _get_model().transcribe(
-            str(audio_path),
-            beam_size=5,
-            language="en",
-            word_timestamps=True,
-            vad_filter=True,
-            condition_on_previous_text=False,
-        )
-        total_duration = float(info.duration) if info.duration else 1.0
-
-        raw_segments = []
-        span = 55 if diar_thread is not None else 75
+    # Only MAX_CONCURRENT_TRANSCRIPTIONS jobs actually run at once (see the
+    # comment on _transcribe_semaphore above) -- everyone else blocks here
+    # until a slot frees up. Show a real status first so a queued job
+    # doesn't just look stuck at "Upload done..." while it waits; in the
+    # common case (a free slot already) the "with" below acquires
+    # immediately and this is overwritten by "Starting..." before anyone
+    # ever polls it.
+    jobs_progress[job_id] = {
+        "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
+        "status_text": "Waiting for a free processing slot (server is busy with another job)...",
+        "warning": None, "detected_speakers": 0, "is_video": False,
+        "has_background": False, "lipsync_wanted": lipsync_wanted,
+    }
+    with _transcribe_semaphore:
+        # Mark real activity -- main.py's cleanup loop uses this to tell a truly
+        # idle server (safe to drop the model-file cache) from one that's still
+        # actively being used (where dropping it would only slow the next job
+        # down for no reason). Must be a qualified attribute set (app_state.x =
+        # ...), not "from app_state import last_job_activity" + reassignment --
+        # the latter would just rebind a local name here and never touch the
+        # value main.py reads.
+        app_state.last_job_activity = time.time()
         try:
-            for segment in segments_gen:
-                raw_segments.append(segment)
-                jobs_progress[job_id]["percent"] = min(15 + int((segment.end / total_duration) * span), 15 + span)
-        finally:
-            # Free the Whisper model's RAM now that decoding is done -- it's
-            # not needed again until the next job (speaker detection above
-            # runs on a separate pyannote pipeline, not this model).
-            _release_model()
+            jobs_progress[job_id] = {
+                "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
+                "status_text": "Starting...", "warning": None, "detected_speakers": 0,
+                "is_video": False, "has_background": False, "lipsync_wanted": lipsync_wanted,
+            }
 
-        # ---------- Wait for speaker detection (max 5 min) with live timer ----------
-        if diar_thread is not None:
-            waited = 0
-            while diar_thread.is_alive() and waited < 300:
-                diar_thread.join(timeout=30)
-                waited += 30
-                jobs_progress[job_id]["status_text"] = f"Finishing speaker detection... ({waited}s elapsed)"
-                jobs_progress[job_id]["percent"] = min(70 + waited // 10, 85)
+            file_path = Path(input_path)
+            is_video = file_path.suffix.lower() in ['.mp4', '.avi', '.mkv', '.mov', '.webm']
+            audio_path = input_path
+            background_path = None
+            extracted_audio = None
+
+            if is_video:
+                jobs_progress[job_id]["status_text"] = "Extracting audio from video..."
+                jobs_progress[job_id]["percent"] = 3
+                jobs_progress[job_id]["is_video"] = True
+                extracted_audio = UPLOAD_DIR / f"{job_id}_audio.wav"
+                extract_audio_from_video(input_path, str(extracted_audio))
+                audio_path = str(extracted_audio)
+
+                jobs_progress[job_id]["status_text"] = "Separating vocals from background (this takes a while)..."
+                jobs_progress[job_id]["percent"] = 8
+                try:
+                    vocals_path, background_path = separate_vocals(audio_path, str(UPLOAD_DIR / f"{job_id}_separated"))
+                    audio_path = vocals_path
+                    jobs_progress[job_id]["has_background"] = True
+                    jobs_progress[job_id]["background_path"] = background_path
+                except Exception as e:
+                    jobs_progress[job_id]["warning"] = f"Vocal separation failed: {str(e)}. Using full audio instead."
+                    jobs_progress[job_id]["has_background"] = False
 
             turns = []
+            speaker_label_map = {}
+            warning = jobs_progress[job_id].get("warning")
+
+            # ---------- Speaker detection runs IN PARALLEL with transcription ----------
+            diar_result = {"turns": [], "error": None}
+
+            def diarize():
+                if not hf_token:
+                    return
+                try:
+                    diar_result["turns"] = get_speaker_turns(audio_path, hf_token, speaker_count)
+                except Exception as e:
+                    diar_result["error"] = str(e)
+
+            diar_thread = None
+            if hf_token:
+                torch.set_num_threads(4)  # diarization gets core #4...
+                jobs_progress[job_id]["status_text"] = "Detecting speakers + transcribing in parallel..."
+                jobs_progress[job_id]["percent"] = 15
+                diar_thread = threading.Thread(target=diarize, daemon=True)
+                diar_thread.start()
+
+            # ...Whisper gets core #2 (cpu_threads=1 at model init)
+            jobs_progress[job_id]["status_text"] = "Transcribing audio (speakers detected in background)..."
+            segments_gen, info = _get_model().transcribe(
+                str(audio_path),
+                beam_size=5,
+                language="en",
+                word_timestamps=True,
+                vad_filter=True,
+                condition_on_previous_text=False,
+            )
+            total_duration = float(info.duration) if info.duration else 1.0
+
+            raw_segments = []
+            span = 55 if diar_thread is not None else 75
             try:
-                if diar_thread.is_alive():
-                    warning = (warning + " | " if warning else "") + \
-                        "Speaker detection timed out; all lines assigned to Speaker 1."
-                elif diar_result["error"]:
-                    warning = (warning + " | " if warning else "") + \
-                        f"Speaker detection failed: {diar_result['error']}. All lines assigned to Speaker 1."
-
-                turns = diar_result["turns"]
-                for turn in sorted(turns, key=lambda x: x["start"]):
-                    raw_speaker = turn["speaker"]
-                    if raw_speaker not in speaker_label_map:
-                        speaker_label_map[raw_speaker] = f"Speaker {len(speaker_label_map) + 1}"
-                jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
-                if speaker_count and len(speaker_label_map) < int(speaker_count):
-                    warning = (warning + " | " if warning else "") + \
-                        f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+                for segment in segments_gen:
+                    raw_segments.append(segment)
+                    jobs_progress[job_id]["percent"] = min(15 + int((segment.end / total_duration) * span), 15 + span)
             finally:
-                # Free the diarization pipeline's RAM now that speaker detection
-                # is done for this job -- it isn't needed again until the next
-                # job that requests speaker detection. In a finally block (like
-                # _release_model above) so it fires even if something in the
-                # turns-processing above raises -- the pipeline must never be
-                # left stranded in memory just because one job's results were
-                # malformed.
-                _release_diarization_pipeline(hf_token)
+                # Free the Whisper model's RAM now that decoding is done -- it's
+                # not needed again until the next job (speaker detection above
+                # runs on a separate pyannote pipeline, not this model).
+                _release_model()
 
-        jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
-        jobs_progress[job_id]["percent"] = 90
-        result = []
-        seg_index = 0
+            # ---------- Wait for speaker detection (max 5 min) with live timer ----------
+            if diar_thread is not None:
+                waited = 0
+                while diar_thread.is_alive() and waited < 300:
+                    diar_thread.join(timeout=30)
+                    waited += 30
+                    jobs_progress[job_id]["status_text"] = f"Finishing speaker detection... ({waited}s elapsed)"
+                    jobs_progress[job_id]["percent"] = min(70 + waited // 10, 85)
 
-        for segment in raw_segments:
-            segment_words = getattr(segment, "words", None) or []
-            groups = group_words_by_speaker(segment_words, turns) if turns else []
+                turns = []
+                try:
+                    if diar_thread.is_alive():
+                        warning = (warning + " | " if warning else "") + \
+                            "Speaker detection timed out; all lines assigned to Speaker 1."
+                    elif diar_result["error"]:
+                        warning = (warning + " | " if warning else "") + \
+                            f"Speaker detection failed: {diar_result['error']}. All lines assigned to Speaker 1."
 
-            if groups:
-                # One row per speaker turn, with exact word timestamps
-                for raw_speaker, words in groups:
-                    for chunk in chunk_words_by_duration(words, 15.0):
-                        speaker = speaker_label_map.get(raw_speaker, "Speaker 1") if raw_speaker else "Speaker 1"
-                        text = " ".join((w.word or "").strip() for w in chunk).strip()
-                        if not text:
-                            continue
+                    turns = diar_result["turns"]
+                    for turn in sorted(turns, key=lambda x: x["start"]):
+                        raw_speaker = turn["speaker"]
+                        if raw_speaker not in speaker_label_map:
+                            speaker_label_map[raw_speaker] = f"Speaker {len(speaker_label_map) + 1}"
+                    jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
+                    if speaker_count and len(speaker_label_map) < int(speaker_count):
+                        warning = (warning + " | " if warning else "") + \
+                            f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+                finally:
+                    # Free the diarization pipeline's RAM now that speaker detection
+                    # is done for this job -- it isn't needed again until the next
+                    # job that requests speaker detection. In a finally block (like
+                    # _release_model above) so it fires even if something in the
+                    # turns-processing above raises -- the pipeline must never be
+                    # left stranded in memory just because one job's results were
+                    # malformed.
+                    _release_diarization_pipeline(hf_token)
+
+            jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
+            jobs_progress[job_id]["percent"] = 90
+            result = []
+            seg_index = 0
+
+            for segment in raw_segments:
+                segment_words = getattr(segment, "words", None) or []
+                groups = group_words_by_speaker(segment_words, turns) if turns else []
+
+                if groups:
+                    # One row per speaker turn, with exact word timestamps
+                    for raw_speaker, words in groups:
+                        for chunk in chunk_words_by_duration(words, 15.0):
+                            speaker = speaker_label_map.get(raw_speaker, "Speaker 1") if raw_speaker else "Speaker 1"
+                            text = " ".join((w.word or "").strip() for w in chunk).strip()
+                            if not text:
+                                continue
+                            result.append({
+                                "segment_id": f"seg_{seg_index}",
+                                "start": round(float(chunk[0].start), 2),
+                                "end": round(float(chunk[-1].end), 2),
+                                "text": text,
+                                "speaker": speaker,
+                                "gender": "male",
+                                "emotion": "neutral",
+                                "arabic_text": "",
+                                "words": [
+                                    {"word": w.word, "start": round(float(w.start), 3), "end": round(float(w.end), 3)}
+                                    for w in chunk
+                                ],
+                            })
+                            seg_index += 1
+                else:
+                    # No diarization: old behaviour (split long segments by sentences)
+                    split_parts = split_segment(segment, max_duration=15.0)
+                    for part in split_parts:
+                        speaker = "Speaker 1"
+                        part_words = []
+                        if turns:
+                            raw_speaker = assign_speaker_by_words(segment_words, part["start"], part["end"], turns)
+                            if not raw_speaker:
+                                raw_speaker = assign_speaker_for_segment(part["start"], part["end"], turns)
+                            if raw_speaker:
+                                speaker = speaker_label_map.get(raw_speaker, "Speaker 1")
+                        for w in segment_words:
+                            ws = getattr(w, "start", None)
+                            we = getattr(w, "end", None)
+                            if ws is None or we is None:
+                                continue
+                            mid = (float(ws) + float(we)) / 2.0
+                            if part["start"] - 0.01 <= mid <= part["end"] + 0.01:
+                                part_words.append({"word": w.word, "start": round(float(ws), 3), "end": round(float(we), 3)})
                         result.append({
                             "segment_id": f"seg_{seg_index}",
-                            "start": round(float(chunk[0].start), 2),
-                            "end": round(float(chunk[-1].end), 2),
-                            "text": text,
-                            "speaker": speaker,
-                            "gender": "male",
-                            "emotion": "neutral",
-                            "arabic_text": "",
-                            "words": [
-                                {"word": w.word, "start": round(float(w.start), 3), "end": round(float(w.end), 3)}
-                                for w in chunk
-                            ],
+                            "start": part["start"], "end": part["end"],
+                            "text": part["text"], "speaker": speaker, "gender": "male",
+                            "emotion": "neutral", "arabic_text": "", "words": part_words,
                         })
                         seg_index += 1
-            else:
-                # No diarization: old behaviour (split long segments by sentences)
-                split_parts = split_segment(segment, max_duration=15.0)
-                for part in split_parts:
-                    speaker = "Speaker 1"
-                    part_words = []
-                    if turns:
-                        raw_speaker = assign_speaker_by_words(segment_words, part["start"], part["end"], turns)
-                        if not raw_speaker:
-                            raw_speaker = assign_speaker_for_segment(part["start"], part["end"], turns)
-                        if raw_speaker:
-                            speaker = speaker_label_map.get(raw_speaker, "Speaker 1")
-                    for w in segment_words:
-                        ws = getattr(w, "start", None)
-                        we = getattr(w, "end", None)
-                        if ws is None or we is None:
-                            continue
-                        mid = (float(ws) + float(we)) / 2.0
-                        if part["start"] - 0.01 <= mid <= part["end"] + 0.01:
-                            part_words.append({"word": w.word, "start": round(float(ws), 3), "end": round(float(we), 3)})
-                    result.append({
-                        "segment_id": f"seg_{seg_index}",
-                        "start": part["start"], "end": part["end"],
-                        "text": part["text"], "speaker": speaker, "gender": "male",
-                        "emotion": "neutral", "arabic_text": "", "words": part_words,
-                    })
-                    seg_index += 1
 
-        result = merge_mid_sentence_rows(result)
+            result = merge_mid_sentence_rows(result)
 
-        # Attach real, audio-measured silence windows to each segment, as a
-        # fallback signal for the frontend's auto-split-at-pauses feature.
-        # Whisper's own per-word timestamps come from an attention-based DTW
-        # alignment that isn't silence-aware -- a genuine ~1-2s pause between
-        # phrases can come back with the surrounding words' timestamps
-        # nearly touching, hiding the pause from a word-gap-only check. This
-        # measures silence directly from the audio instead, so it still
-        # catches the pause even when the word timestamps don't show it.
-        # Best-effort: a silence-detection hiccup should never break an
-        # otherwise-finished transcription.
-        try:
-            all_silences = detect_silence_gaps(audio_path)
-            for seg in result:
-                seg_gaps = [
-                    g for g in all_silences
-                    if g["start"] > seg["start"] + 0.15 and g["end"] < seg["end"] - 0.05
-                    and (g["end"] - g["start"]) >= 0.6
-                ]
-                if seg_gaps:
-                    seg["pause_gaps"] = seg_gaps
+            # Attach real, audio-measured silence windows to each segment, as a
+            # fallback signal for the frontend's auto-split-at-pauses feature.
+            # Whisper's own per-word timestamps come from an attention-based DTW
+            # alignment that isn't silence-aware -- a genuine ~1-2s pause between
+            # phrases can come back with the surrounding words' timestamps
+            # nearly touching, hiding the pause from a word-gap-only check. This
+            # measures silence directly from the audio instead, so it still
+            # catches the pause even when the word timestamps don't show it.
+            # Best-effort: a silence-detection hiccup should never break an
+            # otherwise-finished transcription.
+            try:
+                all_silences = detect_silence_gaps(audio_path)
+                for seg in result:
+                    seg_gaps = [
+                        g for g in all_silences
+                        if g["start"] > seg["start"] + 0.15 and g["end"] < seg["end"] - 0.05
+                        and (g["end"] - g["start"]) >= 0.6
+                    ]
+                    if seg_gaps:
+                        seg["pause_gaps"] = seg_gaps
+            except Exception as e:
+                print(f"[transcribe] silence-gap detection failed, skipping: {e}")
+
+            # Cross-check Whisper's own word timestamps against real voice-
+            # activity data (the same Silero VAD model faster-whisper already
+            # uses internally), two ways: (1) a word-to-word gap Whisper's
+            # timing claims is empty, but where VAD finds speech-like
+            # probability -- the word timestamp may be wrong rather than this
+            # being a real pause; (2) a word whose OWN claimed span shows
+            # almost no real voice activity at all, right next to an unusually
+            # large gap -- meaning it's not just mistimed but anchored to
+            # roughly the wrong point in the audio entirely (found on a real
+            # clip: Whisper placed a word ~3.4s from where it's actually
+            # spoken, next to a long non-speech stretch that confused the
+            # alignment). Both write into seg["suspect_gaps"] for manual
+            # review, never auto-correct, since a wrong duration here would
+            # otherwise silently feed a paid TTS generation. See vad_utils.py
+            # for why the second check is deliberately narrow.
+            #
+            # run_vad_timing_checks decodes the audio and runs the VAD model
+            # only once for both checks together (they used to each do this
+            # independently, doubling the memory this step needs for no
+            # reason). Best-effort, same as the silence-gap block above: never
+            # breaks an otherwise-finished transcription. gc.collect() +
+            # _trim_memory() afterward for the same reason _release_model()
+            # and _release_diarization_pipeline() above call them -- this step
+            # decodes the whole audio file into memory, and without an
+            # explicit trim, Railway's memory graph keeps showing that as the
+            # process's high-water mark even after Python's own GC has freed
+            # it, because glibc doesn't hand freed heap back to the OS on its
+            # own. This was the very last heavy allocation in the job before
+            # this fix, with nothing after it to trim -- worth checking if
+            # idle memory looks elevated again after a future change here.
+            try:
+                run_vad_timing_checks(result, audio_path)
+            except Exception as e:
+                print(f"[transcribe] VAD timing checks failed, skipping: {e}")
+            finally:
+                import gc
+                gc.collect()
+                _trim_memory()
+
+            # This job is done reading every audio file it touched -- drop their
+            # cached pages now instead of leaving them in RAM for the full
+            # CLEANUP_RETENTION_HOURS window before the file itself is deleted
+            # (see _fadvise_dontneed's docstring above for why this matters and
+            # why it's safe). The files themselves are untouched -- a later
+            # step (e.g. the mix/export step reading background_path) just
+            # re-reads from disk as normal if it runs before deletion.
+            for p in {input_path, audio_path, extracted_audio, background_path}:
+                if p:
+                    _fadvise_dontneed(p)
+
+            jobs_progress[job_id]["segments"] = result
+            jobs_progress[job_id]["status"] = "done"
+            jobs_progress[job_id]["percent"] = 100
+            jobs_progress[job_id]["full_duration"] = total_duration
+            jobs_progress[job_id]["status_text"] = "Done"
+            jobs_progress[job_id]["warning"] = warning
+
         except Exception as e:
-            print(f"[transcribe] silence-gap detection failed, skipping: {e}")
-
-        # Cross-check Whisper's own word timestamps against real voice-
-        # activity data (the same Silero VAD model faster-whisper already
-        # uses internally), two ways: (1) a word-to-word gap Whisper's
-        # timing claims is empty, but where VAD finds speech-like
-        # probability -- the word timestamp may be wrong rather than this
-        # being a real pause; (2) a word whose OWN claimed span shows
-        # almost no real voice activity at all, right next to an unusually
-        # large gap -- meaning it's not just mistimed but anchored to
-        # roughly the wrong point in the audio entirely (found on a real
-        # clip: Whisper placed a word ~3.4s from where it's actually
-        # spoken, next to a long non-speech stretch that confused the
-        # alignment). Both write into seg["suspect_gaps"] for manual
-        # review, never auto-correct, since a wrong duration here would
-        # otherwise silently feed a paid TTS generation. See vad_utils.py
-        # for why the second check is deliberately narrow.
-        #
-        # run_vad_timing_checks decodes the audio and runs the VAD model
-        # only once for both checks together (they used to each do this
-        # independently, doubling the memory this step needs for no
-        # reason). Best-effort, same as the silence-gap block above: never
-        # breaks an otherwise-finished transcription. gc.collect() +
-        # _trim_memory() afterward for the same reason _release_model()
-        # and _release_diarization_pipeline() above call them -- this step
-        # decodes the whole audio file into memory, and without an
-        # explicit trim, Railway's memory graph keeps showing that as the
-        # process's high-water mark even after Python's own GC has freed
-        # it, because glibc doesn't hand freed heap back to the OS on its
-        # own. This was the very last heavy allocation in the job before
-        # this fix, with nothing after it to trim -- worth checking if
-        # idle memory looks elevated again after a future change here.
-        try:
-            run_vad_timing_checks(result, audio_path)
-        except Exception as e:
-            print(f"[transcribe] VAD timing checks failed, skipping: {e}")
-        finally:
-            import gc
-            gc.collect()
-            _trim_memory()
-
-        # This job is done reading every audio file it touched -- drop their
-        # cached pages now instead of leaving them in RAM for the full
-        # CLEANUP_RETENTION_HOURS window before the file itself is deleted
-        # (see _fadvise_dontneed's docstring above for why this matters and
-        # why it's safe). The files themselves are untouched -- a later
-        # step (e.g. the mix/export step reading background_path) just
-        # re-reads from disk as normal if it runs before deletion.
-        for p in {input_path, audio_path, extracted_audio, background_path}:
-            if p:
-                _fadvise_dontneed(p)
-
-        jobs_progress[job_id]["segments"] = result
-        jobs_progress[job_id]["status"] = "done"
-        jobs_progress[job_id]["percent"] = 100
-        jobs_progress[job_id]["full_duration"] = total_duration
-        jobs_progress[job_id]["status_text"] = "Done"
-        jobs_progress[job_id]["warning"] = warning
-
-    except Exception as e:
-        jobs_progress[job_id] = {
-            "status": "error", "percent": 0, "error": str(e), "segments": [],
-            "full_duration": 0.0, "status_text": "Error", "warning": None,
-            "detected_speakers": 0, "is_video": False, "has_background": False,
-            "error_trace": traceback.format_exc(),
-        }
+            jobs_progress[job_id] = {
+                "status": "error", "percent": 0, "error": str(e), "segments": [],
+                "full_duration": 0.0, "status_text": "Error", "warning": None,
+                "detected_speakers": 0, "is_video": False, "has_background": False,
+                "error_trace": traceback.format_exc(),
+            }
