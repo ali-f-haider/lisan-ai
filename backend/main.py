@@ -2154,8 +2154,15 @@ def generate(req: GenerateRequest, request: Request):
     # real configured rate).
     min_reserve = int(_get_pricing_config().get("minReserve", 20))
     if bal is not None and bal < min_reserve:
-        chars_per_credit = int(_get_pricing_config().get("charsPerCredit", 60))
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Generation costs 1 credit per ~{chars_per_credit} characters. Use ➕ Buy."}, status_code=402)
+        # This used to describe the per-character rate here ("costs 1 credit
+        # per ~60 characters"), which has nothing to do with why the request
+        # was actually blocked -- a user with, say, 95 credits (far more
+        # than one job would ever cost) would see "you have 95, this costs
+        # 1 credit" and be blocked anyway, which reads as a straight-up bug
+        # report (and was reported as exactly that -- Sept 2026). The real
+        # reason is this reserve floor, a deliberate safety margin so a job
+        # can't finish with a negative balance -- so say that instead.
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Your balance needs to be at least {min_reserve} credits to start Generate Audio -- this is a safety reserve in case the job costs more than expected, not the actual price (you're only charged for what's used). Use ➕ Buy to top up."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
     # Keyed by job_id (not a single shared "generate" slot) so two jobs
