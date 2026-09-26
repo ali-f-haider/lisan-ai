@@ -222,13 +222,15 @@ _transcribe_queue = _JobQueue(MAX_CONCURRENT_TRANSCRIPTIONS)
 
 def _get_model():
     """Load the Whisper model on first use (thread-safe), and reuse it
-    for the rest of this job. cpu_threads=2 so Whisper shares the CPU
-    peacefully with speaker detection running in parallel."""
+    for the rest of this job. cpu_threads=4 -- speaker detection and
+    transcription now run sequentially (see transcribe_worker), not in
+    parallel, so Whisper no longer needs to leave CPU headroom for a
+    diarization pass running at the same time."""
     global _model
     with _model_lock:
         if _model is None:
             _model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE,
-                                  compute_type=WHISPER_COMPUTE, cpu_threads=2)
+                                  compute_type=WHISPER_COMPUTE, cpu_threads=4)
         return _model
 
 
@@ -531,12 +533,23 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             speaker_label_map = {}
             warning = jobs_progress[job_id].get("warning")
 
-            # ---------- Speaker detection runs IN PARALLEL with transcription ----------
+            # ---------- Speaker detection now runs BEFORE transcription (sequential) ----------
+            # Previously these ran in parallel threads, so Whisper (large-v3) and
+            # the pyannote diarization pipeline were BOTH fully loaded in memory
+            # at the same time on every single job. Confirmed (Sept 2026, Railway
+            # memory-graph investigation) that this -- not clip size -- is the
+            # dominant driver of near-ceiling memory spikes: a 20.8MB clip
+            # produced almost the same ~7.7GB peak as an earlier 82MB one, which
+            # rules out "big file" as the explanation. Running speaker detection
+            # to completion (and fully releasing its pipeline via
+            # _release_diarization_pipeline below) BEFORE Whisper is even loaded
+            # means only one large model is ever resident at once -- roughly
+            # halving the peak -- at the cost of each job taking somewhat longer
+            # overall, since there's no more free parallelism between the two
+            # steps. Ali confirmed this trade-off explicitly (Sept 2026).
             diar_result = {"turns": [], "error": None}
 
             def diarize():
-                if not hf_token:
-                    return
                 try:
                     diar_result["turns"] = get_speaker_turns(audio_path, hf_token, speaker_count)
                 except Exception as e:
@@ -544,46 +557,22 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
             diar_thread = None
             if hf_token:
-                torch.set_num_threads(4)  # diarization gets core #4...
-                jobs_progress[job_id]["status_text"] = "Detecting speakers + transcribing in parallel..."
+                jobs_progress[job_id]["status_text"] = "Detecting speakers..."
                 jobs_progress[job_id]["percent"] = 15
                 diar_thread = threading.Thread(target=diarize, daemon=True)
                 diar_thread.start()
 
-            # ...Whisper gets core #2 (cpu_threads=1 at model init)
-            jobs_progress[job_id]["status_text"] = "Transcribing audio (speakers detected in background)..."
-            segments_gen, info = _get_model().transcribe(
-                str(audio_path),
-                beam_size=5,
-                language="en",
-                word_timestamps=True,
-                vad_filter=True,
-                condition_on_previous_text=False,
-            )
-            total_duration = float(info.duration) if info.duration else 1.0
-
-            raw_segments = []
-            span = 55 if diar_thread is not None else 75
-            try:
-                for segment in segments_gen:
-                    raw_segments.append(segment)
-                    jobs_progress[job_id]["percent"] = min(15 + int((segment.end / total_duration) * span), 15 + span)
-            finally:
-                # Free the Whisper model's RAM now that decoding is done -- it's
-                # not needed again until the next job (speaker detection above
-                # runs on a separate pyannote pipeline, not this model).
-                _release_model()
-
-            # ---------- Wait for speaker detection (max 5 min) with live timer ----------
-            if diar_thread is not None:
+                # Still run this on its own thread (rather than a plain blocking
+                # call) so we can keep polling/updating status_text and enforce
+                # the same 5-minute timeout as before -- just waited-for here, up
+                # front, instead of raced against transcription.
                 waited = 0
                 while diar_thread.is_alive() and waited < 300:
                     diar_thread.join(timeout=30)
                     waited += 30
-                    jobs_progress[job_id]["status_text"] = f"Finishing speaker detection... ({waited}s elapsed)"
-                    jobs_progress[job_id]["percent"] = min(70 + waited // 10, 85)
+                    jobs_progress[job_id]["status_text"] = f"Detecting speakers... ({waited}s elapsed)"
+                    jobs_progress[job_id]["percent"] = min(15 + waited // 10, 45)
 
-                turns = []
                 try:
                     if diar_thread.is_alive():
                         warning = (warning + " | " if warning else "") + \
@@ -602,14 +591,40 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         warning = (warning + " | " if warning else "") + \
                             f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
                 finally:
-                    # Free the diarization pipeline's RAM now that speaker detection
-                    # is done for this job -- it isn't needed again until the next
-                    # job that requests speaker detection. In a finally block (like
-                    # _release_model above) so it fires even if something in the
-                    # turns-processing above raises -- the pipeline must never be
-                    # left stranded in memory just because one job's results were
-                    # malformed.
+                    # Free the diarization pipeline's RAM now that speaker
+                    # detection is done for this job -- it isn't needed again
+                    # until the next job that requests speaker detection, and
+                    # Whisper hasn't even been loaded yet at this point, so this
+                    # is where the memory peak actually drops vs. before.
                     _release_diarization_pipeline(hf_token)
+
+                jobs_progress[job_id]["percent"] = 50
+
+            torch.set_num_threads(4)
+            jobs_progress[job_id]["status_text"] = "Transcribing audio..."
+            segments_gen, info = _get_model().transcribe(
+                str(audio_path),
+                beam_size=5,
+                language="en",
+                word_timestamps=True,
+                vad_filter=True,
+                condition_on_previous_text=False,
+            )
+            total_duration = float(info.duration) if info.duration else 1.0
+
+            raw_segments = []
+            start_pct = 50 if diar_thread is not None else 15
+            span = 40 if diar_thread is not None else 75
+            try:
+                for segment in segments_gen:
+                    raw_segments.append(segment)
+                    jobs_progress[job_id]["percent"] = min(start_pct + int((segment.end / total_duration) * span), start_pct + span)
+            finally:
+                # Free the Whisper model's RAM now that decoding is done -- it's
+                # not needed again until the next job. Speaker detection above
+                # already released its own pipeline before this point, so at no
+                # point in this job are both large models in memory together.
+                _release_model()
 
             jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
             jobs_progress[job_id]["percent"] = 90

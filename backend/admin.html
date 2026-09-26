@@ -112,7 +112,7 @@ button.btn-success:hover { background: #15803d; }
         <div class="form-group">
           <label>Minimum credits per job (reserve before processing)</label>
           <input type="number" id="minReserve" style="width:120px;" step="50" min="0" max="5000">
-          <span class="muted">Recommended: 150 (one minute, refund unused)</span>
+          <span class="muted">This blocks Generate Audio entirely below this balance, regardless of what the job would actually cost -- keep it close to a real worst-case job, not a round "safe-sounding" number. Since clips are now capped at 30 seconds (Sept 2026), a reserve sized for a full 1-minute clip (150) is roughly double what's needed; ~75 matches the current cap. Unused reserve is never charged.</span>
         </div>
         <div class="form-group">
           <label>Maximum video length (minutes, 0 = no limit)</label>
