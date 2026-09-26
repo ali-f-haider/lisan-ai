@@ -146,10 +146,10 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
     <div class="slot" id="slot2After">After — Arabic dub (lip-synced + enhanced)<span class="ar2">بعد — الدبلجة العربية (مع مزامنة الشفاه والتحسين)</span></div>
   </div>
 
-  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Example 3 <span style="font-size:13px; color:#94a3b8; font-weight:normal;">(Coming Soon)</span><span class="ar2">مثال 3 <span style="font-size:.8em;font-weight:normal;">(قريبًا)</span></span></h3>
+  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Dubbing with Custom Voices — No Lip-Sync<span class="ar2">دبلجة بأصوات مخصصة — بدون مزامنة الشفاه</span></h3>
   <div class="videos">
-    <div class="slot" id="slot3Before">Before — original English (Example 3)<span class="ar2">قبل — الأصل بالإنجليزية (مثال 3)</span></div>
-    <div class="slot" id="slot3After">After — Arabic dub (Example 3)<span class="ar2">بعد — الدبلجة العربية (مثال 3)</span></div>
+    <div class="slot" id="slot3Before">Before — original English<span class="ar2">قبل — الأصل بالإنجليزية</span></div>
+    <div class="slot" id="slot3After">After — Arabic dub (custom voice)<span class="ar2">بعد — الدبلجة العربية (صوت مخصص)</span></div>
   </div>
 </section>
 
@@ -274,7 +274,9 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
   ["slot1Before", "/static/pair1_before.mp4"],
   ["slot1After", "/static/pair1_after.mp4"],
   ["slot2Before", "/static/pair2_before.mp4"],
-  ["slot2After", "/static/pair2_after.mp4"]
+  ["slot2After", "/static/pair2_after.mp4"],
+  ["slot3Before", "/static/pair3_before.mp4"],
+  ["slot3After", "/static/pair3_after.mp4"]
 ].forEach(function (pair) {
   var slot = document.getElementById(pair[0]);
   if (!slot) return;
