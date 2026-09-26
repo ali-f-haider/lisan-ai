@@ -238,7 +238,10 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
 // that only appears after a follow-up client-side fetch can look
 // uninstalled to automated checks even though it works for real visitors).
 // Fill pack cards from the live pricing endpoint when it is publicly reachable
-var PACK_NAME_AR = {starter: "أساسية", standard: "قياسية", pro: "احترافية", business: "أعمال"};
+// Arabic labels are keyed by the pack's id. Custom keys the admin panel
+// creates later (anything not in this map) just fall back to the pack's
+// own English name, so the page never breaks -- it just skips translation.
+var PACK_NAME_AR = {starter: "أساسية", standard: "قياسية", pro: "احترافية", business: "أعمال", small: "صغيرة", medium: "متوسطة", large: "كبيرة"};
 fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
   if (!d || !d.packs) return;
   var box = document.getElementById("packCards");
@@ -247,10 +250,16 @@ fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }
   // would overwrite the static fallback markup and the page would show a
   // monthly plan with no one-time option at all, instead of just leaving
   // the hardcoded fallback (which already covers both) in place.
+  // Loop over whatever keys the admin panel actually configured (matching
+  // /api/billing/packs's own stated intent) instead of a fixed list -- a
+  // hardcoded ["starter","standard","pro","business"] array here is what
+  // silently broke every admin pricing change from ever showing up on this
+  // page, since the real live keys are "small"/"medium"/"large".
   var packHtml = "";
-  ["starter","standard","pro","business"].forEach(function (k) {
+  Object.keys(d.packs).forEach(function (k) {
     var p = d.packs[k]; if (!p) return;
-    packHtml += '<div class="pack"><div class="k">' + k + '<span class="ar2">' + (PACK_NAME_AR[k] || k) + '</span></div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits<span class="ar2">' + p.credits.toLocaleString() + ' رصيد</span></div><div class="n">one-time · never expires<span class="ar2">لمرة واحدة · لا تنتهي صلاحيته</span></div></div>';
+    var label = p.name || k;
+    packHtml += '<div class="pack"><div class="k">' + label + '<span class="ar2">' + (PACK_NAME_AR[k] || label) + '</span></div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits<span class="ar2">' + p.credits.toLocaleString() + ' رصيد</span></div><div class="n">one-time · never expires<span class="ar2">لمرة واحدة · لا تنتهي صلاحيته</span></div></div>';
   });
   if (!packHtml) return;
   var subHtml = "";
