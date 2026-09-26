@@ -88,6 +88,11 @@
     <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
     <p id="balanceNote" class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
   </div>
+  <div class="card" id="dangerZoneCard" style="border:1px solid #fecaca;">
+    <h3 id="dangerZoneHeading" style="color:#dc2626;">⚠️ Danger Zone</h3>
+    <p class="note" id="dangerZoneNote">Deleting your account permanently removes your data and cannot be undone.</p>
+    <button id="deleteAccountBtn" class="btn-danger" onclick="openDeleteAccountModal()">Delete Account</button>
+  </div>
 </div>
 
 <div class="acct-panel" id="panel-subscription">
@@ -121,12 +126,6 @@
     <h3 id="spendsHeading">📉 Credit consumption</h3>
     <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
   </div>
-</div>
-
-<div class="card" id="dangerZoneCard" style="border:1px solid #fecaca;">
-  <h3 id="dangerZoneHeading" style="color:#dc2626;">⚠️ Danger Zone</h3>
-  <p class="note" id="dangerZoneNote">Deleting your account permanently removes your data and cannot be undone.</p>
-  <button id="deleteAccountBtn" class="btn-danger" onclick="openDeleteAccountModal()">Delete Account</button>
 </div>
 
 <div class="modal-overlay hidden" id="deleteAccountModal">

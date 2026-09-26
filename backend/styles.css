@@ -71,7 +71,13 @@ body.dark {
     --error: #f87171;
     --shadow: 0 1px 3px rgba(0,0,0,0.5), 0 1px 2px rgba(0,0,0,0.4);
     --shadow-lg: 0 10px 25px rgba(0,0,0,0.6);
-    --muted-surface: rgba(255,255,255,0.06);
+    /* Solid, not translucent -- this sits behind a STICKY table header
+       (thead th) among other things, and a translucent tint there rendered
+       a slightly different color depending on what happened to be
+       scrolled underneath it, which is what made two tables in the same
+       page look like they had different header colors even though they
+       share this exact rule. A flat color removes that inconsistency. */
+    --muted-surface: #283a52;
     --input-bg: #24314a;
     --locked-bg: rgba(217,119,6,0.28);
     --notify-info-bg: rgba(59,130,246,0.15);
@@ -95,11 +101,8 @@ body.dark {
    app.js/account.html's own JS for table rows, so there's no single element
    to attach a class to) -- matched by the exact hex string, not by element,
    so this keeps working even for rows generated after the page loads.
-   Deliberately NOT covering the amber "reminder" banners (#fef3c7 background
-   with #92400e text) scattered through index.html/account.html -- those set
-   both their own background AND text color, so they stay fully readable as
-   a light box regardless of page theme; re-theming them individually wasn't
-   worth the added risk for this pass. */
+   (The amber "reminder" banners' own #fef3c7/#92400e colors are handled
+   in the next block below, alongside the other ad-hoc colored boxes.) */
 body.dark [style*="color:#1a237e"] { color: var(--primary-fg) !important; }
 body.dark [style*="color:#374151"] { color: var(--text) !important; }
 body.dark [style*="color:#42a5f5"] { color: var(--accent) !important; }
@@ -107,6 +110,33 @@ body.dark [style*="color:#6b7280"] { color: var(--text-muted) !important; }
 body.dark [style*="color:#059669"] { color: var(--success) !important; }
 body.dark [style*="color:#dc2626"] { color: var(--error) !important; }
 body.dark [style*="color:#94a3b8"] { color: var(--text-muted) !important; }
+/* Ad-hoc colored "info box" divs in index.html (lip-sync opt-in, voice-
+   cloning consent, "project loaded" / temp-file / result-saved reminders,
+   enhance-background-audio, voice library browser) -- each sets only a
+   light background inline, with no matching dark-mode-aware text color
+   (or, for the amber ones, a dark-brown text color that reads fine on a
+   light background but is illegible once that background darkens). These
+   were left as plain light boxes in the first dark-mode pass since they're
+   self-contained; turns out several weren't self-contained enough --
+   their TEXT relies on the page's normal (var(--text)) color, which does
+   flip dark-mode-light and then vanishes against a background that never
+   changed. Retinting the backgrounds (translucent, so the box still reads
+   as "blue" / "amber" / "green") and fixing the one hardcoded text color
+   fixes all of them the same way. */
+body.dark [style*="background:#f0f9ff"] { background: rgba(56,189,248,0.14) !important; border-color: rgba(56,189,248,0.4) !important; }
+body.dark [style*="background:#fef3c7"] { background: rgba(217,119,6,0.18) !important; border-color: rgba(217,119,6,0.45) !important; }
+body.dark [style*="background:#f0fdf4"] { background: rgba(52,211,153,0.14) !important; border-color: rgba(52,211,153,0.4) !important; }
+body.dark [style*="background:#f9fafb"] { background: var(--muted-surface) !important; border-color: var(--border) !important; }
+body.dark [style*="color:#92400e"] { color: var(--warning) !important; }
+/* Plain content links with no inline color of their own (e.g. the ones
+   inside account.html's subscription/files-note JS strings) -- without
+   this they render in the browser's default link blue, which has poor
+   contrast against the dark background. #stepNavPanel a and .btn-danger
+   are naturally more specific (an ID, or two classes) and still win over
+   this without needing anything extra; .download-buttons a needs its own
+   line below since it's only one class + one element, same as this rule. */
+body.dark a { color: var(--accent); }
+body.dark .download-buttons a { color: #fff; }
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
