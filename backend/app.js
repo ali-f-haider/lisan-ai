@@ -2318,7 +2318,13 @@ function createRow(seg, i) {
     if (!seg.locked) {
         var groupIdx = 0;
         for (var j = 1; j <= i; j++) { if (segmentsData[j].speaker !== segmentsData[j - 1].speaker) groupIdx++; }
-        row.style.background = groupIdx % 2 === 0 ? "#ffffff" : "#f8fafc";
+        // Was row.style.background = "#ffffff"/"#f8fafc" directly -- an
+        // inline style that stayed pure white even in dark mode, since dark
+        // mode works by retinting CSS variables and an inline style can't
+        // see those. A class the stylesheet controls (styles.css's
+        // ".seg-row-b", using the same --muted-surface variable as the
+        // table header) re-themes along with everything else instead.
+        if (groupIdx % 2 !== 0) row.className = "seg-row-b";
     }
     var mk = function(tag) { return document.createElement(tag); };
     var numCell = mk("td"); numCell.style.textAlign = "center"; numCell.style.color = "#607d8b"; numCell.style.fontWeight = "600"; numCell.textContent = i + 1;
@@ -2558,7 +2564,7 @@ async function searchVoiceLibrary(page) {
         var html = "<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'>";
         pageVoices.forEach(function (v) {
             var desc = [v.age, v.use_case].filter(Boolean).join(", ");
-            html += "<div style='display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;text-align:center;'>"
+            html += "<div class='vl-card' style='display:flex;flex-direction:column;align-items:center;gap:6px;padding:10px;border-radius:8px;text-align:center;'>"
                 + "<button type='button' class='btn-sm' onclick='playPreview(" + JSON.stringify(v.preview_url || "") + ", this)'" + (v.preview_url ? "" : " disabled") + " style='min-width:40px;'>▶</button>"
                 + "<div><strong>" + v.label + "</strong>" + (desc ? "<br><span class='note' style='font-size:11px;'>" + desc + "</span>" : "") + "</div>"
                 + "</div>";
@@ -3236,7 +3242,15 @@ function openBuyModal() {
     var creditsWord = isAr ? "رصيد" : "credits";
     wrap.innerHTML = '<p style="font-size:13px;color:#6b7280;">' + (isAr ? "جارٍ تحميل الباقات..." : "Loading packs...") + '</p>';
     modal.style.display = "flex";
-    fetch("/api/billing/packs").then(function (r) { return r.json(); }).then(function (data) {
+    Promise.all([
+        fetch("/api/billing/packs").then(function (r) { return r.json(); }),
+        // Need this too, purely to find out if the user already has an
+        // active subscription -- /api/billing/packs is also used by the
+        // logged-out landing page, so it can't carry per-user state itself.
+        fetch("/api/user/info").then(function (r) { return r.json(); }).catch(function () { return {}; })
+    ]).then(function (results) {
+        var data = results[0];
+        var alreadySubscribed = (results[1] || {}).subscription_status === "active";
         wrap.innerHTML = "";
         // Monthly subscription tile first, visually set apart from the
         // one-time packs below it (Ali's request, 2026-09-26): the main
@@ -3246,17 +3260,29 @@ function openBuyModal() {
         var sub = data.subscription;
         if (sub && sub.credits) {
             var sb = document.createElement("button");
-            sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #7c3aed;background:#faf5ff;cursor:pointer;font-family:inherit;text-align:left;";
+            if (alreadySubscribed) {
+                // Deactivated, not hidden -- so it's clear the subscription
+                // exists rather than looking like it vanished, and the note
+                // below points at where to actually manage it.
+                sb.disabled = true;
+                sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #e5e7eb;background:#f3f4f6;cursor:not-allowed;font-family:inherit;text-align:left;opacity:0.75;";
+            } else {
+                sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #7c3aed;background:#faf5ff;cursor:pointer;font-family:inherit;text-align:left;";
+            }
             sb.innerHTML =
                 '<span style="display:flex;justify-content:space-between;width:100%;">' +
-                    '<span style="font-weight:700;color:#5b21b6;">🔁 ' + sub.name + '</span>' +
-                    '<span style="font-weight:800;color:#7c3aed;">$' + sub.amount_usd.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
+                    '<span style="font-weight:700;color:' + (alreadySubscribed ? "#6b7280" : "#5b21b6") + ';">🔁 ' + sub.name + '</span>' +
+                    '<span style="font-weight:800;color:' + (alreadySubscribed ? "#9ca3af" : "#7c3aed") + ';">$' + sub.amount_usd.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
                 '</span>' +
                 '<span style="font-size:12px;color:#6b7280;">' + sub.credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا · تخزين الملفات 30 يومًا" : " every month · 30-day file storage") + '</span>' +
-                '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>';
-            sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
-            sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
-            sb.onclick = function () { subscribeMonthly(sb); };
+                (alreadySubscribed
+                    ? '<span style="font-size:11px;color:#059669;">' + (isAr ? "أنت مشترك بالفعل — يمكنك إدارته من " : "You're already subscribed — manage it from your ") + '<a href="/account#subscription" style="color:#059669;">' + (isAr ? "صفحة الحساب" : "Account page") + '</a></span>'
+                    : '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>');
+            if (!alreadySubscribed) {
+                sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
+                sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
+                sb.onclick = function () { subscribeMonthly(sb); };
+            }
             wrap.appendChild(sb);
             var divider = document.createElement("p");
             divider.style.cssText = "font-size:11px;color:#9ca3af;margin:2px 0 0;";

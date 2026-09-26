@@ -330,6 +330,17 @@ tbody td {
 
 tbody tr:hover { background: var(--muted-surface); }
 tbody tr.locked { background: var(--locked-bg); }
+/* Alternating speaker-group shading for Step 2's segments table -- set as
+   a class from app.js (createRow()) rather than an inline style, so it
+   picks up the dark-mode retint of --muted-surface like everything else
+   here. The other stripe (seg-row-a) is left with no class at all, so it
+   just shows the table's own background -- one less rule to keep in sync. */
+tr.seg-row-b { background: var(--muted-surface); }
+/* Individual voice cards inside Step 4's "Browse Voice Library" list
+   (searchVoiceLibrary() in app.js) -- var(--input-bg) equals plain white
+   in light mode (same as the literal #fff this replaces) and a distinct
+   dark tile in dark mode. */
+.vl-card { border: 1px solid var(--border); background: var(--input-bg); }
 
 table input[type="number"], table input[type="text"] {
     padding: 6px 8px;
