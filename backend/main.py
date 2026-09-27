@@ -361,28 +361,35 @@ def _site_gate_active() -> bool:
         _site_gate_cache["checked_at"] = now
     return _site_gate_cache["enabled"]
 
-# --- Master on/off switch for the automatic usage-alert emails (Sept 2026)
-# ---
+# --- Independent on/off switches for the automatic usage-alert emails
+# (Sept 2026) ---
 # service_usage_monitor.py (ElevenLabs quota) and railway_monitor.py
 # (Railway memory) each email CONTACT_TO_EMAIL via Resend when usage runs
 # high. Ali's request: stop these -- they were burning through his free
 # Resend account's send quota on top of the real contact-form/expiry-notice
-# emails. This only gates the EMAIL step in both modules; the underlying
-# polling and the admin dashboard's live numbers (Health tab) are
-# completely unaffected either way, so turning this off doesn't lose any
-# visibility, it just stops the inbox notifications.
+# emails -- and control each one separately, not as one combined switch.
+# This only gates the EMAIL step in each module; the underlying polling
+# and the admin dashboard's live numbers (Health tab) are completely
+# unaffected either way, so turning either off doesn't lose any
+# visibility, it just stops that one inbox notification.
 #
-# No local cache here (unlike _site_gate_active above) -- this is only
+# No local cache here (unlike _site_gate_active above) -- these are only
 # ever checked right before actually sending an alert email, which happens
 # at most once per ~20-minute poll cycle in each monitor, never on a
 # request's hot path, so a fresh Supabase read every time is fine and
-# means flipping this in admin takes effect on the very next poll, not
-# after some cache delay.
-def _usage_alerts_enabled() -> bool:
+# means flipping either in admin takes effect on that monitor's very next
+# poll, not after some cache delay.
+def _eleven_alerts_enabled() -> bool:
     try:
-        return bool(_get_pricing_config().get("usageAlertsEnabled", True))
+        return bool(_get_pricing_config().get("elevenAlertsEnabled", True))
     except Exception:
         return True  # fail OPEN, not closed -- a Supabase hiccup should never silently swallow a real "you're about to run out" warning
+
+def _railway_alerts_enabled() -> bool:
+    try:
+        return bool(_get_pricing_config().get("railwayAlertsEnabled", True))
+    except Exception:
+        return True  # fail OPEN, not closed -- same reasoning as above
 
 def _site_gate_token() -> str:
     # Derived from the password rather than storing it verbatim in the
@@ -3018,13 +3025,13 @@ def _get_pricing_config():
         # Defaults to True so setting the env var alone reproduces the
         # original always-on behavior until someone changes this in admin.
         "siteGateEnabled": True,
-        # On/off switch for the automatic usage-alert emails sent by
-        # service_usage_monitor.py (ElevenLabs quota) and railway_monitor.py
-        # (Railway memory) -- see _usage_alerts_enabled above. Defaults to
-        # True (send them) so nothing changes until Ali visits admin and
-        # turns them off. Only gates the EMAIL; polling and the admin
-        # dashboard's live numbers are unaffected.
-        "usageAlertsEnabled": True,
+        # Independent on/off switches for the two automatic usage-alert
+        # emails -- see _eleven_alerts_enabled / _railway_alerts_enabled
+        # above. Both default to True (send them) so nothing changes until
+        # Ali visits admin and turns one off. Only gates the EMAIL; polling
+        # and the admin dashboard's live numbers are unaffected.
+        "elevenAlertsEnabled": True,
+        "railwayAlertsEnabled": True,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -3077,7 +3084,8 @@ def _get_pricing_config():
                 # fall back to the default; an explicit True/False from the
                 # admin panel must always win.
                 "siteGateEnabled": defaults["siteGateEnabled"] if row.get("site_gate_enabled") is None else bool(row.get("site_gate_enabled")),
-                "usageAlertsEnabled": defaults["usageAlertsEnabled"] if row.get("usage_alerts_enabled") is None else bool(row.get("usage_alerts_enabled")),
+                "elevenAlertsEnabled": defaults["elevenAlertsEnabled"] if row.get("eleven_alerts_enabled") is None else bool(row.get("eleven_alerts_enabled")),
+                "railwayAlertsEnabled": defaults["railwayAlertsEnabled"] if row.get("railway_alerts_enabled") is None else bool(row.get("railway_alerts_enabled")),
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -3118,7 +3126,8 @@ def _save_pricing_config(config):
             "subscription_credits": config.get("subscriptionCredits", 4000),
             "subscription_price_usd": config.get("subscriptionPriceUsd", 29.0),
             "site_gate_enabled": bool(config.get("siteGateEnabled", True)),
-            "usage_alerts_enabled": bool(config.get("usageAlertsEnabled", True)),
+            "eleven_alerts_enabled": bool(config.get("elevenAlertsEnabled", True)),
+            "railway_alerts_enabled": bool(config.get("railwayAlertsEnabled", True)),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
         # on_conflict=id -- without this, "resolution=merge-duplicates" only

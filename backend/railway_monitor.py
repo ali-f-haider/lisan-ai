@@ -179,15 +179,16 @@ def get_cached():
 def _send_alert_email(used_gb, limit_gb, percent):
     if not RESEND_API_KEY or not CONTACT_TO_EMAIL:
         return False
-    # Same admin on/off switch as service_usage_monitor.py's ElevenLabs
-    # alert (Ali's request, Sept 2026 -- these emails were burning through
-    # his free Resend account's send quota). See that module's comment for
-    # why a deferred `import main` here is safe despite main.py importing
-    # this module at load time. Polling and the admin dashboard's live
-    # numbers are unaffected either way -- this only skips the email.
+    # Separate admin on/off switch from service_usage_monitor.py's
+    # ElevenLabs alert (Ali's request, Sept 2026: control each email
+    # independently -- these were burning through his free Resend
+    # account's send quota). See that module's comment for why a deferred
+    # `import main` here is safe despite main.py importing this module at
+    # load time. Polling and the admin dashboard's live numbers are
+    # unaffected either way -- this only skips the email.
     try:
         import main
-        if not main._usage_alerts_enabled():
+        if not main._railway_alerts_enabled():
             return False
     except Exception:
         pass  # if main isn't importable for some reason, fail open (still send)

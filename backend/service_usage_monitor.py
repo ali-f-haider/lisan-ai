@@ -181,7 +181,7 @@ def _send_eleven_alert_email(result):
     # way -- this only skips the email itself.
     try:
         import main
-        if not main._usage_alerts_enabled():
+        if not main._eleven_alerts_enabled():
             return False
     except Exception:
         pass  # if main isn't importable for some reason, fail open (still send)

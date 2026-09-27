@@ -182,12 +182,15 @@ button.btn-success:hover { background: #15803d; }
 
       <div class="card">
         <h3>🔔 Automatic Alert Emails</h3>
-        <p class="muted" style="margin-bottom:16px;">The background monitors that watch ElevenLabs quota (character/voice-cloning limits) and Railway memory usage email you when something is running high. Turning this off stops those emails only — polling keeps running and this Health tab below still shows live numbers either way, so you lose nothing by checking here instead of your inbox. Mainly useful if these emails are eating into your Resend account's free send quota.</p>
+        <p class="muted" style="margin-bottom:16px;">Two independent background monitors email you when something is running high. Turning either off stops that email only — polling keeps running and the Health tab below still shows live numbers either way, so you lose nothing by checking there instead of your inbox. Mainly useful if these emails are eating into your Resend account's free send quota.</p>
         <div class="form-group">
-          <label><input type="checkbox" id="usageAlertsEnabled" style="width:auto;vertical-align:middle;"> Send alert emails (ElevenLabs quota + Railway memory)</label>
-          <span class="muted">Takes effect on each monitor's next poll (every ~20 minutes), not instantly.</span>
+          <label><input type="checkbox" id="elevenAlertsEnabled" style="width:auto;vertical-align:middle;"> Send ElevenLabs quota alerts (character / voice-cloning limits)</label>
         </div>
-        <button class="btn" onclick="savePricing()">💾 Save Alert Setting</button>
+        <div class="form-group">
+          <label><input type="checkbox" id="railwayAlertsEnabled" style="width:auto;vertical-align:middle;"> Send Railway memory alerts</label>
+          <span class="muted">Each takes effect on that monitor's next poll (every ~20 minutes), not instantly.</span>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save Alert Settings</button>
       </div>
 
       <div class="card">
@@ -482,7 +485,8 @@ async function loadPricing() {
   // to true (matches _get_pricing_config()'s server-side default) if the
   // key isn't present yet (e.g. before the DB column has ever been saved).
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
-  document.getElementById('usageAlertsEnabled').checked = r.data.usageAlertsEnabled !== false;
+  document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
+  document.getElementById('railwayAlertsEnabled').checked = r.data.railwayAlertsEnabled !== false;
   let html = '';
   r.data.packs.forEach((p, i) => {
     const key = p.key || slugifyPackKey(p.name);
@@ -546,7 +550,8 @@ async function savePricing() {
     subscriptionCredits: parseInt(document.getElementById('subscriptionCredits')?.value || '4000'),
     subscriptionPriceUsd: parseFloat(document.getElementById('subscriptionPriceUsd')?.value || '29'),
     siteGateEnabled: document.getElementById('siteGateEnabled')?.checked ?? true,
-    usageAlertsEnabled: document.getElementById('usageAlertsEnabled')?.checked ?? true
+    elevenAlertsEnabled: document.getElementById('elevenAlertsEnabled')?.checked ?? true,
+    railwayAlertsEnabled: document.getElementById('railwayAlertsEnabled')?.checked ?? true
   };
 
   console.log('Saving pricing:', update);
