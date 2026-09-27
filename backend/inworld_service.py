@@ -1,0 +1,379 @@
+"""Inworld AI voice cloning + text-to-speech -- the alternative voice engine
+to ElevenLabs (eleven_service.py), added 2026-09-27 after Ali evaluated
+several Arabic voice-cloning providers (SILMA, Resemble, Camb.ai, Munsit,
+Fish Audio, Gemini...) and picked Inworld for its per-character pricing, a
+confirmed Modern Standard Arabic (`ar`) Tier-1 quality rating in their own
+docs, and no mandatory consent-phrase recording (unlike Gemini, which
+blocks cloning a voice out of existing footage since the source speaker
+can't recite a phrase on demand).
+
+Nothing in eleven_service.py was removed or altered beyond adding the
+per-speaker engine dispatch inside generate_worker/regenerate_line --
+ElevenLabs stays fully wired. Which engine actually runs for NEW clones is
+the admin panel's Settings tab "Voice Engine" switch (see main.py's
+_active_voice_engine() / pricing_config.voice_engine) -- a voice already
+cloned keeps using whichever engine created it forever (see main.py's
+_voice_engines_for_ids), so flipping the switch later never breaks an
+existing customer's saved voice.
+
+API reference used (confirmed directly against Inworld's docs, Sept 2026):
+  - Clone a Voice:  POST   https://api.inworld.ai/voices/v1/voices:clone
+  - Delete a Voice: DELETE https://api.inworld.ai/voices/v1/voices/{voiceId}
+  - List Voices:    GET    https://api.inworld.ai/voices/v1/voices
+  - Synthesize:     POST   https://api.inworld.ai/tts/v1/voice
+Auth header on every call: "Authorization: Basic <INWORLD_API_KEY>" -- the
+key value copied from the Inworld portal is used AS-IS after "Basic ", no
+extra base64 step needed (per Inworld's own docs).
+
+Known, deliberate limitations of this first version (flagged for Ali, not
+silently skipped):
+  - No emotion/style tags are sent yet -- ElevenLabs' branch stacks
+    "[happy][softly]"-style bracket tags onto the text (see eleven_service.
+    _emotion_tags); Inworld has a separate `instruction` natural-language
+    steering field that could carry this, but its behavior on Arabic text
+    hasn't been verified yet, so this version sends plain seg.arabic_text
+    with no styling rather than guessing.
+  - generate_sample() (used only by the admin "Compare Voice Providers"
+    tool, /api/admin/compare_voice_providers) was intentionally NOT ported
+    here -- that tool is unrelated to the live dubbing pipeline this swap
+    is actually about, out of scope for this change.
+"""
+import base64
+import json
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+from config import OUTPUT_DIR
+from ffmpeg_utils import get_media_duration, run_ffmpeg
+from media_paths import resolve_job_audio
+
+API_BASE = "https://api.inworld.ai"
+DEFAULT_MODEL_ID = "inworld-tts-2"
+# Modern Standard Arabic -- Inworld's "Tier 1" base code, deliberately NOT
+# one of the regional dialect codes (arz/afb/acw/ayl/ars/acx/aeb), since
+# Ali's product targets MSA only.
+DEFAULT_LANGUAGE = "ar"
+
+
+def _configured(api_key: str) -> bool:
+    return bool((api_key or "").strip())
+
+
+def _auth_headers(api_key: str) -> dict:
+    return {"Authorization": f"Basic {api_key}", "Content-Type": "application/json"}
+
+
+def _request(method: str, path: str, api_key: str, body: dict = None, timeout: int = 30):
+    """Low-level JSON call against the Inworld API. Raises on any failure
+    (network error, non-2xx status, bad JSON) -- every caller below catches
+    and translates into this app's usual {"error": ...} / "ERROR: ..."
+    conventions, matching eleven_service.py's error-handling style."""
+    url = f"{API_BASE}{path}"
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers=_auth_headers(api_key))
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read()
+    return json.loads(raw) if raw else {}
+
+
+def _http_error_detail(e) -> str:
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            return f"Inworld error {e.code}: {e.read().decode(errors='ignore')}"
+        except Exception:
+            return f"Inworld error {e.code}"
+    return str(e)
+
+
+def clone_voice_from_file(display_name: str, wav_path: Path, api_key: str, language_code: str = DEFAULT_LANGUAGE) -> str:
+    """Uploads one reference clip (base64-encoded, per Inworld's clone API)
+    and returns the new voiceId. Raises on failure."""
+    with open(wav_path, "rb") as f:
+        audio_b64 = base64.b64encode(f.read()).decode("ascii")
+    body = {
+        "displayName": display_name[:200],
+        "languageCode": language_code,
+        "voiceSamples": [{"audioData": audio_b64}],
+        "audioProcessingConfig": {"removeBackgroundNoise": True},
+    }
+    data = _request("POST", "/voices/v1/voices:clone", api_key, body, timeout=60)
+    voice_id = (data.get("voice") or {}).get("voiceId")
+    if not voice_id:
+        raise Exception(f"No voiceId in Inworld response: {data}")
+    return voice_id
+
+
+def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_LANGUAGE, model_id: str = DEFAULT_MODEL_ID) -> bytes:
+    """Given a cloned voiceId and plain text, returns generated audio bytes
+    (MP3). Raises on failure -- same convention as eleven_client.
+    text_to_speech.convert() in eleven_service.py, so the callers there
+    (generate_worker / regenerate_line) don't need any special-case error
+    handling for this branch; their existing try/except already covers it."""
+    if not _configured(api_key):
+        raise Exception("Missing Inworld API key.")
+    body = {
+        "text": text,
+        "voiceId": voice_id,
+        "modelId": model_id,
+        "language": language,
+        "audioConfig": {"audioEncoding": "MP3"},
+    }
+    data = _request("POST", "/tts/v1/voice", api_key, body, timeout=60)
+    audio_b64 = data.get("audioContent")
+    if not audio_b64:
+        raise Exception(f"No audioContent in Inworld response: {data}")
+    return base64.b64decode(audio_b64)
+
+
+def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None) -> dict:
+    """Same behavior/shape as eleven_service.clone_voices: extracts the
+    cleanest reference clip per speaker from the source video (up to ~20s,
+    comfortably under Inworld's 30s Instant Voice Cloning sample cap), then
+    clones each speaker on Inworld instead of ElevenLabs. Returns
+    {"status": "success", "cloned_voices": {speaker: voiceId or "ERROR: ..."}, "warnings": [...]} --
+    the exact same shape eleven_service.clone_voices returns, so main.py's
+    /api/clone handler needs no special-casing beyond picking which of the
+    two functions to call.
+
+    The audio-extraction logic below is intentionally duplicated from
+    eleven_service.clone_voices rather than shared/imported -- this keeps
+    the two engines fully independent, so nothing here can ever change
+    ElevenLabs' behavior, and vice versa."""
+    if not _configured(api_key):
+        return {"error": "Inworld API key is not configured (set INWORLD_API_KEY in Railway)."}
+    audio_path = resolve_job_audio(job_id)
+    if audio_path is None:
+        return {"error": "Audio file not found."}
+    source_duration = get_media_duration(audio_path)
+    if source_duration <= 0:
+        return {"error": f"Could not read source audio duration: {audio_path}"}
+    cloned_voices = {}
+    speakers = list(set(s.speaker for s in segments if (s.text or "").strip()))
+    if speakers_to_clone:
+        speakers = [s for s in speakers if s in speakers_to_clone]
+    for speaker in speakers:
+        cut_files = []
+        concat_file = None
+        try:
+            safe_speaker = "".join(c for c in speaker if c.isalnum()).strip() or "speaker"
+            speaker_segs = [
+                s for s in segments
+                if s.speaker == speaker and (s.text or "").strip() and (s.end - s.start) > 0.05
+            ]
+            if not speaker_segs:
+                cloned_voices[speaker] = f"ERROR: No usable timed segments found for {speaker}."
+                continue
+            speaker_segs.sort(key=lambda s: s.end - s.start, reverse=True)
+            total_valid_duration = 0.0
+            for seg in speaker_segs:
+                if total_valid_duration >= 20.0:
+                    break
+                margin = 0.35
+                start_time = max(0.0, float(seg.start) - margin)
+                end_time = min(source_duration, float(seg.end) + margin)
+                dur = end_time - start_time
+                if dur < 0.2:
+                    continue
+                cut_file = OUTPUT_DIR / f"iwclone_{job_id}_{safe_speaker}_{seg.segment_id}.wav"
+                try:
+                    run_ffmpeg([
+                        "ffmpeg", "-y",
+                        "-ss", str(start_time),
+                        "-i", str(audio_path),
+                        "-t", str(dur),
+                        "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le",
+                        str(cut_file)
+                    ])
+                    if not cut_file.exists() or cut_file.stat().st_size < 2000:
+                        if cut_file.exists():
+                            cut_file.unlink()
+                        continue
+                    actual_dur = get_media_duration(cut_file)
+                    if actual_dur >= 0.5:
+                        cut_files.append(cut_file)
+                        total_valid_duration += actual_dur
+                    else:
+                        if cut_file.exists():
+                            cut_file.unlink()
+                except Exception as cut_err:
+                    print(f"Warning: failed to cut Inworld clone sample for {speaker}: {cut_err}")
+                    if cut_file.exists():
+                        cut_file.unlink()
+                    continue
+            if total_valid_duration < 1.0:
+                try:
+                    min_start = max(0.0, min(float(s.start) for s in speaker_segs) - 0.5)
+                    max_end = min(source_duration, max(float(s.end) for s in speaker_segs) + 0.5)
+                    fallback_dur = max_end - min_start
+                    if fallback_dur >= 1.0:
+                        fallback_file = OUTPUT_DIR / f"iwclone_{job_id}_{safe_speaker}_fallback.wav"
+                        run_ffmpeg([
+                            "ffmpeg", "-y",
+                            "-ss", str(min_start), "-i", str(audio_path), "-t", str(fallback_dur),
+                            "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le",
+                            str(fallback_file)
+                        ])
+                        if fallback_file.exists() and fallback_file.stat().st_size > 2000:
+                            fallback_actual = get_media_duration(fallback_file)
+                            if fallback_actual >= 1.0:
+                                for cf in cut_files:
+                                    if cf.exists():
+                                        cf.unlink()
+                                cut_files = [fallback_file]
+                                total_valid_duration = fallback_actual
+                            else:
+                                if fallback_file.exists():
+                                    fallback_file.unlink()
+                except Exception as fallback_err:
+                    print(f"Warning: fallback Inworld clone cut failed for {speaker}: {fallback_err}")
+            if total_valid_duration < 1.0 or not cut_files:
+                cloned_voices[speaker] = f"ERROR: Not enough valid audio for {speaker} ({total_valid_duration:.2f}s)."
+                for cf in cut_files:
+                    if cf.exists():
+                        cf.unlink()
+                continue
+            concat_file = OUTPUT_DIR / f"iwclone_{job_id}_{safe_speaker}_final.wav"
+            if len(cut_files) == 1:
+                run_ffmpeg(["ffmpeg", "-y", "-i", str(cut_files[0]), "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(concat_file)])
+            else:
+                inputs, labels = [], []
+                for i, cf in enumerate(cut_files):
+                    inputs.extend(["-i", str(cf)])
+                    labels.append(f"[{i}:a]")
+                filter_complex = "".join(labels) + f"concat=n={len(cut_files)}:v=0:a=1[out]"
+                run_ffmpeg(["ffmpeg", "-y", *inputs, "-filter_complex", filter_complex, "-map", "[out]", "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(concat_file)])
+            if not concat_file.exists() or concat_file.stat().st_size < 2000:
+                cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is empty."
+                continue
+            final_duration = get_media_duration(concat_file)
+            if final_duration < 1.0:
+                padded_file = OUTPUT_DIR / f"iwclone_{job_id}_{safe_speaker}_final_padded.wav"
+                pad_needed = max(0.2, 1.15 - final_duration)
+                run_ffmpeg(["ffmpeg", "-y", "-i", str(concat_file), "-af", f"apad=pad_dur={pad_needed}", "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(padded_file)])
+                if concat_file.exists():
+                    concat_file.unlink()
+                concat_file = padded_file
+                final_duration = get_media_duration(concat_file)
+            if final_duration < 1.0:
+                cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is still too short ({final_duration:.2f}s)."
+                continue
+            try:
+                voice_id = clone_voice_from_file(f"Cloned_{speaker}", concat_file, api_key)
+                cloned_voices[speaker] = voice_id
+                # Keep the reference sample, same as eleven_service.
+                # clone_voices -- lets the user download it via
+                # /api/download_voice_sample; Inworld (like ElevenLabs)
+                # doesn't offer exporting the cloned voice model itself.
+                try:
+                    sample_path = OUTPUT_DIR / f"voice_sample_{job_id}_{safe_speaker}.wav"
+                    if concat_file != sample_path:
+                        concat_file.replace(sample_path)
+                    concat_file = None
+                except Exception:
+                    pass
+            except Exception as e:
+                cloned_voices[speaker] = f"ERROR: {_http_error_detail(e)}"
+        except Exception as e:
+            cloned_voices[speaker] = f"ERROR: {_http_error_detail(e)}"
+        finally:
+            for cf in cut_files:
+                if cf.exists():
+                    try:
+                        cf.unlink()
+                    except Exception:
+                        pass
+            if concat_file is not None and concat_file.exists():
+                try:
+                    concat_file.unlink()
+                except Exception:
+                    pass
+    warnings = []
+    for speaker in cloned_voices:
+        if not str(cloned_voices[speaker]).startswith("ERROR"):
+            speaker_segs = [s for s in segments if s.speaker == speaker]
+            total_available = sum(max(0, s.end - s.start) for s in speaker_segs)
+            if total_available < 3.0:
+                warnings.append(f"{speaker}: Only {total_available:.1f}s available. Clone quality will likely be poor.")
+            elif total_available < 10.0:
+                warnings.append(f"{speaker}: Only {total_available:.1f}s available. Clone quality may be reduced.")
+    return {"status": "success", "cloned_voices": cloned_voices, "warnings": warnings}
+
+
+def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
+    """Same shape as eleven_service.add_custom_voice: returns a voice_id
+    string on success, or an "ERROR: ..." string on failure -- never raises,
+    matching the existing convention main.py's /api/upload_custom_voice
+    already handles."""
+    if not _configured(api_key):
+        return "ERROR: Inworld API key is not configured (set INWORLD_API_KEY in Railway)."
+    safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"
+    wav = OUTPUT_DIR / f"iwcustom_{job_id}_{safe}.wav"
+    run_ffmpeg(["ffmpeg", "-y", "-i", str(src_path), "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(wav)])
+    dur = get_media_duration(wav)
+    if dur > 20.5:
+        try:
+            wav.unlink()
+        except Exception:
+            pass
+        return f"ERROR: Clip is {dur:.1f}s — the limit is 20 seconds."
+    if dur < 1.0:
+        pad = OUTPUT_DIR / f"iwcustom_{job_id}_{safe}_pad.wav"
+        run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-af", f"apad=pad_dur={max(0.2, 1.15 - dur)}", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(pad)])
+        try:
+            wav.unlink()
+        except Exception:
+            pass
+        wav = pad
+    try:
+        voice_id = clone_voice_from_file(f"Custom_{speaker}", wav, api_key)
+        return voice_id
+    except Exception as e:
+        return f"ERROR: {_http_error_detail(e)}"
+    finally:
+        try:
+            wav.unlink()
+        except Exception:
+            pass
+
+
+def delete_voice(voice_id: str, api_key: str) -> dict:
+    """Deletes exactly ONE voice by id -- same shape as
+    eleven_service.delete_voice."""
+    if not _configured(api_key) or not voice_id:
+        return {"ok": False, "error": "not configured or no voice_id"}
+    try:
+        _request("DELETE", f"/voices/v1/voices/{voice_id}", api_key, timeout=30)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": _http_error_detail(e)}
+
+
+def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
+    """Sweeps every Inworld voice this app created (displayName starting
+    with Cloned_/Custom_) that ISN'T in keep_ids -- same "sweep account-
+    wide, protect saved voices" behavior as eleven_service.
+    cleanup_cloned_voices. No-ops cleanly (returns a harmless empty result
+    instead of an error) if Inworld isn't configured yet -- e.g. Ali hasn't
+    set INWORLD_API_KEY, or has never switched the admin panel to Inworld
+    -- so /api/cleanup_voices calling this unconditionally alongside the
+    ElevenLabs sweep is always safe."""
+    if not _configured(api_key):
+        return {"deleted": 0, "errors": []}
+    keep = set(keep_ids or [])
+    try:
+        data = _request("GET", "/voices/v1/voices?pageSize=200", api_key, timeout=30)
+        deleted, errors = 0, []
+        for v in data.get("voices", []):
+            name = v.get("displayName") or ""
+            vid = v.get("voiceId")
+            if not name.startswith(("Cloned_", "Custom_")) or vid in keep:
+                continue
+            try:
+                _request("DELETE", f"/voices/v1/voices/{vid}", api_key, timeout=30)
+                deleted += 1
+            except Exception as e:
+                errors.append(f"{name}: {_http_error_detail(e)}")
+        return {"deleted": deleted, "errors": errors}
+    except Exception as e:
+        return {"deleted": 0, "errors": [_http_error_detail(e)]}

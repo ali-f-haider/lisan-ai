@@ -6,6 +6,7 @@ import urllib.parse
 from pathlib import Path
 import urllib3
 from elevenlabs.client import ElevenLabs
+import inworld_service
 from config import OUTPUT_DIR
 from app_state import jobs_progress, usage_bucket
 from ffmpeg_utils import (
@@ -473,19 +474,40 @@ def generate_worker(req):
                 audio_bytes = base64.b64decode(data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"])
                 raw_filename = f"{seg.segment_id}_raw.wav"
             else:
-                api_key = req.elevenlabs_api_key.strip()
-                if not api_key:
-                    raise Exception("Missing ElevenLabs API key.")
-                if eleven_client is None:
-                    eleven_client = ElevenLabs(api_key=api_key)
                 voice_id = req.speaker_voices.get(seg.speaker, "").strip() or req.default_voice_id.strip()
                 if not voice_id:
                     raise Exception(f"No voice assigned for speaker: {seg.speaker}")
-                tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
-                bucket["eleven_chars"] += len(tts_text)
-                response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
-                audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
-                raw_filename = f"{seg.segment_id}_raw.mp3"
+                # Which engine actually created THIS speaker's voice_id --
+                # resolved by main.py per-speaker BEFORE this thread started
+                # (see req.speaker_voice_engines / req.default_voice_engine),
+                # since a saved voice keeps belonging to whichever engine
+                # cloned it even if the admin panel's Voice Engine switch
+                # has since changed for NEW clones. Never assume "whatever
+                # the admin panel currently says" here.
+                if req.speaker_voices.get(seg.speaker, "").strip():
+                    engine = req.speaker_voice_engines.get(seg.speaker) or "elevenlabs"
+                else:
+                    engine = req.default_voice_engine or "elevenlabs"
+                if engine == "inworld":
+                    api_key = req.inworld_api_key.strip()
+                    if not api_key:
+                        raise Exception("Missing Inworld API key.")
+                    # No emotion/style tags yet for this engine -- see
+                    # inworld_service.py's module docstring for why.
+                    bucket["eleven_chars"] += len(tts_text)
+                    audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
+                    raw_filename = f"{seg.segment_id}_raw.mp3"
+                else:
+                    api_key = req.elevenlabs_api_key.strip()
+                    if not api_key:
+                        raise Exception("Missing ElevenLabs API key.")
+                    if eleven_client is None:
+                        eleven_client = ElevenLabs(api_key=api_key)
+                    tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
+                    bucket["eleven_chars"] += len(tts_text)
+                    response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
+                    audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
+                    raw_filename = f"{seg.segment_id}_raw.mp3"
             raw_path = OUTPUT_DIR / raw_filename
             raw_path.write_bytes(audio_bytes)
             actual_duration = get_media_duration(raw_path)
@@ -697,20 +719,33 @@ def regenerate_line(req):
         seg = req.segment
         if not (seg.arabic_text or "").strip():
             return {"error": "This line has no Arabic text yet."}
-        api_key = req.elevenlabs_api_key.strip()
-        if not api_key:
-            return {"error": "Missing ElevenLabs API key."}
         voice_id = (req.voice_id or "").strip()
         if not voice_id:
             return {"error": f"No voice selected for {seg.speaker}. Pick one in Step 4 first."}
-        if eleven_client is None:
-            eleven_client = ElevenLabs(api_key=api_key)
         bucket = usage_bucket(req.job_id)
         target_duration = max(seg.end - seg.start, 0.5)
-        tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
-        bucket["eleven_chars"] += len(tts_text)
-        response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
-        audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)
+        # Which engine created this specific voice_id -- resolved by
+        # main.py before this call (see req.voice_engine's docstring on
+        # RegenerateLineRequest). Same "belongs to whoever cloned it"
+        # reasoning as generate_worker above.
+        engine = req.voice_engine or "elevenlabs"
+        if engine == "inworld":
+            api_key = req.inworld_api_key.strip()
+            if not api_key:
+                return {"error": "Missing Inworld API key."}
+            tts_text = seg.arabic_text
+            bucket["eleven_chars"] += len(tts_text)
+            audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
+        else:
+            api_key = req.elevenlabs_api_key.strip()
+            if not api_key:
+                return {"error": "Missing ElevenLabs API key."}
+            if eleven_client is None:
+                eleven_client = ElevenLabs(api_key=api_key)
+            tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
+            bucket["eleven_chars"] += len(tts_text)
+            response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
+            audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)
         raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
         raw_path.write_bytes(audio_bytes)
         actual = get_media_duration(raw_path)

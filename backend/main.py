@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
-                    GEMINI_API_KEY, ELEVENLABS_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
+                    GEMINI_API_KEY, ELEVENLABS_API_KEY, INWORLD_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
                     LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION,
                     SITE_GATE_PASSWORD)
@@ -27,6 +27,7 @@ from models import Segment
 import whisper_service
 import gemini_service
 import eleven_service
+import inworld_service
 import ffmpeg_utils
 import lipsync_service
 import r2_backup
@@ -157,6 +158,16 @@ class GenerateRequest(BaseModel):
     segments: List[Segment]
     elevenlabs_api_key: str = ""
     gemini_api_key: str = ""
+    # Server-set (not trusted from the client) right before generate_worker
+    # runs -- see /api/generate. Not the "elevenlabs vs gemini" job-wide
+    # mode selector (tts_provider, unchanged); this is which engine created
+    # each SPEAKER's already-cloned voice_id, since that never changes for
+    # a voice once it's cloned even if the admin panel's Voice Engine
+    # switch changes later. speaker_voice_engines is keyed exactly like
+    # speaker_voices; default_voice_engine covers default_voice_id.
+    inworld_api_key: str = ""
+    speaker_voice_engines: Dict[str, str] = {}
+    default_voice_engine: str = "elevenlabs"
     tts_provider: str = "elevenlabs"
     gemini_voice: str = "Kore"
     default_voice_id: str = ""
@@ -174,6 +185,12 @@ class RegenerateLineRequest(BaseModel):
     segment: Segment
     segments: List[Segment] = []
     elevenlabs_api_key: str = ""
+    # Server-set right before eleven_service.regenerate_line runs -- see
+    # /api/regenerate_line. Which engine created THIS voice_id (see
+    # GenerateRequest.speaker_voice_engines' comment for why this can't
+    # just be "whatever the admin panel currently says").
+    inworld_api_key: str = ""
+    voice_engine: str = "elevenlabs"
     voice_id: str = ""
     tempo_mode: str = "excellent"
     duration_mode: str = "exact"
@@ -1959,6 +1976,72 @@ def _save_user_voice(uid, elevenlabs_voice_id, name, description="", source_job_
         return False
 
 
+def _voice_engines_for_ids(voice_ids: list) -> dict:
+    """Looks up which engine (elevenlabs/inworld) created each of these
+    saved voice_ids, via user_voices.voice_engine. Missing rows, a NULL
+    voice_engine column, or the column not existing at all (migration not
+    run yet) all fail soft to an empty dict here -- every caller treats a
+    missing entry as "elevenlabs" (the only engine that existed before this
+    feature), so a pre-existing saved voice keeps working exactly as
+    before no matter what state the migration is in."""
+    result = {}
+    ids = [v for v in set(voice_ids or []) if v]
+    if not ids or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return result
+    import urllib.request as _ur
+    try:
+        ids_csv = ",".join(ids)
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/user_voices?elevenlabs_voice_id=in.({ids_csv})&select=elevenlabs_voice_id,voice_engine",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        for row in rows:
+            result[row.get("elevenlabs_voice_id")] = row.get("voice_engine") or "elevenlabs"
+    except Exception as ex:
+        print(f"[voice-engine] _voice_engines_for_ids lookup failed (has the user_voices.voice_engine migration been run?): {ex}")
+    return result
+
+
+def _tag_voice_engine(elevenlabs_voice_id: str, engine: str):
+    """Isolated PATCH -- separate call so a missing user_voices.voice_engine
+    column (migration not run yet) can never block the INSERT in
+    _save_user_voice that actually saves the voice itself. Best-effort;
+    failing here just means this one voice falls back to the safe
+    "elevenlabs" default at lookup time (_voice_engines_for_ids above)
+    until the migration is run and it's re-tagged. Only called for
+    engine == "inworld" -- "elevenlabs" is already the fallback default, so
+    tagging it explicitly would just be an extra write for no behavior
+    change."""
+    if not elevenlabs_voice_id or engine not in ("elevenlabs", "inworld") or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return
+    import urllib.request as _ur
+    try:
+        body = json.dumps({"voice_engine": engine}).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/user_voices?elevenlabs_voice_id=eq.{elevenlabs_voice_id}",
+            data=body,
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            method="PATCH",
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            r.read()
+    except Exception as ex:
+        print(f"[voice-engine] _tag_voice_engine failed for {elevenlabs_voice_id} (has the user_voices.voice_engine migration been run?): {ex}")
+
+
+def _active_voice_engine() -> str:
+    """Which engine NEW clones use right now, per the admin panel's
+    Settings tab "Voice Engine" switch -- defaults to "elevenlabs"
+    (unchanged behavior) until Ali switches it. Never affects
+    ALREADY-cloned voices; see _voice_engines_for_ids for how those keep
+    using whichever engine actually created them regardless of this
+    setting."""
+    engine = str(_get_pricing_config().get("voiceEngine") or "elevenlabs").strip().lower()
+    return engine if engine in ("elevenlabs", "inworld") else "elevenlabs"
+
+
 def _all_saved_voice_ids():
     """Every ElevenLabs voice_id saved in ANY user's library right now --
     used to protect saved voices from cleanup_cloned_voices()'s
@@ -2842,7 +2925,11 @@ def clone(req: CloneRequest, request: Request):
         return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
     if uid:
         deduct_credits(uid, clone_cost, "clone", req.job_id)
-    result = eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
+    engine = _active_voice_engine()
+    if engine == "inworld":
+        result = inworld_service.clone_voices(req.job_id, req.segments, INWORLD_API_KEY, req.speakers_to_clone)
+    else:
+        result = eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
     # Persist every voice that actually succeeded into this user's saved
     # library (see _authorize_new_clones / user_voices) -- named after its
     # speaker label for now; renaming/describing it is task #61 (voice
@@ -2854,6 +2941,8 @@ def clone(req: CloneRequest, request: Request):
         for speaker, voice_id in result["cloned_voices"].items():
             if not str(voice_id).startswith("ERROR"):
                 _save_user_voice(uid, voice_id, speaker, "", req.job_id)
+                if engine == "inworld":
+                    _tag_voice_engine(voice_id, engine)
                 cloned_count += 1
         if cloned_count:
             _increment_clone_usage(uid, cloned_count)
@@ -2935,15 +3024,28 @@ def delete_my_voice(voice_row_id: str, request: Request):
         return JSONResponse({"error": "Not configured."}, status_code=503)
     try:
         lookup = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id",
+            f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id,voice_engine",
             headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
         with urllib.request.urlopen(lookup, timeout=10) as r:
             rows = json.load(r)
-    except Exception as ex:
-        return JSONResponse({"error": str(ex)}, status_code=502)
+    except Exception:
+        # Falls back to the pre-voice_engine query shape -- covers the case
+        # where user_voices.voice_engine hasn't been migrated in yet, so
+        # deleting a saved voice never breaks just because that column is
+        # missing. Every row from before this feature existed has no engine
+        # tag anyway, which safely defaults to "elevenlabs" below.
+        try:
+            lookup = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id",
+                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            with urllib.request.urlopen(lookup, timeout=10) as r:
+                rows = json.load(r)
+        except Exception as ex:
+            return JSONResponse({"error": str(ex)}, status_code=502)
     if not rows:
         return JSONResponse({"error": "Voice not found."}, status_code=404)
     eleven_voice_id = rows[0].get("elevenlabs_voice_id")
+    voice_engine = rows[0].get("voice_engine") or "elevenlabs"
     try:
         delreq = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}",
@@ -2955,7 +3057,10 @@ def delete_my_voice(voice_row_id: str, request: Request):
         return JSONResponse({"error": f"Couldn't delete: {ex}"}, status_code=502)
     if eleven_voice_id:
         try:
-            eleven_service.delete_voice(eleven_voice_id, ELEVENLABS_API_KEY)
+            if voice_engine == "inworld":
+                inworld_service.delete_voice(eleven_voice_id, INWORLD_API_KEY)
+            else:
+                eleven_service.delete_voice(eleven_voice_id, ELEVENLABS_API_KEY)
         except Exception as ex:
             print(f"[voice-library] delete_voice best-effort failed for {eleven_voice_id}: {ex}")
     return {"ok": True}
@@ -3026,6 +3131,20 @@ def generate(req: GenerateRequest, request: Request):
         return JSONResponse({"error": f"Insufficient credits ({bal} left). Your balance needs to be at least {min_reserve} credits to start Generate Audio -- this is a safety reserve in case the job costs more than expected, not the actual price (you're only charged for what's used). Use ➕ Buy to top up."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
+    req.inworld_api_key = INWORLD_API_KEY
+    # Resolve which engine created each speaker's already-cloned voice_id
+    # (never trust req.speaker_voice_engines from the client -- it isn't
+    # even a field the frontend sends yet). This is intentionally NOT
+    # "whatever the admin panel's Voice Engine switch currently says" --
+    # see GenerateRequest.speaker_voice_engines' comment for why.
+    _voice_ids_in_job = list(req.speaker_voices.values())
+    if req.default_voice_id:
+        _voice_ids_in_job.append(req.default_voice_id)
+    _engines_by_id = _voice_engines_for_ids(_voice_ids_in_job)
+    req.speaker_voice_engines = {
+        spk: _engines_by_id.get(vid, "elevenlabs") for spk, vid in req.speaker_voices.items() if vid
+    }
+    req.default_voice_engine = _engines_by_id.get(req.default_voice_id, "elevenlabs") if req.default_voice_id else "elevenlabs"
     # Keyed by job_id (not a single shared "generate" slot) so two jobs
     # running at the same time — two users, or two tabs — never overwrite
     # each other's progress/result, and credits never get charged against
@@ -3041,6 +3160,8 @@ def regenerate_line(req: RegenerateLineRequest, request: Request):
     if _rate_limited(request, "regenerate_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
+    req.inworld_api_key = INWORLD_API_KEY
+    req.voice_engine = _voice_engines_for_ids([req.voice_id]).get(req.voice_id, "elevenlabs") if req.voice_id else "elevenlabs"
     return eleven_service.regenerate_line(req)
 
 @app.post("/api/restretch_line")
@@ -3256,6 +3377,16 @@ def cleanup_voices(payload: dict = {}):
         print(f"[cleanup_voices] SKIPPED sweep -- could not verify saved voice list: {ex}")
         return {"deleted": 0, "errors": ["cleanup skipped: could not verify the saved-voice list (has the user_voices migration been run?)"]}
     result = eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)
+    # Also sweep Inworld -- unconditionally, not gated on the current admin
+    # Voice Engine switch, since a voice created under Inworld while the
+    # switch was pointed there still needs cleaning up even after Ali
+    # flips back to ElevenLabs. No-ops harmlessly if INWORLD_API_KEY was
+    # never set (see inworld_service.cleanup_cloned_voices).
+    inworld_result = inworld_service.cleanup_cloned_voices(INWORLD_API_KEY, keep)
+    result = {
+        "deleted": int(result.get("deleted", 0)) + int(inworld_result.get("deleted", 0)),
+        "errors": list(result.get("errors", [])) + list(inworld_result.get("errors", [])),
+    }
     # Also remove this job's downloadable voice sample file(s), if any — same
     # "session end" moment as the ElevenLabs-side voice cleanup above.
     job_id = payload.get("job_id") or ""
@@ -3312,7 +3443,12 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     import uuid as _u
     tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
     tmp.write_bytes(data)
-    try: res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
+    engine = _active_voice_engine()
+    try:
+        if engine == "inworld":
+            res = inworld_service.add_custom_voice(job_id or "custom", speaker, tmp, INWORLD_API_KEY)
+        else:
+            res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
     except Exception as e: res = f"ERROR: {e}"
     finally:
         try: tmp.unlink()
@@ -3320,6 +3456,8 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
     deduct_credits(uid, clone_cost, "custom_voice", job_id or "")
     _save_user_voice(uid, res, speaker, "", job_id or "")
+    if engine == "inworld":
+        _tag_voice_engine(res, engine)
     _increment_clone_usage(uid, 1)
     return {"status": "success", "voice_id": res}
 
@@ -3732,6 +3870,13 @@ def _get_pricing_config():
         # and the admin dashboard's live numbers are unaffected.
         "elevenAlertsEnabled": True,
         "railwayAlertsEnabled": True,
+        # Which voice engine NEW clones + generations use -- "elevenlabs"
+        # (default, unchanged behavior) or "inworld" (added 2026-09-27, see
+        # inworld_service.py). A voice already cloned keeps using whichever
+        # engine created it forever (_voice_engines_for_ids) -- this switch
+        # only decides what happens going forward, so flipping it back and
+        # forth never breaks an existing saved voice.
+        "voiceEngine": "elevenlabs",
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -3787,6 +3932,7 @@ def _get_pricing_config():
                 "siteGateEnabled": defaults["siteGateEnabled"] if row.get("site_gate_enabled") is None else bool(row.get("site_gate_enabled")),
                 "elevenAlertsEnabled": defaults["elevenAlertsEnabled"] if row.get("eleven_alerts_enabled") is None else bool(row.get("eleven_alerts_enabled")),
                 "railwayAlertsEnabled": defaults["railwayAlertsEnabled"] if row.get("railway_alerts_enabled") is None else bool(row.get("railway_alerts_enabled")),
+                "voiceEngine": row.get("voice_engine") or defaults["voiceEngine"],
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -3830,6 +3976,7 @@ def _save_pricing_config(config):
             "site_gate_enabled": bool(config.get("siteGateEnabled", True)),
             "eleven_alerts_enabled": bool(config.get("elevenAlertsEnabled", True)),
             "railway_alerts_enabled": bool(config.get("railwayAlertsEnabled", True)),
+            "voice_engine": config.get("voiceEngine") if config.get("voiceEngine") in ("elevenlabs", "inworld") else "elevenlabs",
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
         # on_conflict=id -- without this, "resolution=merge-duplicates" only

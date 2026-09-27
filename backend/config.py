@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.34.0"
+APP_VERSION = "1.35.0"
 
 
 def _load_env():
@@ -34,6 +34,14 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 # --- Server-owned API keys (from .env) ---
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+# Inworld AI -- alternative voice cloning + TTS engine (added 2026-09-27),
+# selectable from the admin panel's Settings tab "Voice Engine" switch
+# alongside ElevenLabs (see inworld_service.py + main.py's
+# _active_voice_engine()). Leave unset and the site behaves exactly as
+# before -- the switch defaults to "elevenlabs" and every Inworld call
+# site fails with a clear "not configured" message rather than a crash if
+# this is blank but somehow selected anyway.
+INWORLD_API_KEY = os.environ.get("INWORLD_API_KEY", "")
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 # Separate admin-panel password. If ADMIN_PASSWORD isn't set in the
