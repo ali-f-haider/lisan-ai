@@ -170,6 +170,21 @@ def get_resend_cached():
 def _send_eleven_alert_email(result):
     if not RESEND_API_KEY or not CONTACT_TO_EMAIL:
         return False
+    # Admin on/off switch (Ali's request, Sept 2026: these emails were
+    # burning through his free Resend account's send quota). Deferred
+    # import -- main.py imports this module at load time, so importing it
+    # back at module level here would be circular; by the time this
+    # function actually runs (the worker thread's first poll fires only
+    # after a 30s startup sleep), main.py has long finished loading, so a
+    # plain `import main` here just binds the already-loaded module.
+    # Polling and the admin dashboard's live numbers are unaffected either
+    # way -- this only skips the email itself.
+    try:
+        import main
+        if not main._usage_alerts_enabled():
+            return False
+    except Exception:
+        pass  # if main isn't importable for some reason, fail open (still send)
     tier = result.get("tier") or "unknown"
     lines = []
     percent = result.get("percent")

@@ -181,6 +181,16 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
+        <h3>🔔 Automatic Alert Emails</h3>
+        <p class="muted" style="margin-bottom:16px;">The background monitors that watch ElevenLabs quota (character/voice-cloning limits) and Railway memory usage email you when something is running high. Turning this off stops those emails only — polling keeps running and this Health tab below still shows live numbers either way, so you lose nothing by checking here instead of your inbox. Mainly useful if these emails are eating into your Resend account's free send quota.</p>
+        <div class="form-group">
+          <label><input type="checkbox" id="usageAlertsEnabled" style="width:auto;vertical-align:middle;"> Send alert emails (ElevenLabs quota + Railway memory)</label>
+          <span class="muted">Takes effect on each monitor's next poll (every ~20 minutes), not instantly.</span>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save Alert Setting</button>
+      </div>
+
+      <div class="card">
         <h3>📊 Analytics</h3>
         <div class="form-group">
           <label>Google Analytics 4 Measurement ID</label>
@@ -472,6 +482,7 @@ async function loadPricing() {
   // to true (matches _get_pricing_config()'s server-side default) if the
   // key isn't present yet (e.g. before the DB column has ever been saved).
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
+  document.getElementById('usageAlertsEnabled').checked = r.data.usageAlertsEnabled !== false;
   let html = '';
   r.data.packs.forEach((p, i) => {
     const key = p.key || slugifyPackKey(p.name);
@@ -534,7 +545,8 @@ async function savePricing() {
     subscriptionName: (document.getElementById('subscriptionName')?.value || 'Pro Monthly').trim(),
     subscriptionCredits: parseInt(document.getElementById('subscriptionCredits')?.value || '4000'),
     subscriptionPriceUsd: parseFloat(document.getElementById('subscriptionPriceUsd')?.value || '29'),
-    siteGateEnabled: document.getElementById('siteGateEnabled')?.checked ?? true
+    siteGateEnabled: document.getElementById('siteGateEnabled')?.checked ?? true,
+    usageAlertsEnabled: document.getElementById('usageAlertsEnabled')?.checked ?? true
   };
 
   console.log('Saving pricing:', update);

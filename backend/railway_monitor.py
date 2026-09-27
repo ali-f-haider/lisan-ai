@@ -179,6 +179,18 @@ def get_cached():
 def _send_alert_email(used_gb, limit_gb, percent):
     if not RESEND_API_KEY or not CONTACT_TO_EMAIL:
         return False
+    # Same admin on/off switch as service_usage_monitor.py's ElevenLabs
+    # alert (Ali's request, Sept 2026 -- these emails were burning through
+    # his free Resend account's send quota). See that module's comment for
+    # why a deferred `import main` here is safe despite main.py importing
+    # this module at load time. Polling and the admin dashboard's live
+    # numbers are unaffected either way -- this only skips the email.
+    try:
+        import main
+        if not main._usage_alerts_enabled():
+            return False
+    except Exception:
+        pass  # if main isn't importable for some reason, fail open (still send)
     if percent is not None:
         headline = f"{used_gb:.2f} GB ({percent:.0f}% of the {limit_gb:.2f} GB limit)"
     else:
