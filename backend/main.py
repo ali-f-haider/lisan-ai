@@ -410,7 +410,7 @@ def _site_gate_ok(request: Request) -> bool:
     return bool(cookie) and hmac.compare_digest(cookie, _site_gate_token())
 
 PUBLIC_PATHS = frozenset([
-    "/", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
+    "/", "/pricing", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
     "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact",
     "/api/account/delete"
@@ -2218,6 +2218,34 @@ def landing():
     # the server-side data is correct. Same class of bug _NO_CACHE_HEADERS
     # was added for on app.js/index.html/styles.css; this route just never
     # got it.
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/pricing")
+def pricing_page():
+    """Dedicated pricing page (task #62, 2026-09-27) -- lists every
+    subscription tier and one-time credit pack as a clickable card, reading
+    live from /api/billing/packs (which already exposes both packs and the
+    new subscriptionPlans array -- see that route's docstring). Public
+    (see PUBLIC_PATHS below) so logged-out visitors can browse pricing
+    before creating an account; clicking a card while logged out sends
+    them to /login instead of attempting checkout. Same GA4-injection +
+    no-cache treatment as landing() above, for the same reasons."""
+    html = (BASE_DIR / "pricing.html").read_text(encoding="utf-8")
+    import re as _re
+    ga_id = (_get_pricing_config().get("gaMeasurementId") or "").strip()
+    if _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga_id):
+        snippet = (
+            "<!-- Google tag (gtag.js) -->\n"
+            f'<script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>\n'
+            "<script>\n"
+            "  window.dataLayer = window.dataLayer || [];\n"
+            "  function gtag(){dataLayer.push(arguments);}\n"
+            "  gtag('js', new Date());\n"
+            f"  gtag('config', '{ga_id}');\n"
+            "</script>\n"
+        )
+        html = html.replace("<head>", "<head>\n" + snippet, 1)
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
