@@ -111,6 +111,7 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
   <span class="brand">Lisan AI</span>
   <nav>
     <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
+    <a href="/pricing">Pricing<span class="ar2">الأسعار</span></a>
     <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
     <a href="/login">Start free<span class="ar2">ابدأ مجانًا</span></a>
   </nav>
@@ -177,17 +178,8 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
 <section class="pricing">
   <div class="wrap">
     <h2>Simple credits — or a monthly plan<span class="ar2">رصيد بسيط — أو خطة شهرية</span></h2>
-    <p style="text-align:center;color:var(--muted);max-width:640px;margin:0 auto;">Buy a one-time credit pack whenever you want — credits never expire. Or subscribe monthly for a recurring credit allowance and longer file storage.<span class="ar2" style="max-width:640px;margin:4px auto 0;">اشترِ باقة رصيد لمرة واحدة متى شئت — الرصيد لا تنتهي صلاحيته. أو اشترك شهريًا للحصول على رصيد متجدد وتخزين أطول للملفات.</span></p>
-    <div class="packs" id="packCards">
-      <div class="pack" style="border-color:#7c3aed;"><div class="k">🔁 Monthly plan<span class="ar2">🔁 خطة شهرية</span></div><div class="p">$29/mo<span class="ar2">29$/شهر</span></div><div class="c">recurring credits<span class="ar2">رصيد متجدد شهريًا</span></div><div class="n">30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا للملفات · إلغاء في أي وقت</span></div></div>
-      <div class="pack"><div class="k">Packs<span class="ar2">باقات</span></div><div class="p">from $4.99<span class="ar2">ابتداءً من 4.99$</span></div><div class="c">one-time purchase<span class="ar2">شراء لمرة واحدة</span></div><div class="n">exact sizes inside the app under ➕ Buy<span class="ar2">الأحجام الدقيقة داخل التطبيق ضمن ➕ شراء</span></div></div>
-    </div>
-    <ul class="points">
-      <li>100 credits = $1.00, whether you buy a pack or subscribe.<span class="ar2">100 رصيد = 1.00$، سواء اشتريت باقة أو اشتركت.</span></li>
-      <li>One-time packs: secure checkout by Stripe, no recurring charges, credits never expire.<span class="ar2">الباقات لمرة واحدة: دفع آمن عبر Stripe، بلا رسوم متكررة، والرصيد لا تنتهي صلاحيته.</span></li>
-      <li>Monthly plan: recurring credits every month and 30-day file storage — manage or cancel anytime from your Account page.<span class="ar2">الخطة الشهرية: رصيد متجدد كل شهر وتخزين 30 يومًا للملفات — عدّل أو ألغِ في أي وقت من صفحة حسابك.</span></li>
-    </ul>
-    <div style="text-align:center;margin-top:22px;"><a class="cta" href="/login">Create your free account<span class="ar2">أنشئ حسابك المجاني</span></a></div>
+    <p style="text-align:center;color:var(--muted);max-width:640px;margin:0 auto;">Buy a one-time credit pack whenever you want — credits never expire. Or subscribe monthly for recurring credits, saved voice-cloning slots and longer file storage.<span class="ar2" style="max-width:640px;margin:4px auto 0;">اشترِ باقة رصيد لمرة واحدة متى شئت — الرصيد لا تنتهي صلاحيته. أو اشترك شهريًا للحصول على رصيد متجدد وأماكن صوت مستنسخ محفوظة وتخزين أطول للملفات.</span></p>
+    <div style="text-align:center;margin-top:22px;"><a class="cta" href="/pricing">See full pricing<span class="ar2">شاهد كل الأسعار</span></a></div>
     <div class="trust"><span>🔒 Login-protected projects<span class="ar2">🔒 مشاريع محمية بتسجيل الدخول</span></span><span>⏳ Finished files: 48h (one-time) or 30 days (monthly)<span class="ar2">⏳ الملفات الجاهزة: 48 ساعة (لمرة واحدة) أو 30 يومًا (شهري)</span></span><span>💳 Secure payments by Stripe<span class="ar2">💳 مدفوعات آمنة عبر Stripe</span></span></div>
   </div>
 </section>
@@ -219,6 +211,7 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
     <span class="brand">Lisan AI</span>
     <nav>
       <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
+      <a href="/pricing">Pricing<span class="ar2">الأسعار</span></a>
       <a href="mailto:contact@lisanai.org">Contact<span class="ar2">تواصل</span></a>
       <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
     </nav>
@@ -237,38 +230,9 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
 // reliably detectable by Google's own "tag not detected" checker (a tag
 // that only appears after a follow-up client-side fetch can look
 // uninstalled to automated checks even though it works for real visitors).
-// Fill pack cards from the live pricing endpoint when it is publicly reachable
-// Arabic labels are keyed by the pack's id. Custom keys the admin panel
-// creates later (anything not in this map) just fall back to the pack's
-// own English name, so the page never breaks -- it just skips translation.
-var PACK_NAME_AR = {starter: "أساسية", standard: "قياسية", pro: "احترافية", business: "أعمال", small: "صغيرة", medium: "متوسطة", large: "كبيرة"};
-fetch("/api/billing/packs").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
-  if (!d || !d.packs) return;
-  var box = document.getElementById("packCards");
-  // Build the one-time-pack cards FIRST and bail out entirely if none come
-  // back -- otherwise (see the bug this replaced) a subscription card alone
-  // would overwrite the static fallback markup and the page would show a
-  // monthly plan with no one-time option at all, instead of just leaving
-  // the hardcoded fallback (which already covers both) in place.
-  // Loop over whatever keys the admin panel actually configured (matching
-  // /api/billing/packs's own stated intent) instead of a fixed list -- a
-  // hardcoded ["starter","standard","pro","business"] array here is what
-  // silently broke every admin pricing change from ever showing up on this
-  // page, since the real live keys are "small"/"medium"/"large".
-  var packHtml = "";
-  Object.keys(d.packs).forEach(function (k) {
-    var p = d.packs[k]; if (!p) return;
-    var label = p.name || k;
-    packHtml += '<div class="pack"><div class="k">' + label + '<span class="ar2">' + (PACK_NAME_AR[k] || label) + '</span></div><div class="p">$' + p.amount_usd.toFixed(2) + '</div><div class="c">' + p.credits.toLocaleString() + ' credits<span class="ar2">' + p.credits.toLocaleString() + ' رصيد</span></div><div class="n">one-time · never expires<span class="ar2">لمرة واحدة · لا تنتهي صلاحيته</span></div></div>';
-  });
-  if (!packHtml) return;
-  var subHtml = "";
-  if (d.subscription && d.subscription.credits) {
-    var s = d.subscription;
-    subHtml = '<div class="pack" style="border-color:#7c3aed;"><div class="k">🔁 ' + s.name + '<span class="ar2">🔁 اشتراك شهري</span></div><div class="p">$' + s.amount_usd.toFixed(2) + '/mo<span class="ar2">' + s.amount_usd.toFixed(2) + '$/شهر</span></div><div class="c">' + s.credits.toLocaleString() + ' credits every month<span class="ar2">' + s.credits.toLocaleString() + ' رصيد كل شهر</span></div><div class="n">30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا للملفات · إلغاء في أي وقت</span></div></div>';
-  }
-  box.innerHTML = subHtml + packHtml;
-}).catch(function () {});
+// Pack/subscription pricing now lives on the dedicated /pricing page (this
+// section is just a teaser + link), so the pricing-fetch script that used
+// to populate #packCards here has been removed along with that markup.
 // Demo clips: show placeholders until real files exist at /static/demo_*.mp4
 [
   ["slot1Before", "/static/pair1_before.mp4"],
