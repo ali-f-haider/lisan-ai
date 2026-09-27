@@ -96,7 +96,7 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
 <section>
   <div class="wrap">
     <h2>Monthly Subscriptions<span class="ar2">الاشتراكات الشهرية</span></h2>
-    <p class="section-note">Voice cloning is a subscription feature — each plan includes a number of saved, reusable voice slots on top of its monthly credits.<span class="ar2">استنساخ الصوت ميزة حصرية للمشتركين — تتضمن كل خطة عددًا من أماكن الأصوات المحفوظة والقابلة لإعادة الاستخدام بالإضافة إلى الرصيد الشهري.</span></p>
+    <p class="section-note">Voice cloning is a subscription feature — each plan includes a number of saved, reusable voice slots plus a monthly cloning allowance, on top of its monthly credits.<span class="ar2">استنساخ الصوت ميزة حصرية للمشتركين — تتضمن كل خطة عددًا من أماكن الأصوات المحفوظة والقابلة لإعادة الاستخدام بالإضافة إلى رصيد استنساخ شهري، فوق الرصيد الشهري.</span></p>
     <div class="plan-grid" id="subCards"><p class="loading-note">Loading plans…</p></div>
   </div>
 </section>
@@ -156,12 +156,23 @@ function renderSubs(plans) {
     var price = parseFloat(p.price_usd || 0);
     var disabledAttr = alreadySubscribed ? "disabled" : "";
     var isPro = p.key === "pro_monthly";
+    // clones_per_month is blank/null in admin when a tier has no separate
+    // monthly cloning cap set (see main.py's _get_subscription_plan) --
+    // only show this line when a real positive number is configured, same
+    // "additive, only shown once configured" approach as account.html's
+    // Voices tab uses for the same field.
+    var clonesRaw = p.clones_per_month;
+    var clones = (clonesRaw !== null && clonesRaw !== undefined && clonesRaw !== "") ? parseInt(clonesRaw, 10) : 0;
+    var clonesLine = clones > 0
+      ? '<div class="pdetail">✂️ ' + clones + ' new voice clone' + (clones === 1 ? "" : "s") + '/month<span class="ar2">' + clones + ' استنساخ صوت جديد شهريًا</span></div>'
+      : '';
     html += '<button type="button" class="plan-card sub" ' + disabledAttr + ' onclick="chooseSub(\'' + p.key.replace(/'/g, "") + '\', this)">' +
       (isPro ? '<span class="pbadge">Most popular<span class="ar2" style="position:static;display:inline;"> · الأكثر طلبًا</span></span>' : '') +
       '<div class="pname">🔁 ' + p.name + '<span class="ar2">🔁 ' + arName + '</span></div>' +
       '<div class="pprice">$' + price.toFixed(2) + ' <span class="unit">/mo</span><span class="ar2">' + price.toFixed(2) + '$ / شهريًا</span></div>' +
       '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits every month<span class="ar2">' + credits.toLocaleString() + ' رصيد كل شهر</span></div>' +
       '<div class="pdetail">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '<span class="ar2">' + slots + ' مكان صوت محفوظ</span></div>' +
+      clonesLine +
       '<div class="pdetail">⏳ 30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا · إلغاء في أي وقت</span></div>' +
       '<div class="pcta">' + (alreadySubscribed ? "You're already subscribed — manage it from your Account page" : "Subscribe →") + '<span class="ar2">' + (alreadySubscribed ? "أنت مشترك بالفعل — أدِر اشتراكك من صفحة الحساب" : "اشترك ←") + '</span></div>' +
       '</button>';
