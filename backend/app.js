@@ -6223,3 +6223,76 @@ window.cleanOldClones = function () {
         };
     }
 })();
+
+// ===== SAVED VOICES: reusable cloned voices from the account's voice =====
+// library (task #61, 2026-09-27). Adds each of the logged-in user's saved
+// voices (see /api/my_voices -- the account page's "Voices" tab) as an
+// extra option in the Step 4 per-speaker dropdown, alongside the "Cloned
+// voice (from video)" / custom-voice options already injected by the
+// patches above. Written as one more wrap of applyChoice/renderSpeakerVoices,
+// same pattern those earlier patches use (capture the current function,
+// call through to it, layer the new behavior on top) -- this never
+// touches the original implementations or any earlier wrap, so it can't
+// break what they already do; placed at the very end of the file so it
+// always wraps whatever those functions have already become by the time
+// this runs, on page load.
+(function () {
+    window.savedVoices = window.savedVoices || [];
+    window._savedVoicesLoaded = false;
+
+    function ensureSavedVoices() {
+        if (window._savedVoicesLoaded) return Promise.resolve();
+        // Set before the fetch resolves -- a slow or failed request must
+        // not be re-fired on every single render call while it's still in
+        // flight (renderSpeakerVoices can be called many times in a row).
+        window._savedVoicesLoaded = true;
+        return fetch("/api/my_voices")
+            .then(function (r) { return r.json(); })
+            .then(function (data) { window.savedVoices = (!data.error && data.voices) ? data.voices : []; })
+            .catch(function () { window.savedVoices = []; });
+    }
+
+    if (typeof applyChoice === "function" && !window._acWrapSaved) {
+        window._acWrapSaved = true;
+        var _acSaved = applyChoice;
+        applyChoice = function (name) {
+            var choice = speakerChoices[name] || "";
+            if (choice.indexOf("saved:") === 0) {
+                var vid = choice.slice(6);
+                var v = (window.savedVoices || []).filter(function (x) { return x.elevenlabs_voice_id === vid; })[0];
+                speakerVoices[name] = vid;
+                speakerVoiceNames[name] = "🎙️ " + (v ? v.name : "Saved voice");
+                return;
+            }
+            return _acSaved.apply(this, arguments);
+        };
+    }
+
+    if (typeof renderSpeakerVoices === "function" && !window._rsvWrapSaved) {
+        window._rsvWrapSaved = true;
+        var _rsvSaved = renderSpeakerVoices;
+        renderSpeakerVoices = function () {
+            var p = _rsvSaved.apply(this, arguments);
+            var addOptions = function () {
+                if (!window.savedVoices || !window.savedVoices.length) return;
+                document.querySelectorAll("#speakerVoicesTable tbody tr").forEach(function (row) {
+                    var name = (row.cells[0] || {}).textContent || "";
+                    var sel = row.querySelector("select");
+                    if (!sel) return;
+                    window.savedVoices.forEach(function (v) {
+                        var val = "saved:" + v.elevenlabs_voice_id;
+                        if (sel.querySelector('option[value="' + val + '"]')) return;
+                        var o = document.createElement("option");
+                        o.value = val;
+                        o.textContent = "🎙️ " + (v.name || "Saved voice");
+                        var anchor = sel.querySelector('option[value="custom"]') || sel.querySelector('option[value="clone"]');
+                        if (anchor) anchor.insertAdjacentElement("afterend", o); else sel.insertBefore(o, sel.firstChild);
+                    });
+                    sel.value = speakerChoices[name] || sel.value;
+                });
+            };
+            Promise.all([ensureSavedVoices(), Promise.resolve(p)]).then(addOptions);
+            return p;
+        };
+    }
+})();
