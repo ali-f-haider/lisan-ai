@@ -130,6 +130,33 @@ def compress_video_for_upload(video_path: Path, out_path: Path):
     run_ffmpeg(cmd)
 
 
+def mute_video_copy(video_path: Path, out_path: Path):
+    """Re-muxes the video with its audio track dropped entirely -- video
+    stream copied as-is (`-c:v copy`, no re-encode, so this is fast and
+    lossless), just no `-c:a`/audio output at all.
+
+    Added 2026-09-28 for the Wan 3.0 lip-sync call specifically: that
+    provider is handed the source video as a VISUAL reference AND a
+    separately-produced Arabic dub as the target audio, with the prompt
+    explicitly telling it to use only the Arabic track and not touch the
+    audio. But the reference video file itself (from
+    compress_video_for_upload above) still carries the ORIGINAL English
+    audio track -- so the model receives two audio signals for one request,
+    and Ali got a real result back with half a line in English and half in
+    Arabic, consistent with some of that original track leaking through
+    despite the prompt's instructions. This has nothing to do with the
+    prompt's own wording (its "do not change the audio" instruction is
+    about not letting the model resynthesize/alter the Arabic
+    reference_audio that becomes the output -- a separate input, unaffected
+    by this) -- it's a data-preparation step done before the request is
+    even built, removing a second audio signal that was never meant to be
+    used as the output audio in the first place. Only used for the copy
+    staged to Wan 3.0; the general-purpose compressed copy other lip-sync
+    providers use is untouched."""
+    cmd = ["ffmpeg", "-y", "-i", str(video_path), "-c:v", "copy", "-an", str(out_path)]
+    run_ffmpeg(cmd)
+
+
 def mix_two_audio(main_audio: Path, bg_audio: Path, out_wav: Path,
                   main_vol: float = 1.0, bg_vol: float = 0.8):
     cmd = [

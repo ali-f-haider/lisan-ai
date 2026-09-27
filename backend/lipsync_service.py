@@ -15,6 +15,7 @@ from app_state import jobs_progress
 from ffmpeg_utils import (
     compress_video_for_upload,
     mix_two_audio,
+    mute_video_copy,
     mux_audio_into_video,
 )
 from media_paths import find_job_video, job_background_audio, job_reference_images
@@ -337,7 +338,19 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
     audio_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_audio.mp3"
 
     progress["message"] = "Staging files for lip-sync..."
-    video_url = r2_backup.upload_temp_and_get_url(upload_path, video_key)
+    # Strip the reference video's own (original-language) audio before
+    # staging it -- see mute_video_copy's docstring. Best-effort: if muxing
+    # fails for any reason, fall back to the original file rather than
+    # failing the whole lip-sync job over this.
+    muted_video_path = OUTPUT_DIR / f"lipsync_muted_{job_id}.mp4"
+    try:
+        mute_video_copy(upload_path, muted_video_path)
+        video_to_stage = muted_video_path
+    except Exception as mute_err:
+        print(f"[lipsync] WARNING: could not mute reference video for {job_id}, staging it with audio intact: {mute_err}")
+        muted_video_path = None
+        video_to_stage = upload_path
+    video_url = r2_backup.upload_temp_and_get_url(video_to_stage, video_key)
     if not video_url:
         raise Exception("Could not stage the video for the lip-sync provider (R2 storage not configured, or the upload failed).")
     audio_url = r2_backup.upload_temp_and_get_url(audio_path, audio_key)
@@ -440,6 +453,11 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
         r2_backup.delete_temp_object(audio_key)
         for img_key in image_keys:
             r2_backup.delete_temp_object(img_key)
+        if muted_video_path is not None:
+            try:
+                muted_video_path.unlink()
+            except Exception:
+                pass
 
 
 # UI/UX test double for the real provider calls above -- see

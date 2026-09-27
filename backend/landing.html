@@ -45,6 +45,7 @@ h2{color:var(--indigo);font-size:26px;margin-bottom:18px;text-align:center}
 .card .ico{font-size:26px;margin-bottom:8px}
 .stepnum{display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--indigo);color:#fff;font-weight:800;align-items:center;justify-content:center;margin-bottom:10px}
 .videos{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.videos.videos-single{grid-template-columns:1fr;max-width:760px;margin:0 auto}
 .videos .slot{background:#0f172a;border-radius:16px;min-height:220px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;overflow:hidden;text-align:center;padding:10px}
 .videos video{width:100%;border-radius:16px}
 .pricing{background:var(--bg);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
@@ -131,6 +132,13 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
     <a class="cta" href="/login">🚀 Start Dubbing Free<span class="ar2">🚀 ابدأ الدبلجة مجانًا</span></a>
   </div>
 </div>
+
+<section class="wrap">
+  <h2>How Lisan AI Works?<span class="ar2">كيف يعمل Lisan AI؟</span></h2>
+  <div class="videos videos-single">
+    <div class="slot" id="howItWorksSlot">How Lisan AI works<span class="ar2">كيف يعمل Lisan AI</span></div>
+  </div>
+</section>
 
 <section class="wrap">
   <h2>Our Videos — Before / After<span class="ar2">فيديوهاتنا — قبل / بعد</span></h2>
@@ -235,6 +243,7 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
 // to populate #packCards here has been removed along with that markup.
 // Demo clips: show placeholders until real files exist at /static/demo_*.mp4
 [
+  ["howItWorksSlot", "/static/HowItWorks.mp4"],
   ["slot1Before", "/static/pair1_before.mp4"],
   ["slot1After", "/static/pair1_after.mp4"],
   ["slot2Before", "/static/pair2_before.mp4"],
