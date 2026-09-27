@@ -1713,6 +1713,133 @@ def _get_profile_plan_key(uid):
         return ""
 
 
+# ---- Voice library (user_voices) -- persisted, named cloned voices ----
+# Needs the `user_voices` table (SQL given to Ali alongside
+# profiles.subscription_plan_key / pricing_config.subscription_plans).
+# See _authorize_new_clones' docstring for the overall gating design.
+
+def _count_user_voices(uid):
+    """Row count of uid's saved voices. Returns None -- NOT 0 -- on any
+    failure, including user_voices not existing yet (migration not run),
+    so callers can tell "confirmed zero saved voices" apart from "couldn't
+    check" and fail closed on the latter rather than silently treating an
+    unreachable table as an empty one."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    try:
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/user_voices?uid=eq.{uid}&select=id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return len(rows)
+    except Exception as ex:
+        print(f"[voice-library] _count_user_voices error (has the user_voices migration been run?): {ex}")
+        return None
+
+
+def _save_user_voice(uid, elevenlabs_voice_id, name, description="", source_job_id=""):
+    """Inserts one row into user_voices -- called right after a clone/
+    upload actually succeeds on ElevenLabs' side. Best-effort: if this
+    INSERT fails, the voice still exists and the user still got it for
+    this session, so the clone itself must not be reported as failed --
+    but it's logged loudly since a failure here means that voice is an
+    orphan: not counted against the slot cap, not protected from
+    cleanup_cloned_voices' sweep, and not reusable later. Rare in practice
+    (same Supabase call pattern used everywhere else in this file)."""
+    if not uid or not elevenlabs_voice_id or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    body = json.dumps({
+        "uid": uid,
+        "elevenlabs_voice_id": elevenlabs_voice_id,
+        "name": (name or "Untitled voice")[:200],
+        "description": (description or "")[:2000],
+        "source_job_id": source_job_id or None,
+    }).encode("utf-8")
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        req = _ur.Request(f"{SUPABASE_URL}/rest/v1/user_voices", data=body, headers=hdrs, method="POST")
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 201, 204)
+    except Exception as ex:
+        print(f"[voice-library] _save_user_voice FAILED for uid={uid} voice={elevenlabs_voice_id} -- orphaned (not slot-counted, not cleanup-protected): {ex}")
+        return False
+
+
+def _all_saved_voice_ids():
+    """Every ElevenLabs voice_id saved in ANY user's library right now --
+    used to protect saved voices from cleanup_cloned_voices()'s
+    account-wide sweep (see /api/cleanup_voices), since the ElevenLabs
+    account itself is shared across every user of this app, not scoped per
+    user. Raises on failure rather than returning [] -- the caller must
+    treat "couldn't verify" as "assume everything needs protecting" (fail
+    closed), never as "nothing needs protecting", since the latter would
+    let a transient Supabase hiccup permanently delete a paying user's
+    saved voice."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("Supabase not configured")
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/user_voices?select=elevenlabs_voice_id",
+        headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        rows = json.load(r)
+    return [row.get("elevenlabs_voice_id") for row in rows if row.get("elevenlabs_voice_id")]
+
+
+def _authorize_new_clones(uid, num_new):
+    """Central gate for creating NEW ElevenLabs cloned voices -- shared by
+    /api/clone (can create several at once, one per speaker) and
+    /api/upload_custom_voice (always exactly one). Voice cloning is
+    subscription-only (Ali's 2026-09-27 decision: the account's own
+    cloning quota is a shared, limited resource that can no longer be
+    offered unmetered to every free/pay-once user).
+
+    Returns (True, plan_dict) if the request may proceed, or
+    (False, error_message) if it must be rejected -- callers return
+    error_message as a 402 JSON error WITHOUT spending any ElevenLabs
+    quota or credits.
+
+    Fails CLOSED on every uncertainty (no active subscription, can't count
+    existing saved voices, can't reach the real ElevenLabs quota) -- the
+    entire point of this gate is to stop over-promising a shared resource,
+    so an unknown state must block a clone, never silently allow it."""
+    if not uid:
+        return False, "Please log in to clone or upload a voice."
+    if not _subscription_active(uid):
+        return False, "Voice cloning is a subscription feature now. Subscribe to unlock your own saved voice slots."
+    plan = _get_subscription_plan(_get_profile_plan_key(uid))
+    slots = int(plan.get("voice_slots") or 0)
+    used = _count_user_voices(uid)
+    if used is None:
+        return False, "Couldn't verify your saved-voice count right now -- please try again shortly."
+    if used + num_new > slots:
+        remaining = max(0, slots - used)
+        return False, (
+            f"You have {used} of {slots} saved voice slot{'s' if slots != 1 else ''} used ({remaining} free). "
+            f"Delete a saved voice to free a slot, or upgrade your plan, before cloning {num_new} more."
+        )
+    # Real ElevenLabs account-wide quota, shared across ALL users -- can
+    # still block this even when the user's own slot cap has room. This
+    # reads the cached poll (service_usage_monitor), refreshed every ~20
+    # minutes, not a live call -- see that module's docstring; good enough
+    # for "are we basically out", not meant to be exact to the unit.
+    eleven = service_usage_monitor.get_eleven_cached()
+    if eleven.get("ok"):
+        used_ops = eleven.get("clone_ops_used")
+        limit_ops = eleven.get("clone_ops_limit")
+        if used_ops is not None and limit_ops:
+            if (limit_ops - used_ops) < num_new:
+                return False, "We've hit our voice-cloning provider's shared monthly limit across all users. Please try again after the reset, or contact support."
+    return True, plan
+
+
 def _grant_subscription_credits(uid, invoice_id, credits):
     """Idempotently grants one billing period's credits for a paid
     subscription invoice -- exact same idempotency pattern as
@@ -2407,6 +2534,17 @@ def clone(req: CloneRequest, request: Request):
     if _rate_limited(request, "clone", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
+    # Same speaker-resolution logic as eleven_service.clone_voices itself
+    # (empty speakers_to_clone means "every distinct speaker with text") --
+    # duplicated here only so the slot/quota gate below knows how many NEW
+    # voices this call is actually about to try to create, before spending
+    # any ElevenLabs quota on them.
+    speakers_requested = list(set(s.speaker for s in req.segments if (s.text or "").strip()))
+    if req.speakers_to_clone:
+        speakers_requested = [s for s in speakers_requested if s in req.speakers_to_clone]
+    ok, plan_or_error = _authorize_new_clones(uid, len(speakers_requested) or 1)
+    if not ok:
+        return JSONResponse({"error": plan_or_error}, status_code=402)
     bal = get_credits(uid) if uid else None
     clone_cost = int(_get_pricing_config().get("cloneCredits", 5))
     if clone_cost <= 0:
@@ -2416,7 +2554,18 @@ def clone(req: CloneRequest, request: Request):
         return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
     if uid:
         deduct_credits(uid, clone_cost, "clone", req.job_id)
-    return eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
+    result = eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
+    # Persist every voice that actually succeeded into this user's saved
+    # library (see _authorize_new_clones / user_voices) -- named after its
+    # speaker label for now; renaming/describing it is task #61 (voice
+    # library management UI), not built yet. Best-effort -- see
+    # _save_user_voice's docstring for why a failure here doesn't turn this
+    # into an error response.
+    if uid and isinstance(result, dict) and result.get("cloned_voices"):
+        for speaker, voice_id in result["cloned_voices"].items():
+            if not str(voice_id).startswith("ERROR"):
+                _save_user_voice(uid, voice_id, speaker, "", req.job_id)
+    return result
 
 @app.post("/api/translate")
 def translate(req: TranslateRequest, request: Request):
@@ -2696,7 +2845,24 @@ def segment_audio(job_id: str, segment_id: str):
 
 @app.post("/api/cleanup_voices")
 def cleanup_voices(payload: dict = {}):
-    result = eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, payload.get("keep", []))
+    # Some flows (new project / reset) call this with keep: [] -- meaning
+    # "wipe every Cloned_/Custom_ voice in the account". That must never be
+    # allowed to sweep away a voice ANY user has saved to their library
+    # (user_voices), since the ElevenLabs account is shared across every
+    # user of this app, not scoped to whoever's session triggered cleanup.
+    # Fail CLOSED: if we can't confirm the current saved-voice list (the
+    # migration not run yet, or a transient Supabase problem), skip this
+    # cleanup pass entirely rather than risk permanently deleting a paying
+    # user's named, saved voice -- a few extra temp voices lingering an
+    # extra cycle is cheap and harmless; deleting someone's saved voice by
+    # mistake is not.
+    keep = list(payload.get("keep") or [])
+    try:
+        keep.extend(_all_saved_voice_ids())
+    except Exception as ex:
+        print(f"[cleanup_voices] SKIPPED sweep -- could not verify saved voice list: {ex}")
+        return {"deleted": 0, "errors": ["cleanup skipped: could not verify the saved-voice list (has the user_voices migration been run?)"]}
+    result = eleven_service.cleanup_cloned_voices(ELEVENLABS_API_KEY, keep)
     # Also remove this job's downloadable voice sample file(s), if any — same
     # "session end" moment as the ElevenLabs-side voice cleanup above.
     job_id = payload.get("job_id") or ""
@@ -2730,6 +2896,9 @@ def download_voice_sample(job_id: str, speaker: str):
 async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "login required"}, status_code=401)
+    ok, plan_or_error = _authorize_new_clones(uid, 1)
+    if not ok:
+        return JSONResponse({"error": plan_or_error}, status_code=402)
     nm = (file.filename or "").lower()
     if not nm.endswith((".mp3", ".wav")): return {"error": "Only MP3 or WAV files are allowed."}
     data = await file.read()
@@ -2757,6 +2926,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
         except Exception: pass
     if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
     deduct_credits(uid, clone_cost, "custom_voice", job_id or "")
+    _save_user_voice(uid, res, speaker, "", job_id or "")
     return {"status": "success", "voice_id": res}
 
 def account_summary(request: Request):
