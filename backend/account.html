@@ -546,6 +546,7 @@ function renderMyVoices(data) {
       '<div class="voice-actions">' +
       '<button class="btn-logout" onclick="saveVoice(\'' + v.id + '\')">' + T.saveVoiceBtn + '</button>' +
       '<button class="btn-danger" onclick="deleteVoice(\'' + v.id + '\')">' + T.deleteVoiceBtn + '</button>' +
+      '<span id="vsaved-' + v.id + '" style="display:none;color:#2e7d32;font-size:13px;margin-inline-start:8px;">' + T.voiceSaved + '</span>' +
       '</div></div>' +
       '<div class="voice-date">' + fmtDate(v.created_at) + '</div>';
     list.appendChild(item);
@@ -563,6 +564,10 @@ function loadMyVoices() {
 }
 
 function saveVoice(id) {
+  // Was previously silent on success -- clicking Save with no error and no
+  // confirmation looked identical to it doing nothing at all (Ali's report,
+  // 2026-09-28). This now shows a brief "Saved" message next to the
+  // buttons so success is actually visible, not just assumed.
   var name = document.getElementById("vname-" + id).value;
   var description = document.getElementById("vdesc-" + id).value;
   fetch("/api/my_voices/" + encodeURIComponent(id), {
@@ -570,6 +575,12 @@ function saveVoice(id) {
     body: JSON.stringify({ name: name, description: description })
   }).then(function (r) { return r.json(); }).then(function (d) {
     if (d.error) { alert(T.saveVoiceFailed); return; }
+    var savedEl = document.getElementById("vsaved-" + id);
+    if (savedEl) {
+      savedEl.style.display = "inline";
+      clearTimeout(savedEl._hideTimer);
+      savedEl._hideTimer = setTimeout(function () { savedEl.style.display = "none"; }, 2500);
+    }
   }).catch(function () { alert(T.saveVoiceFailed); });
 }
 
