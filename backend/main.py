@@ -3440,10 +3440,23 @@ def cleanup_voices(payload: dict = {}):
         "deleted": int(result.get("deleted", 0)) + int(inworld_result.get("deleted", 0)),
         "errors": list(result.get("errors", [])) + list(inworld_result.get("errors", [])),
     }
-    # Also remove this job's downloadable voice sample file(s), if any — same
-    # "session end" moment as the ElevenLabs-side voice cleanup above.
+    # Also remove this job's downloadable voice sample file(s) -- but ONLY
+    # when the caller explicitly asks for it via wipe_samples: true (a real
+    # "start fresh" moment: the 🧹 clean-old-clones button, or a workspace
+    # reset). This must NOT happen on the routine after-every-clone
+    # auto-cleanup call app.js fires to protect the shared ElevenLabs/Inworld
+    # quota (see confirmCloning's wrapper) -- that call passes this same
+    # job_id moments after /api/clone just wrote these exact sample files,
+    # so wiping them here deleted the Download button's file before the user
+    # ever got a chance to click it. Confirmed via Railway logs 2026-09-28:
+    # POST /api/clone and POST /api/cleanup_voices for the same job_id landed
+    # in the same instant, and the very next requests were 404s on
+    # /api/download_voice_sample for that job. keep (above) only protects
+    # voice IDs at the provider level -- it has no bearing on these local
+    # sample files, so it can't be used to distinguish the two cases; an
+    # explicit flag is the only reliable way.
     job_id = payload.get("job_id") or ""
-    if job_id:
+    if job_id and payload.get("wipe_samples"):
         try:
             safe_job = "".join(c for c in job_id if c.isalnum() or c in "_-")
             for p in OUTPUT_DIR.glob(f"voice_sample_{safe_job}_*.wav"):

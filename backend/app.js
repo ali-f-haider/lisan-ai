@@ -1684,7 +1684,7 @@ async function confirmCloning() {
                 resultsHtml += "<div style='display:flex;align-items:center;gap:10px;padding:6px 0;flex-wrap:wrap;'>"
                     + "<span>✅ " + speaker + " cloned.</span>"
                     + "<a href='/api/download_voice_sample/" + encodeURIComponent(currentJobId) + "/" + encodeURIComponent(speaker) + "' download><button type='button' class='btn-sm' style='cursor:pointer;'>⬇ Download voice sample</button></a>"
-                    + "<span class='note'>(available for this session only)</span>"
+                    + "<span class='note'>(This is just the reference clip -- your cloned voice itself is already saved to your account. The clip is not kept after this session; download it now if you want a copy.)</span>"
                     + "</div>";
             }
             else notify("error", speaker + ": " + vid);
@@ -4355,6 +4355,7 @@ window.cleanOldClones = function () {
         ["Final Duration Mode", "نمط المدة النهائية"],
         ["Choose File", "اختيار ملف"],
         ["⬇ Download voice sample", "⬇ تنزيل نموذج الصوت"],
+        ["(This is just the reference clip -- your cloned voice itself is already saved to your account. The clip is not kept after this session; download it now if you want a copy.)", "(هذا مجرد مقطع مرجعي -- صوتك المستنسخ نفسه محفوظ بالفعل في حسابك. لن يتم الاحتفاظ بهذا المقطع بعد انتهاء هذه الجلسة؛ نزّله الآن إذا كنت تريد الاحتفاظ بنسخة منه.)"],
         ["Contact Us", "اتصل بنا"],
         ["Name (optional)", "الاسم (اختياري)"],
         ["Email", "البريد الإلكتروني"],
@@ -4843,7 +4844,11 @@ window.cleanOldClones = function () {
     // 🧹 now removes ALL app-created clones (they must be ephemeral)
     window.cleanOldClones = function () {
         if (!confirm("Delete ALL cloned/custom voices from your voice account (including this project's)? Cloning again will re-create only what you need.")) return;
-        fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId }) })
+        // wipe_samples: true -- this is an explicit, user-confirmed "delete
+        // everything" action (unlike the silent after-every-clone sweep in
+        // confirmCloning's wrapper below, which must NOT wipe samples -- see
+        // main.py's /api/cleanup_voices docstring for why).
+        fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId, wipe_samples: true }) })
             .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, st: r.status, d: d }; }); })
             .then(function (out) {
                 if (!out.ok) { notify("error", "Cleanup endpoint not found (status " + out.st + ") — redeploy main.py with the /api/cleanup_voices block."); return; }
@@ -4858,7 +4863,9 @@ window.cleanOldClones = function () {
         var _rw = resetWorkspace;
         resetWorkspace = function () {
             var r = _rw.apply(this, arguments);
-            fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId }) }).catch(function () {});
+            // wipe_samples: true -- a real "starting fresh" moment (new
+            // video), same reasoning as cleanOldClones above.
+            fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId, wipe_samples: true }) }).catch(function () {});
             return r;
         };
     }
