@@ -171,6 +171,16 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
+        <h3>🎚️ Subscription Tiers (draft — voice cloning, new)</h3>
+        <p class="muted" style="margin-bottom:16px;">Draft starting numbers for the upcoming multi-tier plan (voice cloning is moving to subscription-only, with a persistent per-tier "voice slots" cap — how many named cloned voices a subscriber can keep saved at once, not a monthly count). Edit freely — these don't affect checkout yet; the single "Pro" plan above is still what Stripe actually charges until subscribe/checkout is switched over to read this table in a follow-up deploy. Key is the plan's permanent public ID once that switch happens, same as a pack's Key.</p>
+        <table>
+          <thead><tr><th>Key</th><th>Name</th><th>Price/mo (USD)</th><th>Credits/mo</th><th>Voice Slots</th><th>Actions</th></tr></thead>
+          <tbody id="plansTable"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+        </table>
+        <div style="margin-top:14px;display:flex;gap:10px;"><button class="btn" onclick="addPlan()">+ Add Tier</button><button class="btn" onclick="savePricing()" style="background:#2e7d32">💾 Save Tiers</button></div>
+      </div>
+
+      <div class="card">
         <h3>🔒 Site Access Gate</h3>
         <p class="muted" style="margin-bottom:16px;">A password wall in front of the ENTIRE site — landing page, login, everything — for while the product is still being tested. Random visitors see an "Under Construction" message instead of the real site; testers with the access code get straight in. The actual password only lives in Railway's <code>SITE_GATE_PASSWORD</code> environment variable (never shown here) — this switch just turns enforcement of it on or off. Leave <code>SITE_GATE_PASSWORD</code> unset in Railway and this switch does nothing either way.</p>
         <div class="form-group">
@@ -501,6 +511,20 @@ async function loadPricing() {
     </tr>`;
   });
   document.getElementById('packsTable').innerHTML = html || '<tr><td colspan="7" class="muted">No packs</td></tr>';
+
+  let planHtml = '';
+  (r.data.subscriptionPlans || []).forEach((p, i) => {
+    const key = p.key || slugifyPackKey(p.name);
+    planHtml += `<tr>
+      <td><input value="${key}" data-idx="${i}" data-field="key" style="width:110px" title="Permanent public ID once checkout switches to this table"></td>
+      <td><input value="${p.name}" data-idx="${i}" data-field="name"></td>
+      <td><input type="number" step="0.01" value="${p.price_usd}" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
+      <td><input type="number" value="${p.credits_per_month}" data-idx="${i}" data-field="credits_per_month" style="width:100px"></td>
+      <td><input type="number" value="${p.voice_slots||0}" data-idx="${i}" data-field="voice_slots" style="width:90px"></td>
+      <td><button class="btn-sm btn-danger" onclick="deletePlan(${i})">Delete</button></td>
+    </tr>`;
+  });
+  document.getElementById('plansTable').innerHTML = planHtml || '<tr><td colspan="6" class="muted">No tiers</td></tr>';
 }
 
 async function savePricing() {
@@ -534,6 +558,35 @@ async function savePricing() {
     return;
   }
 
+  // Build subscription tiers fresh from their input fields, same approach
+  // as packs above.
+  const subscriptionPlans = [];
+  const seenPlanKeys = {};
+  let dupePlanKey = null;
+  document.querySelectorAll('#plansTable tr').forEach((tr) => {
+    const inputs = tr.querySelectorAll('input');
+    if (inputs.length < 5) return;
+    const name = inputs[1].value || '';
+    const key = (inputs[0].value || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '') || slugifyPackKey(name);
+    const plan = {
+      key: key,
+      name: name,
+      price_usd: parseFloat(inputs[2].value) || 0,
+      credits_per_month: parseInt(inputs[3].value) || 0,
+      voice_slots: parseInt(inputs[4].value) || 0
+    };
+    if (plan.name || plan.price_usd || plan.credits_per_month) {
+      if (key && seenPlanKeys[key]) dupePlanKey = key;
+      seenPlanKeys[key] = true;
+      subscriptionPlans.push(plan);
+    }
+  });
+
+  if (dupePlanKey) {
+    toast(`Two subscription tiers both use the key "${dupePlanKey}" — give each tier a unique Key before saving.`, true);
+    return;
+  }
+
   // Read the pricing config inputs
   const update = {
     freeCredits: parseInt(document.getElementById('freeCredits')?.value || '150'),
@@ -549,6 +602,7 @@ async function savePricing() {
     subscriptionName: (document.getElementById('subscriptionName')?.value || 'Pro Monthly').trim(),
     subscriptionCredits: parseInt(document.getElementById('subscriptionCredits')?.value || '4000'),
     subscriptionPriceUsd: parseFloat(document.getElementById('subscriptionPriceUsd')?.value || '29'),
+    subscriptionPlans: subscriptionPlans,
     siteGateEnabled: document.getElementById('siteGateEnabled')?.checked ?? true,
     elevenAlertsEnabled: document.getElementById('elevenAlertsEnabled')?.checked ?? true,
     railwayAlertsEnabled: document.getElementById('railwayAlertsEnabled')?.checked ?? true
@@ -591,6 +645,23 @@ function addPack() {
 
 function deletePack(i) {
   document.querySelectorAll('#packsTable tr')[i].remove();
+}
+
+function addPlan() {
+  const tbody = document.getElementById('plansTable');
+  const i = tbody.querySelectorAll('tr').length;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><input value="" placeholder="auto" data-idx="${i}" data-field="key" style="width:110px" title="Leave blank to auto-generate from the name"></td>
+    <td><input value="New Tier" data-idx="${i}" data-field="name"></td>
+    <td><input type="number" step="0.01" value="29" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
+    <td><input type="number" value="4000" data-idx="${i}" data-field="credits_per_month" style="width:100px"></td>
+    <td><input type="number" value="1" data-idx="${i}" data-field="voice_slots" style="width:90px"></td>
+    <td><button class="btn-sm btn-danger" onclick="this.closest('tr').remove()">Delete</button></td>`;
+  tbody.appendChild(tr);
+}
+
+function deletePlan(i) {
+  document.querySelectorAll('#plansTable tr')[i].remove();
 }
 
 async function loadAudit() {

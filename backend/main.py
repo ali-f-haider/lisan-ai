@@ -755,6 +755,34 @@ DEFAULT_PACKS = [
     {"key": "business", "name": "Studio",   "credits": 25000, "price_usd": 150.0, "bonus_pct": 66, "stripe_link": ""},
 ]
 
+# ---- Monthly subscription TIERS (2026-09, voice-cloning business model) ---
+# Voice cloning is becoming subscription-only and slot-limited (Ali's
+# request), so the single flat "Pro Monthly" plan (subscriptionName/
+# subscriptionCredits/subscriptionPriceUsd below) is being generalized into
+# several tiers, same array pattern as DEFAULT_PACKS above. "voice_slots" is
+# a PERSISTENT cap -- how many named cloned voices a subscriber may have
+# saved at once (see the new user_voices table), NOT a monthly-resetting
+# counter. To get a new clone once full, the user deletes an existing saved
+# voice to free a slot, or upgrades to a tier with more slots. This is
+# separate from -- and in addition to -- the real ElevenLabs account-wide
+# voice-cloning quota (service_usage_monitor's clone_ops_used/limit), which
+# is still checked at clone time so this per-tier cap can never promise more
+# than ElevenLabs' pool can actually deliver.
+#
+# These are DRAFT starting numbers (Ali asked for a first draft to tune live
+# in admin afterward) built off the existing single plan ($29/mo, 4000
+# credits) as the middle "Pro" tier, with a cheaper "Starter" and a pricier
+# "Studio" bracketing it. Purely additive for now -- nothing reads this
+# array yet. /api/billing/subscribe, the Stripe webhook, and the admin UI
+# still run on the old flat subscriptionName/subscriptionCredits/
+# subscriptionPriceUsd fields just below until those are switched over in a
+# follow-up change, so saving this array has zero effect on checkout yet.
+DEFAULT_SUBSCRIPTION_PLANS = [
+    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1},
+    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3},
+    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8},
+]
+
 def _pack_dict_key(p):
     """The dict key a pack shows up under publicly. Prefers the pack's own
     explicit 'key' field; only derives one from the name (old behavior) when
@@ -3017,6 +3045,10 @@ def _get_pricing_config():
         "subscriptionName": "Pro Monthly",
         "subscriptionCredits": 4000,
         "subscriptionPriceUsd": 29.0,
+        # Draft multi-tier replacement for the three flat fields just above
+        # -- see DEFAULT_SUBSCRIPTION_PLANS' comment. Additive/inert until
+        # /api/billing/subscribe is generalized to read it.
+        "subscriptionPlans": DEFAULT_SUBSCRIPTION_PLANS,
         # On/off switch for the site-wide "private testing" access gate
         # (see SITE_GATE_PASSWORD in config.py and AuthMiddleware in this
         # file). The actual password lives only in Railway's env var --
@@ -3077,6 +3109,7 @@ def _get_pricing_config():
                 "subscriptionName": row.get("subscription_name") or defaults["subscriptionName"],
                 "subscriptionCredits": row.get("subscription_credits") or defaults["subscriptionCredits"],
                 "subscriptionPriceUsd": row.get("subscription_price_usd") or defaults["subscriptionPriceUsd"],
+                "subscriptionPlans": row.get("subscription_plans") or defaults["subscriptionPlans"],
                 # NOT the "or" pattern used above -- this is a boolean, and
                 # "False or True" would wrongly become True, silently
                 # ignoring an admin who turned the gate off. None (column
@@ -3125,6 +3158,7 @@ def _save_pricing_config(config):
             "subscription_name": config.get("subscriptionName", "Pro Monthly"),
             "subscription_credits": config.get("subscriptionCredits", 4000),
             "subscription_price_usd": config.get("subscriptionPriceUsd", 29.0),
+            "subscription_plans": config.get("subscriptionPlans", []),
             "site_gate_enabled": bool(config.get("siteGateEnabled", True)),
             "eleven_alerts_enabled": bool(config.get("elevenAlertsEnabled", True)),
             "railway_alerts_enabled": bool(config.get("railwayAlertsEnabled", True)),
