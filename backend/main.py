@@ -790,14 +790,20 @@ DEFAULT_PACKS = [
 # is still checked at clone time so this per-tier cap can never promise more
 # than ElevenLabs' pool can actually deliver.
 #
-# These are DRAFT starting numbers (Ali asked for a first draft to tune live
-# in admin afterward) built off the existing single plan ($29/mo, 4000
+# These started as DRAFT numbers built off the old single plan ($29/mo, 4000
 # credits) as the middle "Pro" tier, with a cheaper "Starter" and a pricier
-# "Studio" bracketing it. Purely additive for now -- nothing reads this
-# array yet. /api/billing/subscribe, the Stripe webhook, and the admin UI
-# still run on the old flat subscriptionName/subscriptionCredits/
-# subscriptionPriceUsd fields just below until those are switched over in a
-# follow-up change, so saving this array has zero effect on checkout yet.
+# "Studio" bracketing it -- tune live in admin as needed.
+# /api/billing/subscribe accepts an OPTIONAL plan_key naming one of these
+# tiers (see _get_subscription_plan) -- both the public /pricing page
+# (pricing.html's renderSubs()) and the in-app Buy modal (app.js's
+# openBuyModal()) render one tile per tier here and pass its key on
+# subscribe, so this array is what real subscribe clicks actually use as of
+# 2026-09-27. The old flat subscriptionName/subscriptionCredits/
+# subscriptionPriceUsd fields (admin's former "Monthly Subscription" card,
+# removed from the UI but the fields themselves are kept, unmanaged, as
+# hidden inputs) now ONLY matter as _get_subscription_plan's fallback for a
+# profile with no subscription_plan_key at all -- i.e. someone who
+# subscribed before tiers existed. Never touched by either page above.
 DEFAULT_SUBSCRIPTION_PLANS = [
     {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1, "clones_per_month": 2},
     {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3, "clones_per_month": 5},
@@ -4769,9 +4775,11 @@ def billing_packs_dynamic():
     cards, and both now loop over whatever keys come back here instead of
     a fixed list, so any number of packs with any keys will show up.
 
-    Also returns the monthly subscription plan (name/credits/price) so the
-    buy modal can render it alongside the one-time packs -- see
-    /api/billing/subscribe."""
+    Also returns the subscription tiers (admin's "Subscription Tiers" table)
+    so both the public /pricing page and the in-app Buy modal can render one
+    tile per tier and pass its key to /api/billing/subscribe -- see
+    DEFAULT_SUBSCRIPTION_PLANS' comment for how this is actually used as of
+    2026-09-27."""
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
     # no-cache -- this is live, admin-editable data (the exact field that
@@ -4781,17 +4789,17 @@ def billing_packs_dynamic():
     # HTMLResponse above.
     return JSONResponse({
         "packs": _keyed_packs(packs_array),
+        # Legacy flat plan -- kept for backward compatibility with any
+        # caller that still reads it, but nothing in this codebase does
+        # anymore (both pricing.html and app.js render subscriptionPlans
+        # below instead). Only _get_subscription_plan's own fallback path
+        # (a profile with no subscription_plan_key) still uses these values,
+        # read there directly from pricing_config, not from this response.
         "subscription": {
             "name": cfg.get("subscriptionName") or "Pro Monthly",
             "credits": int(cfg.get("subscriptionCredits") or 4000),
             "amount_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         },
-        # Draft multi-tier plans (admin's "Subscription Tiers" table) --
-        # exposed here too, additively, so the upcoming dedicated /pricing
-        # page (not built yet) has a real endpoint to fetch tiers from the
-        # moment it exists, without another backend change. Nothing reads
-        # this key yet; "subscription" above is still what today's buy
-        # modal actually uses.
         "subscriptionPlans": cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS,
     }, headers={"Cache-Control": "no-cache"})
 

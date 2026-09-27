@@ -169,22 +169,19 @@ button.btn-success:hover { background: #15803d; }
         <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
       </div>
 
-      <div class="card">
-        <h3>🔁 Monthly Subscription</h3>
-        <p class="muted" style="margin-bottom:16px;">A recurring alternative to the one-time packs below (added 2026-09). The main benefit besides ongoing credits: a subscriber's finished videos are kept for the full 30-day retention window instead of the short pay-once window (see the note under Credit Packs). Changing these doesn't affect anyone already subscribed at the old price — Stripe keeps existing subscribers on what they signed up for.</p>
-        <div class="form-group">
-          <label>Plan name</label>
-          <input type="text" id="subscriptionName" style="width:220px;">
-        </div>
-        <div class="form-group">
-          <label>Credits granted per month</label>
-          <input type="number" id="subscriptionCredits" style="width:120px;" step="100" min="0">
-        </div>
-        <div class="form-group">
-          <label>Price per month (USD)</label>
-          <input type="number" id="subscriptionPriceUsd" style="width:120px;" step="0.01" min="0">
-        </div>
-        <button class="btn" onclick="savePricing()">💾 Save Subscription Plan</button>
+      <!-- Removed from the visible UI 2026-09-27: the old single flat plan
+      is obsolete now that Subscribe (both /pricing and the in-app Buy modal)
+      picks one of the Subscription Tiers below instead. The three fields
+      are kept here as hidden inputs -- NOT deleted -- because
+      _get_subscription_plan() still falls back to their saved values for
+      any profile with no subscription_plan_key at all (someone who
+      subscribed before tiers existed); loadPricing()/savePricing() keep
+      reading and re-saving them unchanged on every save so that fallback
+      value is never silently reset back to a hardcoded default. -->
+      <div style="display:none">
+        <input type="text" id="subscriptionName">
+        <input type="number" id="subscriptionCredits">
+        <input type="number" id="subscriptionPriceUsd">
       </div>
 
       <div class="card">

@@ -3313,38 +3313,57 @@ function openBuyModal() {
         var data = results[0];
         var alreadySubscribed = (results[1] || {}).subscription_status === "active";
         wrap.innerHTML = "";
-        // Monthly subscription tile first, visually set apart from the
-        // one-time packs below it (Ali's request, 2026-09-26): the main
-        // extra benefit is 30-day file retention instead of the short
-        // pay-once window, called out right on the tile so it's clear why
-        // it's priced the way it is relative to the packs.
-        var sub = data.subscription;
-        if (sub && sub.credits) {
-            var sb = document.createElement("button");
-            if (alreadySubscribed) {
-                // Deactivated, not hidden -- so it's clear the subscription
-                // exists rather than looking like it vanished, and the note
-                // below points at where to actually manage it.
-                sb.disabled = true;
-                sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #e5e7eb;background:#f3f4f6;cursor:not-allowed;font-family:inherit;text-align:left;opacity:0.75;";
-            } else {
-                sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #7c3aed;background:#faf5ff;cursor:pointer;font-family:inherit;text-align:left;";
-            }
-            sb.innerHTML =
-                '<span style="display:flex;justify-content:space-between;width:100%;">' +
-                    '<span style="font-weight:700;color:' + (alreadySubscribed ? "#6b7280" : "#5b21b6") + ';">🔁 ' + sub.name + '</span>' +
-                    '<span style="font-weight:800;color:' + (alreadySubscribed ? "#9ca3af" : "#7c3aed") + ';">$' + sub.amount_usd.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
-                '</span>' +
-                '<span style="font-size:12px;color:#6b7280;">' + sub.credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا · تخزين الملفات 30 يومًا" : " every month · 30-day file storage") + '</span>' +
-                (alreadySubscribed
-                    ? '<span style="font-size:11px;color:#059669;">' + (isAr ? "أنت مشترك بالفعل — يمكنك إدارته من " : "You're already subscribed — manage it from your ") + '<a href="/account#subscription" style="color:#059669;">' + (isAr ? "صفحة الحساب" : "Account page") + '</a></span>'
-                    : '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>');
-            if (!alreadySubscribed) {
-                sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
-                sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
-                sb.onclick = function () { subscribeMonthly(sb); };
-            }
-            wrap.appendChild(sb);
+        // Subscription tiles -- one per tier from admin's Subscription
+        // Tiers table (data.subscriptionPlans), wired to /api/billing/
+        // subscribe's plan_key param (added 2026-09-27). This used to
+        // render ONE tile from the old flat subscription fields, which
+        // ignored plan_key entirely -- every subscribe click here charged
+        // whatever was in that single legacy plan regardless of what a
+        // user might have picked. pricing.html's renderSubs() is the
+        // public /pricing page's parallel implementation of this same
+        // tier list -- kept in sync by hand (same reasoning as EMOTIONS
+        // elsewhere in this file: no shared build step between the two).
+        var plans = data.subscriptionPlans || [];
+        if (plans.length) {
+            plans.forEach(function (p) {
+                var slots = parseInt(p.voice_slots || 0, 10);
+                var credits = parseInt(p.credits_per_month || 0, 10);
+                var price = parseFloat(p.price_usd || 0);
+                // clones_per_month is blank/null in admin when a tier has no
+                // separate monthly cloning cap set (see main.py's
+                // _get_subscription_plan) -- only show this line once a real
+                // positive number is configured.
+                var clonesRaw = p.clones_per_month;
+                var clones = (clonesRaw !== null && clonesRaw !== undefined && clonesRaw !== "") ? parseInt(clonesRaw, 10) : 0;
+                var sb = document.createElement("button");
+                if (alreadySubscribed) {
+                    // Deactivated, not hidden -- so it's clear the subscription
+                    // exists rather than looking like it vanished, and the note
+                    // below points at where to actually manage it. Every tile
+                    // disables the same way regardless of which tier the user
+                    // is actually on -- changing/upgrading tiers isn't built
+                    // yet, only picking one when you have none.
+                    sb.disabled = true;
+                    sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #e5e7eb;background:#f3f4f6;cursor:not-allowed;font-family:inherit;text-align:left;opacity:0.75;";
+                } else {
+                    sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #7c3aed;background:#faf5ff;cursor:pointer;font-family:inherit;text-align:left;";
+                }
+                sb.innerHTML =
+                    '<span style="display:flex;justify-content:space-between;width:100%;">' +
+                        '<span style="font-weight:700;color:' + (alreadySubscribed ? "#6b7280" : "#5b21b6") + ';">🔁 ' + p.name + '</span>' +
+                        '<span style="font-weight:800;color:' + (alreadySubscribed ? "#9ca3af" : "#7c3aed") + ';">$' + price.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
+                    '</span>' +
+                    '<span style="font-size:12px;color:#6b7280;">' + credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا" : " every month") + ' · ' + slots + (isAr ? " مكان صوت" : (slots === 1 ? " voice slot" : " voice slots")) + (clones > 0 ? (' · ' + clones + (isAr ? " استنساخ/شهر" : (clones === 1 ? " clone/mo" : " clones/mo"))) : '') + '</span>' +
+                    (alreadySubscribed
+                        ? '<span style="font-size:11px;color:#059669;">' + (isAr ? "أنت مشترك بالفعل — يمكنك إدارته من " : "You're already subscribed — manage it from your ") + '<a href="/account#subscription" style="color:#059669;">' + (isAr ? "صفحة الحساب" : "Account page") + '</a></span>'
+                        : '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>');
+                if (!alreadySubscribed) {
+                    sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
+                    sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
+                    sb.onclick = function () { subscribeMonthly(p.key, sb); };
+                }
+                wrap.appendChild(sb);
+            });
             var divider = document.createElement("p");
             divider.style.cssText = "font-size:11px;color:#9ca3af;margin:2px 0 0;";
             divider.textContent = isAr ? "أو باقة رصيد لمرة واحدة (تخزين الملفات 48 ساعة):" : "Or a one-time pack (48-hour file storage):";
@@ -3381,9 +3400,9 @@ function buyPack(key, btn) {
     }).catch(function (e) { notify("error", e.message); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
-function subscribeMonthly(btn) {
+function subscribeMonthly(planKey, btn) {
     btn.disabled = true; btn.style.opacity = "0.6";
-    fetch("/api/billing/subscribe", { method: "POST" })
+    fetch("/api/billing/subscribe?plan_key=" + encodeURIComponent(planKey), { method: "POST" })
         .then(function (r) { return r.json(); }).then(function (data) {
             if (data.error) { notify("error", data.error); btn.disabled = false; btn.style.opacity = "1"; return; }
             window.location.href = data.url;
