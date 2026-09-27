@@ -172,11 +172,11 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
-        <h3>🎚️ Subscription Tiers (draft — voice cloning, new)</h3>
-        <p class="muted" style="margin-bottom:16px;">Draft starting numbers for the upcoming multi-tier plan (voice cloning is moving to subscription-only, with a persistent per-tier "voice slots" cap — how many named cloned voices a subscriber can keep saved at once, not a monthly count). Edit freely — these don't affect checkout yet; the single "Pro" plan above is still what Stripe actually charges until subscribe/checkout is switched over to read this table in a follow-up deploy. Key is the plan's permanent public ID once that switch happens, same as a pack's Key.</p>
+        <h3>🎚️ Subscription Tiers</h3>
+        <p class="muted" style="margin-bottom:16px;">This is what /pricing and Stripe checkout actually charge — the single "Pro" plan above is now only a legacy fallback for pre-existing subscribers with no tier tagged on their account. Voice Slots is a persistent cap: how many named cloned voices a subscriber can keep saved at once (frees up when one is deleted). Clones/mo is a SEPARATE, monthly-resetting cap: how many brand-new voice clones that tier allows per billing period, regardless of deletions — leave it blank to not enforce a monthly cap for that tier (still bounded by Voice Slots and our shared ElevenLabs quota). Key is the plan's permanent public ID — used by /pricing and Stripe checkout to identify this tier; renaming the tier is safe and never changes its key.</p>
         <table>
-          <thead><tr><th>Key</th><th>Name</th><th>Price/mo (USD)</th><th>Credits/mo</th><th>Voice Slots</th><th>Actions</th></tr></thead>
-          <tbody id="plansTable"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody>
+          <thead><tr><th>Key</th><th>Name</th><th>Price/mo (USD)</th><th>Credits/mo</th><th>Voice Slots</th><th>Clones/mo</th><th>Actions</th></tr></thead>
+          <tbody id="plansTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
         </table>
         <div style="margin-top:14px;display:flex;gap:10px;"><button class="btn" onclick="addPlan()">+ Add Tier</button><button class="btn" onclick="savePricing()" style="background:#2e7d32">💾 Save Tiers</button></div>
       </div>
@@ -519,16 +519,18 @@ async function loadPricing() {
   let planHtml = '';
   (r.data.subscriptionPlans || []).forEach((p, i) => {
     const key = p.key || slugifyPackKey(p.name);
+    const clonesVal = (p.clones_per_month === null || p.clones_per_month === undefined) ? '' : p.clones_per_month;
     planHtml += `<tr>
-      <td><input value="${key}" data-idx="${i}" data-field="key" style="width:110px" title="Permanent public ID once checkout switches to this table"></td>
+      <td><input value="${key}" data-idx="${i}" data-field="key" style="width:110px" title="Permanent public ID -- used by /pricing and Stripe checkout"></td>
       <td><input value="${p.name}" data-idx="${i}" data-field="name"></td>
       <td><input type="number" step="0.01" value="${p.price_usd}" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
       <td><input type="number" value="${p.credits_per_month}" data-idx="${i}" data-field="credits_per_month" style="width:100px"></td>
       <td><input type="number" value="${p.voice_slots||0}" data-idx="${i}" data-field="voice_slots" style="width:90px"></td>
+      <td><input type="number" value="${clonesVal}" placeholder="unlimited" data-idx="${i}" data-field="clones_per_month" style="width:90px" title="Leave blank for no separate monthly cap"></td>
       <td><button class="btn-sm btn-danger" onclick="deletePlan(${i})">Delete</button></td>
     </tr>`;
   });
-  document.getElementById('plansTable').innerHTML = planHtml || '<tr><td colspan="6" class="muted">No tiers</td></tr>';
+  document.getElementById('plansTable').innerHTML = planHtml || '<tr><td colspan="7" class="muted">No tiers</td></tr>';
 }
 
 async function savePricing() {
@@ -572,12 +574,17 @@ async function savePricing() {
     if (inputs.length < 5) return;
     const name = inputs[1].value || '';
     const key = (inputs[0].value || '').trim().toLowerCase().replace(/[^a-z0-9_]/g, '') || slugifyPackKey(name);
+    // Clones/mo (inputs[5]) is optional -- blank means "no separate monthly
+    // cap" (null), NOT 0 (which would block cloning entirely for that
+    // tier). Only a positive number here turns the cap on.
+    const clonesRaw = inputs.length > 5 ? (inputs[5].value || '').trim() : '';
     const plan = {
       key: key,
       name: name,
       price_usd: parseFloat(inputs[2].value) || 0,
       credits_per_month: parseInt(inputs[3].value) || 0,
-      voice_slots: parseInt(inputs[4].value) || 0
+      voice_slots: parseInt(inputs[4].value) || 0,
+      clones_per_month: clonesRaw === '' ? null : (parseInt(clonesRaw) || null)
     };
     if (plan.name || plan.price_usd || plan.credits_per_month) {
       if (key && seenPlanKeys[key]) dupePlanKey = key;
@@ -660,6 +667,7 @@ function addPlan() {
     <td><input type="number" step="0.01" value="29" data-idx="${i}" data-field="price_usd" style="width:100px"></td>
     <td><input type="number" value="4000" data-idx="${i}" data-field="credits_per_month" style="width:100px"></td>
     <td><input type="number" value="1" data-idx="${i}" data-field="voice_slots" style="width:90px"></td>
+    <td><input type="number" value="" placeholder="unlimited" data-idx="${i}" data-field="clones_per_month" style="width:90px" title="Leave blank for no separate monthly cap"></td>
     <td><button class="btn-sm btn-danger" onclick="this.closest('tr').remove()">Delete</button></td>`;
   tbody.appendChild(tr);
 }

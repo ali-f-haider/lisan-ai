@@ -782,9 +782,9 @@ DEFAULT_PACKS = [
 # subscriptionPriceUsd fields just below until those are switched over in a
 # follow-up change, so saving this array has zero effect on checkout yet.
 DEFAULT_SUBSCRIPTION_PLANS = [
-    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1},
-    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3},
-    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8},
+    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1, "clones_per_month": 2},
+    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3, "clones_per_month": 5},
+    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8, "clones_per_month": 15},
 ]
 
 def _pack_dict_key(p):
@@ -1069,18 +1069,37 @@ def _get_subscription_plan(plan_key):
     no query string) keeps working exactly as before this function existed.
     The fallback's key is "pro_monthly" -- same key as the draft tier of the
     same name/price already in DEFAULT_SUBSCRIPTION_PLANS -- so a profile
-    stamped via this path is still identifiable as that tier later."""
+    stamped via this path is still identifiable as that tier later.
+
+    clones_per_month (2026-09-27) is a SEPARATE cap from voice_slots: slots
+    are how many named voices a subscriber can keep saved at once (frees up
+    on delete), while clones_per_month is how many NEW clone operations
+    that tier allows per billing cycle, regardless of deletions -- mirrors
+    ElevenLabs' own account-wide clone_ops quota (see _authorize_new_clones)
+    but scoped per user/tier instead of shared across everyone. Left blank
+    or 0 in admin means "no separate cap" (None here) -- unlimited except
+    for the slot cap and the real ElevenLabs quota, i.e. exactly today's
+    behavior -- so this field is additive/inert until Ali actually sets a
+    number for a tier, same as voice_slots was when tiers were first added."""
     cfg = _get_pricing_config()
     plans = cfg.get("subscriptionPlans") or []
     if plan_key:
         for p in plans:
             if str(p.get("key") or "").strip().lower() == str(plan_key).strip().lower():
+                raw_clones = p.get("clones_per_month")
+                clones_per_month = None
+                if raw_clones not in (None, ""):
+                    try:
+                        clones_per_month = int(raw_clones) or None
+                    except (TypeError, ValueError):
+                        clones_per_month = None
                 return {
                     "key": p.get("key"),
                     "name": p.get("name") or "Pro",
                     "credits": int(p.get("credits_per_month") or 0),
                     "price_usd": float(p.get("price_usd") or 0),
                     "voice_slots": int(p.get("voice_slots") or 0),
+                    "clones_per_month": clones_per_month,
                 }
     return {
         "key": "pro_monthly",
@@ -1088,6 +1107,7 @@ def _get_subscription_plan(plan_key):
         "credits": int(cfg.get("subscriptionCredits") or 4000),
         "price_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         "voice_slots": 0,
+        "clones_per_month": None,
     }
 
 
@@ -1717,6 +1737,105 @@ def _get_profile_plan_key(uid):
         return ""
 
 
+# ---- Per-tier monthly clone allowance (profiles.subscription_clones_used) ----
+# Needs the `profiles.subscription_clones_used` migration (SQL given to Ali
+# alongside subscription_plan_key). Separate counter from voice_slots -- see
+# _get_subscription_plan's docstring for why. Reset once per billing period
+# by _grant_subscription_credits, incremented after each successful clone by
+# /api/clone and /api/upload_custom_voice, and checked by
+# _authorize_new_clones below.
+
+def _get_profile_clones_used(uid):
+    """Reads profiles.subscription_clones_used -- how many NEW voice clones
+    this user has created so far in their CURRENT billing period. Returns
+    None -- NOT 0 -- on any failure, including the column not existing yet
+    (migration not run), so _authorize_new_clones can fail closed on
+    'couldn't verify' rather than silently treating an unreachable column as
+    a fresh, empty allowance."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    try:
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_clones_used",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        if not rows:
+            return None
+        val = rows[0].get("subscription_clones_used")
+        return int(val) if val is not None else 0
+    except Exception as ex:
+        print(f"[voice-library] _get_profile_clones_used error (has the profiles.subscription_clones_used migration been run?): {ex}")
+        return None
+
+
+def _increment_clone_usage(uid, n):
+    """Best-effort: adds n to profiles.subscription_clones_used right after
+    n new voices actually finish cloning successfully. Read-then-write, not
+    an atomic RPC like credits -- fine here since this is a soft monthly cap
+    (not a payment-critical balance) and a single user's own clone requests
+    are effectively serialized in practice; worst case under a rare race is
+    undercounting by one clone, never an overspend of real money. Isolated
+    from every other profile write, same reasoning as
+    _set_subscription_plan_key: a missing column here must never break the
+    clone itself (which already succeeded on ElevenLabs' side by the time
+    this runs), only the monthly-cap bookkeeping."""
+    if not uid or not n or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    try:
+        current = _get_profile_clones_used(uid) or 0
+        body = json.dumps({"subscription_clones_used": current + int(n)}).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}",
+            data=body,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            method="PATCH",
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[voice-library] _increment_clone_usage error (has the profiles.subscription_clones_used migration been run?): {ex}")
+        return False
+
+
+def _reset_subscription_clone_usage(uid):
+    """Best-effort PATCH resetting profiles.subscription_clones_used back to
+    0 -- called from _grant_subscription_credits exactly once per NEW
+    billing period (never on an idempotent 'already-fulfilled' replay), so
+    each period's cloning allowance starts fresh, same billing-period
+    boundary that grants that period's credits. Isolated call, same
+    reasoning as _set_subscription_plan_key: if the column doesn't exist yet
+    this must never break credit granting itself."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    try:
+        body = json.dumps({"subscription_clones_used": 0}).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}",
+            data=body,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            method="PATCH",
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[subscription] _reset_subscription_clone_usage error (has the profiles.subscription_clones_used migration been run?): {ex}")
+        return False
+
+
 # ---- Voice library (user_voices) -- persisted, named cloned voices ----
 # Needs the `user_voices` table (SQL given to Ali alongside
 # profiles.subscription_plan_key / pricing_config.subscription_plans).
@@ -1829,6 +1948,21 @@ def _authorize_new_clones(uid, num_new):
             f"You have {used} of {slots} saved voice slot{'s' if slots != 1 else ''} used ({remaining} free). "
             f"Delete a saved voice to free a slot, or upgrade your plan, before cloning {num_new} more."
         )
+    # Per-tier monthly clone allowance -- separate from the slot cap above.
+    # None means the tier has no separate cap set in admin (see
+    # _get_subscription_plan's docstring); only enforced once Ali actually
+    # sets a number for a tier, so this is inert until then.
+    clone_limit = plan.get("clones_per_month")
+    if clone_limit is not None:
+        clones_used = _get_profile_clones_used(uid)
+        if clones_used is None:
+            return False, "Couldn't verify your monthly cloning usage right now -- please try again shortly."
+        if clones_used + num_new > clone_limit:
+            remaining = max(0, clone_limit - clones_used)
+            return False, (
+                f"You've used {clones_used} of {clone_limit} voice clone{'s' if clone_limit != 1 else ''} allowed this billing period "
+                f"({remaining} left). This resets on your next billing date, or upgrade your plan for more."
+            )
     # Real ElevenLabs account-wide quota, shared across ALL users -- can
     # still block this even when the user's own slot cap has room. This
     # reads the cached poll (service_usage_monitor), refreshed every ~20
@@ -1875,6 +2009,11 @@ def _grant_subscription_credits(uid, invoice_id, credits):
         )
         with _ur.urlopen(ins, timeout=10) as r:
             r.read()
+        # New billing period confirmed (the idempotency check above didn't
+        # find this invoice already fulfilled) -- reset last period's clone
+        # count so this period's allowance starts fresh. Best-effort, same
+        # as the credit grant itself.
+        _reset_subscription_clone_usage(uid)
         return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
     except Exception as e:
         print("[subscription] grant credits error:", e)
@@ -2594,9 +2733,13 @@ def clone(req: CloneRequest, request: Request):
     # _save_user_voice's docstring for why a failure here doesn't turn this
     # into an error response.
     if uid and isinstance(result, dict) and result.get("cloned_voices"):
+        cloned_count = 0
         for speaker, voice_id in result["cloned_voices"].items():
             if not str(voice_id).startswith("ERROR"):
                 _save_user_voice(uid, voice_id, speaker, "", req.job_id)
+                cloned_count += 1
+        if cloned_count:
+            _increment_clone_usage(uid, cloned_count)
     return result
 
 @app.get("/api/my_voices")
@@ -2618,12 +2761,19 @@ def my_voices(request: Request):
                 voices = json.load(r)
         except Exception as ex:
             print(f"[voice-library] /api/my_voices list error (has the user_voices migration been run?): {ex}")
+    clone_limit = plan.get("clones_per_month")
+    clones_used = _get_profile_clones_used(uid) if clone_limit is not None else None
     return {
         "voices": voices,
         "voice_slots_used": len(voices),
         "voice_slots_total": int(plan.get("voice_slots") or 0),
         "plan_name": plan.get("name"),
         "subscription_active": _subscription_active(uid),
+        # None (not 0) when the tier has no separate monthly clone cap set in
+        # admin, or the count couldn't be read -- lets the frontend hide this
+        # line entirely instead of showing a misleading "0 of None".
+        "clones_used_this_period": clones_used if clone_limit is not None else None,
+        "clones_limit_this_period": clone_limit,
     }
 
 @app.patch("/api/my_voices/{voice_row_id}")
@@ -3053,6 +3203,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
     deduct_credits(uid, clone_cost, "custom_voice", job_id or "")
     _save_user_voice(uid, res, speaker, "", job_id or "")
+    _increment_clone_usage(uid, 1)
     return {"status": "success", "voice_id": res}
 
 def account_summary(request: Request):

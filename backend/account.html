@@ -129,6 +129,7 @@
     <h3 id="voicesHeading">🎙️ Saved Voices</h3>
     <p id="voicesNote" class="note">Cloned voices you save here are kept for reuse across projects — no need to re-clone the same speaker every time. Deleting one frees a slot.</p>
     <p id="voicesSlotsLine" style="font-weight:700;color:#1a237e;margin:6px 0;">—</p>
+    <p id="voicesClonesLine" style="font-weight:700;color:#1a237e;margin:6px 0;display:none;">—</p>
     <div id="myVoicesList"><p style="color:#6b7280;" id="voicesLoadingText">Loading…</p></div>
   </div>
 </div>
@@ -210,6 +211,7 @@ var T = {
     voicesHeading: "🎙️ Saved Voices",
     voicesNote: "Cloned voices you save here are kept for reuse across projects — no need to re-clone the same speaker every time. Deleting one frees a slot.",
     slotsLine: function (used, total, plan) { return used + " of " + total + " voice slot" + (total === 1 ? "" : "s") + " used" + (plan ? " (" + plan + " plan)" : "") + "."; },
+    clonesLine: function (used, total) { return used + " of " + total + " new voice clone" + (total === 1 ? "" : "s") + " used this billing period."; },
     notSubscribedVoices: 'Voice cloning is a subscription feature. <a href="/app">Subscribe from the app</a> to unlock saved, reusable voice slots.',
     noVoicesYet: "No saved voices yet — clone or upload a voice while dubbing and it'll show up here.",
     couldntLoadVoices: "Couldn't load your saved voices right now.",
@@ -260,6 +262,7 @@ var T = {
     voicesHeading: "🎙️ الأصوات المحفوظة",
     voicesNote: "الأصوات المستنسخة التي تحفظها هنا تبقى جاهزة لإعادة استخدامها في مشاريع أخرى — لا حاجة لاستنساخ نفس المتحدث مرة أخرى. حذف صوت يحرر أحد الأماكن المتاحة.",
     slotsLine: function (used, total, plan) { return "تم استخدام " + used + " من " + total + " من أماكن الأصوات" + (plan ? " (خطة " + plan + ")" : "") + "."; },
+    clonesLine: function (used, total) { return "تم استخدام " + used + " من " + total + " من عمليات استنساخ الصوت الجديدة لهذه الفترة."; },
     notSubscribedVoices: 'استنساخ الأصوات ميزة حصرية للمشتركين. <a href="/app">اشترك من داخل التطبيق</a> لفتح أماكن أصوات محفوظة وقابلة لإعادة الاستخدام.',
     noVoicesYet: "لا توجد أصوات محفوظة بعد — استنسخ أو ارفع صوتًا أثناء الدبلجة وسيظهر هنا.",
     couldntLoadVoices: "تعذّر تحميل أصواتك المحفوظة الآن.",
@@ -505,10 +508,20 @@ function deleteMyJob(jobId) {
 function renderMyVoices(data) {
   var list = document.getElementById("myVoicesList");
   var slotsLine = document.getElementById("voicesSlotsLine");
+  var clonesLine = document.getElementById("voicesClonesLine");
   var voices = data.voices || [];
   var used = data.voice_slots_used || 0;
   var total = data.voice_slots_total || 0;
   slotsLine.textContent = T.slotsLine(used, total, data.plan_name);
+  // clones_limit_this_period is null when the tier has no separate monthly
+  // clone cap set in admin -- hide the line entirely rather than show a
+  // misleading "0 of null".
+  if (data.clones_limit_this_period != null && data.clones_used_this_period != null) {
+    clonesLine.textContent = T.clonesLine(data.clones_used_this_period, data.clones_limit_this_period);
+    clonesLine.style.display = "";
+  } else {
+    clonesLine.style.display = "none";
+  }
   if (!data.subscription_active) {
     list.innerHTML = '<p style="color:#6b7280;">' + T.notSubscribedVoices + '</p>';
     return;
