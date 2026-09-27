@@ -136,15 +136,30 @@ button.btn-success:hover { background: #15803d; }
           <input type="number" id="mergeCredits" style="width:120px;" step="1" min="0" max="1000">
           <span class="muted">Current default: 1</span>
         </div>
-        <div class="form-group">
-          <label>Generate: characters per credit</label>
-          <input type="number" id="charsPerCredit" style="width:120px;" step="5" min="1" max="1000">
-          <span class="muted">Lower = more expensive (e.g. 30 charges twice as many credits as 60 for the same text)</span>
+        <p class="muted" style="margin-bottom:10px;"><strong>Only the rates for the engine currently selected under 🎙️ Voice Engine (Settings tab) are shown below</strong> — but both engines' rates always matter at the same time: a voice already cloned keeps being charged forever at whichever engine's rate actually created it (see that switch's own note), regardless of which one this toggle is currently showing. Switch the engine there to reveal the other engine's fields here.</p>
+        <div id="pricingElevenlabsFields">
+          <div class="form-group">
+            <label>Generate: characters per credit (ElevenLabs)</label>
+            <input type="number" id="charsPerCredit" style="width:120px;" step="5" min="1" max="1000">
+            <span class="muted">Lower = more expensive (e.g. 30 charges twice as many credits as 60 for the same text)</span>
+          </div>
+          <div class="form-group">
+            <label>Clone / upload custom voice (ElevenLabs, flat credits per action)</label>
+            <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
+            <span class="muted">Current default: 5 — charged for both "Clone Selected Voices" (Step 3.5) and "Upload as this speaker's voice" (Step 4), since both create a new voice via the same paid ElevenLabs quota.</span>
+          </div>
         </div>
-        <div class="form-group">
-          <label>Clone / upload custom voice (flat credits per action)</label>
-          <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Current default: 5 — charged for both "Clone Selected Voices" (Step 3.5) and "Upload as this speaker's voice" (Step 4), since both create a new voice via the same paid ElevenLabs quota.</span>
+        <div id="pricingInworldFields" style="display:none">
+          <div class="form-group">
+            <label>Generate: characters per credit (Inworld AI)</label>
+            <input type="number" id="inworldCharsPerCredit" style="width:120px;" step="5" min="1" max="1000">
+            <span class="muted">Same idea as ElevenLabs' rate above, but Inworld's real per-character cost is genuinely different — verify against your actual Inworld billing/invoice once you have real usage data rather than trusting this default.</span>
+          </div>
+          <div class="form-group">
+            <label>Clone / upload custom voice (Inworld AI, flat credits per action)</label>
+            <input type="number" id="inworldCloneCredits" style="width:120px;" step="1" min="0" max="1000">
+            <span class="muted">Inworld doesn't meter cloning the same way ElevenLabs does (rate-limit/storage-slot based, not a hard per-clone fee) — this just sets what YOUR users are charged in credits for the action; adjust freely.</span>
+          </div>
         </div>
         <div class="form-group">
           <label>Lip-sync (credits per second of video)</label>
@@ -210,10 +225,11 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" style="margin-bottom:16px;">Which engine powers voice cloning AND generation for every NEW clone from now on. A voice already cloned keeps working forever on whichever engine actually created it — switching this never breaks an existing saved voice, it only decides what a brand-new "Clone Voice" or "Upload Custom Voice" call uses going forward. Inworld needs <code>INWORLD_API_KEY</code> set in Railway before selecting it here.</p>
         <div class="form-group">
           <label style="display:block;margin-bottom:6px;">Engine for new clones &amp; generation</label>
-          <select id="voiceEngine" style="max-width:260px;">
+          <select id="voiceEngine" style="max-width:260px;" onchange="updateEngineFieldVisibility()">
             <option value="elevenlabs">ElevenLabs (default)</option>
             <option value="inworld">Inworld AI</option>
           </select>
+          <span class="muted">Also decides which engine's rate fields are shown under 💵 What Each Step Actually Charges (Pricing tab).</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Voice Engine</button>
       </div>
@@ -504,10 +520,24 @@ function slugifyPackKey(name) {
   return word.replace(/[^a-z0-9_]/g, '');
 }
 
+function updateEngineFieldVisibility() {
+  // Shows only the currently-selected engine's rate fields under 💵 What
+  // Each Step Actually Charges -- called on page load (after loadPricing
+  // sets the select's value) and on the Voice Engine select's own onchange.
+  // Purely a display toggle -- both engines' saved values are always kept
+  // and sent on every save regardless of which is visible right now.
+  const sel = document.getElementById('voiceEngine');
+  const isInworld = sel && sel.value === 'inworld';
+  const el = document.getElementById('pricingElevenlabsFields');
+  const il = document.getElementById('pricingInworldFields');
+  if (el) el.style.display = isInworld ? 'none' : '';
+  if (il) il.style.display = isInworld ? '' : 'none';
+}
+
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
+  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   // Checkbox, not a text/number field -- .checked, not .value, and defaults
@@ -517,6 +547,7 @@ async function loadPricing() {
   document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
   document.getElementById('railwayAlertsEnabled').checked = r.data.railwayAlertsEnabled !== false;
   document.getElementById('voiceEngine').value = (r.data.voiceEngine === 'inworld') ? 'inworld' : 'elevenlabs';
+  updateEngineFieldVisibility();
   let html = '';
   r.data.packs.forEach((p, i) => {
     const key = p.key || slugifyPackKey(p.name);
@@ -623,6 +654,8 @@ async function savePricing() {
     mergeCredits: parseInt(document.getElementById('mergeCredits')?.value || '1'),
     charsPerCredit: parseInt(document.getElementById('charsPerCredit')?.value || '60'),
     cloneCredits: parseInt(document.getElementById('cloneCredits')?.value || '5'),
+    inworldCharsPerCredit: parseInt(document.getElementById('inworldCharsPerCredit')?.value || '60'),
+    inworldCloneCredits: parseInt(document.getElementById('inworldCloneCredits')?.value || '5'),
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,

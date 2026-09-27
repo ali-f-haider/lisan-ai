@@ -38,6 +38,24 @@ _emotion_tags) -- see instruction_tag() below, which maps this app's
 canonical emotion vocabulary (config.CANONICAL_EMOTIONS) onto Inworld's
 phrasing style and combines multiple tags into one bracket accordingly.
 
+Important honesty note (2026-09-27, Ali asked "did you add all the possible
+tags of Inworld"): there is no fixed, closed enum to fully enumerate here --
+inworld-tts-2 interprets ANY reasonable free-form natural-language
+instruction in brackets, not a fixed tag vocabulary the way this dict might
+suggest. _INSTRUCTION_PHRASES below covers two things: (1) a phrasing for
+every word in this app's own 48-word canonical vocabulary (config.
+CANONICAL_EMOTIONS), and (2) INWORLD_EXTRA_TAGS -- the specific additional
+non-verbal/prosody examples named in Inworld's docs and confirmed via their
+support bot (laugh, sigh, clear throat, yawn, very fast, very quiet, high
+pitch) that aren't part of that canonical vocabulary at all. These extras
+are exposed as one-click options in the Step 2 "Style / Emotion" dropdown
+ONLY when Inworld is the active engine (see app.js's window._realPricing.
+voiceEngine) -- but the free-text tags field still accepts anything a user
+types, same as always (sanitizeStyle in app.js now whitelists this same
+extra list too, not just the canonical 48). Anything beyond these named
+examples can still be typed there manually; Inworld's model will interpret
+reasonable free-form phrasing even if it isn't one of the words below.
+
 Known, deliberate limitation of this version (flagged for Ali, not
 silently skipped):
   - generate_sample() (used only by the admin "Compare Voice Providers"
@@ -120,7 +138,32 @@ _INSTRUCTION_PHRASES = {
     "curious": "sound curious",
     "deadpan": "say this in a flat, deadpan tone",
     "tired": "sound tired",
+
+    # ---- Inworld-only extras (NOT part of config.CANONICAL_EMOTIONS) ----
+    # Concrete non-verbal/prosody examples named in Inworld's own docs and
+    # confirmed via their support bot (2026-09-27) -- offered as extra Step 2
+    # dropdown options only when Inworld is the active engine (see
+    # INWORLD_EXTRA_TAGS below and app.js's INWORLD_EXTRA_TAGS/sanitizeStyle).
+    # Distinct from existing canonical mappings above: "laugh" here is a
+    # standalone non-verbal sound insertion (vs "laughing" -> "laugh while
+    # speaking", which describes HOW a line is delivered), and likewise
+    # "very fast" / "very quiet" / "high pitch" are more extreme, explicit
+    # prosody knobs than the existing "rushed" / "softly" mappings.
+    "laugh": "laugh",
+    "sigh": "sigh",
+    "clear throat": "clear your throat",
+    "yawn": "yawn",
+    "very fast": "speak very fast",
+    "very quiet": "speak very quietly",
+    "high pitch": "say this in a high pitch",
 }
+
+# The raw keys of the Inworld-only extras above, as their own list -- kept in
+# sync by hand with app.js's INWORLD_EXTRA_TAGS constant (same convention
+# config.CANONICAL_EMOTIONS already uses with app.js's EMOTIONS constant).
+# Not imported by the frontend (plain JS, no shared build step) -- this is
+# just the source of truth for what that JS list should contain.
+INWORLD_EXTRA_TAGS = ["laugh", "sigh", "clear throat", "yawn", "very fast", "very quiet", "high pitch"]
 
 
 def instruction_tag(emotion) -> str:

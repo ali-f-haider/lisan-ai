@@ -493,7 +493,11 @@ def generate_worker(req):
                     if not api_key:
                         raise Exception("Missing Inworld API key.")
                     tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
-                    bucket["eleven_chars"] += len(tts_text)
+                    # Own counter, separate from eleven_chars -- so
+                    # main.py's _watch_and_deduct() can charge this engine's
+                    # own admin-configured rate (inworldCharsPerCredit) even
+                    # when a job mixes speakers across both engines.
+                    bucket["inworld_chars"] += len(tts_text)
                     audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
                     raw_filename = f"{seg.segment_id}_raw.mp3"
                 else:
@@ -634,7 +638,14 @@ def generate_worker(req):
         result = {"status": "success", "output_folder": str(OUTPUT_DIR), "final_file": str(output_file),
                   "segments_generated": len(adjusted_files), "tempo_warnings": warning_count,
                   "duration_cuts": cut_count, "final_duration": round(final_duration, 2),
-                  "eleven_credits_used": bucket["eleven_chars"], "lines": lines_meta}
+                  # Legacy field name (predates Inworld) -- now the combined
+                  # total across both engines' characters, for display and
+                  # as a fallback total main.py's _watch_and_deduct() can use
+                  # if it somehow can't read the bucket's own two counters
+                  # directly (it normally does, and charges each engine's
+                  # own rate separately -- this is just the display/fallback
+                  # total, not what's actually charged).
+                  "eleven_credits_used": bucket["eleven_chars"] + bucket["inworld_chars"], "lines": lines_meta}
         jobs_progress[_pk].update({"status": "done", "percent": 100, "result": result, "error": None})
     except Exception as e:
         jobs_progress[_pk] = {"status": "error", "percent": 0, "error": str(e), "result": None}
@@ -733,7 +744,7 @@ def regenerate_line(req):
             if not api_key:
                 return {"error": "Missing Inworld API key."}
             tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
-            bucket["eleven_chars"] += len(tts_text)
+            bucket["inworld_chars"] += len(tts_text)
             audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
         else:
             api_key = req.elevenlabs_api_key.strip()

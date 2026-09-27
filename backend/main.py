@@ -1070,8 +1070,21 @@ def _watch_and_deduct(job_id, uid, kind):
         if kind == "transcribe":
             amount = int(cfg.get("transcribeCredits", 3))
         else:
-            chars = int(result.get("eleven_credits_used", 0) or 0)
             b = usage_bucket(job_id)
+            eleven_chars = int(b.get("eleven_chars", 0) or 0)
+            inworld_chars = int(b.get("inworld_chars", 0) or 0)
+            # Fallback for anything that only ever wrote a combined total and
+            # never split it into the two per-engine bucket keys (e.g.
+            # tts_service.py's separate Gemini-inline generate path, which
+            # still lumps everything into eleven_chars regardless of engine
+            # -- unaffected by the Inworld swap, out of scope for that
+            # change). If both per-engine counters are empty but the job's
+            # own result reports a nonzero total, trust that total under
+            # ElevenLabs' rate rather than silently charging 0.
+            if eleven_chars == 0 and inworld_chars == 0:
+                reported_total = int(result.get("eleven_credits_used", 0) or 0)
+                if reported_total > 0:
+                    eleven_chars = reported_total
 
             gemini_usd = (
                 (int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258))
@@ -1080,12 +1093,19 @@ def _watch_and_deduct(job_id, uid, kind):
                 + int(b.get("gemini_out", 0)) / 1e6 * 2.50
             )
 
-            chars_per_credit = int(cfg.get("charsPerCredit", 60))
-            if chars_per_credit <= 0:
-                chars_per_credit = 60
+            eleven_rate = int(cfg.get("charsPerCredit", 60)) or 60
+            inworld_rate = int(cfg.get("inworldCharsPerCredit", 60)) or 60
 
-            amount = math.ceil(chars / chars_per_credit) + max(
-                1, math.ceil(gemini_usd / 0.01)
+            # Each engine's characters are ceil'd against its OWN rate
+            # separately (rather than combining both into one rate) since a
+            # single job can mix ElevenLabs and Inworld speakers -- each
+            # voice keeps using whichever engine actually created it (see
+            # _voice_engines_for_ids), so this is the only way to charge
+            # each engine's own real, admin-configured cost.
+            amount = (
+                (math.ceil(eleven_chars / eleven_rate) if eleven_chars else 0)
+                + (math.ceil(inworld_chars / inworld_rate) if inworld_chars else 0)
+                + max(1, math.ceil(gemini_usd / 0.01))
             )
 
         # Duration (seconds) of the actual dubbed audio produced by this job —
@@ -2917,7 +2937,12 @@ def clone(req: CloneRequest, request: Request):
     if not ok:
         return JSONResponse({"error": plan_or_error}, status_code=402)
     bal = get_credits(uid) if uid else None
-    clone_cost = int(_get_pricing_config().get("cloneCredits", 5))
+    # Which engine will actually create these clones -- resolved BEFORE the
+    # cost check now (used to be after) so the price check/charge below uses
+    # THIS engine's own rate, not always ElevenLabs' cloneCredits.
+    engine = _active_voice_engine()
+    cfg = _get_pricing_config()
+    clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
     if clone_cost <= 0:
         clone_cost = 5
     if bal is not None and bal < clone_cost:
@@ -2925,7 +2950,6 @@ def clone(req: CloneRequest, request: Request):
         return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
     if uid:
         deduct_credits(uid, clone_cost, "clone", req.job_id)
-    engine = _active_voice_engine()
     if engine == "inworld":
         result = inworld_service.clone_voices(req.job_id, req.segments, INWORLD_API_KEY, req.speakers_to_clone)
     else:
@@ -3330,7 +3354,13 @@ def usage(job_id: str):
     in_tok = int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)
     out_tok = int(b.get("gemini_out", 0))
     cost = in_tok / 1e6 * 0.30 + out_tok / 1e6 * 2.50
-    out = {"eleven_credits": int(b.get("eleven_chars", 0)),
+    # "eleven_credits" is a legacy display name (predates Inworld) for total
+    # voice-generation characters used this job -- now the sum of both
+    # engines' buckets, so the "Actual usage this job" panel still shows one
+    # honest combined character count even for a job that mixed engines.
+    # Exact per-engine credit cost is computed separately in
+    # _watch_and_deduct() using each engine's own rate.
+    out = {"eleven_credits": int(b.get("eleven_chars", 0)) + int(b.get("inworld_chars", 0)),
            "gemini_in_tokens": in_tok, "gemini_out_billable": out_tok,
            "gemini_cost_usd": round(cost, 6)}
     out.update(_job_charges.get(job_id, {}))
@@ -3433,7 +3463,12 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     # price (cloneCredits). Checked up front so a low balance is rejected
     # before spending the ElevenLabs quota; actually deducted only after the
     # voice is created, so a rejected/too-long clip never gets charged.
-    clone_cost = int(_get_pricing_config().get("cloneCredits", 5))
+    # Resolved before the cost check now (used to be right after) so the
+    # price check/charge below uses THIS engine's own rate -- same reasoning
+    # as /api/clone above.
+    engine = _active_voice_engine()
+    cfg = _get_pricing_config()
+    clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
     if clone_cost <= 0:
         clone_cost = 5
     bal = get_credits(uid)
@@ -3443,7 +3478,6 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     import uuid as _u
     tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
     tmp.write_bytes(data)
-    engine = _active_voice_engine()
     try:
         if engine == "inworld":
             res = inworld_service.add_custom_voice(job_id or "custom", speaker, tmp, INWORLD_API_KEY)
@@ -3877,6 +3911,21 @@ def _get_pricing_config():
         # only decides what happens going forward, so flipping it back and
         # forth never breaks an existing saved voice.
         "voiceEngine": "elevenlabs",
+        # Inworld's OWN per-step rates, separate from charsPerCredit/
+        # cloneCredits above (which are ElevenLabs' rates, kept under their
+        # original names for backward compatibility -- no DB migration
+        # needed for those two). Added 2026-09-27 because the two engines'
+        # real costs are genuinely different (see the research notes in this
+        # session's history) -- a single shared rate would over- or under-
+        # charge whichever engine it wasn't tuned for. _watch_and_deduct()
+        # below reads each engine's own char count from usage_bucket() and
+        # applies its own rate; /api/clone and /api/upload_custom_voice pick
+        # the matching clone rate by engine. Defaulted equal to ElevenLabs'
+        # own defaults as a safe starting point -- Ali should verify/adjust
+        # these once real Inworld invoice data is in (per this session's
+        # established pattern: trust the vendor's own billing over a guess).
+        "inworldCharsPerCredit": 60,
+        "inworldCloneCredits": 5,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -3933,6 +3982,8 @@ def _get_pricing_config():
                 "elevenAlertsEnabled": defaults["elevenAlertsEnabled"] if row.get("eleven_alerts_enabled") is None else bool(row.get("eleven_alerts_enabled")),
                 "railwayAlertsEnabled": defaults["railwayAlertsEnabled"] if row.get("railway_alerts_enabled") is None else bool(row.get("railway_alerts_enabled")),
                 "voiceEngine": row.get("voice_engine") or defaults["voiceEngine"],
+                "inworldCharsPerCredit": row.get("inworld_chars_per_credit") or defaults["inworldCharsPerCredit"],
+                "inworldCloneCredits": row.get("inworld_clone_credits") or defaults["inworldCloneCredits"],
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -3977,6 +4028,8 @@ def _save_pricing_config(config):
             "eleven_alerts_enabled": bool(config.get("elevenAlertsEnabled", True)),
             "railway_alerts_enabled": bool(config.get("railwayAlertsEnabled", True)),
             "voice_engine": config.get("voiceEngine") if config.get("voiceEngine") in ("elevenlabs", "inworld") else "elevenlabs",
+            "inworld_chars_per_credit": config.get("inworldCharsPerCredit", 60),
+            "inworld_clone_credits": config.get("inworldCloneCredits", 5),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
         # on_conflict=id -- without this, "resolution=merge-duplicates" only
@@ -4687,7 +4740,14 @@ def public_pricing():
     per-step charges (transcribeCredits/mergeCredits/charsPerCredit/
     cloneCredits/lipsyncCreditsPerSec) so the app's own credit badges can
     show what a button actually costs instead of a guessed or hardcoded
-    number. No auth required — these are prices, not secrets."""
+    number. No auth required — these are prices, not secrets.
+
+    Also returns voiceEngine (which engine is active for brand-new clones
+    right now) plus that engine's own inworldCharsPerCredit/
+    inworldCloneCredits rates -- added 2026-09-27 so app.js's badges (e.g.
+    the Clone/Upload Custom Voice cost badges) show the CORRECT rate for
+    whichever engine is actually going to be charged, instead of always
+    showing ElevenLabs' numbers even after admin switches to Inworld."""
     cfg = _get_pricing_config()
     return {
         "packs": cfg.get("packs", []),
@@ -4695,7 +4755,10 @@ def public_pricing():
         "mergeCredits": cfg.get("mergeCredits", 1),
         "charsPerCredit": cfg.get("charsPerCredit", 60),
         "cloneCredits": cfg.get("cloneCredits", 5),
-        "lipsyncCreditsPerSec": cfg.get("lipsyncCreditsPerSec", 10)
+        "lipsyncCreditsPerSec": cfg.get("lipsyncCreditsPerSec", 10),
+        "voiceEngine": cfg.get("voiceEngine", "elevenlabs"),
+        "inworldCharsPerCredit": cfg.get("inworldCharsPerCredit", 60),
+        "inworldCloneCredits": cfg.get("inworldCloneCredits", 5),
     }
 
 @app.get("/api/billing/packs")

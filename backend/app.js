@@ -1,4 +1,16 @@
 const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding","slowly","rushed","drawn out","hesitant","stammering","softly","booming","sorrowful","frustrated","annoyed","appalled","awe","regretful","resigned","curious","deadpan","tired"];
+// Inworld-only "extra" tags (added 2026-09-27) -- concrete non-verbal/prosody
+// examples named in Inworld's own "Prompting for TTS-2" docs and confirmed
+// via their support bot, that aren't part of the shared 48-word canonical
+// vocabulary above (kept in sync by hand with inworld_service.py's
+// INWORLD_EXTRA_TAGS / _INSTRUCTION_PHRASES). There's no fixed enum Inworld
+// actually enforces -- inworld-tts-2 interprets any reasonable free-form
+// bracketed instruction -- these are just the specific named examples worth
+// offering as one-click Step 2 dropdown options. Only shown in that dropdown
+// when Inworld is the active engine (window._realPricing.voiceEngine), but
+// sanitizeStyle() below whitelists these everywhere so a manually-typed tag
+// still survives regardless of which engine is active.
+const INWORLD_EXTRA_TAGS = ["laugh","sigh","clear throat","yawn","very fast","very quiet","high pitch"];
 const CREDIT_USD = 0.01;
 const GEMINI_IN_PER_M = 0.30, GEMINI_OUT_PER_M = 2.50;
 const AUDIO_TOKENS_PER_SEC = 258;
@@ -95,7 +107,7 @@ function setBadge(id, credits) {
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
-window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, lipsyncCreditsPerSec: 40 };
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, inworldCharsPerCredit: 60, inworldCloneCredits: 5, voiceEngine: "elevenlabs", lipsyncCreditsPerSec: 40 };
 async function loadRealPricing() {
     try {
         const res = await fetch("/api/pricing");
@@ -105,6 +117,9 @@ async function loadRealPricing() {
             if (typeof d.mergeCredits === "number") window._realPricing.mergeCredits = d.mergeCredits;
             if (typeof d.charsPerCredit === "number") window._realPricing.charsPerCredit = d.charsPerCredit;
             if (typeof d.cloneCredits === "number") window._realPricing.cloneCredits = d.cloneCredits;
+            if (typeof d.inworldCharsPerCredit === "number") window._realPricing.inworldCharsPerCredit = d.inworldCharsPerCredit;
+            if (typeof d.inworldCloneCredits === "number") window._realPricing.inworldCloneCredits = d.inworldCloneCredits;
+            if (typeof d.voiceEngine === "string") window._realPricing.voiceEngine = d.voiceEngine;
             if (typeof d.lipsyncCreditsPerSec === "number") window._realPricing.lipsyncCreditsPerSec = d.lipsyncCreditsPerSec;
         }
     } catch (e) {}
@@ -130,9 +145,15 @@ function updateBadges() {
     // two separate 5-credit charges for one action.)
     setBadge("badgeAutoAssign", 0);
     setBadge("badgeVoiceLibrary", 0);
-    setBadge("badgeCvUpload", window._realPricing.cloneCredits);
+    // Clone cost badges reflect whichever engine is ACTUALLY active right
+    // now (server-resolved, same _active_voice_engine() the real /api/clone
+    // and /api/upload_custom_voice charges use) -- showing ElevenLabs'
+    // number here after admin switches to Inworld would misquote what the
+    // user is actually about to be charged.
+    var _cloneRate = (window._realPricing.voiceEngine === "inworld") ? window._realPricing.inworldCloneCredits : window._realPricing.cloneCredits;
+    setBadge("badgeCvUpload", _cloneRate);
     setBadge("badgePrepareClone", 0);
-    setBadge("badgeClone", window._realPricing.cloneCredits);
+    setBadge("badgeClone", _cloneRate);
     setBadge("badgeGenerate", usdToCredits(generateEstimateUsd()));
     setBadge("badgeMerge", window._realPricing.mergeCredits);
     // Step 5.5's "Apply changes & rebuild MP3" only re-mixes with ffmpeg (no TTS
@@ -1473,7 +1494,12 @@ async function startTranscribe() {
     if (!document.getElementById("emotionList")) {
         const dl = document.createElement("datalist");
         dl.id = "emotionList";
-        EMOTIONS.slice().sort().forEach(e => {
+        // Always includes the Inworld extras too (superset) -- this is just
+        // an autocomplete suggestion list for the free-text tags field, so
+        // there's no need to gate it by active engine the way the Step 2
+        // dropdown select is gated; a user could always type any tag here
+        // manually anyway (sanitizeStyle whitelists the same superset).
+        EMOTIONS.concat(INWORLD_EXTRA_TAGS).slice().sort().forEach(e => {
             const o = document.createElement("option");
             o.value = e;
             dl.appendChild(o);
@@ -1539,7 +1565,12 @@ async function autoTranslate() {
 function sanitizeStyle(v) {
     const parts = String(v || "").toLowerCase().split(/[,+\/;]| and /).map(s => s.trim()).filter(Boolean);
     const kept = [];
-    parts.forEach(p => { if (EMOTIONS.includes(p) && !kept.includes(p)) kept.push(p); });
+    // Whitelist is the shared 48-word vocabulary PLUS Inworld's extra
+    // non-verbal/prosody tags (see INWORLD_EXTRA_TAGS above) -- accepted
+    // regardless of which engine is currently active so a manually-typed
+    // tag never gets silently stripped just because the dropdown wasn't
+    // showing it right now.
+    parts.forEach(p => { if ((EMOTIONS.includes(p) || INWORLD_EXTRA_TAGS.includes(p)) && !kept.includes(p)) kept.push(p); });
     return kept.join(", ");
 }
 
@@ -2373,7 +2404,16 @@ function createRow(seg, i) {
     var eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
     var eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
     var blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
-    EMOTIONS.slice().sort().forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
+    // Inworld's extra non-verbal/prosody tags only show up here when
+    // Inworld is the currently active engine (see window._realPricing.
+    // voiceEngine, populated by loadRealPricing() from /api/pricing) --
+    // they'd be meaningless one-click options while ElevenLabs is active,
+    // since the dropdown's job is to offer a QUICK PICK of tags that make
+    // sense for whatever's actually generating audio right now. Manually
+    // typing any tag still always works either way (sanitizeStyle
+    // whitelists the same superset regardless of engine).
+    var _engineEmotionTags = (window._realPricing && window._realPricing.voiceEngine === "inworld") ? EMOTIONS.concat(INWORLD_EXTRA_TAGS) : EMOTIONS;
+    _engineEmotionTags.slice().sort().forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
     ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
     eS.onchange = function() {
         if (!eS.value) return;

@@ -23,6 +23,14 @@ def usage_bucket(job_id: str) -> dict:
             "gemini_out": 0,
             "gemini_thoughts": 0,
             "eleven_chars": 0,
+            # Inworld-generated characters, tracked SEPARATELY from
+            # eleven_chars above (added 2026-09-27) so a job that mixes
+            # ElevenLabs and Inworld speakers (each voice keeps using
+            # whichever engine created it) can be charged at each engine's
+            # own admin-configured rate rather than one shared rate -- see
+            # main.py's _watch_and_deduct(). eleven_service.py's Inworld
+            # branch writes here instead of eleven_chars.
+            "inworld_chars": 0,
             "audio_sec": 0.0,
         }
     return USAGE[key]
