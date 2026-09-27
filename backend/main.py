@@ -123,6 +123,10 @@ class CloneRequest(BaseModel):
     segments: List[Segment]
     speakers_to_clone: List[str] = []
 
+class VoiceUpdateRequest(BaseModel):
+    name: str = ""
+    description: str = ""
+
 class VoiceLibrarySearchRequest(BaseModel):
     language: List[str] = []
     accent: str = ""
@@ -2566,6 +2570,100 @@ def clone(req: CloneRequest, request: Request):
             if not str(voice_id).startswith("ERROR"):
                 _save_user_voice(uid, voice_id, speaker, "", req.job_id)
     return result
+
+@app.get("/api/my_voices")
+def my_voices(request: Request):
+    """This user's saved voice library, plus their plan's slot cap -- used
+    by the Account page's Voices tab (task #61) and, later, the dubbing
+    flow's voice picker so a saved voice can be reused across projects."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    plan = _get_subscription_plan(_get_profile_plan_key(uid))
+    voices = []
+    if SUPABASE_URL and SUPABASE_SERVICE_KEY:
+        try:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/user_voices?uid=eq.{uid}&select=id,elevenlabs_voice_id,name,description,created_at&order=created_at.desc",
+                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                voices = json.load(r)
+        except Exception as ex:
+            print(f"[voice-library] /api/my_voices list error (has the user_voices migration been run?): {ex}")
+    return {
+        "voices": voices,
+        "voice_slots_used": len(voices),
+        "voice_slots_total": int(plan.get("voice_slots") or 0),
+        "plan_name": plan.get("name"),
+        "subscription_active": _subscription_active(uid),
+    }
+
+@app.patch("/api/my_voices/{voice_row_id}")
+def update_my_voice(voice_row_id: str, req: VoiceUpdateRequest, request: Request):
+    """Renames/describes one saved voice -- purely a label change, doesn't
+    touch ElevenLabs or the slot count at all."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({"error": "Not configured."}, status_code=503)
+    name = (req.name or "").strip()[:200] or "Untitled voice"
+    description = (req.description or "").strip()[:2000]
+    body = json.dumps({"name": name, "description": description}).encode("utf-8")
+    # Scoped to uid=eq.{uid} as well as id -- a user can never rename/
+    # describe another user's saved voice even by guessing a row id.
+    url = f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}"
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json", "Prefer": "return=minimal",
+    }
+    try:
+        r = urllib.request.Request(url, data=body, headers=hdrs, method="PATCH")
+        with urllib.request.urlopen(r, timeout=10) as resp:
+            ok = resp.status in (200, 204)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=502)
+    return {"ok": ok, "name": name, "description": description}
+
+@app.delete("/api/my_voices/{voice_row_id}")
+def delete_my_voice(voice_row_id: str, request: Request):
+    """Deletes one saved voice -- frees its slot immediately (the DB row is
+    what the slot cap counts, see _count_user_voices), then best-effort
+    deletes the underlying ElevenLabs voice too. If that second step fails,
+    the slot is still freed correctly; the orphaned ElevenLabs voice is no
+    longer protected (see _all_saved_voice_ids) and gets swept up by the
+    next /api/cleanup_voices pass instead."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({"error": "Not configured."}, status_code=503)
+    try:
+        lookup = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(lookup, timeout=10) as r:
+            rows = json.load(r)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=502)
+    if not rows:
+        return JSONResponse({"error": "Voice not found."}, status_code=404)
+    eleven_voice_id = rows[0].get("elevenlabs_voice_id")
+    try:
+        delreq = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Prefer": "return=minimal"},
+            method="DELETE")
+        with urllib.request.urlopen(delreq, timeout=10) as r:
+            r.read()
+    except Exception as ex:
+        return JSONResponse({"error": f"Couldn't delete: {ex}"}, status_code=502)
+    if eleven_voice_id:
+        try:
+            eleven_service.delete_voice(eleven_voice_id, ELEVENLABS_API_KEY)
+        except Exception as ex:
+            print(f"[voice-library] delete_voice best-effort failed for {eleven_voice_id}: {ex}")
+    return {"ok": True}
 
 @app.post("/api/translate")
 def translate(req: TranslateRequest, request: Request):

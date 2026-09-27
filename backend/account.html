@@ -59,6 +59,23 @@
   body.dark .acct-tab:hover { color: var(--primary-fg); }
   body.dark .acct-tab.active { color: var(--primary-fg); border-bottom-color: var(--primary-fg); }
   body.dark [style*="border:1px solid #fecaca"] { border-color: #7f1d1d !important; }
+
+  /* Saved Voices tab (task #61) */
+  .voice-item { border-top: 1px solid #e5e7eb; padding: 14px 0; }
+  .voice-item:first-child { border-top: none; padding-top: 4px; }
+  .voice-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+  .voice-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 220px; min-width: 160px; }
+  .voice-field label { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+  .voice-field input, .voice-field textarea {
+    padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 8px; font-family: inherit;
+    font-size: 14px; resize: vertical;
+  }
+  .voice-actions { display: flex; gap: 8px; align-items: flex-end; }
+  .voice-date { font-size: 11px; color: #9ca3af; margin-top: 4px; }
+  body.dark .voice-item { border-top-color: var(--border); }
+  body.dark .voice-field label { color: var(--text-muted); }
+  body.dark .voice-field input, body.dark .voice-field textarea { background: var(--card); border-color: var(--border); color: var(--text); }
+  body.dark .voice-date { color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -77,6 +94,7 @@
 <div class="acct-tabbar" id="acctTabbar">
   <div class="acct-tab active" data-tab="balance" id="tabBalance">💰 Balance</div>
   <div class="acct-tab" data-tab="subscription" id="tabSubscription">🔁 Subscription</div>
+  <div class="acct-tab" data-tab="voices" id="tabVoices">🎙️ Voices</div>
   <div class="acct-tab" data-tab="files" id="tabFiles">🎬 Files</div>
   <div class="acct-tab" data-tab="purchases" id="tabPurchases">🛒 Purchases</div>
   <div class="acct-tab" data-tab="usage" id="tabUsage">📉 Usage</div>
@@ -103,6 +121,15 @@
       <button id="subManageBtn" class="btn-logout" onclick="manageSubscription()">Manage Subscription</button>
       <button id="subCancelBtn" class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>
     </div>
+  </div>
+</div>
+
+<div class="acct-panel" id="panel-voices">
+  <div class="card">
+    <h3 id="voicesHeading">🎙️ Saved Voices</h3>
+    <p id="voicesNote" class="note">Cloned voices you save here are kept for reuse across projects — no need to re-clone the same speaker every time. Deleting one frees a slot.</p>
+    <p id="voicesSlotsLine" style="font-weight:700;color:#1a237e;margin:6px 0;">—</p>
+    <div id="myVoicesList"><p style="color:#6b7280;" id="voicesLoadingText">Loading…</p></div>
   </div>
 </div>
 
@@ -169,7 +196,7 @@ var LANG = (localStorage.getItem("lisan_lang") === "ar") ? "ar" : "en";
 var T = {
   en: {
     title: "Lisan AI — My Usage", credits: "credits", back: "← Back to App", logout: "Log Out",
-    tabBalance: "💰 Balance", tabSubscription: "🔁 Subscription", tabFiles: "🎬 Files",
+    tabBalance: "💰 Balance", tabSubscription: "🔁 Subscription", tabVoices: "🎙️ Voices", tabFiles: "🎬 Files",
     tabPurchases: "🛒 Purchases", tabUsage: "📉 Usage",
     balanceHeading: "💰 Current balance",
     balanceNote: "100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.",
@@ -180,6 +207,19 @@ var T = {
     subCancel: "Cancel Subscription",
     confirmCancelSub: "Cancel your monthly subscription? You'll keep your current credits and access until the end of this billing period, then it won't renew. You can cancel any time.",
     cancelSubFailed: "Couldn't open the cancellation page. Please try again.",
+    voicesHeading: "🎙️ Saved Voices",
+    voicesNote: "Cloned voices you save here are kept for reuse across projects — no need to re-clone the same speaker every time. Deleting one frees a slot.",
+    slotsLine: function (used, total, plan) { return used + " of " + total + " voice slot" + (total === 1 ? "" : "s") + " used" + (plan ? " (" + plan + " plan)" : "") + "."; },
+    notSubscribedVoices: 'Voice cloning is a subscription feature. <a href="/app">Subscribe from the app</a> to unlock saved, reusable voice slots.',
+    noVoicesYet: "No saved voices yet — clone or upload a voice while dubbing and it'll show up here.",
+    couldntLoadVoices: "Couldn't load your saved voices right now.",
+    voiceNamePlaceholder: "Name", voiceDescPlaceholder: "Description (optional)",
+    voiceNameLabel: "Name", voiceDescLabel: "Description",
+    saveVoiceBtn: "💾 Save", deleteVoiceBtn: "🗑️ Delete",
+    confirmDeleteVoice: "Delete this saved voice permanently? This frees its slot but can't be undone.",
+    deleteVoiceFailed: "Couldn't delete this voice. Please try again.",
+    saveVoiceFailed: "Couldn't save. Please try again.",
+    voiceSaved: "Saved.",
     filesHeading: "🎬 Your Finished Files",
     filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
     filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
@@ -206,7 +246,7 @@ var T = {
   },
   ar: {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
-    tabBalance: "💰 الرصيد", tabSubscription: "🔁 الاشتراك", tabFiles: "🎬 الملفات",
+    tabBalance: "💰 الرصيد", tabSubscription: "🔁 الاشتراك", tabVoices: "🎙️ الأصوات", tabFiles: "🎬 الملفات",
     tabPurchases: "🛒 المشتريات", tabUsage: "📉 الاستهلاك",
     balanceHeading: "💰 الرصيد الحالي",
     balanceNote: "100 ائتمان = 1.00 دولار · التفريغ 3 · التوليد ≈ الأحرف/60 · الدمج 1. الائتمانات لا تنتهي صلاحيتها.",
@@ -217,6 +257,19 @@ var T = {
     subCancel: "إلغاء الاشتراك",
     confirmCancelSub: "هل تريد إلغاء اشتراكك الشهري؟ ستحتفظ برصيدك الحالي ووصولك حتى نهاية فترة الفوترة الحالية، ثم لن يتم التجديد. يمكنك الإلغاء في أي وقت.",
     cancelSubFailed: "تعذّر فتح صفحة الإلغاء. حاول مرة أخرى.",
+    voicesHeading: "🎙️ الأصوات المحفوظة",
+    voicesNote: "الأصوات المستنسخة التي تحفظها هنا تبقى جاهزة لإعادة استخدامها في مشاريع أخرى — لا حاجة لاستنساخ نفس المتحدث مرة أخرى. حذف صوت يحرر أحد الأماكن المتاحة.",
+    slotsLine: function (used, total, plan) { return "تم استخدام " + used + " من " + total + " من أماكن الأصوات" + (plan ? " (خطة " + plan + ")" : "") + "."; },
+    notSubscribedVoices: 'استنساخ الأصوات ميزة حصرية للمشتركين. <a href="/app">اشترك من داخل التطبيق</a> لفتح أماكن أصوات محفوظة وقابلة لإعادة الاستخدام.',
+    noVoicesYet: "لا توجد أصوات محفوظة بعد — استنسخ أو ارفع صوتًا أثناء الدبلجة وسيظهر هنا.",
+    couldntLoadVoices: "تعذّر تحميل أصواتك المحفوظة الآن.",
+    voiceNamePlaceholder: "الاسم", voiceDescPlaceholder: "الوصف (اختياري)",
+    voiceNameLabel: "الاسم", voiceDescLabel: "الوصف",
+    saveVoiceBtn: "💾 حفظ", deleteVoiceBtn: "🗑️ حذف",
+    confirmDeleteVoice: "هل تريد حذف هذا الصوت المحفوظ نهائيًا؟ هذا يحرر مكانه لكن لا يمكن التراجع عنه.",
+    deleteVoiceFailed: "تعذّر حذف هذا الصوت. حاول مرة أخرى.",
+    saveVoiceFailed: "تعذّر الحفظ. حاول مرة أخرى.",
+    voiceSaved: "تم الحفظ.",
     filesHeading: "🎬 ملفاتك الجاهزة",
     filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
@@ -253,6 +306,7 @@ var T = {
   document.getElementById("logoutBtn").textContent = T.logout;
   document.getElementById("tabBalance").textContent = T.tabBalance;
   document.getElementById("tabSubscription").textContent = T.tabSubscription;
+  document.getElementById("tabVoices").textContent = T.tabVoices;
   document.getElementById("tabFiles").textContent = T.tabFiles;
   document.getElementById("tabPurchases").textContent = T.tabPurchases;
   document.getElementById("tabUsage").textContent = T.tabUsage;
@@ -261,6 +315,9 @@ var T = {
   document.getElementById("subHeading").textContent = T.subHeading;
   document.getElementById("subManageBtn").textContent = T.subManage;
   document.getElementById("subCancelBtn").textContent = T.subCancel;
+  document.getElementById("voicesHeading").textContent = T.voicesHeading;
+  document.getElementById("voicesNote").textContent = T.voicesNote;
+  document.getElementById("voicesLoadingText").textContent = T.loading;
   document.getElementById("filesHeading").textContent = T.filesHeading;
   // filesNote depends on subscription status, set once /api/user/info
   // resolves below (not known yet at static-text time).
@@ -295,7 +352,7 @@ var T = {
     tab.onclick = function () { activate(tab.dataset.tab); history.replaceState(null, "", "#" + tab.dataset.tab); };
   });
   var fromHash = (window.location.hash || "").replace("#", "");
-  var valid = ["balance", "subscription", "files", "purchases", "usage"];
+  var valid = ["balance", "subscription", "voices", "files", "purchases", "usage"];
   if (valid.indexOf(fromHash) > -1) activate(fromHash);
 })();
 
@@ -445,7 +502,76 @@ function deleteMyJob(jobId) {
   }).catch(function () { alert(T.deleteFailed); });
 }
 
+function renderMyVoices(data) {
+  var list = document.getElementById("myVoicesList");
+  var slotsLine = document.getElementById("voicesSlotsLine");
+  var voices = data.voices || [];
+  var used = data.voice_slots_used || 0;
+  var total = data.voice_slots_total || 0;
+  slotsLine.textContent = T.slotsLine(used, total, data.plan_name);
+  if (!data.subscription_active) {
+    list.innerHTML = '<p style="color:#6b7280;">' + T.notSubscribedVoices + '</p>';
+    return;
+  }
+  if (!voices.length) {
+    list.innerHTML = '<p style="color:#6b7280;">' + T.noVoicesYet + '</p>';
+    return;
+  }
+  list.innerHTML = "";
+  voices.forEach(function (v) {
+    var item = document.createElement("div");
+    item.className = "voice-item";
+    item.id = "voice-" + v.id;
+    var safeName = (v.name || "").replace(/"/g, "&quot;");
+    var safeDesc = (v.description || "").replace(/</g, "&lt;");
+    item.innerHTML =
+      '<div class="voice-row">' +
+      '<div class="voice-field"><label>' + T.voiceNameLabel + '</label>' +
+      '<input type="text" id="vname-' + v.id + '" value="' + safeName + '" placeholder="' + T.voiceNamePlaceholder + '" maxlength="200"></div>' +
+      '<div class="voice-field"><label>' + T.voiceDescLabel + '</label>' +
+      '<textarea id="vdesc-' + v.id + '" rows="2" placeholder="' + T.voiceDescPlaceholder + '" maxlength="2000">' + safeDesc + '</textarea></div>' +
+      '<div class="voice-actions">' +
+      '<button class="btn-logout" onclick="saveVoice(\'' + v.id + '\')">' + T.saveVoiceBtn + '</button>' +
+      '<button class="btn-danger" onclick="deleteVoice(\'' + v.id + '\')">' + T.deleteVoiceBtn + '</button>' +
+      '</div></div>' +
+      '<div class="voice-date">' + fmtDate(v.created_at) + '</div>';
+    list.appendChild(item);
+  });
+}
+
+function loadMyVoices() {
+  fetch("/api/my_voices").then(function (r) { return r.json(); }).then(function (d) {
+    if (d.error) { document.getElementById("myVoicesList").innerHTML = '<p style="color:#6b7280;">' + T.couldntLoadVoices + '</p>'; return; }
+    window._lastMyVoices = d;
+    renderMyVoices(d);
+  }).catch(function () {
+    document.getElementById("myVoicesList").innerHTML = '<p style="color:#6b7280;">' + T.couldntLoadVoices + '</p>';
+  });
+}
+
+function saveVoice(id) {
+  var name = document.getElementById("vname-" + id).value;
+  var description = document.getElementById("vdesc-" + id).value;
+  fetch("/api/my_voices/" + encodeURIComponent(id), {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: name, description: description })
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.error) { alert(T.saveVoiceFailed); return; }
+  }).catch(function () { alert(T.saveVoiceFailed); });
+}
+
+function deleteVoice(id) {
+  if (!confirm(T.confirmDeleteVoice)) return;
+  fetch("/api/my_voices/" + encodeURIComponent(id), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.error) { alert(T.deleteVoiceFailed); return; }
+    var el = document.getElementById("voice-" + id);
+    if (el) el.remove();
+    loadMyVoices();
+  }).catch(function () { alert(T.deleteVoiceFailed); });
+}
+
 loadMyJobs();
+loadMyVoices();
 </script>
 </body>
 </html>
