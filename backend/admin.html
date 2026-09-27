@@ -63,6 +63,7 @@ button.btn-success:hover { background: #15803d; }
     <div class="tab active" data-tab="overview">📊 Overview</div>
     <div class="tab" data-tab="users">👥 Users</div>
     <div class="tab" data-tab="pricing">💰 Pricing</div>
+    <div class="tab" data-tab="settings">⚙️ Settings</div>
     <div class="tab" data-tab="audit">📜 Audit Log</div>
     <div class="tab" data-tab="health">❤️ Health</div>
   </div>
@@ -181,6 +182,19 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
+        <h3>💳 Credit Packs (one-time, pay-once)</h3>
+        <p class="muted" style="font-size:12px;margin-bottom:8px;">Key is the pack's permanent public ID — it's what the landing page, buy modal and Stripe checkout use to identify this pack. Renaming the pack is safe and never changes its key. Leave Key blank on a new pack and it will be generated from the name when you save. Note: a pack buyer's finished videos are now only kept for PAYONCE_OUTPUT_HOURS (48h, set in main.py) — not the full 30 days — since they're not paying to keep the storage running. Only active Monthly Subscription users get the full 30-day retention.</p>
+        <table>
+          <thead><tr><th>Key</th><th>Name</th><th>Credits</th><th>Price (USD)</th><th>Bonus %</th><th>Stripe Link</th><th>Actions</th></tr></thead>
+          <tbody id="packsTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
+        </table>
+        <div style="margin-top:14px;display:flex;gap:10px;"><button class="btn" onclick="addPack()">+ Add Pack</button><button class="btn" onclick="savePricing()" style="background:#2e7d32">💾 Save Packs</button></div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="panel" id="panel-settings">
+      <div class="card">
         <h3>🔒 Site Access Gate</h3>
         <p class="muted" style="margin-bottom:16px;">A password wall in front of the ENTIRE site — landing page, login, everything — for while the product is still being tested. Random visitors see an "Under Construction" message instead of the real site; testers with the access code get straight in. The actual password only lives in Railway's <code>SITE_GATE_PASSWORD</code> environment variable (never shown here) — this switch just turns enforcement of it on or off. Leave <code>SITE_GATE_PASSWORD</code> unset in Railway and this switch does nothing either way.</p>
         <div class="form-group">
@@ -211,16 +225,6 @@ button.btn-success:hover { background: #15803d; }
           <span class="muted">Paste either the bare ID (like G-XXXXXXXXXX) or the whole install snippet Google gives you — either works, we pull the ID out automatically. Turns on visitor tracking on the public landing page (lisanai.org). Leave blank to keep it off. Get a free ID at analytics.google.com.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Analytics Setting</button>
-      </div>
-
-      <div class="card">
-        <h3>💳 Credit Packs (one-time, pay-once)</h3>
-        <p class="muted" style="font-size:12px;margin-bottom:8px;">Key is the pack's permanent public ID — it's what the landing page, buy modal and Stripe checkout use to identify this pack. Renaming the pack is safe and never changes its key. Leave Key blank on a new pack and it will be generated from the name when you save. Note: a pack buyer's finished videos are now only kept for PAYONCE_OUTPUT_HOURS (48h, set in main.py) — not the full 30 days — since they're not paying to keep the storage running. Only active Monthly Subscription users get the full 30-day retention.</p>
-        <table>
-          <thead><tr><th>Key</th><th>Name</th><th>Credits</th><th>Price (USD)</th><th>Bonus %</th><th>Stripe Link</th><th>Actions</th></tr></thead>
-          <tbody id="packsTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
-        </table>
-        <div style="margin-top:14px;display:flex;gap:10px;"><button class="btn" onclick="addPack()">+ Add Pack</button><button class="btn" onclick="savePricing()" style="background:#2e7d32">💾 Save Packs</button></div>
       </div>
     </div>
 
