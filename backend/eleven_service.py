@@ -492,8 +492,7 @@ def generate_worker(req):
                     api_key = req.inworld_api_key.strip()
                     if not api_key:
                         raise Exception("Missing Inworld API key.")
-                    # No emotion/style tags yet for this engine -- see
-                    # inworld_service.py's module docstring for why.
+                    tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
                     bucket["eleven_chars"] += len(tts_text)
                     audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
                     raw_filename = f"{seg.segment_id}_raw.mp3"
@@ -733,7 +732,7 @@ def regenerate_line(req):
             api_key = req.inworld_api_key.strip()
             if not api_key:
                 return {"error": "Missing Inworld API key."}
-            tts_text = seg.arabic_text
+            tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
             bucket["eleven_chars"] += len(tts_text)
             audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
         else:

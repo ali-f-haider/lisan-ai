@@ -25,14 +25,21 @@ Auth header on every call: "Authorization: Basic <INWORLD_API_KEY>" -- the
 key value copied from the Inworld portal is used AS-IS after "Basic ", no
 extra base64 step needed (per Inworld's own docs).
 
-Known, deliberate limitations of this first version (flagged for Ali, not
+Emotion/style tags: confirmed via Inworld's own "Prompting for TTS-2" docs
+(Sept 2026) that steering works by putting a natural-language instruction
+in square brackets at the START of the `text` string itself (NOT a
+separate request field) -- e.g. "[sound sad, speak softly] <the line>" --
+and ONLY on the inworld-tts-2 model (DEFAULT_MODEL_ID above);
+inworld-tts-2-flash ignores these brackets and reads them aloud literally.
+Also, per that same doc, multiple descriptors should be COMBINED into one
+bracketed phrase rather than stacked as separate brackets the way
+ElevenLabs' "[happy][softly]" style works (see eleven_service.
+_emotion_tags) -- see instruction_tag() below, which maps this app's
+canonical emotion vocabulary (config.CANONICAL_EMOTIONS) onto Inworld's
+phrasing style and combines multiple tags into one bracket accordingly.
+
+Known, deliberate limitation of this version (flagged for Ali, not
 silently skipped):
-  - No emotion/style tags are sent yet -- ElevenLabs' branch stacks
-    "[happy][softly]"-style bracket tags onto the text (see eleven_service.
-    _emotion_tags); Inworld has a separate `instruction` natural-language
-    steering field that could carry this, but its behavior on Arabic text
-    hasn't been verified yet, so this version sends plain seg.arabic_text
-    with no styling rather than guessing.
   - generate_sample() (used only by the admin "Compare Voice Providers"
     tool, /api/admin/compare_voice_providers) was intentionally NOT ported
     here -- that tool is unrelated to the live dubbing pipeline this swap
@@ -54,6 +61,85 @@ DEFAULT_MODEL_ID = "inworld-tts-2"
 # one of the regional dialect codes (arz/afb/acw/ayl/ars/acx/aeb), since
 # Ali's product targets MSA only.
 DEFAULT_LANGUAGE = "ar"
+
+
+# Maps this app's canonical emotion/style vocabulary (config.
+# CANONICAL_EMOTIONS) onto Inworld's natural-language instruction-tag
+# phrasing (their own examples: "[say excitedly]", "[sound sad]",
+# "[whisper in a hushed style]", "[very fast]", "[very quiet]"). "neutral"
+# maps to "" on purpose -- Inworld's docs show no bare "[neutral]"-style
+# example, and default (untagged) delivery is already neutral, so a
+# neutral-only tag is simply omitted rather than guessing at a phrasing
+# for it.
+_INSTRUCTION_PHRASES = {
+    "neutral": "",
+    "happy": "sound happy",
+    "sad": "sound sad",
+    "angry": "sound angry",
+    "fearful": "sound afraid",
+    "surprised": "sound surprised",
+    "disgusted": "sound disgusted",
+    "shouting": "shout",
+    "whispering": "whisper",
+    "screaming": "scream",
+    "yelling": "yell",
+    "crying": "speak while crying",
+    "laughing": "laugh while speaking",
+    "sarcastic": "say this sarcastically",
+    "seductive": "say this in a seductive tone",
+    "narrative": "say this in a storytelling narrator's tone",
+    "announcer": "say this in an announcer's tone",
+    "conversational": "say this in a casual, conversational tone",
+    "depressed": "sound depressed",
+    "anxious": "sound anxious",
+    "confident": "sound confident",
+    "indifferent": "sound indifferent",
+    "excited": "sound excited",
+    "serious": "sound serious",
+    "playful": "sound playful",
+    "terrified": "sound terrified",
+    "relieved": "sound relieved",
+    "thoughtful": "sound thoughtful",
+    "mocking": "say this mockingly",
+    "pleading": "say this pleadingly",
+    "commanding": "say this in a commanding tone",
+    "slowly": "speak slowly",
+    "rushed": "speak quickly, rushed",
+    "drawn out": "speak slowly, drawing out the words",
+    "hesitant": "speak hesitantly",
+    "stammering": "stammer while speaking",
+    "softly": "speak softly and quietly",
+    "booming": "speak loudly in a booming voice",
+    "sorrowful": "sound sorrowful",
+    "frustrated": "sound frustrated",
+    "annoyed": "sound annoyed",
+    "appalled": "sound appalled",
+    "awe": "sound in awe",
+    "regretful": "sound regretful",
+    "resigned": "sound resigned",
+    "curious": "sound curious",
+    "deadpan": "say this in a flat, deadpan tone",
+    "tired": "sound tired",
+}
+
+
+def instruction_tag(emotion) -> str:
+    """Turns a (possibly multi-tag) 'sad, softly' emotion string into ONE
+    combined Inworld instruction tag plus a trailing space, e.g.
+    '[sound sad, speak softly and quietly] ' -- ready to prepend directly
+    onto seg.arabic_text. Returns '' (no tag, no trailing space) if every
+    part maps to neutral or an unrecognized word, matching Inworld's own
+    guidance to combine descriptors into a single bracketed phrase rather
+    than stacking separate tags the way ElevenLabs does."""
+    parts = [p.strip().lower() for p in str(emotion or "").split(",") if p.strip()]
+    phrases = []
+    for p in parts:
+        phrase = _INSTRUCTION_PHRASES.get(p, "")
+        if phrase and phrase not in phrases:
+            phrases.append(phrase)
+    if not phrases:
+        return ""
+    return f"[{', '.join(phrases)}] "
 
 
 def _configured(api_key: str) -> bool:
