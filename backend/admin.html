@@ -93,9 +93,10 @@ button.btn-success:hover { background: #15803d; }
       <div class="card">
         <h3>👥 User Management</h3>
         <input class="search" id="userSearch" placeholder="Search by name, email, or UID..." oninput="loadUsers()">
+        <p class="muted" style="margin-bottom:8px;">"Credits" is the permanent, never-expiring balance (signup bonus, admin grants, one-time packs) -- Grant/Deduct/Set below only ever touch THIS bucket. "Sub. Credits" is a subscriber's separate monthly allowance, which is forfeited and replaced at each renewal (2026-09-27: unused subscription credits no longer roll over) -- it's spent first, automatically, before permanent credits, and isn't editable here.</p>
         <table>
-          <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Minutes Generated</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
-          <tbody id="usersTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
+          <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Sub. Credits</th><th>Minutes Generated</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
+          <tbody id="usersTable"><tr><td colspan="8" class="muted">Loading...</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -431,6 +432,7 @@ async function loadUsers() {
       <td>${escapeHtml(u.display_name || u.email || '(no name)')}<br><span class="muted">${escapeHtml(u.email||'')}</span></td>
       <td><code style="font-size:11px;">${u.id.slice(0,8)}...</code></td>
       <td><strong>${u.credits}</strong></td>
+      <td>${u.subscription_credits != null ? u.subscription_credits : '—'}</td>
       <td>${(u.minutes_generated ?? 0).toFixed(1)}</td>
       <td>${u.is_guest ? 'Yes' : 'No'}</td>
       <td>${u.created_at||'—'}</td>
@@ -441,7 +443,7 @@ async function loadUsers() {
       </td>
     </tr>`;
   });
-  document.getElementById('usersTable').innerHTML = html || '<tr><td colspan="7" class="muted">No users found</td></tr>';
+  document.getElementById('usersTable').innerHTML = html || '<tr><td colspan="8" class="muted">No users found</td></tr>';
 }
 
 async function adjustCredits(uid, sign, idx) {

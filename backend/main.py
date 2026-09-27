@@ -901,31 +901,94 @@ def set_credits(uid, new_amount):
         return False
 
 def get_credits(uid: str):
+    """Returns the user's total SPENDABLE balance: the permanent `credits`
+    column (signup bonus, admin grants, one-time pack purchases -- never
+    expires) PLUS `subscription_credits` (this billing cycle's subscription
+    allowance -- forfeited and replaced at each renewal, Ali's 2026-09-27
+    "use it or lose it" decision, see _grant_subscription_credits). Every
+    existing balance check in this file (bal = get_credits(uid); if bal <
+    cost: reject) keeps working unchanged, since it only ever needed the
+    combined total. subscription_credits is treated as 0 -- never as
+    "unknown" -- when the column doesn't exist yet (migration not run) or
+    is null, so this is safe to call before that migration has been run.
+
+    Callers that need to read/modify ONLY the permanent bucket (admin's
+    manual grant/deduct/set -- see admin_adjust_credits) must use
+    _get_permanent_credits below instead, never this function, or they'll
+    silently double-count a user's subscription credits into the permanent
+    bucket."""
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        print(f"[credits] MISSING CONFIG: uid={bool(uid)} url={bool(SUPABASE_URL)} key={bool(SUPABASE_SERVICE_KEY)}")
         return None
-        
-    # ADD THESE TWO LINES:
-    print(f"[credits] URL being used: {SUPABASE_URL}")
-    print(f"[credits] Key length: {len(SUPABASE_SERVICE_KEY)} characters")
-        
     req = urllib.request.Request(
-        f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits", headers={
+        f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits,subscription_credits", headers={
             "apikey": SUPABASE_SERVICE_KEY,
-            
         })
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
-        print(f"[credits] SUCCESS for {uid}: {rows}")
+        if not rows:
+            return None
+        row = rows[0]
+        return int(row.get("credits") or 0) + int(row.get("subscription_credits") or 0)
+    except Exception as e:
+        print(f"[credits] get_credits ERROR for {uid}: {e}")
+        return None
+
+
+def _get_permanent_credits(uid):
+    """Reads ONLY the permanent, non-expiring `credits` column -- for
+    callers that must read-modify-write that bucket specifically (admin's
+    manual grant/deduct/set), never the combined spendable total
+    get_credits returns. Returns None (not 0) on failure, same convention
+    as get_credits."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    req = urllib.request.Request(
+        f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=credits", headers={
+            "apikey": SUPABASE_SERVICE_KEY,
+        })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
         return rows[0]["credits"] if rows else None
     except Exception as e:
-        print(f"[credits] ERROR for {uid}: {e}")
+        print(f"[credits] _get_permanent_credits ERROR for {uid}: {e}")
         return None
 
 
 def deduct_credits(uid, amount):
-    return _sb_rpc("deduct_credits", {"uid": uid, "amount": int(amount)})
+    """Draws credits from TWO buckets, in order: subscription_credits (this
+    cycle's subscription allowance, forfeited at next renewal -- see
+    _grant_subscription_credits) first, then the permanent `credits`
+    balance (signup bonus, admin grants, one-time pack purchases -- never
+    expires) for any shortfall. Ali's 2026-09-27 "use it or lose it"
+    decision: spending the expiring bucket first means a subscriber's
+    permanent pack credits are never touched while any subscription
+    allowance remains for the cycle.
+
+    Each bucket's deduction is independently atomic (deduct_subscription_
+    credits is a row-locked Postgres function; the original deduct_credits
+    RPC below was already atomic before this feature existed), so this is
+    safe under concurrent requests -- each call only ever moves its own
+    correctly-computed shortfall from one bucket to the next, never a
+    stale/racy read.
+
+    If the new column/RPC isn't there yet (migration not run) or the RPC
+    call itself fails for any reason, sub_result comes back None/malformed
+    and shortfall stays at the FULL requested amount -- i.e. this draws
+    entirely from permanent credits, exactly today's behavior -- so this
+    is safe to deploy before Ali runs that migration."""
+    shortfall = int(amount)
+    if uid:
+        sub_result = _sb_rpc("deduct_subscription_credits", {"uid": uid, "amount": int(amount)})
+        if isinstance(sub_result, list) and sub_result and isinstance(sub_result[0], dict):
+            try:
+                shortfall = max(0, int(sub_result[0].get("shortfall", amount)))
+            except (TypeError, ValueError):
+                shortfall = int(amount)
+    if shortfall <= 0:
+        return True
+    return _sb_rpc("deduct_credits", {"uid": uid, "amount": shortfall})
 
 def _fulfill_order(uid: str, session_id: str, credits: int):
     """Idempotently credit a paid checkout session. Safe to call many times."""
@@ -1985,7 +2048,21 @@ def _grant_subscription_credits(uid, invoice_id, credits):
     invoice id, checked before granting), just against invoice id instead
     of checkout session id. Needs the subscription_invoices table -- see
     the SQL note above _check_expiring_outputs / the SQL block given to
-    Ali for this feature."""
+    Ali for this feature.
+
+    Grants into the SEPARATE, expiring subscription_credits bucket (Ali's
+    2026-09-27 "use it or lose it" decision) via _set_subscription_credits,
+    which OVERWRITES rather than adds -- so any credits left unused from
+    the previous cycle are forfeited, replaced by this cycle's fresh
+    amount, while one-time pack purchases and admin grants keep
+    accumulating separately, forever, in the permanent `credits` column
+    (untouched here). Falls back to the OLD behavior (add_credits into the
+    permanent bucket) if the new column doesn't exist yet or that write
+    fails for any other reason -- so a renewal ALWAYS grants this cycle's
+    credits somewhere, regardless of whether Ali has run the
+    subscription_credits migration yet relative to this deploy; the
+    "use it or lose it" behavior only actually starts once that migration
+    is in place."""
     if not uid or not invoice_id or not credits or not SUPABASE_SERVICE_KEY:
         return None
     import urllib.request as _ur
@@ -2014,10 +2091,50 @@ def _grant_subscription_credits(uid, invoice_id, credits):
         # count so this period's allowance starts fresh. Best-effort, same
         # as the credit grant itself.
         _reset_subscription_clone_usage(uid)
-        return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+        if not _set_subscription_credits(uid, credits):
+            # Migration not run yet (or a transient failure) -- fall back
+            # to the pre-existing behavior so this cycle's credits are
+            # never silently lost.
+            return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
+        return credits
     except Exception as e:
         print("[subscription] grant credits error:", e)
         return None
+
+
+def _set_subscription_credits(uid, amount):
+    """Best-effort PATCH setting profiles.subscription_credits to EXACTLY
+    `amount` -- called once per NEW billing period from
+    _grant_subscription_credits, right after that same idempotency check.
+    This OVERWRITES (never adds to) whatever was left from the previous
+    cycle -- Ali's 2026-09-27 "use it or lose it" decision for subscription
+    credits specifically. One-time pack purchases and admin grants are a
+    separate, permanent bucket (`credits`, via add_credits/set_credits)
+    and are never touched by this. Isolated call: if the column doesn't
+    exist yet (migration not run), this fails and returns False -- the
+    caller then falls back to the old add-to-permanent-credits behavior,
+    so a failure here must never raise or silently drop a cycle's grant."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    try:
+        body = json.dumps({"subscription_credits": max(0, int(amount))}).encode("utf-8")
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}",
+            data=body,
+            headers={
+                "apikey": SUPABASE_SERVICE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            method="PATCH",
+        )
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[subscription] _set_subscription_credits error (has the profiles.subscription_credits migration been run?): {ex}")
+        return False
 
 
 def _email_for_uid(uid):
@@ -3882,8 +3999,13 @@ def admin_overview(request: Request):
             return []
     profiles = _fetch_rows("profiles", 1000)
     total_users = len(profiles)
-    credits_outstanding = sum(p.get("credits", 0) for p in profiles)
-    paying_users = sum(1 for p in profiles if not p.get("is_guest", True) and p.get("credits", 0) > 150)
+    # Combined total (permanent + subscription_credits, same two buckets as
+    # get_credits) -- subscription_credits is simply absent from each row
+    # until that migration has been run, so `or 0` keeps this correct
+    # either way.
+    _total_balance = lambda p: (p.get("credits") or 0) + (p.get("subscription_credits") or 0)
+    credits_outstanding = sum(_total_balance(p) for p in profiles)
+    paying_users = sum(1 for p in profiles if not p.get("is_guest", True) and _total_balance(p) > 150)
     orders = _fetch_rows("credit_orders", 1000)
     revenue = sum(o.get("credits", 0) for o in orders) / 100.0  # 100 cr = $1
     recent_jobs = _fetch_rows("credit_spends", 20)
@@ -3937,8 +4059,13 @@ async def admin_adjust_credits(request: Request):
         return JSONResponse({"error": "uid and non-zero delta required"}, status_code=400)
     if abs(delta) > 10000:
         return JSONResponse({"error": "delta too large (max 10000)"}, status_code=400)
-    # Update credits
-    current = get_credits(uid) or 0
+    # Update credits. Deliberately reads/writes the PERMANENT bucket only
+    # (_get_permanent_credits / set_credits), never get_credits' combined
+    # total -- a manual admin grant/deduct/set is meant to affect the
+    # user's permanent balance, same as a one-time pack purchase, and must
+    # never silently fold in (or double-count) their separate, expiring
+    # subscription_credits allowance. See get_credits' docstring.
+    current = _get_permanent_credits(uid) or 0
     new_credits = max(0, current + delta)
     if not set_credits(uid, new_credits):
         return JSONResponse({"error": "failed to update credits"}, status_code=500)
