@@ -1055,37 +1055,70 @@ def billing_checkout(payload: dict, request: Request):
     return {"url": session.url}
 
 
+def _get_subscription_plan(plan_key):
+    """Looks up one tier by key from pricing_config's subscriptionPlans
+    array (admin's "Subscription Tiers" table). Falls back to the single
+    legacy plan -- subscriptionName/subscriptionCredits/subscriptionPriceUsd
+    -- whenever plan_key is empty, unrecognized, or the array itself is
+    empty (nothing saved in admin yet), so every existing call site that
+    doesn't pass a plan_key (an old cached frontend, a subscribe link with
+    no query string) keeps working exactly as before this function existed.
+    The fallback's key is "pro_monthly" -- same key as the draft tier of the
+    same name/price already in DEFAULT_SUBSCRIPTION_PLANS -- so a profile
+    stamped via this path is still identifiable as that tier later."""
+    cfg = _get_pricing_config()
+    plans = cfg.get("subscriptionPlans") or []
+    if plan_key:
+        for p in plans:
+            if str(p.get("key") or "").strip().lower() == str(plan_key).strip().lower():
+                return {
+                    "key": p.get("key"),
+                    "name": p.get("name") or "Pro",
+                    "credits": int(p.get("credits_per_month") or 0),
+                    "price_usd": float(p.get("price_usd") or 0),
+                    "voice_slots": int(p.get("voice_slots") or 0),
+                }
+    return {
+        "key": "pro_monthly",
+        "name": cfg.get("subscriptionName") or "Pro Monthly",
+        "credits": int(cfg.get("subscriptionCredits") or 4000),
+        "price_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
+        "voice_slots": 0,
+    }
+
+
 @app.post("/api/billing/subscribe")
-def billing_subscribe(request: Request):
-    """Monthly subscription checkout (Ali's request, 2026-09-26) -- a
-    recurring alternative to the one-time packs above. Uses inline
-    price_data with recurring set, same as billing_checkout's inline
-    price_data, so it never needs a Product/Price pre-created in the Stripe
-    dashboard -- the plan's name/credits/price come from the admin-editable
-    pricing_config (see _get_pricing_config's subscriptionName/
-    subscriptionCredits/subscriptionPriceUsd), same single source of truth
-    as the packs. subscription_data.metadata carries uid so
-    customer.subscription.* webhook events (which never see our uid
-    directly, only Stripe's own ids) can still be tied back to a user
-    immediately, in addition to the stripe_subscription_id we store on
-    profiles once checkout.session.completed fires below."""
+def billing_subscribe(request: Request, plan_key: str = ""):
+    """Monthly subscription checkout (Ali's request, 2026-09-26; generalized
+    to multiple tiers 2026-09-27). Uses inline price_data with recurring
+    set, same as billing_checkout's inline price_data, so it never needs a
+    Product/Price pre-created in the Stripe dashboard. plan_key is an
+    OPTIONAL query param (?plan_key=starter_monthly) -- see
+    _get_subscription_plan's docstring for why omitting it (as every
+    existing caller still does today) is safe and falls back to the single
+    legacy plan. subscription_data.metadata carries uid AND plan_key so
+    customer.subscription.* / invoice.paid webhook events (which never see
+    our uid directly, only Stripe's own ids) can still be tied back to a
+    user and their tier immediately, in addition to the
+    stripe_subscription_id / subscription_plan_key we store on profiles
+    once checkout.session.completed fires below."""
     if not stripe or not STRIPE_SECRET_KEY:
         return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required to subscribe."}, status_code=401)
-    cfg = _get_pricing_config()
-    plan_name = cfg.get("subscriptionName") or "Pro Monthly"
-    plan_credits = int(cfg.get("subscriptionCredits") or 4000)
-    plan_price = float(cfg.get("subscriptionPriceUsd") or 29.0)
+    plan = _get_subscription_plan(plan_key)
+    plan_name = plan["name"]
+    plan_credits = plan["credits"]
+    plan_price = plan["price_usd"]
     stripe.api_key = STRIPE_SECRET_KEY
     origin = str(request.base_url).rstrip("/")
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
             client_reference_id=uid,
-            metadata={"uid": uid, "credits": str(plan_credits)},
-            subscription_data={"metadata": {"uid": uid, "credits": str(plan_credits)}},
+            metadata={"uid": uid, "credits": str(plan_credits), "plan_key": plan["key"]},
+            subscription_data={"metadata": {"uid": uid, "credits": str(plan_credits), "plan_key": plan["key"]}},
             line_items=[{
                 "price_data": {
                     "currency": "usd",
@@ -1345,7 +1378,8 @@ async def stripe_webhook(request: Request):
                 # subscription checkout never double-grants.
                 sub_id = session.get("subscription") or ""
                 cust_id = session.get("customer") or ""
-                print("[stripe-webhook] subscription checkout uid=", uid, "sub=", sub_id, "customer=", cust_id)
+                plan_key = (session.get("metadata") or {}).get("plan_key") or ""
+                print("[stripe-webhook] subscription checkout uid=", uid, "sub=", sub_id, "customer=", cust_id, "plan_key=", plan_key)
                 if uid and sub_id:
                     _set_subscription_fields(
                         uid,
@@ -1353,6 +1387,8 @@ async def stripe_webhook(request: Request):
                         stripe_subscription_id=sub_id,
                         stripe_customer_id=cust_id,
                     )
+                    if plan_key:
+                        _set_subscription_plan_key(uid, plan_key)
             else:
                 credits = int((session.get("metadata") or {}).get("credits", 0))
                 print("[stripe-webhook] uid=", uid, "credits=", credits)
@@ -1370,6 +1406,7 @@ async def stripe_webhook(request: Request):
             sub_id = invoice.get("subscription") or ""
             invoice_id = invoice.get("id") or ""
             uid = _uid_for_subscription(sub_id) if sub_id else None
+            plan_key = ""
             if not uid and sub_id:
                 # Stripe doesn't guarantee checkout.session.completed (which
                 # is what normally stores stripe_subscription_id on the
@@ -1384,6 +1421,7 @@ async def stripe_webhook(request: Request):
                     stripe.api_key = STRIPE_SECRET_KEY
                     sub_obj = stripe.Subscription.retrieve(sub_id)
                     uid = (sub_obj.get("metadata") or {}).get("uid")
+                    plan_key = (sub_obj.get("metadata") or {}).get("plan_key") or ""
                     if uid:
                         _set_subscription_fields(
                             uid,
@@ -1391,11 +1429,23 @@ async def stripe_webhook(request: Request):
                             stripe_subscription_id=sub_id,
                             stripe_customer_id=sub_obj.get("customer") or "",
                         )
+                        if plan_key:
+                            _set_subscription_plan_key(uid, plan_key)
                 except Exception as e:
                     print("[stripe-webhook] subscription metadata fallback failed:", e)
-            print("[stripe-webhook] invoice.paid sub=", sub_id, "uid=", uid)
+            print("[stripe-webhook] invoice.paid sub=", sub_id, "uid=", uid, "plan_key=", plan_key)
             if uid:
-                credits = int(_get_pricing_config().get("subscriptionCredits") or 4000)
+                # Normal path (uid found via the profile lookup, not the
+                # Stripe-metadata fallback above): plan_key is still "" here,
+                # so read the tier we stamped on the profile at checkout --
+                # this is what makes every RENEWAL grant the right tier's
+                # credits, not just the first invoice. Falls back to the
+                # legacy flat plan automatically if the column isn't there
+                # yet or the profile has no plan_key (pre-existing
+                # subscriber from before tiers existed).
+                if not plan_key:
+                    plan_key = _get_profile_plan_key(uid)
+                credits = _get_subscription_plan(plan_key)["credits"]
                 res = _grant_subscription_credits(uid, invoice_id, credits)
                 print("[stripe-webhook] subscription credit grant result:", res)
         elif etype in ("customer.subscription.updated", "customer.subscription.created"):
@@ -1607,6 +1657,60 @@ def _set_subscription_fields(uid, **fields):
     except Exception as ex:
         print(f"[subscription] _set_subscription_fields error: {ex}")
         return False
+
+
+def _set_subscription_plan_key(uid, plan_key):
+    """Best-effort PATCH of just profiles.subscription_plan_key -- kept
+    deliberately SEPARATE from _set_subscription_fields() above, not merged
+    into one call, because PostgREST rejects an entire PATCH if any key in
+    its JSON body doesn't match a real column. Bundling this new field into
+    the main call would mean a subscriber's subscription_status /
+    stripe_subscription_id / stripe_customer_id silently fail to save too,
+    on every checkout, until the `ALTER TABLE profiles ADD COLUMN
+    subscription_plan_key text;` migration has actually been run -- keeping
+    it isolated means the core activation always succeeds regardless of
+    migration timing; only the tier tagging (and therefore which credit
+    amount later renewals grant -- see _get_profile_plan_key) waits on it."""
+    if not uid or not plan_key or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    body = json.dumps({"subscription_plan_key": plan_key}).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[subscription] _set_subscription_plan_key error (has the profiles.subscription_plan_key migration been run yet?): {ex}")
+        return False
+
+
+def _get_profile_plan_key(uid):
+    """Reads profiles.subscription_plan_key for one user -- lets invoice.paid
+    grant the correct tier's credits on every RENEWAL, not just the first
+    checkout (where the plan_key is already in hand from Stripe metadata).
+    Returns "" on any failure, including the column not existing yet, which
+    makes _get_subscription_plan("") fall back to the single legacy plan --
+    i.e. exactly today's behavior -- so this is safe to call before the
+    migration has been run."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return ""
+    import urllib.request as _ur
+    try:
+        req = _ur.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_plan_key",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with _ur.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return (rows[0].get("subscription_plan_key") or "") if rows else ""
+    except Exception:
+        return ""
 
 
 def _grant_subscription_credits(uid, invoice_id, credits):
@@ -3898,6 +4002,13 @@ def billing_packs_dynamic():
             "credits": int(cfg.get("subscriptionCredits") or 4000),
             "amount_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         },
+        # Draft multi-tier plans (admin's "Subscription Tiers" table) --
+        # exposed here too, additively, so the upcoming dedicated /pricing
+        # page (not built yet) has a real endpoint to fetch tiers from the
+        # moment it exists, without another backend change. Nothing reads
+        # this key yet; "subscription" above is still what today's buy
+        # modal actually uses.
+        "subscriptionPlans": cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS,
     }, headers={"Cache-Control": "no-cache"})
 
 @app.post("/api/contact")
