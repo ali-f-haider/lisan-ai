@@ -2088,9 +2088,9 @@ def _all_saved_voice_ids():
     return [row.get("elevenlabs_voice_id") for row in rows if row.get("elevenlabs_voice_id")]
 
 
-def _authorize_new_clones(uid, num_new):
-    """Central gate for creating NEW ElevenLabs cloned voices -- shared by
-    /api/clone (can create several at once, one per speaker) and
+def _authorize_new_clones(uid, num_new, engine="elevenlabs"):
+    """Central gate for creating NEW cloned voices -- shared by /api/clone
+    (can create several at once, one per speaker) and
     /api/upload_custom_voice (always exactly one). Voice cloning is
     subscription-only (Ali's 2026-09-27 decision: the account's own
     cloning quota is a shared, limited resource that can no longer be
@@ -2104,7 +2104,18 @@ def _authorize_new_clones(uid, num_new):
     Fails CLOSED on every uncertainty (no active subscription, can't count
     existing saved voices, can't reach the real ElevenLabs quota) -- the
     entire point of this gate is to stop over-promising a shared resource,
-    so an unknown state must block a clone, never silently allow it."""
+    so an unknown state must block a clone, never silently allow it.
+
+    `engine` -- which engine will actually create this clone (from the
+    caller's own _active_voice_engine() call, resolved BEFORE calling this
+    gate). Only used to decide whether the ElevenLabs account-wide quota
+    check below applies at all: it's ElevenLabs' own shared quota, so it
+    has nothing to do with a clone that's actually going to be created via
+    Inworld. Before this parameter existed the check ran unconditionally,
+    so once ElevenLabs' shared quota was exhausted it also blocked
+    Inworld cloning even though Inworld hadn't used any of that quota --
+    caught 2026-09-27 while Ali was testing Inworld cloning right after
+    ElevenLabs' shared limit was hit."""
     if not uid:
         return False, "Please log in to clone or upload a voice."
     if not _subscription_active(uid):
@@ -2140,13 +2151,17 @@ def _authorize_new_clones(uid, num_new):
     # reads the cached poll (service_usage_monitor), refreshed every ~20
     # minutes, not a live call -- see that module's docstring; good enough
     # for "are we basically out", not meant to be exact to the unit.
-    eleven = service_usage_monitor.get_eleven_cached()
-    if eleven.get("ok"):
-        used_ops = eleven.get("clone_ops_used")
-        limit_ops = eleven.get("clone_ops_limit")
-        if used_ops is not None and limit_ops:
-            if (limit_ops - used_ops) < num_new:
-                return False, "We've hit our voice-cloning provider's shared monthly limit across all users. Please try again after the reset, or contact support."
+    # Only applies when ElevenLabs is actually the engine about to create
+    # this clone -- Inworld cloning never touches ElevenLabs' quota at
+    # all, so this must not block it (see this function's docstring).
+    if engine == "elevenlabs":
+        eleven = service_usage_monitor.get_eleven_cached()
+        if eleven.get("ok"):
+            used_ops = eleven.get("clone_ops_used")
+            limit_ops = eleven.get("clone_ops_limit")
+            if used_ops is not None and limit_ops:
+                if (limit_ops - used_ops) < num_new:
+                    return False, "We've hit our voice-cloning provider's shared monthly limit across all users. Please try again after the reset, or contact support."
     return True, plan
 
 
@@ -2939,14 +2954,16 @@ def clone(req: CloneRequest, request: Request):
     speakers_requested = list(set(s.speaker for s in req.segments if (s.text or "").strip()))
     if req.speakers_to_clone:
         speakers_requested = [s for s in speakers_requested if s in req.speakers_to_clone]
-    ok, plan_or_error = _authorize_new_clones(uid, len(speakers_requested) or 1)
+    # Which engine will actually create these clones -- resolved BEFORE the
+    # authorize gate (used to be after) so the gate's ElevenLabs shared-quota
+    # check only applies when ElevenLabs is actually the engine being used;
+    # also feeds the cost check below so it uses THIS engine's own rate, not
+    # always ElevenLabs' cloneCredits.
+    engine = _active_voice_engine()
+    ok, plan_or_error = _authorize_new_clones(uid, len(speakers_requested) or 1, engine=engine)
     if not ok:
         return JSONResponse({"error": plan_or_error}, status_code=402)
     bal = get_credits(uid) if uid else None
-    # Which engine will actually create these clones -- resolved BEFORE the
-    # cost check now (used to be after) so the price check/charge below uses
-    # THIS engine's own rate, not always ElevenLabs' cloneCredits.
-    engine = _active_voice_engine()
     cfg = _get_pricing_config()
     clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
     if clone_cost <= 0:
@@ -3456,7 +3473,13 @@ def download_voice_sample(job_id: str, speaker: str):
 async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "login required"}, status_code=401)
-    ok, plan_or_error = _authorize_new_clones(uid, 1)
+    # Which engine will actually create this voice -- resolved BEFORE the
+    # authorize gate (used to be after) so the gate's ElevenLabs shared-quota
+    # check only applies when ElevenLabs is actually the engine being used;
+    # also feeds the cost check below so it uses THIS engine's own rate --
+    # same reasoning as /api/clone above.
+    engine = _active_voice_engine()
+    ok, plan_or_error = _authorize_new_clones(uid, 1, engine=engine)
     if not ok:
         return JSONResponse({"error": plan_or_error}, status_code=402)
     nm = (file.filename or "").lower()
@@ -3469,10 +3492,6 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     # price (cloneCredits). Checked up front so a low balance is rejected
     # before spending the ElevenLabs quota; actually deducted only after the
     # voice is created, so a rejected/too-long clip never gets charged.
-    # Resolved before the cost check now (used to be right after) so the
-    # price check/charge below uses THIS engine's own rate -- same reasoning
-    # as /api/clone above.
-    engine = _active_voice_engine()
     cfg = _get_pricing_config()
     clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
     if clone_cost <= 0:
