@@ -176,7 +176,16 @@
         </table>
     </div>
     <br>
-    <button class="orange" onclick="confirmCloning()">Clone Selected Voices<span class="badge" id="badgeClone"></span></button>
+    <button class="orange" id="cloneSelectedBtn" onclick="confirmCloning()">Clone Selected Voices<span class="badge" id="badgeClone"></span></button>
+    <div id="cloneProgress" class="hidden" style="margin-top:10px;">
+        <div style="display:flex;justify-content:center;">
+            <picture>
+                <source srcset="/static/loading-spinner.webp" type="image/webp">
+                <img src="/static/loading-spinner.gif" alt="" id="cloneLoadingAnim" style="width:70px;height:70px;display:block;">
+            </picture>
+        </div>
+        <p class="progress-status" id="cloneProgressText">Cloning voice(s)... this may take a minute.</p>
+    </div>
     <div id="cloneResultsBox" style="margin-top:10px;"></div>
 </div>
 

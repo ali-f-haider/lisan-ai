@@ -11,6 +11,26 @@ def run_ffmpeg(cmd):
         raise Exception(error_message)
 
 
+def get_video_resolution(file_path: Path):
+    """Returns (width, height) of the first video stream, or None if it
+    can't be read (missing file, audio-only file, corrupt stream, etc --
+    callers should treat None as "unknown" and fall back to a safe
+    default rather than raising)."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=s=x:p=0",
+        str(file_path)
+    ]
+    try:
+        result = subprocess.check_output(cmd, timeout=30).decode().strip()
+        w, h = result.split("x")
+        return int(w), int(h)
+    except Exception:
+        return None
+
+
 def get_media_duration(file_path: Path) -> float:
     cmd = [
         "ffprobe", "-v", "error",

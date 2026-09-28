@@ -1665,9 +1665,27 @@ async function autoAssignVoices() {
 }
 async function confirmCloning() {
     if (!currentJobId) { notify("error", "Transcribe first."); return; }
+    const allCheckboxes = [...document.querySelectorAll("#cloneAnalysisTable input[type=checkbox]")];
     const selected = [];
-    document.querySelectorAll("#cloneAnalysisTable input[type=checkbox]").forEach(cb => { if (cb.checked) selected.push(cb.dataset.speaker); });
+    allCheckboxes.forEach(cb => { if (cb.checked) selected.push(cb.dataset.speaker); });
     if (!selected.length) { notify("error", "Select at least one speaker to clone."); return; }
+
+    // Re-clone confirmation (Ali's request, 2026-09-28): re-cloning an
+    // already-cloned speaker spends credits/quota/a slot again for no
+    // reason if it was an accidental re-click, so ask first. This only
+    // catches speakers cloned THIS session (clonedBySpeaker) -- it can't
+    // know about a speaker already covered by a saved voice picked from
+    // the library, which is a deliberate, different choice made in Step 4.
+    const alreadyCloned = selected.filter(sp => clonedBySpeaker[sp]);
+    if (alreadyCloned.length) {
+        const already = alreadyCloned.length === 1 ? `${alreadyCloned[0]} is` : `${alreadyCloned.join(", ")} are`;
+        if (!confirm(`${already} already cloned. Clone again anyway? This creates a new clone and spends credits/quota again.`)) return;
+    }
+
+    const btn = document.getElementById("cloneSelectedBtn");
+    const spinner = document.getElementById("cloneProgress");
+    if (btn) btn.disabled = true;
+    if (spinner) spinner.classList.remove("hidden");
     notify("info", `Cloning ${selected.length} voice(s)... this may take a minute.`);
     try {
         const res = await fetch("/api/clone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, speakers_to_clone: selected }) });
@@ -1695,6 +1713,15 @@ async function confirmCloning() {
         notify("success", `Voices cloned successfully! ${ok} speaker(s) assigned to their cloned voices.`);
         (data.warnings || []).forEach(w => notify("info", "⚠️ " + w));
     } catch (e) { notify("error", e.message); }
+    finally {
+        if (spinner) spinner.classList.add("hidden");
+        // Only reactivate the button if some speaker in the table still has
+        // no cloned voice -- if everyone's already cloned, leave it
+        // disabled (nothing left to do without triggering the confirm()
+        // above anyway).
+        const stillUncloned = allCheckboxes.some(cb => cb.dataset.speaker && !clonedBySpeaker[cb.dataset.speaker]);
+        if (btn) btn.disabled = !stillUncloned;
+    }
 }
 async function autoTranslate() {
     const unlocked = segmentsData.filter(s => !s.locked);
@@ -3051,6 +3078,10 @@ function resetWorkspace() {
     speakerVoiceNames = {};
     clonedBySpeaker = {};
     isVideoUpload = false;
+    var cloneBtnReset = document.getElementById("cloneSelectedBtn");
+    if (cloneBtnReset) cloneBtnReset.disabled = false;
+    var cloneSpinnerReset = document.getElementById("cloneProgress");
+    if (cloneSpinnerReset) cloneSpinnerReset.classList.add("hidden");
     // NOTE: voicePools / availableVoices are kept on purpose —
     // they are your account-level studio library, not job data.
 

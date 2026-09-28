@@ -14,8 +14,8 @@ from config import OUTPUT_DIR, LIPSYNC_TEST_MODE
 from app_state import jobs_progress
 from ffmpeg_utils import (
     compress_video_for_upload,
+    get_video_resolution,
     mix_two_audio,
-    mute_video_copy,
     mux_audio_into_video,
 )
 from media_paths import find_job_video, job_background_audio, job_reference_images
@@ -315,7 +315,6 @@ Change the lighting
 Change the choreography
 Add or remove actions
 Add new characters
-Change the audio in any way
 Add music
 Add subtitles
 Add captions
@@ -323,6 +322,29 @@ Add text on screen
 Add visual effects
 
 The reference video is already the finished scene. Treat it as locked. The desired output is the SAME VIDEO with lips and mouth movements matching the provided Arabic audio instead of the original English audio."""
+
+
+# Wan 3.0's "resolution" parameter is an explicit output-size override, not
+# something the model infers from the reference video -- confirmed against
+# Alibaba's own docs (the "ratio" parameter only controls aspect ratio/
+# orientation via "adaptive", it has nothing to do with pixel dimensions).
+# This code used to hardcode "720P" regardless of the source video's own
+# resolution, so a source under 720p (common for older/compressed clips)
+# came back from Wan 3.0 upscaled to 720p -- a genuinely higher resolution
+# than the original, which is exactly what Ali noticed. Picking the closest
+# of the model's 3 supported tiers (480P/720P/1080P) to the actual source
+# keeps the output from being upscaled past what the source really has.
+def _wan3_resolution_tier(video_path: Path) -> str:
+    res = get_video_resolution(video_path)
+    if res is None:
+        return "720P"  # unknown source resolution: keep the previous default
+    width, height = res
+    long_edge = max(width, height)
+    if long_edge < 960:      # below halfway between 480p's 854 and 720p's 1280
+        return "480P"
+    if long_edge < 1600:     # below halfway between 720p's 1280 and 1080p's 1920
+        return "720P"
+    return "1080P"
 
 
 def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None):
@@ -338,19 +360,18 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
     audio_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_audio.mp3"
 
     progress["message"] = "Staging files for lip-sync..."
-    # Strip the reference video's own (original-language) audio before
-    # staging it -- see mute_video_copy's docstring. Best-effort: if muxing
-    # fails for any reason, fall back to the original file rather than
-    # failing the whole lip-sync job over this.
-    muted_video_path = OUTPUT_DIR / f"lipsync_muted_{job_id}.mp4"
-    try:
-        mute_video_copy(upload_path, muted_video_path)
-        video_to_stage = muted_video_path
-    except Exception as mute_err:
-        print(f"[lipsync] WARNING: could not mute reference video for {job_id}, staging it with audio intact: {mute_err}")
-        muted_video_path = None
-        video_to_stage = upload_path
-    video_url = r2_backup.upload_temp_and_get_url(video_to_stage, video_key)
+    # Reverted 2026-09-28 (Ali): the 2026-09-27 change staged a MUTED copy of
+    # the reference video here, on the theory that its original-language
+    # audio track was leaking into the output alongside the Arabic dub.
+    # Ali tested it and the result didn't work at all (worse than the
+    # mixed-language result the mute was meant to fix), so back to staging
+    # the video with its original audio intact. Instead trying: removing
+    # "Change the audio in any way" from the prompt's ABSOLUTELY DO NOT list
+    # below, on the theory that line may have been over-constraining the
+    # model. See mute_video_copy in ffmpeg_utils.py if muting needs
+    # revisiting later -- the function itself was left in place, just
+    # unused here now.
+    video_url = r2_backup.upload_temp_and_get_url(upload_path, video_key)
     if not video_url:
         raise Exception("Could not stage the video for the lip-sync provider (R2 storage not configured, or the upload failed).")
     audio_url = r2_backup.upload_temp_and_get_url(audio_path, audio_key)
@@ -386,7 +407,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
                 ],
             },
             "parameters": {
-                "resolution": "720P",
+                "resolution": _wan3_resolution_tier(upload_path),
                 "ratio": "adaptive",
                 # -1 = auto: preserves the reference video's own duration
                 # instead of us having to compute/pass one.
@@ -453,11 +474,6 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
         r2_backup.delete_temp_object(audio_key)
         for img_key in image_keys:
             r2_backup.delete_temp_object(img_key)
-        if muted_video_path is not None:
-            try:
-                muted_video_path.unlink()
-            except Exception:
-                pass
 
 
 # UI/UX test double for the real provider calls above -- see
