@@ -19,6 +19,18 @@ from ffmpeg_utils import (
 from media_paths import resolve_job_audio
 
 eleven_client = None
+# ElevenLabs TTS model used for every real generation call below (Arabic
+# dubbing output + the admin "Compare Voice Providers" sample). Upgraded
+# from eleven_v3 to eleven_v4 on 2026-09-28 (Ali's request, day of the v4
+# launch) -- ElevenLabs' own docs describe v4 as strictly better across
+# quality/accuracy/consistency/emotion/delivery/audio-tags/language
+# coverage than v3, same audio-tag syntax (still plain [bracketed] text
+# prepended to the line, nothing in this file's tag-building code needs to
+# change), and PVCs/IVCs both fully supported. One named constant instead
+# of the model id hardcoded separately at each call site, specifically so
+# the next model upgrade is a one-line change instead of a grep-and-hope
+# across the file.
+TTS_MODEL_ID = "eleven_v4"
 USER_GAINS = {}
 OVERLAP_FLAGS = {}  # segment_id -> True: this line may be talked over (intruders not faded)  # job_id -> {segment_id: extra dB from Step 5.5 sliders}
 DEAD_SPACE_FLAGS = {}  # segment_id -> True: this line may stretch into the silent gap before the next line's original start (or, for the last line, to the end of the audio) instead of fading at its own original end
@@ -384,8 +396,19 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                     if concat_file != sample_path:
                         concat_file.replace(sample_path)
                     concat_file = None  # prevent the cleanup below from deleting it
-                except Exception:
-                    pass
+                except Exception as _sample_err:
+                    # Was a silent `pass` -- meaning a failure here left NO
+                    # trace anywhere, and the finally block below still went on
+                    # to delete concat_file (since it's not None on this path),
+                    # so the user's clone succeeded but the downloadable sample
+                    # silently vanished with nothing in the logs to explain why
+                    # (caught 2026-09-28: Ali got a real "voice sample no longer
+                    # available" 404 on the Inworld side of this same pattern,
+                    # see inworld_service.clone_voices). Logging it doesn't fix
+                    # the underlying cause (unknown yet), but it's the
+                    # difference between being able to diagnose the next
+                    # occurrence from Railway's logs versus not.
+                    print(f"[voice-clone] WARNING: could not save downloadable reference sample for {speaker} (job {job_id}): {_sample_err}")
             else:
                 raise Exception(f"API error {response.status}: {response.data.decode(errors='ignore')}")
         except Exception as e:
@@ -508,7 +531,7 @@ def generate_worker(req):
                         eleven_client = ElevenLabs(api_key=api_key)
                     tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
                     bucket["eleven_chars"] += len(tts_text)
-                    response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
+                    response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
                     audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
                     raw_filename = f"{seg.segment_id}_raw.mp3"
             raw_path = OUTPUT_DIR / raw_filename
@@ -754,7 +777,7 @@ def regenerate_line(req):
                 eleven_client = ElevenLabs(api_key=api_key)
             tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
             bucket["eleven_chars"] += len(tts_text)
-            response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
+            response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
             audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)
         raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
         raw_path.write_bytes(audio_bytes)
@@ -978,7 +1001,7 @@ def delete_voice(voice_id: str, api_key: str) -> dict:
 def generate_sample(voice_id: str, text: str, api_key: str) -> bytes:
     """Minimal one-off TTS call: given a voice_id and plain text, returns
     the generated audio bytes. Same model/language as the real dubbing
-    pipeline (see generate_worker's eleven_v3 + language_code='ar' call)
+    pipeline (see generate_worker's TTS_MODEL_ID + language_code='ar' call)
     so the admin comparison tool is a fair, representative test -- but
     this bypasses all of the dubbing-specific machinery (timing, mixing,
     emotion-tag lookup, credit accounting). Only used by the admin
@@ -986,7 +1009,7 @@ def generate_sample(voice_id: str, text: str, api_key: str) -> bytes:
     global eleven_client
     if eleven_client is None:
         eleven_client = ElevenLabs(api_key=api_key)
-    response = eleven_client.text_to_speech.convert(text=text, voice_id=voice_id, model_id="eleven_v3", language_code="ar")
+    response = eleven_client.text_to_speech.convert(text=text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
     return response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
 
 

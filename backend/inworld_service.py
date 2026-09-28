@@ -43,7 +43,7 @@ tags of Inworld"): there is no fixed, closed enum to fully enumerate here --
 inworld-tts-2 interprets ANY reasonable free-form natural-language
 instruction in brackets, not a fixed tag vocabulary the way this dict might
 suggest. _INSTRUCTION_PHRASES below covers two things: (1) a phrasing for
-every word in this app's own 48-word canonical vocabulary (config.
+every word in this app's own 52-word canonical vocabulary (config.
 CANONICAL_EMOTIONS), and (2) INWORLD_EXTRA_TAGS -- the specific additional
 non-verbal/prosody examples named in Inworld's docs and confirmed via their
 support bot (laugh, sigh, clear throat, yawn, very fast, very quiet, high
@@ -138,6 +138,15 @@ _INSTRUCTION_PHRASES = {
     "curious": "sound curious",
     "deadpan": "say this in a flat, deadpan tone",
     "tired": "sound tired",
+    # ---- non-verbal human sounds (2026-09-28, Ali's request) ----
+    # Added to config.CANONICAL_EMOTIONS alongside the ElevenLabs-side
+    # bracket-tag fix -- every canonical word needs an entry here too, or
+    # Inworld requests using these would silently get no instruction at
+    # all (falling through _INSTRUCTION_PHRASES.get(p, "") to "").
+    "sneezing": "sneeze",
+    "coughing": "cough",
+    "sighing": "sigh",
+    "gasping": "gasp",
 
     # ---- Inworld-only extras (NOT part of config.CANONICAL_EMOTIONS) ----
     # Concrete non-verbal/prosody examples named in Inworld's own docs and
@@ -399,8 +408,17 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                     if concat_file != sample_path:
                         concat_file.replace(sample_path)
                     concat_file = None
-                except Exception:
-                    pass
+                except Exception as _sample_err:
+                    # Was a silent `pass` -- caught 2026-09-28 after Ali cloned
+                    # "abu safwan"/"safwan" successfully but got a 404 "voice
+                    # sample no longer available" on Download. With this
+                    # swallowed silently, there was no way to tell whether the
+                    # rename genuinely failed here or something unrelated (e.g.
+                    # Railway's ephemeral filesystem losing the file between
+                    # requests) deleted it afterward. Logging it doesn't fix the
+                    # underlying cause by itself, but the next occurrence will
+                    # show up in Railway's logs instead of vanishing silently.
+                    print(f"[inworld-clone] WARNING: could not save downloadable reference sample for {speaker} (job {job_id}): {_sample_err}")
             except Exception as e:
                 cloned_voices[speaker] = f"ERROR: {_http_error_detail(e)}"
         except Exception as e:

@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.42.0"
+APP_VERSION = "1.43.0"
 
 
 def _load_env():
@@ -177,6 +177,14 @@ CANONICAL_EMOTIONS = [
     # --- additional distinct emotional nuances ---
     "sorrowful", "frustrated", "annoyed", "appalled", "awe", "regretful",
     "resigned", "curious", "deadpan", "tired",
+    # --- non-verbal human sounds (2026-09-28, Ali's request) --
+    # ElevenLabs' own v3 audio-tags guide gives [coughing]/[gasps]/[sighs]
+    # as real, working examples alongside [laughs] -- "crying"/"laughing"
+    # were already on this list, these four were the gap. Free-form tags
+    # work with ElevenLabs regardless of this list (it's not a fixed API
+    # enum, it's app.js's sanitizeStyle() whitelist that was blocking
+    # them), so this is what actually makes them usable in the app.
+    "sneezing", "coughing", "sighing", "gasping",
 ]
 
 EMOTION_SYNONYMS = {
@@ -206,6 +214,10 @@ EMOTION_SYNONYMS = {
     "reflective": "thoughtful", "pensive": "thoughtful",
     "begging": "pleading", "imploring": "pleading",
     "authoritative": "commanding", "bossy": "commanding",
+    "sneeze": "sneezing", "sneezes": "sneezing",
+    "cough": "coughing", "coughs": "coughing",
+    "sigh": "sighing", "sighs": "sighing",
+    "gasp": "gasping", "gasps": "gasping",
     # --- pacing / delivery speed ---
     "slow": "slowly", "drawn-out": "drawn out", "elongated": "drawn out",
     "lingering": "drawn out", "hurried": "rushed", "hasty": "rushed",

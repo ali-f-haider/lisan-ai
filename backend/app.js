@@ -1,7 +1,7 @@
-const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding","slowly","rushed","drawn out","hesitant","stammering","softly","booming","sorrowful","frustrated","annoyed","appalled","awe","regretful","resigned","curious","deadpan","tired"];
+const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding","slowly","rushed","drawn out","hesitant","stammering","softly","booming","sorrowful","frustrated","annoyed","appalled","awe","regretful","resigned","curious","deadpan","tired","sneezing","coughing","sighing","gasping"];
 // Inworld-only "extra" tags (added 2026-09-27) -- concrete non-verbal/prosody
 // examples named in Inworld's own "Prompting for TTS-2" docs and confirmed
-// via their support bot, that aren't part of the shared 48-word canonical
+// via their support bot, that aren't part of the shared 52-word canonical
 // vocabulary above (kept in sync by hand with inworld_service.py's
 // INWORLD_EXTRA_TAGS / _INSTRUCTION_PHRASES). There's no fixed enum Inworld
 // actually enforces -- inworld-tts-2 interprets any reasonable free-form
@@ -1565,7 +1565,7 @@ async function autoTranslate() {
 function sanitizeStyle(v) {
     const parts = String(v || "").toLowerCase().split(/[,+\/;]| and /).map(s => s.trim()).filter(Boolean);
     const kept = [];
-    // Whitelist is the shared 48-word vocabulary PLUS Inworld's extra
+    // Whitelist is the shared 52-word vocabulary PLUS Inworld's extra
     // non-verbal/prosody tags (see INWORLD_EXTRA_TAGS above) -- accepted
     // regardless of which engine is currently active so a manually-typed
     // tag never gets silently stripped just because the dropdown wasn't
