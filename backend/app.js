@@ -1699,10 +1699,17 @@ async function confirmCloning() {
             const vid = cloned[speaker];
             if (!vid.startsWith("ERROR")) {
                 clonedBySpeaker[speaker] = vid; speakerChoices[speaker] = "clone"; window.clonedVoiceIds.push(vid); applyChoice(speaker); ok++;
+                // No download link here (Ali's request, 2026-09-28): the
+                // sample was only ever the raw reference clip used to CREATE
+                // the clone, not the clone itself, so a download of it never
+                // let anyone actually reuse the voice -- it just looked like
+                // it did. Real reuse is the saved-voice library (Account >
+                // Voices, and the "saved:" options renderSpeakerVoices below
+                // adds to Step 4's dropdown), which is the clone itself,
+                // still live on the voice engine's own servers.
                 resultsHtml += "<div style='display:flex;align-items:center;gap:10px;padding:6px 0;flex-wrap:wrap;'>"
                     + "<span>✅ " + speaker + " cloned.</span>"
-                    + "<a href='/api/download_voice_sample/" + encodeURIComponent(currentJobId) + "/" + encodeURIComponent(speaker) + "' download><button type='button' class='btn-sm' style='cursor:pointer;'>⬇ Download voice sample</button></a>"
-                    + "<span class='note'>(This is just the reference clip -- your cloned voice itself is already saved to your account. The clip is not kept after this session; download it now if you want a copy.)</span>"
+                    + "<span class='note'>(Saved to your account -- reuse it for a future project from its voice dropdown, no need to re-clone.)</span>"
                     + "</div>";
             }
             else notify("error", speaker + ": " + vid);
@@ -2513,13 +2520,26 @@ async function analyzeSpeakers() {
 async function renderSpeakerVoices() {
     var tbody = document.querySelector("#speakerVoicesTable tbody");
     if (!tbody) return;
-    tbody.innerHTML = "";
     var names = [];
     var seen = {};
     segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
-    if (!names.length) return;
+    if (!names.length) { tbody.innerHTML = ""; return; }
     var hasPools = voicePools.male.length > 0 || voicePools.female.length > 0;
     if (!hasPools) await ensureVoicePools();
+    // Clear right here, immediately before building rows -- NOT at the top
+    // of the function (that was the actual bug: this function is async and
+    // can be re-entered while an earlier call is still awaiting
+    // ensureVoicePools() just above; two overlapping calls each clearing at
+    // the top but appending afterward could both end up appending their own
+    // full row set to the same <tbody>, doubling every speaker's row).
+    // Clearing immediately before this synchronous loop means clear+fill
+    // always happens as one uninterrupted unit, so whichever call gets here
+    // last always leaves a single, clean set of rows -- confirmed via a full
+    // read of this function's call sites, several of which fire close
+    // enough together (renderTable(); renderSpeakerVoices(); pairs, an
+    // onchange handler that calls this again, etc.) to race under the old
+    // clear-before-await ordering.
+    tbody.innerHTML = "";
     names.forEach(function(name) {
         var row = document.createElement("tr");
         var c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);

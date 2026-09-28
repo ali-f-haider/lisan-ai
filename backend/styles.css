@@ -217,7 +217,7 @@ body.ui-new button.blue,
 body.ui-new button.orange,
 body.ui-new button.purple,
 body.ui-new button.pink {
-    background: #ffffff;
+    background: var(--card);
     color: var(--text);
     border: 1px solid var(--border);
 }
@@ -229,13 +229,69 @@ body.ui-new button.pink:hover {
     background: var(--muted-surface);
 }
 body.ui-new button.red {
-    background: #FEF2F2;
+    background: var(--notify-error-bg);
     color: var(--error);
-    border: 1px solid #FCA5A5;
+    border: 1px solid var(--error);
 }
-body.ui-new button.red:hover { background: #FEE2E2; }
+body.ui-new button.red:hover { background: var(--notify-error-bg); filter: brightness(0.95); }
 body.ui-new a { color: var(--accent); }
 body.ui-new .download-buttons a.blue { background: var(--primary); }
+
+/* ===== New style + dark mode combined (2026-09-28 fix) =====
+   THE BUG: body.dark {...} and body.ui-new {...} above are both single-class
+   selectors with EQUAL CSS specificity, so when <body> has both classes at
+   once, the plain cascade rule "later in the file wins" applies -- and
+   body.ui-new is written AFTER body.dark, so its (light) variable values
+   silently overrode every one of dark mode's values. That's why the
+   dark/light toggle looked like it "did nothing" while the New style was
+   active -- it WAS switching the class, dark mode's CSS just never got a
+   chance to apply on top of it.
+   THE FIX: a doubly-qualified body.dark.ui-new selector has HIGHER
+   specificity (two classes) than either single-class rule, so the cascade
+   picks it over both automatically -- no more depending on source order.
+   It restates every variable body.ui-new sets above, with a dark-appropriate
+   value, so New style keeps its flatter/calmer structural feel (borders
+   instead of shadows, no gradients) while actually going dark. --primary/
+   --primary-light intentionally match classic dark mode's own indigo tones
+   (not an inverted near-white) because button text color is a hardcoded
+   #fff in the base `button` rule, not a variable -- reusing dark mode's
+   already-proven-legible button color keeps white button text readable
+   without introducing a second color variable just for this. */
+body.dark.ui-new {
+    --bg: #0A0A0A;
+    --card: #18181B;
+    --primary: #4c56c4;
+    --primary-light: #5b66d6;
+    --primary-fg: #a5b4fc;
+    --primary-light-fg: #c7d2fe;
+    --accent: #60a5fa;
+    --text: #F4F4F5;
+    --text-muted: #A1A1AA;
+    --border: #27272A;
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --error: #f87171;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-lg: 0 12px 24px -8px rgba(0,0,0,0.55);
+    --muted-surface: #202023;
+    --input-bg: #202023;
+    --locked-bg: rgba(217,119,6,0.22);
+    --notify-info-bg: rgba(244,244,245,0.08);
+    --notify-info-fg: #E4E4E7;
+    --notify-success-bg: rgba(74,222,128,0.14);
+    --notify-success-fg: #86efac;
+    --notify-error-bg: rgba(248,113,113,0.14);
+    --notify-error-fg: #fca5a5;
+    --mobile-box-bg: #18181B;
+    --userbar-bg: #18181B;
+    --credits-badge-bg: #202023;
+    --credits-badge-border: #27272A;
+    --logout-bg: #202023;
+    --logout-hover-bg: #27272A;
+    --credits-info-bg: rgba(74,222,128,0.1);
+    --credits-info-border: rgba(74,222,128,0.3);
+    --modal-close-hover-bg: #27272A;
+}
 
 /* Targeted overrides for literal color:#xxxxxx / background:#xxxxxx values
    written directly into style="" attributes in index.html/account.html or
