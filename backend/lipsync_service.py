@@ -1,4 +1,6 @@
 import json
+import os
+import random
 import shutil
 import subprocess
 import time
@@ -10,7 +12,7 @@ from pathlib import Path
 import urllib3
 
 import r2_backup
-from config import OUTPUT_DIR, LIPSYNC_TEST_MODE
+from config import OUTPUT_DIR, LIPSYNC_TEST_MODE, APP_VERSION
 from app_state import jobs_progress
 from ffmpeg_utils import (
     compress_video_for_upload,
@@ -311,6 +313,41 @@ def _wan3_resolution_tier(video_path: Path) -> str:
     return "1080P"
 
 
+# Wan 3.0's task response never returns the seed it used (confirmed against
+# Alibaba's API reference), and a run with no seed just gets a random one we
+# can't recover. So Lisan picks the seed itself, sends it, and records it
+# here (Supabase table `lipsync_runs`, created with v1.44.0) so a
+# good or bad result can be re-run with the exact same seed later.
+# Best-effort by design: a failed insert (table missing, Supabase down, env
+# vars unset) is logged and swallowed and can never fail or delay the job.
+def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    if not supabase_url or not service_key:
+        return
+    try:
+        row = {
+            "job_id": job_id,
+            "task_id": task_id,
+            "seed": seed,
+            "model": WAN3_MODEL,
+            "app_version": APP_VERSION,
+            "resolution": resolution,
+            "reference_images": ref_image_count,
+        }
+        req = urllib.request.Request(
+            f"{supabase_url}/rest/v1/lipsync_runs",
+            data=json.dumps(row).encode("utf-8"),
+            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except Exception as e:
+        print(f"[lipsync] could not record lipsync_runs row for job {job_id}: {e}")
+
+
 def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None):
     if not workspace_id:
         raise Exception("Missing DASHSCOPE_WORKSPACE_ID (required for the Wan 3.0 lip-sync call).")
@@ -361,6 +398,10 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
     try:
         progress["percent"] = 15
         progress["message"] = "Submitting to lip-sync engine..."
+        # Range documented by Alibaba: -1 or [0, 2147483647]. We always send
+        # an explicit one (rather than -1/omitted) so it can be recorded.
+        wan_seed = random.randint(0, 2147483647)
+        wan_resolution = _wan3_resolution_tier(upload_path)
         body = json.dumps({
             "model": WAN3_MODEL,
             "input": {
@@ -371,7 +412,8 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
                 ],
             },
             "parameters": {
-                "resolution": _wan3_resolution_tier(upload_path),
+                "resolution": wan_resolution,
+                "seed": wan_seed,
                 "ratio": "adaptive",
                 # -1 = auto: preserves the reference video's own duration
                 # instead of us having to compute/pass one.
@@ -412,6 +454,8 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
 
         progress["generation_id"] = task_id
         progress["percent"] = 20
+        print(f"[lipsync] job {job_id} wan task {task_id} seed={wan_seed} resolution={wan_resolution}")
+        _record_lipsync_run(job_id, task_id, wan_seed, wan_resolution, len(image_media))
 
         video_url_out = None
         for _ in range(120):  # up to ~20 minutes at 10s intervals
