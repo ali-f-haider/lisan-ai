@@ -609,20 +609,34 @@ def user_info(request: Request):
         # column-level permissions for the user's own token), which made an
         # active subscriber look "not subscribed". The uid is already verified
         # from the token, so read just this one column with the service key.
-        if SUPABASE_SERVICE_KEY:
-            try:
-                sk_req = urllib.request.Request(
-                    f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=subscription_status",
-                    headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
-                with urllib.request.urlopen(sk_req, timeout=10) as sk_r:
-                    sk_rows = json.load(sk_r)
-                if sk_rows:
-                    subscription_status = sk_rows[0].get("subscription_status") or "none"
-            except Exception as ex:
-                print("[user_info] subscription_status service-key read failed:", _http_err_detail(ex))
+        sub_prof = _read_subscription_profile(user_id) if SUPABASE_SERVICE_KEY else {}
+        if sub_prof:
+            subscription_status = sub_prof.get("subscription_status") or "none"
 
-        return {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
-                "subscription_status": subscription_status}
+        result = {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
+                  "subscription_status": subscription_status}
+        if subscription_status == "active":
+            # Which plan, when it renews/ends, and whether it's been cancelled
+            # (still active until the paid period ends) -- for the Account
+            # page and the Buy box.
+            plan_key = sub_prof.get("subscription_plan_key") or ""
+            try:
+                plan = _get_subscription_plan(plan_key)
+                result["subscription_plan_key"] = plan.get("key") or plan_key
+                result["subscription_plan_name"] = plan.get("name") or ""
+                result["subscription_plan_credits"] = plan.get("credits") or 0
+            except Exception:
+                result["subscription_plan_key"] = plan_key
+            result["subscription_current_period_end"] = sub_prof.get("subscription_current_period_end") or None
+            result["subscription_cancel_at_period_end"] = bool(sub_prof.get("subscription_cancel_at_period_end"))
+            pending_key = sub_prof.get("subscription_pending_plan_key") or ""
+            if pending_key:
+                result["subscription_pending_plan_key"] = pending_key
+                try:
+                    result["subscription_pending_plan_name"] = _get_subscription_plan(pending_key).get("name") or ""
+                except Exception:
+                    result["subscription_pending_plan_name"] = ""
+        return result
     except Exception:
         return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
 
@@ -1305,6 +1319,11 @@ def billing_subscribe(request: Request, plan_key: str = ""):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required to subscribe."}, status_code=401)
+    # A second checkout would create a SECOND, parallel subscription (double
+    # billing). Existing subscribers change tier from the Buy box, and
+    # cancel/renew from the Account page.
+    if _subscription_active(uid):
+        return JSONResponse({"error": "You already have an active subscription. Open the Buy menu in the app to change your plan, or the Account page to cancel or renew it."}, status_code=409)
     plan = _get_subscription_plan(plan_key)
     plan_name = plan["name"]
     plan_credits = plan["credits"]
@@ -1404,6 +1423,20 @@ def billing_cancel(request: Request):
         return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
     stripe.api_key = STRIPE_SECRET_KEY
     origin = _public_origin(request)
+    # Ask Stripe first: a subscription that is ALREADY cancelled (e.g. from
+    # the Stripe dashboard, or an earlier click here) can't be cancelled
+    # again -- Stripe's portal answers with an error ("already set to be
+    # canceled at period end"). Sync our profile with the real state and
+    # tell the page instead, so it can show when the plan ends.
+    try:
+        sub = stripe.Subscription.retrieve(subscription_id)
+        synced = _sync_subscription_to_profile(uid, sub)
+        if synced["status"] == "none":
+            return JSONResponse({"error": "This subscription has already ended."}, status_code=404)
+        if synced["cancel_at_period_end"]:
+            return {"already_canceling": True, "ends_at": synced["period_end"] or sub.get("cancel_at")}
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
     try:
         portal = stripe.billing_portal.Session.create(
             customer=customer_id,
@@ -1420,6 +1453,222 @@ def billing_cancel(request: Request):
     except Exception as e:
         return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
     return {"url": portal.url}
+
+
+def _profile_subscription_id(uid):
+    """profiles.stripe_subscription_id for one user ("" when none/unreadable)."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return ""
+    try:
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_subscription_id",
+            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+        return (rows[0].get("stripe_subscription_id") if rows else "") or ""
+    except Exception:
+        return ""
+
+
+@app.post("/api/billing/resume")
+def billing_resume(request: Request):
+    """Undoes a pending cancellation ("Renew" on the Account page): the
+    subscription was set to end at the end of the paid period, this sets it
+    to keep renewing again. No charge happens now -- it just stops the
+    scheduled end. Only works while the subscription is still active (before
+    the period end); afterwards the user subscribes again from the Buy box."""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    subscription_id = _profile_subscription_id(uid)
+    if not subscription_id:
+        return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
+    stripe.api_key = STRIPE_SECRET_KEY
+    try:
+        sub = stripe.Subscription.retrieve(subscription_id)
+        if (sub.get("status") or "") in ("canceled", "incomplete_expired"):
+            _sync_subscription_to_profile(uid, sub)
+            return JSONResponse({"error": "This subscription has already ended. Please subscribe again."}, status_code=409)
+        if sub.get("cancel_at_period_end"):
+            sub = stripe.Subscription.modify(subscription_id, cancel_at_period_end=False)
+        elif sub.get("cancel_at"):
+            # Cancelled with a specific end date instead of "at period end"
+            # -- not something this button can safely undo.
+            return JSONResponse({"error": "Please use Manage Subscription to renew this subscription."}, status_code=409)
+        synced = _sync_subscription_to_profile(uid, sub)
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+    return {"ok": True, "status": synced["status"], "cancel_at_period_end": synced["cancel_at_period_end"]}
+
+
+@app.post("/api/billing/refresh_subscription")
+def billing_refresh_subscription(request: Request):
+    """Re-reads this user's subscription from Stripe and stores its current
+    status / renewal date / cancelled flag on the profile. The Account page
+    calls it on load, so it is right even if a webhook was late or missed
+    (e.g. cancelling from the Stripe dashboard, or returning from the Stripe
+    portal before its webhook arrived). No-op for users with no subscription."""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return {"ok": False}
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    subscription_id = _profile_subscription_id(uid)
+    if not subscription_id:
+        return {"ok": True, "subscription": False}
+    stripe.api_key = STRIPE_SECRET_KEY
+    try:
+        sub = stripe.Subscription.retrieve(subscription_id)
+        synced = _sync_subscription_to_profile(uid, sub)
+    except Exception as e:
+        print("[subscription] refresh failed:", e)
+        return {"ok": False}
+    return {"ok": True, "subscription": True, "status": synced["status"], "cancel_at_period_end": synced["cancel_at_period_end"]}
+
+
+def _plan_by_key_strict(plan_key):
+    """The configured tier whose key equals plan_key, or None. Unlike
+    _get_subscription_plan this never falls back to another plan."""
+    plan = _get_subscription_plan(plan_key)
+    if plan_key and str(plan.get("key") or "").strip().lower() == str(plan_key).strip().lower():
+        return plan
+    return None
+
+
+def _stripe_monthly_price_data(product_id, plan):
+    return {
+        "currency": "usd",
+        "product": product_id,
+        "recurring": {"interval": "month"},
+        "unit_amount": int(round(float(plan["price_usd"]) * 100)),
+    }
+
+
+@app.post("/api/billing/change_plan")
+def billing_change_plan(request: Request, plan_key: str = ""):
+    """Switch an existing subscriber to another tier (Buy box).
+
+    UPGRADE (target costs more than what they pay now): starts immediately.
+    Stripe charges the prorated difference for the rest of the period right
+    away; their subscription credits are set to the new tier's full monthly
+    amount (same "set, not add" rule as every renewal). The profile's plan
+    key is switched BEFORE the Stripe call so the invoice.paid webhook for
+    that charge already grants the NEW tier's credits; it is switched back if
+    Stripe refuses (e.g. card declined). The credit grant is also done here
+    when the invoice is already paid -- idempotent per invoice id, so the
+    webhook arriving too can never double-grant.
+
+    DOWNGRADE (cheaper or equal price): scheduled for the next renewal. The
+    Stripe price changes now with no proration (so the next invoice is the
+    lower price), while the tier/credits on the profile stay as they are and
+    switch when the renewal invoice is paid (see invoice.paid). Choosing the
+    current tier again while a downgrade is pending cancels the schedule.
+
+    Refused while the subscription is cancelled (renew it first) and while a
+    downgrade is already scheduled (undo it first) -- one change at a time
+    keeps the proration maths unambiguous."""
+    if not stripe or not STRIPE_SECRET_KEY:
+        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    target = _plan_by_key_strict(plan_key)
+    if not target:
+        return JSONResponse({"error": "That plan doesn't exist."}, status_code=400)
+    prof = _read_subscription_profile(uid)
+    if (prof.get("subscription_status") or "") != "active":
+        return JSONResponse({"error": "You don't have an active subscription to change."}, status_code=409)
+    if prof.get("subscription_cancel_at_period_end"):
+        return JSONResponse({"error": "Your subscription is cancelled. Renew it from your Account page before changing plans."}, status_code=409)
+    subscription_id = _profile_subscription_id(uid)
+    if not subscription_id:
+        return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
+    current = _get_subscription_plan(prof.get("subscription_plan_key") or "")
+    pending_key = (prof.get("subscription_pending_plan_key") or "").strip()
+    target_is_current = str(target["key"]).lower() == str(current["key"]).lower()
+
+    stripe.api_key = STRIPE_SECRET_KEY
+    try:
+        sub = stripe.Subscription.retrieve(subscription_id)
+        if (sub.get("status") or "") != "active":
+            return JSONResponse({"error": "Your subscription isn't active right now."}, status_code=409)
+        if sub.get("cancel_at_period_end") or sub.get("cancel_at"):
+            _sync_subscription_to_profile(uid, sub)
+            return JSONResponse({"error": "Your subscription is cancelled. Renew it from your Account page before changing plans."}, status_code=409)
+        items = (sub.get("items") or {}).get("data") or []
+        if len(items) != 1:
+            return JSONResponse({"error": "This subscription can't be changed automatically. Please contact support."}, status_code=409)
+        item = items[0]
+        current_cents = int(((item.get("price") or {}).get("unit_amount")) or 0)
+        target_cents = int(round(float(target["price_usd"]) * 100))
+
+        # --- undo a scheduled downgrade ("keep my current plan")
+        if pending_key:
+            if not target_is_current:
+                return JSONResponse({"error": "A plan change is already scheduled for your next renewal. Choose your current plan to cancel it first."}, status_code=409)
+            product = stripe.Product.create(name=f"Lisan AI {current['name']} - {current['credits']} credits/month")
+            stripe.Subscription.modify(
+                subscription_id,
+                items=[{"id": item["id"], "price_data": _stripe_monthly_price_data(product["id"], current)}],
+                proration_behavior="none",
+            )
+            _set_subscription_pending_plan(uid, None)
+            return {"ok": True, "mode": "reverted", "plan": current["name"]}
+
+        if target_is_current:
+            return JSONResponse({"error": "You're already on this plan."}, status_code=409)
+
+        product = stripe.Product.create(name=f"Lisan AI {target['name']} - {target['credits']} credits/month")
+
+        # --- upgrade: now, prorated difference charged immediately
+        if target_cents > current_cents:
+            _set_subscription_plan_key(uid, target["key"])
+            try:
+                updated = stripe.Subscription.modify(
+                    subscription_id,
+                    items=[{"id": item["id"], "price_data": _stripe_monthly_price_data(product["id"], target)}],
+                    proration_behavior="always_invoice",
+                    payment_behavior="error_if_incomplete",
+                    metadata={"uid": uid, "credits": str(target["credits"]), "plan_key": target["key"]},
+                )
+            except Exception:
+                _set_subscription_plan_key(uid, current["key"])
+                raise
+            granted = None
+            try:
+                inv_id = _as_id(updated.get("latest_invoice"))
+                if inv_id:
+                    inv = stripe.Invoice.retrieve(inv_id)
+                    if (inv.get("status") or "") == "paid":
+                        granted = _grant_subscription_credits(uid, inv_id, int(target["credits"]))
+            except Exception as ex:
+                print("[subscription] upgrade credit grant deferred to webhook:", ex)
+            _sync_subscription_to_profile(uid, updated)
+            print("[subscription] upgraded uid=", uid, "to", target["key"], "grant=", granted)
+            return {"ok": True, "mode": "upgraded", "plan": target["name"], "credits": int(target["credits"])}
+
+        # --- downgrade (or same price): at the next renewal.
+        # Record the schedule FIRST and refuse if it can't be stored (column
+        # not migrated): otherwise Stripe would bill the lower price at
+        # renewal while the profile kept granting the higher tier's credits.
+        if not _set_subscription_pending_plan(uid, target["key"]):
+            return JSONResponse({"error": "Scheduling a plan change isn't available yet. Please try again later."}, status_code=503)
+        try:
+            stripe.Subscription.modify(
+                subscription_id,
+                items=[{"id": item["id"], "price_data": _stripe_monthly_price_data(product["id"], target)}],
+                proration_behavior="none",
+            )
+        except Exception:
+            _set_subscription_pending_plan(uid, None)
+            raise
+        print("[subscription] downgrade scheduled uid=", uid, "to", target["key"])
+        return {"ok": True, "mode": "scheduled", "plan": target["name"],
+                "effective": prof.get("subscription_current_period_end") or None}
+    except Exception as e:
+        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
 
 
 @app.post("/api/account/delete")
@@ -1637,6 +1886,7 @@ async def stripe_webhook(request: Request):
                     )
                     if plan_key:
                         _set_subscription_plan_key(uid, plan_key)
+                    _set_subscription_pending_plan(uid, None)
             else:
                 credits = int((session.get("metadata") or {}).get("credits", 0))
                 print("[stripe-webhook] uid=", uid, "credits=", credits)
@@ -1691,6 +1941,17 @@ async def stripe_webhook(request: Request):
                 # legacy flat plan automatically if the column isn't there
                 # yet or the profile has no plan_key (pre-existing
                 # subscriber from before tiers existed).
+                # A scheduled downgrade takes effect on the first RENEWAL
+                # invoice after it was requested (Stripe already switched the
+                # price for that invoice; the credits and the tier on the
+                # profile switch here, at the same moment).
+                if invoice.get("billing_reason") == "subscription_cycle":
+                    pending_key = (_read_subscription_profile(uid) or {}).get("subscription_pending_plan_key") or ""
+                    if pending_key:
+                        _set_subscription_plan_key(uid, pending_key)
+                        _set_subscription_pending_plan(uid, None)
+                        plan_key = pending_key
+                        print("[stripe-webhook] scheduled plan change applied at renewal:", pending_key)
                 if not plan_key:
                     plan_key = _get_profile_plan_key(uid)
                 credits = _get_subscription_plan(plan_key)["credits"]
@@ -1709,11 +1970,9 @@ async def stripe_webhook(request: Request):
             period_end_ts = _subscription_period_end(sub)
             print("[stripe-webhook] subscription updated sub=", sub_id, "uid=", uid, "status=", status)
             if uid:
-                fields = {"subscription_status": status}
-                if period_end_ts:
-                    fields["subscription_current_period_end"] = _time.strftime(
-                        "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(period_end_ts))
-                _set_subscription_fields(uid, **fields)
+                # Also records "cancelled, ends on <date>" (cancel_at_period_end)
+                # so the Account page can say so instead of "you're subscribed".
+                _sync_subscription_to_profile(uid, sub)
         elif etype == "customer.subscription.deleted":
             sub = event["data"]["object"]
             sub_id = sub.get("id") or ""
@@ -1721,6 +1980,8 @@ async def stripe_webhook(request: Request):
             print("[stripe-webhook] subscription canceled sub=", sub_id, "uid=", uid)
             if uid:
                 _set_subscription_fields(uid, subscription_status="none")
+                _set_subscription_cancel_flag(uid, False)
+                _set_subscription_pending_plan(uid, None)
         return {"ok": True}
     except Exception as e:
         print("[stripe-webhook] UNEXPECTED ERROR:", str(e))
@@ -1937,6 +2198,104 @@ def _set_subscription_plan_key(uid, plan_key):
     except Exception as ex:
         print(f"[subscription] _set_subscription_plan_key error (has the profiles.subscription_plan_key migration been run yet?): {ex}")
         return False
+
+
+def _set_subscription_cancel_flag(uid, flag):
+    """Best-effort PATCH of just profiles.subscription_cancel_at_period_end
+    ("cancelled, but still active until the paid period ends"). Its own
+    call, same reasoning as _set_subscription_plan_key: PostgREST rejects a
+    whole PATCH if one key isn't a real column, so this new column must
+    never be bundled into the core status update. Needs:
+      alter table profiles add column if not exists
+        subscription_cancel_at_period_end boolean not null default false;"""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    body = json.dumps({"subscription_cancel_at_period_end": bool(flag)}).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[subscription] _set_subscription_cancel_flag error (has the profiles.subscription_cancel_at_period_end migration been run yet?): {_http_err_detail(ex)}")
+        return False
+
+
+def _set_subscription_pending_plan(uid, plan_key):
+    """Best-effort PATCH of profiles.subscription_pending_plan_key -- the
+    tier a subscriber has scheduled to switch DOWN to at their next renewal
+    (None clears it). Separate call for the same reason as the cancel flag
+    above. Needs:
+      alter table profiles add column if not exists subscription_pending_plan_key text;"""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return False
+    import urllib.request as _ur
+    body = json.dumps({"subscription_pending_plan_key": plan_key or None}).encode("utf-8")
+    url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
+    hdrs = {
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    try:
+        req = _ur.Request(url, data=body, headers=hdrs, method="PATCH")
+        with _ur.urlopen(req, timeout=10) as r:
+            return r.status in (200, 204)
+    except Exception as ex:
+        print(f"[subscription] _set_subscription_pending_plan error (has the profiles.subscription_pending_plan_key migration been run yet?): {_http_err_detail(ex)}")
+        return False
+
+
+def _sync_subscription_to_profile(uid, sub):
+    """Copies a Stripe Subscription object's status, period end and
+    "cancelled at period end" flag onto the user's profile. Used by the
+    customer.subscription.* webhooks and by the Account page's refresh, so
+    both always agree. Returns what it stored."""
+    status = sub.get("status") or "active"
+    if status in ("canceled", "incomplete_expired"):
+        status = "none"
+    period_end_ts = _subscription_period_end(sub)
+    fields = {"subscription_status": status}
+    if period_end_ts:
+        fields["subscription_current_period_end"] = _time.strftime(
+            "%Y-%m-%dT%H:%M:%SZ", _time.gmtime(period_end_ts))
+    _set_subscription_fields(uid, **fields)
+    cancel = status != "none" and (bool(sub.get("cancel_at_period_end")) or bool(sub.get("cancel_at")))
+    _set_subscription_cancel_flag(uid, cancel)
+    return {"status": status, "cancel_at_period_end": cancel, "period_end": period_end_ts}
+
+
+def _read_subscription_profile(uid):
+    """Service-key read of this user's subscription columns for /api/user/info.
+    Tries the full column list and falls back to fewer columns if a newer
+    column hasn't been migrated yet (PostgREST answers 400 for an unknown
+    column), so the core status is always readable."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return {}
+    import urllib.request as _ur
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    for cols in (
+        "subscription_status,subscription_plan_key,subscription_current_period_end,subscription_cancel_at_period_end,subscription_pending_plan_key",
+        "subscription_status,subscription_plan_key,subscription_current_period_end,subscription_cancel_at_period_end",
+        "subscription_status,subscription_plan_key,subscription_current_period_end",
+        "subscription_status",
+    ):
+        try:
+            req = _ur.Request(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select={cols}", headers=hdrs)
+            with _ur.urlopen(req, timeout=10) as r:
+                rows = json.load(r)
+            return rows[0] if rows else {}
+        except Exception as ex:
+            print(f"[subscription] profile read ({cols}) failed: {_http_err_detail(ex)}")
+    return {}
 
 
 def _get_profile_plan_key(uid):
@@ -2786,6 +3145,10 @@ def home():
 @app.get("/app.js")
 def app_js():
     return FileResponse(BASE_DIR / "app.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+@app.get("/dialogs.js")
+def dialogs_js():
+    return FileResponse(BASE_DIR / "dialogs.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 @app.get("/styles.css")
 def styles():

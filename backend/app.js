@@ -746,7 +746,12 @@ function autoSplitAllPauses() {
     return splitCount;
 }
 
-function deleteSegment(i) { if (!confirm("Delete this segment?")) return; segmentsData.splice(i, 1); cleanUnusedSpeakerVoices(); renderTable(); renderSpeakerVoices(); }
+function deleteSegment(i) {
+    LisanDialog.confirm("Delete this segment?", { okText: "Delete", danger: true }).then(function (ok) {
+        if (!ok) return;
+        segmentsData.splice(i, 1); cleanUnusedSpeakerVoices(); renderTable(); renderSpeakerVoices();
+    });
+}
 function cleanUnusedSpeakerVoices() {
     const active = new Set(segmentsData.map(s => s.speaker));
     Object.keys(speakerVoices).forEach(n => { if (!active.has(n)) { delete speakerVoices[n]; delete speakerVoiceNames[n]; delete speakerChoices[n]; delete clonedBySpeaker[n]; } });
@@ -1679,7 +1684,7 @@ async function confirmCloning() {
     const alreadyCloned = selected.filter(sp => clonedBySpeaker[sp]);
     if (alreadyCloned.length) {
         const already = alreadyCloned.length === 1 ? `${alreadyCloned[0]} is` : `${alreadyCloned.join(", ")} are`;
-        if (!confirm(`${already} already cloned. Clone again anyway? This creates a new clone and spends credits/quota again.`)) return;
+        if (!(await LisanDialog.confirm(`${already} already cloned. Clone again anyway? This creates a new clone and spends credits/quota again.`, { okText: "Clone again" }))) return;
     }
 
     const btn = document.getElementById("cloneSelectedBtn");
@@ -3151,11 +3156,19 @@ function resetWorkspace() {
     onFileSelected = function (input) {
         if (input.files && input.files[0]) {
             if (projectWasLoaded && !workspaceHasMedia) { attachMedia(input); return; }
-            if (segmentsData.length &&
-                !confirm("Choosing a new file will clear the current project (segments, translations, voices). Continue?")) {
-                input.value = "";
-                var fl = document.getElementById("fileUploadText");
-                if (fl) fl.textContent = "Upload Media";
+            if (segmentsData.length) {
+                // Custom (async) dialog: finish the file selection from the
+                // answer instead of returning a boolean synchronously.
+                LisanDialog.confirm("Choosing a new file will clear the current project (segments, translations, voices). Continue?", { okText: "Continue" }).then(function (ok) {
+                    if (!ok) {
+                        input.value = "";
+                        var fl = document.getElementById("fileUploadText");
+                        if (fl) fl.textContent = "Upload Media";
+                        return;
+                    }
+                    resetWorkspace();
+                    _origOnFile(input);
+                });
                 return;
             }
             resetWorkspace();
@@ -3195,12 +3208,14 @@ function resetFileLabel() {
     if (fl) fl.textContent = "Upload Media";
 }
 
-function confirmResetSafe() {
+// Returns a Promise<boolean> (custom Lisan dialog instead of the browser's
+// confirm(), which was synchronous) -- callers must wait for it.
+async function confirmResetSafe() {
     if (resultsExist && !resultsDownloaded) {
-        if (!confirm("⚠️ You generated audio/video for this project.\n\nIt's saved to your Account page for 30 days, but this editing session (segments, translations, voice choices) will be lost if you continue.\n\nDid you download or note everything you need from this session?")) return false;
+        if (!(await LisanDialog.confirm("⚠️ You generated audio/video for this project.\n\nIt's saved to your Account page for 30 days, but this editing session (segments, translations, voice choices) will be lost if you continue.\n\nDid you download or note everything you need from this session?", { okText: "Continue", type: "warning" }))) return false;
     }
     if (segmentsData.length) {
-        if (!confirm("This clears the current project (segments, translations, voices).\nTip: use 💾 Save Project first if you want to keep it.\n\nContinue?")) return false;
+        if (!(await LisanDialog.confirm("This clears the current project (segments, translations, voices).\nTip: use 💾 Save Project first if you want to keep it.\n\nContinue?", { okText: "Continue" }))) return false;
     }
     return true;
 }
@@ -3298,8 +3313,12 @@ function hideMediaBanner() {
                 attachMedia(input);
                 return;
             }
-            if (!confirmResetSafe()) { input.value = ""; resetFileLabel(); return; }
-            resetWorkspace(); // clears segments so the inner wrapper won't ask twice
+            confirmResetSafe().then(function (ok) {
+                if (!ok) { input.value = ""; resetFileLabel(); return; }
+                resetWorkspace(); // clears segments so the inner wrapper won't ask twice
+                prev(input);
+            });
+            return;
         }
         prev(input);
     };
@@ -3311,12 +3330,14 @@ function hideMediaBanner() {
     for (var i = 0; i < btns.length; i++) {
         if (btns[i].textContent.indexOf("Dub Another Video") > -1) {
             btns[i].onclick = function () {
-                if (!confirmResetSafe()) return;
-                resetWorkspace();
-                var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
-                resetFileLabel();
-                window.scrollTo({ top: 0, behavior: "smooth" });
-                notify("info", "Workspace cleared. Upload your next video in Step 1.");
+                confirmResetSafe().then(function (ok) {
+                    if (!ok) return;
+                    resetWorkspace();
+                    var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
+                    resetFileLabel();
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    notify("info", "Workspace cleared. Upload your next video in Step 1.");
+                });
             };
         }
     }
@@ -3362,7 +3383,18 @@ function openBuyModal() {
         fetch("/api/user/info").then(function (r) { return r.json(); }).catch(function () { return {}; })
     ]).then(function (results) {
         var data = results[0];
-        var alreadySubscribed = (results[1] || {}).subscription_status === "active";
+        var userInfo = results[1] || {};
+        var alreadySubscribed = userInfo.subscription_status === "active";
+        // Subscriber state for the tier tiles: which tier they're on, whether
+        // the subscription is cancelled (ends at period end), and whether a
+        // downgrade is already scheduled for the next renewal.
+        var subCanceling = alreadySubscribed && !!userInfo.subscription_cancel_at_period_end;
+        var curKey = String(userInfo.subscription_plan_key || "").toLowerCase();
+        var pendKey = String(userInfo.subscription_pending_plan_key || "").toLowerCase();
+        var periodEndText = buyBoxDate(userInfo.subscription_current_period_end);
+        var curPlan = null;
+        (data.subscriptionPlans || []).forEach(function (pp) { if (String(pp.key || "").toLowerCase() === curKey) curPlan = pp; });
+        var curPrice = curPlan ? parseFloat(curPlan.price_usd || 0) : 0;
         wrap.innerHTML = "";
         // Subscription tiles -- one per tier from admin's Subscription
         // Tiers table (data.subscriptionPlans), wired to /api/billing/
@@ -3387,31 +3419,67 @@ function openBuyModal() {
                 var clonesRaw = p.clones_per_month;
                 var clones = (clonesRaw !== null && clonesRaw !== undefined && clonesRaw !== "") ? parseInt(clonesRaw, 10) : 0;
                 var sb = document.createElement("button");
+                // What this tile does for THIS user:
+                //   new            -> not subscribed: normal checkout
+                //   current        -> their own tier: disabled, marked
+                //   current_keep   -> their own tier while a downgrade is scheduled: cancels that schedule
+                //   scheduled      -> the tier they scheduled to switch to: disabled
+                //   upgrade        -> higher price: switch now, prorated difference charged
+                //   downgrade      -> lower price: switch at the next renewal
+                //   locked_pending -> other tiers while a change is already scheduled: disabled
+                //   locked_cancelled -> everything while the subscription is cancelled: disabled
+                var pkey = String(p.key || "").toLowerCase();
+                var state = "new";
                 if (alreadySubscribed) {
-                    // Deactivated, not hidden -- so it's clear the subscription
-                    // exists rather than looking like it vanished, and the note
-                    // below points at where to actually manage it. Every tile
-                    // disables the same way regardless of which tier the user
-                    // is actually on -- changing/upgrading tiers isn't built
-                    // yet, only picking one when you have none.
+                    if (subCanceling) state = "locked_cancelled";
+                    else if (pkey === curKey) state = pendKey ? "current_keep" : "current";
+                    else if (pendKey) state = (pkey === pendKey) ? "scheduled" : "locked_pending";
+                    else state = (price > curPrice) ? "upgrade" : "downgrade";
+                }
+                var tileDisabled = (state === "current" || state === "scheduled" || state === "locked_pending" || state === "locked_cancelled");
+                var tileMuted = tileDisabled;
+                if (tileDisabled) {
+                    // Deactivated, not hidden -- so it's clear why it can't be picked.
                     sb.disabled = true;
                     sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #e5e7eb;background:#f3f4f6;cursor:not-allowed;font-family:inherit;text-align:left;opacity:0.75;";
                 } else {
                     sb.style.cssText = "display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:12px 14px;border-radius:10px;border:2px solid #7c3aed;background:#faf5ff;cursor:pointer;font-family:inherit;text-align:left;";
                 }
+                var noteHtml;
+                if (state === "new") {
+                    noteHtml = '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>';
+                } else if (state === "current") {
+                    noteHtml = '<span style="font-size:11px;color:#059669;">' + (isAr ? "✓ باقتك الحالية" : "✓ Your current plan") + '</span>';
+                } else if (state === "current_keep") {
+                    noteHtml = '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "✓ باقتك الحالية — اختر هذه الباقة لإلغاء التغيير المجدول" : "✓ Your current plan — choose it to cancel the scheduled change") + '</span>';
+                } else if (state === "scheduled") {
+                    noteHtml = '<span style="font-size:11px;color:#059669;">' + (isAr ? "مجدولة" : "Scheduled") + (periodEndText ? (isAr ? " — تبدأ في " : " — starts on ") + periodEndText : "") + '</span>';
+                } else if (state === "locked_pending") {
+                    noteHtml = '<span style="font-size:11px;color:#6b7280;">' + (isAr ? "هناك تغيير مجدول بالفعل — ألغِه أولًا باختيار باقتك الحالية" : "A plan change is already scheduled — cancel it first by choosing your current plan") + '</span>';
+                } else if (state === "locked_cancelled") {
+                    noteHtml = '<span style="font-size:11px;color:#059669;">' + (isAr ? "اشتراكك ملغى — جدّده من " : "Your subscription is cancelled — renew it from your ") + '<a href="/account#subscription" style="color:#059669;">' + (isAr ? "صفحة الحساب" : "Account page") + '</a></span>';
+                } else if (state === "upgrade") {
+                    noteHtml = '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "⬆ ترقية الآن — تدفع الفرق النسبي فقط" : "⬆ Upgrade now — you only pay the prorated difference") + '</span>';
+                } else {
+                    noteHtml = '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "⬇ التحويل عند التجديد القادم" : "⬇ Switches at your next renewal") + (periodEndText ? " (" + periodEndText + ")" : "") + '</span>';
+                }
                 sb.innerHTML =
                     '<span style="display:flex;justify-content:space-between;width:100%;">' +
-                        '<span style="font-weight:700;color:' + (alreadySubscribed ? "#6b7280" : "#5b21b6") + ';">🔁 ' + p.name + '</span>' +
-                        '<span style="font-weight:800;color:' + (alreadySubscribed ? "#9ca3af" : "#7c3aed") + ';">$' + price.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
+                        '<span style="font-weight:700;color:' + (tileMuted ? "#6b7280" : "#5b21b6") + ';">🔁 ' + p.name + '</span>' +
+                        '<span style="font-weight:800;color:' + (tileMuted ? "#9ca3af" : "#7c3aed") + ';">$' + price.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
                     '</span>' +
                     '<span style="font-size:12px;color:#6b7280;">' + credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا" : " every month") + ' · ' + slots + (isAr ? " مكان صوت" : (slots === 1 ? " voice slot" : " voice slots")) + (clones > 0 ? (' · ' + clones + (isAr ? " استنساخ/شهر" : (clones === 1 ? " clone/mo" : " clones/mo"))) : '') + '</span>' +
-                    (alreadySubscribed
-                        ? '<span style="font-size:11px;color:#059669;">' + (isAr ? "أنت مشترك بالفعل — يمكنك إدارته من " : "You're already subscribed — manage it from your ") + '<a href="/account#subscription" style="color:#059669;">' + (isAr ? "صفحة الحساب" : "Account page") + '</a></span>'
-                        : '<span style="font-size:11px;color:#7c3aed;">' + (isAr ? "يمكنك إلغاء الاشتراك في أي وقت" : "Cancel any time") + '</span>');
-                if (!alreadySubscribed) {
+                    noteHtml;
+                if (!tileDisabled) {
                     sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
                     sb.onmouseleave = function () { sb.style.borderColor = "#7c3aed"; };
-                    sb.onclick = function () { subscribeMonthly(p.key, sb); };
+                    if (state === "new") {
+                        sb.onclick = function () { subscribeMonthly(p.key, sb); };
+                    } else {
+                        sb.onclick = function () {
+                            changeSubscriptionPlan(p, state, { credits: credits, price: price, periodEndText: periodEndText, pendingName: userInfo.subscription_pending_plan_name || "" }, sb);
+                        };
+                    }
                 }
                 wrap.appendChild(sb);
             });
@@ -3449,6 +3517,79 @@ function buyPack(key, btn) {
         if (data.error) { notify("error", data.error); btn.disabled = false; btn.style.opacity = "1"; return; }
         window.location.href = data.url;
     }).catch(function (e) { notify("error", e.message); btn.disabled = false; btn.style.opacity = "1"; });
+}
+
+// Long local date for the Buy box ("28 September 2026"); "" when unknown.
+function buyBoxDate(iso) {
+    if (!iso) return "";
+    try {
+        var s = String(iso);
+        if (!/(Z|[+-]\d\d:?\d\d)$/.test(s)) s += "Z";
+        var d = new Date(s);
+        if (isNaN(d.getTime())) return "";
+        return d.toLocaleDateString(window.currentLang === "ar" ? "ar" : undefined, { year: "numeric", month: "long", day: "numeric" });
+    } catch (e) { return ""; }
+}
+
+// Switch an existing subscriber's tier (Buy box). state is "upgrade" (starts
+// now, prorated difference charged), "downgrade" (starts at the next renewal)
+// or "current_keep" (cancels a scheduled downgrade). Backend:
+// /api/billing/change_plan. Always asks first, with what will happen spelled out.
+function changeSubscriptionPlan(plan, state, info, btn) {
+    var isAr = window.currentLang === "ar";
+    var name = plan.name;
+    var priceTxt = "$" + info.price.toFixed(2);
+    var creditsTxt = info.credits.toLocaleString();
+    var msg, okText, title, danger = false;
+    if (state === "upgrade") {
+        title = isAr ? "ترقية الاشتراك" : "Upgrade subscription";
+        okText = isAr ? "ترقية الآن" : "Upgrade now";
+        msg = isAr
+            ? "الترقية إلى باقة " + name + "؟\n\nسيتم خصم الفرق النسبي عن المدة المتبقية من فترة الفوترة الحالية فورًا، ويتحول رصيدك الشهري إلى " + creditsTxt + " فورًا. وابتداءً من التجديد القادم ستدفع " + priceTxt + " شهريًا."
+            : "Upgrade to " + name + "?\n\nYou'll be charged the prorated difference for the rest of this billing period right away, and your monthly credits switch to " + creditsTxt + " immediately. From your next renewal you'll pay " + priceTxt + "/month.";
+    } else if (state === "downgrade") {
+        title = isAr ? "تغيير الباقة" : "Change plan";
+        okText = isAr ? "جدولة التغيير" : "Schedule the change";
+        msg = isAr
+            ? "التحويل إلى باقة " + name + " عند التجديد القادم" + (info.periodEndText ? " بتاريخ " + info.periodEndText : "") + "؟\n\nتحتفظ بباقتك ورصيدك الحاليين حتى ذلك الحين. بعدها ستدفع " + priceTxt + " شهريًا وتحصل على " + creditsTxt + " رصيد كل شهر."
+            : "Switch to " + name + " at your next renewal" + (info.periodEndText ? " on " + info.periodEndText : "") + "?\n\nYou keep your current plan and credits until then. Afterwards you'll pay " + priceTxt + "/month and receive " + creditsTxt + " credits every month.";
+    } else {
+        title = isAr ? "الإبقاء على الباقة" : "Keep your plan";
+        okText = isAr ? "الإبقاء على باقتي" : "Keep my plan";
+        msg = isAr
+            ? "الإبقاء على باقتك الحالية؟ سيتم إلغاء التغيير المجدول" + (info.pendingName ? " إلى باقة " + info.pendingName : "") + "."
+            : "Keep your current plan? The scheduled change" + (info.pendingName ? " to " + info.pendingName : "") + " will be cancelled.";
+    }
+    LisanDialog.confirm(msg, { title: title, okText: okText, danger: danger }).then(function (ok) {
+        if (!ok) return;
+        btn.disabled = true; btn.style.opacity = "0.6";
+        fetch("/api/billing/change_plan?plan_key=" + encodeURIComponent(plan.key), { method: "POST" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (d.error) {
+                    btn.disabled = false; btn.style.opacity = "1";
+                    LisanDialog.alert(d.error, { type: "error" });
+                    return;
+                }
+                var done;
+                if (d.mode === "upgraded") {
+                    done = isAr ? "تمت الترقية إلى باقة " + (d.plan || name) + ". تم تحديث رصيدك." : "You're now on " + (d.plan || name) + ". Your credits have been updated.";
+                } else if (d.mode === "scheduled") {
+                    var when = buyBoxDate(d.effective);
+                    done = isAr ? "تم. ستتحول إلى باقة " + (d.plan || name) + " عند التجديد القادم" + (when ? " (" + when + ")" : "") + "."
+                                : "Done. You'll switch to " + (d.plan || name) + " at your next renewal" + (when ? " (" + when + ")" : "") + ".";
+                } else {
+                    done = isAr ? "تم. ستبقى على باقتك الحالية." : "Done. You'll stay on your current plan.";
+                }
+                closeBuyModal();
+                if (typeof refreshCredits === "function") { try { refreshCredits(); } catch (e) {} }
+                LisanDialog.alert(done, { type: "success" });
+            })
+            .catch(function (e) {
+                btn.disabled = false; btn.style.opacity = "1";
+                LisanDialog.alert(e.message, { type: "error" });
+            });
+    });
 }
 
 function subscribeMonthly(planKey, btn) {
@@ -3538,7 +3679,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
         try { generating = !!generatePollTimer; } catch (e) {}
         if (generating) {
             notify("error", "⏳ Audio generation is still running. Wait for it to finish before starting a new video — switching now could mix the two audios.");
-            return false;
+            return Promise.resolve(false);
         }
         return origConfirm();
     };
@@ -4325,12 +4466,14 @@ window.uploadCustomVoice = function () {
 };
 
 window.cleanOldClones = function () {
-    if (!confirm("Delete ALL old cloned/custom voices from your voice account, except the ones this project is using right now?")) return;
-    var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
-    fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep, job_id: currentJobId }) })
-        .then(function (r) { return r.json(); })
-        .then(function (d) { notify("success", "🧹 Removed " + (d.deleted || 0) + " old cloned voice(s)." + ((d.errors || []).length ? " (" + d.errors.length + " errors)" : "")); })
-        .catch(function (e) { notify("error", e.message); });
+    LisanDialog.confirm("Delete ALL old cloned/custom voices from your voice account, except the ones this project is using right now?", { okText: "Delete", danger: true }).then(function (ok) {
+        if (!ok) return;
+        var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
+        fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep, job_id: currentJobId }) })
+            .then(function (r) { return r.json(); })
+            .then(function (d) { notify("success", "🧹 Removed " + (d.deleted || 0) + " old cloned voice(s)." + ((d.errors || []).length ? " (" + d.errors.length + " errors)" : "")); })
+            .catch(function (e) { notify("error", e.message); });
+    });
 };
 
 
@@ -4894,18 +5037,20 @@ window.cleanOldClones = function () {
 
     // 🧹 now removes ALL app-created clones (they must be ephemeral)
     window.cleanOldClones = function () {
-        if (!confirm("Delete ALL cloned/custom voices from your voice account (including this project's)? Cloning again will re-create only what you need.")) return;
-        // wipe_samples: true -- this is an explicit, user-confirmed "delete
-        // everything" action (unlike the silent after-every-clone sweep in
-        // confirmCloning's wrapper below, which must NOT wipe samples -- see
-        // main.py's /api/cleanup_voices docstring for why).
-        fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId, wipe_samples: true }) })
-            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, st: r.status, d: d }; }); })
-            .then(function (out) {
-                if (!out.ok) { notify("error", "Cleanup endpoint not found (status " + out.st + ") — redeploy main.py with the /api/cleanup_voices block."); return; }
-                notify("success", "🧹 Removed " + (out.d.deleted || 0) + " cloned voice(s) from your account.");
-            })
-            .catch(function (e) { notify("error", e.message); });
+        LisanDialog.confirm("Delete ALL cloned/custom voices from your voice account (including this project's)? Cloning again will re-create only what you need.", { okText: "Delete", danger: true }).then(function (ok) {
+            if (!ok) return;
+            // wipe_samples: true -- this is an explicit, user-confirmed "delete
+            // everything" action (unlike the silent after-every-clone sweep in
+            // confirmCloning's wrapper below, which must NOT wipe samples -- see
+            // main.py's /api/cleanup_voices docstring for why).
+            fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId, wipe_samples: true }) })
+                .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, st: r.status, d: d }; }); })
+                .then(function (out) {
+                    if (!out.ok) { notify("error", "Cleanup endpoint not found (status " + out.st + ") — redeploy main.py with the /api/cleanup_voices block."); return; }
+                    notify("success", "🧹 Removed " + (out.d.deleted || 0) + " cloned voice(s) from your account.");
+                })
+                .catch(function (e) { notify("error", e.message); });
+        });
     };
 
     // Auto garbage-collect clones whenever the workspace resets (new video = fresh voices)

@@ -48,6 +48,12 @@ button.btn-success:hover { background: #15803d; }
 .muted { color: #64748b; font-size: 12px; }
 .toast { position: fixed; bottom: 20px; right: 20px; background: #16a34a; color: #fff; padding: 12px 20px; border-radius: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
 .toast.error { background: #dc2626; }
+/* Palette for the shared custom message box (/dialogs.js) -- this page has
+   its own dark colors, so the dialog is told them explicitly. */
+:root { --ld-card: #1e293b; --ld-text: #e2e8f0; --ld-border: #334155; --ld-title: #f59e0b;
+  --ld-primary: #f59e0b; --ld-primary-hover: #d97706; --ld-primary-fg: #000000;
+  --ld-btn-bg: #0f172a; --ld-btn-hover: #334155; --ld-btn-fg: #e2e8f0; --ld-input-bg: #0f172a;
+  --ld-danger: #dc2626; --ld-success: #16a34a; --ld-warning: #f59e0b; }
 </style>
 </head>
 <body>
@@ -397,6 +403,7 @@ button.btn-success:hover { background: #15803d; }
   <p class="muted" style="margin-top:12px;text-align:center;font-size:12px;">Code is set via ADMIN_PASSWORD in Railway env vars (falls back to APP_PASSWORD if ADMIN_PASSWORD isn't set).</p>
 </div>
 
+<script src="/dialogs.js"></script>
 <script>
 let ADMIN_TOKEN = sessionStorage.getItem('adminToken') || '';
 let usersCache = [];
@@ -501,10 +508,10 @@ async function loadUsers() {
 
 async function adjustCredits(uid, sign, idx) {
   const u = usersCache[idx];
-  const reason = prompt(`Reason for ${sign>0?'granting':'deducting'} credits to ${u.display_name||u.email||uid.slice(0,8)}:`);
+  const reason = await LisanDialog.prompt(`Reason for ${sign>0?'granting':'deducting'} credits to ${u.display_name||u.email||uid.slice(0,8)}:`, { title: sign>0 ? 'Grant credits' : 'Deduct credits' });
   if (reason === null) return; // user clicked Cancel — no action, no message needed
   if (!reason.trim()) { toast('Reason is required. Please click + Grant / − Deduct again and type a reason.', true); return; }
-  const amountRaw = prompt(`How many credits to ${sign>0?'grant':'deduct'}?`);
+  const amountRaw = await LisanDialog.prompt(`How many credits to ${sign>0?'grant':'deduct'}?`, { title: sign>0 ? 'Grant credits' : 'Deduct credits' });
   if (amountRaw === null) return; // user clicked Cancel — no action, no message needed
   const amount = parseInt(amountRaw);
   if (!amount || amount <= 0) { toast(`"${amountRaw}" is not a valid number of credits. Please try again and type a number like 5.`, true); return; }
@@ -518,13 +525,13 @@ async function adjustCredits(uid, sign, idx) {
 
 async function setCredits(uid, idx) {
   const u = usersCache[idx];
-  const newAmountRaw = prompt(`Set credits for ${u.display_name||u.email||uid.slice(0,8)} to:`, u.credits);
+  const newAmountRaw = await LisanDialog.prompt(`Set credits for ${u.display_name||u.email||uid.slice(0,8)} to:`, { title: 'Set credits', value: u.credits });
   if (newAmountRaw === null) return; // user clicked Cancel — no action, no message needed
   const newAmount = parseInt(newAmountRaw);
   if (isNaN(newAmount)) { toast(`"${newAmountRaw}" is not a valid number. Please try again and type a number.`, true); return; }
   const delta = newAmount - u.credits;
   if (delta === 0) { toast('No change — that is already the current credit amount.'); return; }
-  const reason = prompt(`Reason for setting credits to ${newAmount}:`);
+  const reason = await LisanDialog.prompt(`Reason for setting credits to ${newAmount}:`, { title: 'Set credits' });
   if (reason === null) return; // user clicked Cancel — no action, no message needed
   if (!reason.trim()) { toast('Reason is required. Please click Set again and type a reason.', true); return; }
   const r = await api('/api/admin/adjust_credits', {

@@ -119,6 +119,7 @@
     <p id="subStatusLine" class="note">—</p>
     <div class="hidden" id="subBtnRow" style="display:flex;gap:10px;flex-wrap:wrap;">
       <button id="subManageBtn" class="btn-logout" onclick="manageSubscription()">Manage Subscription</button>
+      <button id="subResumeBtn" class="hidden" onclick="resumeSubscription()">Renew Subscription</button>
       <button id="subCancelBtn" class="btn-danger" onclick="cancelSubscription()">Cancel Subscription</button>
     </div>
   </div>
@@ -168,6 +169,7 @@
   </div>
 </div>
 
+<script src="/dialogs.js"></script>
 <script>
 // Dark mode -- own small copy of app.js's applyDarkMode()/toggle logic
 // (this page doesn't load app.js, see the file-level comment near the top
@@ -206,6 +208,21 @@ var T = {
     subNone: 'You\'re not subscribed. One-time credit purchases keep finished videos for only 48 hours — subscribe from the <a href="/app">app\'s Buy menu</a> for 30-day storage plus monthly credits.',
     subManage: "Manage Subscription",
     subCancel: "Cancel Subscription",
+    subRenew: "Renew Subscription",
+    subActiveDetail: function (plan, credits, date) {
+      return "You're subscribed to " + plan + (credits ? " — " + Number(credits).toLocaleString() + " credits arrive every month" : "") +
+        (date ? ". Next renewal: " + date : "") + ". Your finished videos are kept for 30 days.";
+    },
+    subCanceling: function (plan, date) {
+      return "Your " + (plan ? plan + " " : "") + "subscription is cancelled and ends on " + (date || "the end of the paid period") +
+        ". Until then you keep your credits and 30-day file storage. It won't renew or charge you again.";
+    },
+    subAlreadyCanceling: function (date) {
+      return "Your subscription is already cancelled. It ends on " + (date || "the end of the paid period") + ", and you keep your credits and 30-day file storage until then.";
+    },
+    subRenewed: function (date) { return "Your subscription will continue" + (date ? " and renew on " + date : "") + "."; },
+    renewSubFailed: "Couldn't renew the subscription. Please try again.",
+    cancelDialogTitle: "Cancel subscription?", cancelSubOk: "Cancel subscription", cancelSubKeep: "Keep it",
     confirmCancelSub: "Cancel your monthly subscription? You'll keep your current credits and access until the end of this billing period, then it won't renew. You can cancel any time.",
     cancelSubFailed: "Couldn't open the cancellation page. Please try again.",
     voicesHeading: "🎙️ Saved Voices",
@@ -257,6 +274,21 @@ var T = {
     subNone: 'أنت غير مشترك. شراء الرصيد لمرة واحدة يحفظ الفيديوهات الجاهزة لمدة 48 ساعة فقط — اشترك من <a href="/app">قائمة الشراء في التطبيق</a> للحصول على تخزين 30 يومًا وائتمان شهري.',
     subManage: "إدارة الاشتراك",
     subCancel: "إلغاء الاشتراك",
+    subRenew: "تجديد الاشتراك",
+    subActiveDetail: function (plan, credits, date) {
+      return "أنت مشترك في باقة " + plan + (credits ? " — يصلك " + Number(credits).toLocaleString() + " رصيد كل شهر" : "") +
+        (date ? ". التجديد القادم: " + date : "") + ". تُحفظ فيديوهاتك الجاهزة لمدة 30 يومًا.";
+    },
+    subCanceling: function (plan, date) {
+      return "تم إلغاء اشتراكك" + (plan ? " في باقة " + plan : "") + " وينتهي في " + (date || "نهاية الفترة المدفوعة") +
+        ". حتى ذلك الحين تحتفظ برصيدك وبتخزين ملفاتك لمدة 30 يومًا. لن يتم تجديده ولن يتم الخصم منك مرة أخرى.";
+    },
+    subAlreadyCanceling: function (date) {
+      return "اشتراكك ملغى بالفعل. ينتهي في " + (date || "نهاية الفترة المدفوعة") + "، وتحتفظ برصيدك وتخزين ملفاتك لمدة 30 يومًا حتى ذلك الحين.";
+    },
+    subRenewed: function (date) { return "سيستمر اشتراكك" + (date ? " ويتجدد في " + date : "") + "."; },
+    renewSubFailed: "تعذّر تجديد الاشتراك. حاول مرة أخرى.",
+    cancelDialogTitle: "إلغاء الاشتراك؟", cancelSubOk: "إلغاء الاشتراك", cancelSubKeep: "الإبقاء عليه",
     confirmCancelSub: "هل تريد إلغاء اشتراكك الشهري؟ ستحتفظ برصيدك الحالي ووصولك حتى نهاية فترة الفوترة الحالية، ثم لن يتم التجديد. يمكنك الإلغاء في أي وقت.",
     cancelSubFailed: "تعذّر فتح صفحة الإلغاء. حاول مرة أخرى.",
     voicesHeading: "🎙️ الأصوات المحفوظة",
@@ -318,6 +350,7 @@ var T = {
   document.getElementById("subHeading").textContent = T.subHeading;
   document.getElementById("subManageBtn").textContent = T.subManage;
   document.getElementById("subCancelBtn").textContent = T.subCancel;
+  document.getElementById("subResumeBtn").textContent = T.subRenew;
   document.getElementById("voicesHeading").textContent = T.voicesHeading;
   document.getElementById("voicesNote").textContent = T.voicesNote;
   document.getElementById("voicesLoadingText").textContent = T.loading;
@@ -359,17 +392,43 @@ var T = {
   if (valid.indexOf(fromHash) > -1) activate(fromHash);
 })();
 
+// Long date ("28 September 2026") in the viewer's local time; accepts an ISO
+// string (from our database) or a unix timestamp in seconds (from Stripe).
+function fmtDay(v) {
+  if (!v) return "";
+  try {
+    var d = (typeof v === "number") ? new Date(v * 1000) : new Date(/(Z|[+-]\d\d:?\d\d)$/.test(String(v)) ? String(v) : String(v) + "Z");
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(LANG === "ar" ? "ar" : undefined, { year: "numeric", month: "long", day: "numeric" });
+  } catch (e) { return ""; }
+}
+
 window._subActive = false;
-fetch("/api/user/info").then(function(r){return r.json();}).then(function(d){
+window._subCanceling = false;
+window._subInfo = null;
+function renderUserInfo(d) {
   document.getElementById("creditsNum").textContent = d.credits;
   document.getElementById("balanceLine").textContent = d.credits + " " + T.credits;
+  window._subInfo = d;
   window._subActive = d.subscription_status === "active";
+  window._subCanceling = window._subActive && !!d.subscription_cancel_at_period_end;
   document.getElementById("filesNote").innerHTML = window._subActive ? T.filesNoteSub : T.filesNotePayonce;
   var subLine = document.getElementById("subStatusLine");
   var subBtnRow = document.getElementById("subBtnRow");
+  var cancelBtn = document.getElementById("subCancelBtn");
+  var resumeBtn = document.getElementById("subResumeBtn");
   if (window._subActive) {
-    subLine.innerHTML = T.subActive();
+    var plan = d.subscription_plan_name || "";
+    var when = fmtDay(d.subscription_current_period_end);
+    if (window._subCanceling) {
+      subLine.innerHTML = "";
+      subLine.textContent = T.subCanceling(plan, when);
+    } else {
+      subLine.textContent = plan ? T.subActiveDetail(plan, d.subscription_plan_credits, when) : T.subActive();
+    }
     subBtnRow.classList.remove("hidden");
+    cancelBtn.classList.toggle("hidden", window._subCanceling);
+    resumeBtn.classList.toggle("hidden", !window._subCanceling);
   } else {
     subLine.innerHTML = T.subNone;
     subBtnRow.classList.add("hidden");
@@ -379,27 +438,59 @@ fetch("/api/user/info").then(function(r){return r.json();}).then(function(d){
   // once we actually know the subscription status, so "48 hours" doesn't
   // linger incorrectly for a subscriber with no jobs yet.
   if (window._lastMyJobs) renderMyJobs(window._lastMyJobs);
-}).catch(function(){});
+}
+function loadUserInfo() {
+  return fetch("/api/user/info").then(function(r){return r.json();}).then(renderUserInfo).catch(function(){});
+}
+// Ask Stripe for the real subscription state first (webhooks can be late or
+// missed, and cancelling from the Stripe dashboard/portal changes it without
+// Lisan being in the loop), then render.
+function refreshSubscriptionThenLoad() {
+  return fetch("/api/billing/refresh_subscription", { method: "POST" }).catch(function(){}).then(loadUserInfo);
+}
+refreshSubscriptionThenLoad();
 
 function manageSubscription() {
   var btn = document.getElementById("subManageBtn");
   btn.disabled = true;
   fetch("/api/billing/portal", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
     btn.disabled = false;
-    if (d.error) { alert(d.error); return; }
+    if (d.error) { LisanDialog.alert(d.error, { type: "error" }); return; }
     window.location.href = d.url;
-  }).catch(function(e){ btn.disabled = false; alert(e.message); });
+  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(e.message, { type: "error" }); });
 }
 
 function cancelSubscription() {
-  if (!confirm(T.confirmCancelSub)) return;
-  var btn = document.getElementById("subCancelBtn");
+  LisanDialog.confirm(T.confirmCancelSub, { title: T.cancelDialogTitle, okText: T.cancelSubOk, cancelText: T.cancelSubKeep, danger: true }).then(function (ok) {
+    if (!ok) return;
+    var btn = document.getElementById("subCancelBtn");
+    btn.disabled = true;
+    fetch("/api/billing/cancel", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+      btn.disabled = false;
+      if (d.already_canceling) {
+        // Already cancelled (e.g. in the Stripe dashboard): nothing to do at
+        // Stripe -- say so, and show the cancelled state.
+        LisanDialog.alert(T.subAlreadyCanceling(fmtDay(d.ends_at)), { type: "warning" });
+        refreshSubscriptionThenLoad();
+        return;
+      }
+      if (d.error) { LisanDialog.alert(d.error, { type: "error" }); refreshSubscriptionThenLoad(); return; }
+      window.location.href = d.url;
+    }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.cancelSubFailed, { type: "error" }); });
+  });
+}
+
+function resumeSubscription() {
+  var btn = document.getElementById("subResumeBtn");
   btn.disabled = true;
-  fetch("/api/billing/cancel", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+  fetch("/api/billing/resume", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
     btn.disabled = false;
-    if (d.error) { alert(d.error); return; }
-    window.location.href = d.url;
-  }).catch(function(){ btn.disabled = false; alert(T.cancelSubFailed); });
+    if (d.error) { LisanDialog.alert(d.error, { type: "error" }); refreshSubscriptionThenLoad(); return; }
+    refreshSubscriptionThenLoad().then(function () {
+      var end = window._subInfo && window._subInfo.subscription_current_period_end;
+      LisanDialog.alert(T.subRenewed(fmtDay(end)), { type: "success" });
+    });
+  }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.renewSubFailed, { type: "error" }); });
 }
 
 function openDeleteAccountModal() { document.getElementById("deleteAccountModal").classList.remove("hidden"); }
@@ -409,9 +500,9 @@ function confirmDeleteAccount() {
   var btn = document.getElementById("delModalConfirmBtn");
   btn.disabled = true;
   fetch("/api/account/delete", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
-    if (d.error) { btn.disabled = false; alert(d.error); return; }
+    if (d.error) { btn.disabled = false; LisanDialog.alert(d.error, { type: "error" }); return; }
     window.location.href = "/login";
-  }).catch(function(){ btn.disabled = false; alert(T.deleteAccountFailed); });
+  }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.deleteAccountFailed, { type: "error" }); });
 }
 fetch("/api/account/summary").then(function(r){return r.json();}).then(function(d){
   var pt = document.querySelector("#purchasesTable tbody");
@@ -511,15 +602,17 @@ function loadMyJobs() {
 }
 
 function deleteMyJob(jobId) {
-  if (!confirm(T.confirmDelete)) return;
-  fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function () {
-    var el = document.getElementById("job-" + jobId);
-    if (el) el.remove();
-    var list = document.getElementById("myJobsList");
-    if (list && !list.children.length) {
-      list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet(window._subActive) + '</p>';
-    }
-  }).catch(function () { alert(T.deleteFailed); });
+  LisanDialog.confirm(T.confirmDelete, { okText: T.deleteVoiceBtn ? T.deleteVoiceBtn.replace(/^\S+\s*/, "") : undefined, danger: true }).then(function (ok) {
+    if (!ok) return;
+    fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function () {
+      var el = document.getElementById("job-" + jobId);
+      if (el) el.remove();
+      var list = document.getElementById("myJobsList");
+      if (list && !list.children.length) {
+        list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet(window._subActive) + '</p>';
+      }
+    }).catch(function () { LisanDialog.alert(T.deleteFailed, { type: "error" }); });
+  });
 }
 
 function renderMyVoices(data) {
@@ -591,24 +684,26 @@ function saveVoice(id) {
     method: "PATCH", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: name, description: description })
   }).then(function (r) { return r.json(); }).then(function (d) {
-    if (d.error) { alert(T.saveVoiceFailed); return; }
+    if (d.error) { LisanDialog.alert(T.saveVoiceFailed, { type: "error" }); return; }
     var savedEl = document.getElementById("vsaved-" + id);
     if (savedEl) {
       savedEl.style.display = "inline";
       clearTimeout(savedEl._hideTimer);
       savedEl._hideTimer = setTimeout(function () { savedEl.style.display = "none"; }, 2500);
     }
-  }).catch(function () { alert(T.saveVoiceFailed); });
+  }).catch(function () { LisanDialog.alert(T.saveVoiceFailed, { type: "error" }); });
 }
 
 function deleteVoice(id) {
-  if (!confirm(T.confirmDeleteVoice)) return;
-  fetch("/api/my_voices/" + encodeURIComponent(id), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (d) {
-    if (d.error) { alert(T.deleteVoiceFailed); return; }
-    var el = document.getElementById("voice-" + id);
-    if (el) el.remove();
-    loadMyVoices();
-  }).catch(function () { alert(T.deleteVoiceFailed); });
+  LisanDialog.confirm(T.confirmDeleteVoice, { okText: T.deleteVoiceBtn ? T.deleteVoiceBtn.replace(/^\S+\s*/, "") : undefined, danger: true }).then(function (ok) {
+    if (!ok) return;
+    fetch("/api/my_voices/" + encodeURIComponent(id), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error) { LisanDialog.alert(T.deleteVoiceFailed, { type: "error" }); return; }
+      var el = document.getElementById("voice-" + id);
+      if (el) el.remove();
+      loadMyVoices();
+    }).catch(function () { LisanDialog.alert(T.deleteVoiceFailed, { type: "error" }); });
+  });
 }
 
 loadMyJobs();

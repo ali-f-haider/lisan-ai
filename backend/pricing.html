@@ -130,6 +130,7 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
   <div class="copy">© 2025 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div>
 </footer>
 
+<script src="/dialogs.js"></script>
 <script>
 // Arabic labels keyed by each plan/pack's own key -- anything not in these
 // maps (a new tier/pack an admin creates later with a different key) just
@@ -211,10 +212,10 @@ function chooseSub(key, btn) {
   fetch("/api/billing/subscribe?plan_key=" + encodeURIComponent(key), { method: "POST" })
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      if (d.error) { alert(d.error); btn.disabled = false; btn.style.opacity = "1"; return; }
+      if (d.error) { LisanDialog.alert(d.error, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; return; }
       window.location.href = d.url;
     })
-    .catch(function (e) { alert(e.message); btn.disabled = false; btn.style.opacity = "1"; });
+    .catch(function (e) { LisanDialog.alert(e.message, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
 function choosePack(key, btn) {
@@ -226,10 +227,10 @@ function choosePack(key, btn) {
   })
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      if (d.error) { alert(d.error); btn.disabled = false; btn.style.opacity = "1"; return; }
+      if (d.error) { LisanDialog.alert(d.error, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; return; }
       window.location.href = d.url;
     })
-    .catch(function (e) { alert(e.message); btn.disabled = false; btn.style.opacity = "1"; });
+    .catch(function (e) { LisanDialog.alert(e.message, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
 Promise.all([
