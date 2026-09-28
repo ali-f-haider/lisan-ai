@@ -400,6 +400,15 @@ def _site_gate_active() -> bool:
 # request's hot path, so a fresh Supabase read every time is fine and
 # means flipping either in admin takes effect on that monitor's very next
 # poll, not after some cache delay.
+def _inworld_slot_limit() -> int:
+    """Admin-set custom-voice slot limit for the Inworld plan (used by
+    service_usage_monitor). Falls back to 100 (Inworld On-Demand)."""
+    try:
+        return max(1, int(_get_pricing_config().get("inworldSlotLimit") or 100))
+    except Exception:
+        return 100
+
+
 def _eleven_alerts_enabled() -> bool:
     try:
         return bool(_get_pricing_config().get("elevenAlertsEnabled", True))
@@ -4003,6 +4012,11 @@ def _get_pricing_config():
         # established pattern: trust the vendor's own billing over a guess).
         "inworldCharsPerCredit": 60,
         "inworldCloneCredits": 5,
+        # Custom-voice storage slots on the Inworld plan (100 on On-Demand).
+        # Inworld has no API that reports this, so it's set by hand here and
+        # used by service_usage_monitor to show "used / limit" and to send the
+        # "slots running out" alert email. Raise it when the plan is upgraded.
+        "inworldSlotLimit": 100,
         # Which visual skin the customer-facing app pages (index.html /app,
         # account.html /account) use -- "classic" (default, today's live
         # design, unchanged) or "new" (the ElevenLabs-inspired redesign
@@ -4073,6 +4087,7 @@ def _get_pricing_config():
                 "voiceEngine": row.get("voice_engine") or defaults["voiceEngine"],
                 "inworldCharsPerCredit": row.get("inworld_chars_per_credit") or defaults["inworldCharsPerCredit"],
                 "inworldCloneCredits": row.get("inworld_clone_credits") or defaults["inworldCloneCredits"],
+                "inworldSlotLimit": row.get("inworld_slot_limit") or defaults["inworldSlotLimit"],
                 # "or" (not a plain .get default), same reasoning as
                 # siteGateEnabled above but for a string column: before the
                 # ui_style migration is run, or on an untouched row, this
@@ -4125,6 +4140,7 @@ def _save_pricing_config(config):
             "voice_engine": config.get("voiceEngine") if config.get("voiceEngine") in ("elevenlabs", "inworld") else "elevenlabs",
             "inworld_chars_per_credit": config.get("inworldCharsPerCredit", 60),
             "inworld_clone_credits": config.get("inworldCloneCredits", 5),
+            "inworld_slot_limit": max(1, int(config.get("inworldSlotLimit") or 100)),
             "ui_style": config.get("uiStyle") if config.get("uiStyle") in ("classic", "new") else "classic",
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
@@ -4263,10 +4279,12 @@ def admin_service_usage(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     eleven = service_usage_monitor.get_eleven_cached()
     eleven["alert_percent"] = service_usage_monitor.ALERT_PERCENT
+    inworld = service_usage_monitor.get_inworld_cached()
+    inworld["alert_percent"] = service_usage_monitor.ALERT_PERCENT
     resend = service_usage_monitor.get_resend_cached()
     r2 = r2_backup.get_storage_usage()
     alibaba = _get_lipsync_spend_this_month()
-    return {"elevenlabs": eleven, "resend": resend, "r2": r2, "alibaba": alibaba}
+    return {"elevenlabs": eleven, "inworld": inworld, "resend": resend, "r2": r2, "alibaba": alibaba}
 
 
 @app.get("/api/admin/overview")

@@ -43,8 +43,9 @@ import threading
 import time as _time
 import urllib.request
 
-from config import ELEVENLABS_API_KEY, RESEND_API_KEY, CONTACT_TO_EMAIL
+from config import ELEVENLABS_API_KEY, INWORLD_API_KEY, RESEND_API_KEY, CONTACT_TO_EMAIL
 import eleven_service
+import inworld_service
 
 # Same cadence as railway_monitor.py -- sits in the 15-30 minute range
 # that's proven to be a reasonable check-in interval without hammering
@@ -90,6 +91,28 @@ _eleven_last_alert_sent = 0.0
 # usage drops back under ALERT_PERCENT, so the next crossing always sends
 # one email immediately regardless of these.
 _eleven_last_alert_percents = {"percent": None, "voice_percent": None, "clone_ops_percent": None}
+
+# Inworld has no quota/usage API, so its only monitored number is how many
+# custom voices sit in the workspace (counted from List Voices, see
+# inworld_service.get_voice_slot_usage) against the plan's storage-slot
+# limit, which Ali sets in admin (Settings -> Inworld slot limit) because
+# nothing returns it. Alerts fire when 75%, 90% and 100% are first
+# crossed (see _INWORLD_ALERT_LEVELS); the alert email is always sent (it fires at most a few times as
+# slots fill up, so it has no on/off switch).
+_inworld_latest = {
+    "ok": False, "error": "not polled yet", "voices_used": None,
+    "voice_limit": None, "voice_percent": None, "by_source": None, "ts": None,
+}
+_inworld_lock = threading.Lock()
+_inworld_alert_active = False
+_inworld_last_alert_sent = 0.0
+_inworld_last_alert_level = None
+
+# Alert levels for the Inworld slot pool (% used). It is a small, fixed pool
+# (100 slots on On-Demand), so unlike the ElevenLabs "climbed 10 points"
+# rule an email goes out each time a NEW level is crossed: ALERT_PERCENT
+# (75), then 90, then 100 (full) -- never repeated at the same level.
+_INWORLD_ALERT_LEVELS = (ALERT_PERCENT, 90, 100)
 
 # Resend's used-count is never "polled" -- only ever updated by main.py
 # right after a real send, via record_resend_usage().
@@ -141,6 +164,40 @@ def fetch_eleven_usage():
         "clone_ops_limit": clone_ops_limit,
         "clone_ops_percent": clone_ops_percent,
     }
+
+
+def _inworld_slot_limit():
+    """The plan's storage-slot limit as set in admin. Deferred `import main`
+    for the same reason as _send_eleven_alert_email (main imports this
+    module at load time). Falls back to 100 (Inworld On-Demand) if it can't
+    be read."""
+    try:
+        import main
+        return int(main._inworld_slot_limit())
+    except Exception:
+        return 100
+
+
+def fetch_inworld_usage():
+    """One-shot count of custom voices vs the admin-set slot limit. Never
+    raises -- any failure comes back as {"ok": False, "error": ...}."""
+    if not INWORLD_API_KEY:
+        return {"ok": False, "error": "INWORLD_API_KEY not set"}
+    data = inworld_service.get_voice_slot_usage(INWORLD_API_KEY)
+    if data.get("error"):
+        return {"ok": False, "error": data["error"]}
+    used = data.get("custom_voices")
+    if used is None:
+        return {"ok": False, "error": "unexpected response shape from Inworld"}
+    limit = _inworld_slot_limit()
+    percent = round(used / limit * 100, 1) if limit else None
+    return {"ok": True, "voices_used": used, "voice_limit": limit,
+            "voice_percent": percent, "by_source": data.get("by_source")}
+
+
+def get_inworld_cached():
+    with _inworld_lock:
+        return dict(_inworld_latest)
 
 
 def get_eleven_cached():
@@ -258,6 +315,85 @@ def _send_eleven_alert_email(result):
         return False
 
 
+def _send_inworld_alert_email(result):
+    if not RESEND_API_KEY or not CONTACT_TO_EMAIL:
+        return False
+    used = result.get("voices_used")
+    limit = result.get("voice_limit")
+    percent = result.get("voice_percent")
+    subject = f"Lisan AI: Inworld voice slots {percent:.0f}% used ({used} of {limit})"
+    body_text = (
+        "Hi,\n\n"
+        f"Your Inworld workspace holds {used} custom voices of the {limit} "
+        f"storage slots you have set ({percent:.0f}% used).\n\n"
+        "Once every slot is used, cloning a NEW voice on Inworld fails until "
+        "a saved voice is deleted or the Inworld plan is upgraded to one with "
+        "more custom-voice slots. Voices already cloned keep working.\n\n"
+        "Consider upgrading the Inworld plan before this starts failing for "
+        "users. If you upgrade, also raise the \"Inworld slot limit\" in the "
+        "admin Settings tab so this monitor uses the new limit.\n\n"
+        "This is an automatic check (every "
+        f"{MONITOR_INTERVAL_MIN} minutes) -- see the admin dashboard's Health "
+        "tab for the live number.\n\n"
+        "-- Lisan AI monitoring"
+    )
+    payload = json.dumps({
+        "from": "Lisan AI <noreply@lisanai.org>",
+        "to": [CONTACT_TO_EMAIL],
+        "subject": subject,
+        "text": body_text,
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            try:
+                val = r.headers.get("x-resend-monthly-quota")
+                record_resend_usage(int(val) if val is not None else None)
+            except Exception:
+                pass
+            return r.status in (200, 201)
+    except Exception as ex:
+        print(f"[service-usage-monitor] Inworld alert email failed: {ex}")
+        return False
+
+
+def _poll_inworld_once():
+    global _inworld_alert_active, _inworld_last_alert_sent, _inworld_last_alert_level
+    result = fetch_inworld_usage()
+    with _inworld_lock:
+        _inworld_latest.clear()
+        _inworld_latest.update(result)
+        _inworld_latest["ts"] = _time.time()
+    if not result.get("ok"):
+        print(f"[service-usage-monitor] Inworld poll failed: {result.get('error')}")
+        return
+    percent = result.get("voice_percent")
+    level = None
+    if percent is not None:
+        crossed = [lv for lv in _INWORLD_ALERT_LEVELS if percent >= lv]
+        level = max(crossed) if crossed else None
+    if level is not None:
+        now = _time.time()
+        last = _inworld_last_alert_level
+        should_send = (last is None) or (level > last) or (now - _inworld_last_alert_sent > ALERT_RENOTIFY_HOURS * 3600)
+        if should_send and _send_inworld_alert_email(result):
+            _inworld_last_alert_sent = now
+            _inworld_last_alert_level = level
+        _inworld_alert_active = True
+    else:
+        _inworld_alert_active = False
+        _inworld_last_alert_level = None
+
+
 def _poll_once():
     global _eleven_alert_active, _eleven_last_alert_sent, _eleven_last_alert_percents
     result = fetch_eleven_usage()
@@ -316,6 +452,12 @@ def _worker():
             # thread -- if it dies, monitoring silently stops until the
             # next deploy restarts the process.
             print(f"[service-usage-monitor] worker error: {ex}")
+        # Separate try: an ElevenLabs failure must not skip the Inworld
+        # poll (and vice versa).
+        try:
+            _poll_inworld_once()
+        except Exception as ex:
+            print(f"[service-usage-monitor] Inworld worker error: {ex}")
         _time.sleep(MONITOR_INTERVAL_MIN * 60)
 
 

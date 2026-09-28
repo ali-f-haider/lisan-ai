@@ -160,6 +160,11 @@ button.btn-success:hover { background: #15803d; }
             <input type="number" id="inworldCloneCredits" style="width:120px;" step="1" min="0" max="1000">
             <span class="muted">Inworld doesn't meter cloning the same way ElevenLabs does (rate-limit/storage-slot based, not a hard per-clone fee) — this just sets what YOUR users are charged in credits for the action; adjust freely.</span>
           </div>
+          <div class="form-group">
+            <label>Inworld slot limit (custom voices your Inworld plan allows)</label>
+            <input type="number" id="inworldSlotLimit" style="width:120px;" step="1" min="1" max="1000000">
+            <span class="muted">Inworld doesn't report this number, so enter your plan's custom-voice slot count here (On-Demand: 100). The Health tab counts your voices against it and emails you at 75% used. Raise it after you upgrade the Inworld plan.</span>
+          </div>
         </div>
         <div class="form-group">
           <label>Lip-sync (credits per second of video)</label>
@@ -333,6 +338,15 @@ button.btn-success:hover { background: #15803d; }
             </div>
             <p class="muted" id="suElevenCloneOpsNote" style="margin:0;font-size:0.85em;">This is ElevenLabs' real monthly quota for creating/editing voices -- and it's the one that answers "how many clones do I have left." Unlike the voice slots above, it does NOT free up when a cloned voice is deleted, only on your next billing-cycle reset -- so this can hit its limit even while the slots above look nearly empty.</p>
           </div>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <strong>Inworld AI (voice cloning storage)</strong>
+          <div class="metric"><div class="label">Custom voice slots</div><div class="value" id="suInworldVoices">—</div></div>
+          <div style="background:#1e293b;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
+            <div id="suInworldBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+          </div>
+          <p class="muted" id="suInworldNote" style="margin:0;font-size:0.85em;">—</p>
         </div>
 
         <div style="margin-bottom:16px;">
@@ -547,7 +561,7 @@ function updateEngineFieldVisibility() {
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
+  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   // Checkbox, not a text/number field -- .checked, not .value, and defaults
@@ -667,6 +681,7 @@ async function savePricing() {
     cloneCredits: parseInt(document.getElementById('cloneCredits')?.value || '5'),
     inworldCharsPerCredit: parseInt(document.getElementById('inworldCharsPerCredit')?.value || '60'),
     inworldCloneCredits: parseInt(document.getElementById('inworldCloneCredits')?.value || '5'),
+    inworldSlotLimit: parseInt(document.getElementById('inworldSlotLimit')?.value || '100') || 100,
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
@@ -863,6 +878,29 @@ async function loadServiceUsage() {
     const cbar = document.getElementById('suElevenCloneOpsBar');
     cbar.style.width = Math.min(100, cpct) + '%';
     cbar.style.background = cpct >= el.alert_percent ? '#dc2626' : (cpct >= el.alert_percent - 15 ? '#f59e0b' : '#16a34a');
+  }
+
+  // Inworld (custom voices counted from its voice list vs the slot limit set in Settings)
+  const iw = d.inworld || {};
+  if (!iw.ok) {
+    document.getElementById('suInworldVoices').textContent = '—';
+    document.getElementById('suInworldBar').style.width = '0%';
+    document.getElementById('suInworldNote').textContent = 'Unavailable: ' + (iw.error || 'not polled yet') + '.';
+  } else {
+    const iwUsed = iw.voices_used, iwLimit = iw.voice_limit;
+    document.getElementById('suInworldVoices').textContent =
+      iwUsed + ' / ' + iwLimit + ' used (' + Math.max(0, iwLimit - iwUsed) + ' remaining)';
+    const ipct = iw.voice_percent != null ? iw.voice_percent : 0;
+    const ibar = document.getElementById('suInworldBar');
+    ibar.style.width = Math.min(100, ipct) + '%';
+    ibar.style.background = ipct >= iw.alert_percent ? '#dc2626' : (ipct >= iw.alert_percent - 15 ? '#f59e0b' : '#16a34a');
+    const iwAge = iw.ts ? Math.round((Date.now() / 1000 - iw.ts) / 60) : null;
+    const iwSrc = iw.by_source ? Object.keys(iw.by_source).map(k => k + ' ' + iw.by_source[k]).join(', ') : '';
+    document.getElementById('suInworldNote').textContent =
+      'Inworld has no usage API, so this is counted from your Inworld voice list' + (iwSrc ? ' (' + iwSrc + ')' : '') +
+      ' against the slot limit you set in Settings (your plan\'s custom-voice slots). Polled every ~20 min. Alert email fires at ' +
+      iw.alert_percent + '% -- upgrade the Inworld plan then, and raise the limit in Settings.' +
+      (iwAge != null ? ' Last checked ' + iwAge + ' min ago.' : '');
   }
 
   // Alibaba (estimate, not live)

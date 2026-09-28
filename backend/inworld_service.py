@@ -69,6 +69,7 @@ import random
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 from config import OUTPUT_DIR
@@ -514,6 +515,51 @@ def delete_voice(voice_id: str, api_key: str) -> dict:
         return {"ok": True}
     except Exception as e:
         return {"ok": False, "error": _http_error_detail(e)}
+
+
+def get_voice_slot_usage(api_key: str) -> dict:
+    """How many CUSTOM voices sit in the Inworld workspace right now -- the
+    number that counts against the plan's "Custom Voices (storage slots)"
+    limit (100 on On-Demand, per Inworld's pricing page). Inworld has no
+    quota/usage endpoint at all (their docs list none), so this is counted
+    from List Voices (GET /voices/v1/voices, paged via pageToken).
+
+    What counts: voices whose `source` is IVC (instant clone), TVD (text-
+    designed) or PVC (professional clone). System catalog voices (SYSTEM)
+    are excluded. A voice with no usable `source` (missing or OTHER) only
+    counts if it carries this app's own Cloned_/Custom_ display-name
+    prefix. Returns {"custom_voices": n, "by_source": {...}} or
+    {"error": "..."} -- never raises."""
+    if not _configured(api_key):
+        return {"error": "INWORLD_API_KEY not set"}
+    try:
+        total = 0
+        by_source = {}
+        token = None
+        for _page in range(25):  # hard stop: 25 pages x 200 voices
+            path = "/voices/v1/voices?pageSize=200"
+            if token:
+                path += "&pageToken=" + urllib.parse.quote(str(token), safe="")
+            data = _request("GET", path, api_key, timeout=30)
+            for v in (data.get("voices") or []):
+                src = str(v.get("source") or "").upper()
+                name = v.get("displayName") or ""
+                if src in ("IVC", "TVD", "PVC"):
+                    pass
+                elif src == "SYSTEM":
+                    continue
+                elif name.startswith(("Cloned_", "Custom_")):
+                    src = src or "UNKNOWN"
+                else:
+                    continue
+                by_source[src] = by_source.get(src, 0) + 1
+                total += 1
+            token = data.get("nextPageToken")
+            if not token:
+                break
+        return {"custom_voices": total, "by_source": by_source}
+    except Exception as e:
+        return {"error": _http_error_detail(e)}
 
 
 def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
