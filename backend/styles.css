@@ -744,6 +744,22 @@ video {
 }
 .btn-logout:hover { background: var(--logout-hover-bg); }
 
+/* Help and the user-name link in #userBar are <a> elements that reuse the
+   .btn-logout look so they match Log Out / language / dark-mode buttons.
+   The extra body.dark / body.ui-new / body.dark.ui-new selectors are there
+   because "body.dark a" and "body.ui-new a" (link accent color) would
+   otherwise win over the plain .btn-logout color for anchors, in each of the
+   four combinations of style (Classic / New) and theme (light / dark). */
+a.btn-logout, body a.btn-logout, body.dark a.btn-logout, body.ui-new a.btn-logout, body.dark.ui-new a.btn-logout {
+    display: inline-block; text-decoration: none; color: var(--text-muted);
+    line-height: normal; box-sizing: border-box;
+}
+a.btn-logout:hover, body a.btn-logout:hover, body.dark a.btn-logout:hover, body.ui-new a.btn-logout:hover, body.dark.ui-new a.btn-logout:hover {
+    background: var(--logout-hover-bg); color: var(--text); text-decoration: none;
+}
+#userName.btn-logout:empty { display: none; }
+#userName.btn-logout { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+
 /* File upload button styled like Start */
 .file-upload-area {
     display: inline-flex; align-items: center; gap: 8px;

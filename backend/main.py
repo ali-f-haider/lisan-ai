@@ -256,6 +256,19 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 # so the rest of that process's requests for this cookie stay fast again.
 # Requires SUPABASE_SERVICE_KEY (same one already used for credits/consent);
 # silently a no-op without it, same as _record_voice_consent below.
+def _http_err_detail(ex):
+    """str(ex), plus the response body when it's an HTTPError -- Supabase's
+    JSON body says WHY a 403/400 happened (e.g. "permission denied for table
+    ...", code 42501), which the bare "HTTP Error 403: Forbidden" hides."""
+    try:
+        body = getattr(ex, "read", None)
+        if callable(body):
+            return f"{ex} | body: {body().decode('utf-8', 'replace')[:300]}"
+    except Exception:
+        pass
+    return str(ex)
+
+
 def _persist_session(token, sb_access_token):
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
         return
@@ -279,7 +292,7 @@ def _persist_session(token, sb_access_token):
         try:
             _ur.urlopen(req, timeout=10)
         except Exception as ex:
-            print(f"[session] could not persist session: {ex}")
+            print(f"[session] could not persist session: {_http_err_detail(ex)}")
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -296,7 +309,7 @@ def _restore_session_from_db(token) -> bool:
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
     except Exception as ex:
-        print(f"[session] could not restore session: {ex}")
+        print(f"[session] could not restore session: {_http_err_detail(ex)}")
         return False
     if not rows:
         return False
@@ -590,8 +603,23 @@ def user_info(request: Request):
             if prof_data:
                 display_name = prof_data[0].get("display_name", display_name)
                 subscription_status = prof_data[0].get("subscription_status") or "none"
-        except Exception:
-            pass
+        except Exception as ex:
+            print("[user_info] profile read with user token failed:", _http_err_detail(ex))
+        # The user-token read above can miss subscription_status (row-level or
+        # column-level permissions for the user's own token), which made an
+        # active subscriber look "not subscribed". The uid is already verified
+        # from the token, so read just this one column with the service key.
+        if SUPABASE_SERVICE_KEY:
+            try:
+                sk_req = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=subscription_status",
+                    headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                with urllib.request.urlopen(sk_req, timeout=10) as sk_r:
+                    sk_rows = json.load(sk_r)
+                if sk_rows:
+                    subscription_status = sk_rows[0].get("subscription_status") or "none"
+            except Exception as ex:
+                print("[user_info] subscription_status service-key read failed:", _http_err_detail(ex))
 
         return {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
                 "subscription_status": subscription_status}
@@ -2312,7 +2340,7 @@ def _grant_subscription_credits(uid, invoice_id, credits):
             return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
         return credits
     except Exception as e:
-        print("[subscription] grant credits error:", e)
+        print("[subscription] grant credits error:", _http_err_detail(e))
         return None
 
 

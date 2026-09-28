@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="/styles.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<style>#userName:hover { text-decoration: underline; color: #1a237e !important; }</style>
 </head>
 <body>
 <!-- Mobile block: Step 2's editing table alone has 9 columns of controls --
@@ -39,8 +38,8 @@
         <div id="creditsDisplay" class="credits-badge">
             💰 <span id="creditsNum">0</span> <span id="creditsWord">credits</span>
         </div>
-        <a href="/help" title="Help &amp; FAQ" style="font-size:14px;font-weight:600;color:#374151;text-decoration:none;cursor:pointer;"><span id="helpEnPart">Help</span><span id="helpArPart" style="display:none;">المساعدة</span></a>
-        <a id="userName" href="/account" title="View your account" style="font-size:14px;font-weight:600;color:#374151;text-decoration:none;cursor:pointer;"></a>
+        <a href="/help" title="Help &amp; FAQ" class="btn-logout"><span id="helpEnPart">Help</span><span id="helpArPart" style="display:none;">المساعدة</span></a>
+        <a id="userName" href="/account" title="View your account" class="btn-logout"></a>
         <button onclick="doLogout()" class="btn-logout">Log Out</button>
     </div>
 </div>
