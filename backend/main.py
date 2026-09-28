@@ -1140,6 +1140,28 @@ def _watch_and_deduct(job_id, uid, kind):
 
 # ---------- Stripe ----------
 
+def _public_origin(request: Request) -> str:
+    """Base URL used to build Stripe's success/cancel/return URLs.
+    Behind Railway's proxy the app itself only sees plain http, so
+    request.base_url came back as "http://lisanai.org" and customers were
+    sent back from Stripe to an http:// address (seen in a real test
+    checkout, 2026-09-28). Every real host is https, so force that; only a
+    local development host (localhost / 127.0.0.1) keeps the scheme it was
+    reached with. The host part is still taken from the request, so the
+    lisanai.org domain and the Railway domain each get their own correct
+    address."""
+    base = str(request.base_url).rstrip("/")
+    try:
+        from urllib.parse import urlsplit
+        parts = urlsplit(base)
+        host = (parts.hostname or "").lower()
+        if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".localhost"):
+            return base
+        return "https://" + parts.netloc
+    except Exception:
+        return base
+
+
 @app.post("/api/billing/checkout")
 def billing_checkout(payload: dict, request: Request):
     if not stripe or not STRIPE_SECRET_KEY:
@@ -1152,7 +1174,7 @@ def billing_checkout(payload: dict, request: Request):
     if not pack:
         return JSONResponse({"error": "Unknown pack."}, status_code=400)
     stripe.api_key = STRIPE_SECRET_KEY
-    origin = str(request.base_url).rstrip("/")
+    origin = _public_origin(request)
     try:
         session = stripe.checkout.Session.create(
             mode="payment",
@@ -1260,7 +1282,7 @@ def billing_subscribe(request: Request, plan_key: str = ""):
     plan_credits = plan["credits"]
     plan_price = plan["price_usd"]
     stripe.api_key = STRIPE_SECRET_KEY
-    origin = str(request.base_url).rstrip("/")
+    origin = _public_origin(request)
     try:
         session = stripe.checkout.Session.create(
             mode="subscription",
@@ -1311,7 +1333,7 @@ def billing_portal(request: Request):
     if not customer_id:
         return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
     stripe.api_key = STRIPE_SECRET_KEY
-    origin = str(request.base_url).rstrip("/")
+    origin = _public_origin(request)
     try:
         portal = stripe.billing_portal.Session.create(
             customer=customer_id,
@@ -1353,7 +1375,7 @@ def billing_cancel(request: Request):
     if not customer_id or not subscription_id:
         return JSONResponse({"error": "No active subscription found for this account."}, status_code=404)
     stripe.api_key = STRIPE_SECRET_KEY
-    origin = str(request.base_url).rstrip("/")
+    origin = _public_origin(request)
     try:
         portal = stripe.billing_portal.Session.create(
             customer=customer_id,
