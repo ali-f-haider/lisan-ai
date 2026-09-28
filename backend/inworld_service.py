@@ -65,6 +65,8 @@ silently skipped):
 """
 import base64
 import json
+import random
+import time
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -235,7 +237,25 @@ def clone_voice_from_file(display_name: str, wav_path: Path, api_key: str, langu
         "voiceSamples": [{"audioData": audio_b64}],
         "audioProcessingConfig": {"removeBackgroundNoise": True},
     }
-    data = _request("POST", "/voices/v1/voices:clone", api_key, body, timeout=60)
+    # Inworld rate-limits the clone endpoint per plan and answers over-limit
+    # calls with HTTP 429 (their rate-limit docs recommend exponential
+    # backoff with jitter). A multi-speaker job clones one speaker after
+    # another, so the 2nd/3rd clone in a minute can hit that limit -- retry
+    # a few times instead of failing the speaker outright. Only 429 is
+    # retried: a 429 means the request was rejected before doing anything,
+    # so a retry can never create a duplicate voice. Any other error still
+    # raises immediately, exactly as before.
+    data = None
+    for attempt, base_wait in enumerate((20, 30, 40, None)):
+        try:
+            data = _request("POST", "/voices/v1/voices:clone", api_key, body, timeout=60)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or base_wait is None:
+                raise
+            wait = base_wait + random.uniform(0, 5)
+            print(f"[inworld-clone] 429 rate limited cloning {display_name!r}; retry {attempt + 1} in {wait:.0f}s")
+            time.sleep(wait)
     voice_id = (data.get("voice") or {}).get("voiceId")
     if not voice_id:
         raise Exception(f"No voiceId in Inworld response: {data}")
