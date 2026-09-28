@@ -1199,6 +1199,15 @@ def _get_subscription_plan(plan_key):
                         clones_per_month = int(raw_clones) or None
                     except (TypeError, ValueError):
                         clones_per_month = None
+                # Inworld has no clone-count limit (unlike ElevenLabs' shared
+                # monthly voice add/edit quota), so while Inworld is the
+                # active engine the per-tier monthly clone cap is switched
+                # off everywhere -- the clone gate, the Account page's clone
+                # counter -- without touching the numbers saved in admin.
+                # Switching the admin Voice Engine back to ElevenLabs brings
+                # them back automatically.
+                if _active_voice_engine() == "inworld":
+                    clones_per_month = None
                 return {
                     "key": p.get("key"),
                     "name": p.get("name") or "Pro",
@@ -2599,6 +2608,18 @@ def landing():
     # was added for on app.js/index.html/styles.css; this route just never
     # got it.
     return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
+def _plans_for_public_display(plans):
+    """Copy of the subscription tiers for the public pricing page and the
+    in-app Buy modal. While Inworld is the active voice engine (no clone-
+    count limit -- see _get_subscription_plan) every tier's clones_per_month
+    is blanked, so neither page advertises a monthly clone allowance that
+    isn't enforced. The stored admin values are never modified; on
+    ElevenLabs the list is returned unchanged."""
+    if _active_voice_engine() != "inworld":
+        return plans
+    return [dict(p, clones_per_month=None) if isinstance(p, dict) else p for p in plans]
 
 
 @app.get("/pricing")
@@ -4869,7 +4890,7 @@ def billing_packs_dynamic():
             "credits": int(cfg.get("subscriptionCredits") or 4000),
             "amount_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         },
-        "subscriptionPlans": cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS,
+        "subscriptionPlans": _plans_for_public_display(cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS),
     }, headers={"Cache-Control": "no-cache"})
 
 @app.post("/api/contact")
