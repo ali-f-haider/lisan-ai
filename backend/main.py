@@ -1519,6 +1519,56 @@ def billing_sync(request: Request):
         return JSONResponse({"error": str(e)}, status_code=502)
     return {"added_sessions_credits": added}
 
+def _as_id(v):
+    """Stripe fields are either an id string or an expanded object."""
+    if isinstance(v, dict):
+        return v.get("id") or ""
+    return v or ""
+
+def _invoice_subscription_id(invoice):
+    """The subscription an invoice belongs to.
+
+    Older Stripe API versions put it at invoice.subscription; API versions
+    from 2025-03-31 (basil) removed that field and moved it to
+    invoice.parent.subscription_details.subscription (and, per line item, to
+    line.parent.subscription_item_details.subscription). The account's
+    webhook endpoint decides which shape arrives, so accept all of them.
+    """
+    sid = _as_id(invoice.get("subscription"))
+    if sid:
+        return sid
+    parent = invoice.get("parent") or {}
+    sid = _as_id((parent.get("subscription_details") or {}).get("subscription"))
+    if sid:
+        return sid
+    for line in ((invoice.get("lines") or {}).get("data") or []):
+        lparent = line.get("parent") or {}
+        sid = _as_id((lparent.get("subscription_item_details") or {}).get("subscription"))
+        if sid:
+            return sid
+        sid = _as_id(line.get("subscription"))
+        if sid:
+            return sid
+    return ""
+
+def _subscription_period_end(sub):
+    """Current period end (unix ts) of a Subscription object.
+
+    Removed from the Subscription itself in API 2025-03-31 (basil); it now
+    lives on each subscription item. Prefer the old field, else the latest
+    item period end.
+    """
+    ts = sub.get("current_period_end")
+    if ts:
+        return ts
+    try:
+        best = 0
+        for item in ((sub.get("items") or {}).get("data") or []):
+            best = max(best, int(item.get("current_period_end") or 0))
+        return best or None
+    except Exception:
+        return None
+
 @app.post("/api/stripe/webhook")
 async def stripe_webhook(request: Request):
     try:
@@ -1573,7 +1623,7 @@ async def stripe_webhook(request: Request):
             # _grant_subscription_credits), so a webhook retry never
             # double-grants a period's credits.
             invoice = event["data"]["object"]
-            sub_id = invoice.get("subscription") or ""
+            sub_id = _invoice_subscription_id(invoice)
             invoice_id = invoice.get("id") or ""
             uid = _uid_for_subscription(sub_id) if sub_id else None
             plan_key = ""
@@ -1628,7 +1678,7 @@ async def stripe_webhook(request: Request):
                 # API call here -- it's right there on `sub`.
                 uid = (sub.get("metadata") or {}).get("uid")
             status = sub.get("status") or "active"
-            period_end_ts = sub.get("current_period_end")
+            period_end_ts = _subscription_period_end(sub)
             print("[stripe-webhook] subscription updated sub=", sub_id, "uid=", uid, "status=", status)
             if uid:
                 fields = {"subscription_status": status}
