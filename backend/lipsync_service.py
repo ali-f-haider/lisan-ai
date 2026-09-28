@@ -6,6 +6,7 @@ import subprocess
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 import uuid
 from pathlib import Path
 
@@ -316,7 +317,8 @@ def _wan3_resolution_tier(video_path: Path) -> str:
 # Wan 3.0's task response never returns the seed it used (confirmed against
 # Alibaba's API reference), and a run with no seed just gets a random one we
 # can't recover. So Lisan picks the seed itself, sends it, and records it
-# here (Supabase table `lipsync_runs`, created with v1.44.0) so a
+# here (Supabase table `lipsync_runs`, created with v1.44.0; status columns
+# added in v1.44.1) so a
 # good or bad result can be re-run with the exact same seed later.
 # Best-effort by design: a failed insert (table missing, Supabase down, env
 # vars unset) is logged and swallowed and can never fail or delay the job.
@@ -346,6 +348,31 @@ def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
             pass
     except Exception as e:
         print(f"[lipsync] could not record lipsync_runs row for job {job_id}: {e}")
+
+
+# Second half of the run record: once Wan reports the outcome, mark the row
+# (matched by Wan's task id) succeeded / failed / canceled / timed_out and
+# keep the failure text. Same best-effort rule as above -- never raises.
+def _update_lipsync_run(task_id, status, error=None):
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    if not supabase_url or not service_key or not task_id:
+        return
+    try:
+        patch = {"status": status, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        if error:
+            patch["error"] = str(error)[:500]
+        req = urllib.request.Request(
+            f"{supabase_url}/rest/v1/lipsync_runs?task_id=eq.{urllib.parse.quote(str(task_id), safe='')}",
+            data=json.dumps(patch).encode("utf-8"),
+            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+                     "Content-Type": "application/json", "Prefer": "return=minimal"},
+            method="PATCH",
+        )
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+    except Exception as e:
+        print(f"[lipsync] could not update lipsync_runs status for task {task_id}: {e}")
 
 
 def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None):
@@ -479,10 +506,13 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
                 progress["message"] = f"Lip-sync: {status}"
             if status == "SUCCEEDED":
                 video_url_out = output.get("video_url")
+                _update_lipsync_run(task_id, "succeeded")
                 break
             if status in ("FAILED", "CANCELED", "UNKNOWN"):
+                _update_lipsync_run(task_id, status.lower(), json.dumps(output))
                 raise Exception(f"Job {status}: {json.dumps(output)[:400]}")
         if not video_url_out:
+            _update_lipsync_run(task_id, "timed_out", "No result after ~20 minutes")
             raise Exception(f"Timed out (~20 min). Task ID: {task_id}")
 
         progress["message"] = "Downloading result..."
