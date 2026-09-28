@@ -2641,7 +2641,17 @@ _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 
 @app.get("/app")
 def home():
-    return FileResponse(BASE_DIR / "index.html", headers=_NO_CACHE_HEADERS)
+    # Same server-side injection pattern as landing()/pricing_page() above
+    # (this route used to just be a static FileResponse, but that can't set
+    # a class on <body> before the page paints) -- reads the admin-set
+    # uiStyle and, only when it's "new", adds class="ui-new" to <body> so
+    # styles.css's body.ui-new block applies with zero flash of the classic
+    # style first. index.html's <body> tag has no attributes of its own
+    # (confirmed before writing this), so this exact-string replace is safe.
+    html = (BASE_DIR / "index.html").read_text(encoding="utf-8")
+    if (_get_pricing_config().get("uiStyle") or "classic") == "new":
+        html = html.replace("<body>", '<body class="ui-new">', 1)
+    return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
 
 @app.get("/app.js")
 def app_js():
@@ -3543,7 +3553,15 @@ def account_summary(request: Request):
 
 @app.get("/account")
 def account_page():
-    return FileResponse(BASE_DIR / "account.html")
+    # Same uiStyle injection as home() above, plus the no-cache header that
+    # route already had and this one was previously missing (so an admin's
+    # uiStyle flip -- or any future account.html change -- shows up without
+    # needing a hard refresh, matching app.js/index.html/styles.css's
+    # existing no-cache treatment).
+    html = (BASE_DIR / "account.html").read_text(encoding="utf-8")
+    if (_get_pricing_config().get("uiStyle") or "classic") == "new":
+        html = html.replace("<body>", '<body class="ui-new">', 1)
+    return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
 
 
 # ===== USAGE RECORDING: log every credit deduction to credit_spends =====
@@ -3964,6 +3982,18 @@ def _get_pricing_config():
         # established pattern: trust the vendor's own billing over a guess).
         "inworldCharsPerCredit": 60,
         "inworldCloneCredits": 5,
+        # Which visual skin the customer-facing app pages (index.html /app,
+        # account.html /account) use -- "classic" (default, today's live
+        # design, unchanged) or "new" (the ElevenLabs-inspired redesign
+        # reviewed at https://claude.ai/artifact/7bxXu3iYVkriAssDK4QvNn,
+        # added 2026-09-28). Purely cosmetic: home()/account_page() below
+        # set class="ui-new" on <body> server-side when this is "new", and
+        # styles.css's body.ui-new block re-tints CSS custom properties --
+        # same mechanism as the existing dark-mode toggle, nothing
+        # functional changes either way. Flippable live from the admin
+        # panel's "App Appearance" card -- takes effect on next page load,
+        # no redeploy needed.
+        "uiStyle": "classic",
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -4022,6 +4052,12 @@ def _get_pricing_config():
                 "voiceEngine": row.get("voice_engine") or defaults["voiceEngine"],
                 "inworldCharsPerCredit": row.get("inworld_chars_per_credit") or defaults["inworldCharsPerCredit"],
                 "inworldCloneCredits": row.get("inworld_clone_credits") or defaults["inworldCloneCredits"],
+                # "or" (not a plain .get default), same reasoning as
+                # siteGateEnabled above but for a string column: before the
+                # ui_style migration is run, or on an untouched row, this
+                # column simply isn't present in `row` and .get() returns
+                # None, falling back to "classic" -- safe either way.
+                "uiStyle": row.get("ui_style") or defaults["uiStyle"],
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -4068,6 +4104,7 @@ def _save_pricing_config(config):
             "voice_engine": config.get("voiceEngine") if config.get("voiceEngine") in ("elevenlabs", "inworld") else "elevenlabs",
             "inworld_chars_per_credit": config.get("inworldCharsPerCredit", 60),
             "inworld_clone_credits": config.get("inworldCloneCredits", 5),
+            "ui_style": config.get("uiStyle") if config.get("uiStyle") in ("classic", "new") else "classic",
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }).encode("utf-8")
         # on_conflict=id -- without this, "resolution=merge-duplicates" only
