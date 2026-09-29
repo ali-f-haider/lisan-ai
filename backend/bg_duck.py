@@ -205,3 +205,55 @@ def duck_background(bg_path, vocals_path, out_path, depth_db=None):
                 part.unlink()
         except Exception:
             pass
+
+
+def _frame_power_db(path):
+    """Mean power (dB, one value per 10 ms) of a file, mono 16 kHz."""
+    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", str(ANALYSIS_RATE), "-f", "f32le", "-"]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    out, left, fb = [], b"", HOP * 4
+    try:
+        while True:
+            buf = p.stdout.read(fb * 3000)
+            if not buf:
+                break
+            buf = left + buf
+            n = (len(buf) // fb) * fb
+            left = buf[n:]
+            if n:
+                a = np.frombuffer(buf[:n], dtype="<f4").reshape(-1, HOP).astype(np.float64)
+                out.append(np.mean(a * a, axis=1))
+    finally:
+        try:
+            p.stdout.close()
+        except Exception:
+            pass
+        p.wait()
+    return np.concatenate(out) if out else np.zeros(0)
+
+
+def _db(x):
+    return round(10.0 * float(np.log10(max(x, 1e-12))), 1)
+
+
+def level_report(original, background, pauses):
+    """How loud the original track and the separated background are, overall and
+    only inside the pauses of the voices (there the original holds nothing but
+    music/ambience, so the two should match). Returns a dict, {} on any problem."""
+    try:
+        o, b = _frame_power_db(original), _frame_power_db(background)
+        n = min(o.size, b.size)
+        if n < 100:
+            return {}
+        o, b = o[:n], b[:n]
+        mask = np.zeros(n, dtype=bool)
+        for (a, z) in pauses or []:
+            i0, i1 = int((float(a) + 0.15) / FRAME_SEC), int((float(z) - 0.15) / FRAME_SEC)
+            if i1 > i0:
+                mask[max(0, i0):min(n, i1)] = True
+        rep = {"orig_all": _db(o.mean()), "bg_all": _db(b.mean()), "pause_sec": round(float(mask.sum()) * FRAME_SEC, 1)}
+        if mask.sum() >= 100:
+            rep["orig_pauses"], rep["bg_pauses"] = _db(o[mask].mean()), _db(b[mask].mean())
+        return rep
+    except Exception:
+        return {}

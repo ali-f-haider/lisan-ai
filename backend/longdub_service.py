@@ -2500,6 +2500,32 @@ def _volume_stats(path):
     return None, None
 
 
+FAINT_BG_MEAN_DB = -50.0     # a separated background this quiet on average is reported to the user
+
+
+def _bg_levels_event(job, wd, bg):
+    """Log how loud the original and the separated background are (overall and in the pauses of
+    the voices), so 'no music' can be told apart from 'music lost in the separation'."""
+    try:
+        pauses = []
+        pp = wd / "pauses.json"
+        if pp.exists():
+            pauses = [tuple(x) for x in json.loads(pp.read_text(encoding="utf-8"))]
+        orig = wd / "audio.wav"
+        if not orig.exists():
+            return
+        rep = bg_duck.level_report(orig, bg, pauses)
+        if not rep:
+            return
+        msg = f"original {rep['orig_all']} dB, separated background {rep['bg_all']} dB overall"
+        if "orig_pauses" in rep:
+            msg += (f"; in the {rep['pause_sec']:g}s where nobody speaks: original {rep['orig_pauses']} dB, "
+                    f"background {rep['bg_pauses']} dB")
+        _ev(job, "background_levels", "info", msg)
+    except Exception as ex:
+        print(f"[longdub] level report skipped: {ex}")
+
+
 def _pick_tempo(actual, slot, room):
     """How fast to play a generated line of `actual` seconds.
     slot = the length the original line had; room = the time the line may
@@ -3012,10 +3038,14 @@ def _run_dubbing(job):
                     bg_info = {"state": "silent", "failed_parts": failed_parts, "parts": parts_total}
                 elif failed_parts:
                     bg_info = {"state": "partial", "failed_parts": failed_parts, "parts": parts_total}
+                elif b_mean is not None and b_mean < FAINT_BG_MEAN_DB:
+                    bg_info = {"state": "faint", "failed_parts": 0, "parts": parts_total}
                 else:
                     bg_info = {"state": "mixed", "failed_parts": 0, "parts": parts_total}
                 if b_max is not None:
                     bg_info["mean_db"], bg_info["max_db"] = round(b_mean, 1), round(b_max, 1)
+            if bg.exists():
+                _bg_levels_event(job, wd, bg)
             _ev(job, "background_mix", "ok" if bg_info["state"] == "mixed" else "failed",
                 f"{bg_info['state']}; background track mean {bg_info.get('mean_db')} dB, peak {bg_info.get('max_db')} dB; "
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")

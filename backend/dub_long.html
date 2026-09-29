@@ -284,6 +284,7 @@ var T = {
     readyNote: "Your text is ready. Opening it for review…",
     readyHead: "Your text is ready to review.",
     doneBg: function (state, n, total) {
+      if (state === "faint") return "The background sound we could keep from your video (music, ambience) is almost silent: either the original has very little of it, or it was taken out together with the voices. The dubbed file therefore has almost no background sound.";
       return (state === "partial")
         ? "The original background sound (music, ambience) could not be separated for " + n + " of " + total + " parts of your video, so it is missing there."
         : "The original background sound (music, ambience) could not be separated from your video, so it is not in the dubbed file.";
@@ -436,6 +437,7 @@ var T = {
     readyNote: "نصك جاهز. جارٍ فتحه للمراجعة…",
     readyHead: "نصك جاهز للمراجعة.",
     doneBg: function (state, n, total) {
+      if (state === "faint") return "الصوت الخلفي الذي أمكن الاحتفاظ به من الفيديو (الموسيقى والأجواء) شبه صامت: إما أن الأصل يحتوي القليل منه، أو أنه أُزيل مع الأصوات. لذلك يكاد الملف المدبلج يخلو من الصوت الخلفي.";
       return (state === "partial")
         ? "تعذّر فصل الصوت الخلفي الأصلي (الموسيقى والأجواء) في " + n + " من " + total + " أجزاء من الفيديو، لذلك هو غائب في تلك الأجزاء."
         : "تعذّر فصل الصوت الخلفي الأصلي (الموسيقى والأجواء) عن الفيديو، لذلك لا يوجد في الملف المدبلج.";
