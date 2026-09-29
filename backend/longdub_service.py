@@ -2203,16 +2203,14 @@ def _clone_sample(job, spid, rows, out_dir):
     return final, acc
 
 
-SAMPLE_LANGUAGE = "en"      # the language spoken in the video we copy the voices from
-
-
 def _clone_with_retry(name, wav):
     import inworld_service
-    # The sample is English speech, so it is labelled English. (Labelling it
-    # Arabic made the copied voice sound like an English speaker reading
-    # Arabic.) If the service refuses that label, the default one is tried.
+    # The sample is English speech, so the voice is labelled English (see
+    # inworld_service.CLONE_SAMPLE_LANGUAGE, changeable with the Railway variable
+    # INWORLD_CLONE_LANGUAGE). If the service refuses the label, the default
+    # one is tried.
     last = ""
-    lang = SAMPLE_LANGUAGE
+    lang = inworld_service.CLONE_SAMPLE_LANGUAGE
     for attempt in range(3):
         try:
             return inworld_service.clone_voice_from_file(name, wav, INWORLD_API_KEY, language_code=lang), ""
@@ -2556,7 +2554,7 @@ def _run_dubbing(job):
                 dub["voices"][spid] = vid
                 job.setdefault("voices_pending_delete", []).append(vid)
                 _save(job)
-                _ev(job, "voice_cloned", "ok", f"{names.get(spid)}: reference {secs:.1f}s")
+                _ev(job, "voice_cloned", "ok", f"{names.get(spid)}: reference {secs:.1f}s, voice labelled '{inworld_service.CLONE_SAMPLE_LANGUAGE}'")
             else:
                 dub["fallback"][spid] = ""     # resolved below once the others are done
                 _save(job)

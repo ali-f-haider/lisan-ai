@@ -65,6 +65,7 @@ silently skipped):
 """
 import base64
 import json
+import os
 import random
 import time
 import urllib.request
@@ -82,6 +83,11 @@ DEFAULT_MODEL_ID = "inworld-tts-2"
 # one of the regional dialect codes (arz/afb/acw/ayl/ars/acx/aeb), since
 # Ali's product targets MSA only.
 DEFAULT_LANGUAGE = "ar"
+# The language label put on a voice copied from a video (the videos are
+# English). Inworld's cloning API describes this field as "the voice's
+# language". It can be changed without a code change: set the Railway variable
+# INWORLD_CLONE_LANGUAGE to en, ar or auto, then compare a short dub by ear.
+CLONE_SAMPLE_LANGUAGE = (os.environ.get("INWORLD_CLONE_LANGUAGE") or "en").strip() or "en"
 
 
 # Maps this app's canonical emotion/style vocabulary (config.
@@ -418,7 +424,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is still too short ({final_duration:.2f}s)."
                 continue
             try:
-                voice_id = clone_voice_from_file(f"Cloned_{speaker}", concat_file, api_key)
+                voice_id = clone_voice_from_file(f"Cloned_{speaker}", concat_file, api_key, language_code=CLONE_SAMPLE_LANGUAGE)
                 cloned_voices[speaker] = voice_id
                 # Keep the reference sample, same as eleven_service.
                 # clone_voices -- lets the user download it via
