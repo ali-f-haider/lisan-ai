@@ -2310,7 +2310,11 @@ DUB_CHUNK_SPAN = 45.0          # seconds of dubbed speech mixed per ffmpeg call
 # flow: eleven_service.py / tts_service.py). Every long dub uses them by default.
 # A line that is still too long after stretching is allowed to continue into the
 # silence after it (never over the next line) -- see _plan_timeline.
-TEMPO_MIN, TEMPO_MAX = 0.85, 1.25
+TEMPO_MIN = 0.85
+try:      # the fastest a line may be played before its wording is shortened (env LONGDUB_TEMPO_MAX, 1.1 - 1.5)
+    TEMPO_MAX = min(1.5, max(1.1, float(os.environ.get("LONGDUB_TEMPO_MAX") or 1.25)))
+except ValueError:
+    TEMPO_MAX = 1.25
 MAX_FAILED_LINE_SHARE = 0.10   # more failed lines than this and the whole job fails (refunded)
 
 
@@ -2856,6 +2860,18 @@ def _run_dubbing(job):
         by_seg = {r["segment_id"]: r for r in rows}
         _ev(job, "speech_generation", "ok" if not failed else "partial",
             f"{len(dub['lines'])} of {n} lines generated, {len(failed)} failed")
+        try:     # how tight every line was (server log): letters, natural speech time, slot, room, speed-up
+            fm = []
+            for r in rows:
+                m_ = dub["lines"].get(r["segment_id"])
+                if not m_:
+                    continue
+                txt_ = (dub.get("rephrased") or {}).get(r["segment_id"], {}).get("after") or r["arabic_text"]
+                fm.append(f"{r['segment_id']}@{float(r['start']):.1f}:{_ar_letters(txt_)}L raw{m_.get('raw', 0):.1f}s "
+                          f"slot{m_.get('slot', 0):.1f}s room{m_.get('room', 0):.1f}s x{m_.get('tempo', 1):.2f}")
+            print(f"[longdub] {job['id']} fit_map (tempo limit x{TEMPO_MAX:.2f}): " + " | ".join(fm[:60]))
+        except Exception:
+            pass
         reph = dub.get("rephrased") or {}
         if reph and not dub.get("rephrase_refund"):
             # The price was worked out on the longer text: give back the whole credits the shorter text saved.

@@ -5690,13 +5690,25 @@ def admin_longdub_log(request: Request, q: str = "", limit: int = 300):
     note = ""
     try:
         if "@" in q:
-            req = urllib.request.Request(
-                f"{SUPABASE_URL}/rest/v1/profiles?email=ilike.{_up.quote(q)}&select=id&limit=1", headers=hdrs)
-            with urllib.request.urlopen(req, timeout=10) as r:
-                rows = json.load(r)
-            if not rows:
+            # the e-mail lives in the sign-in accounts (Supabase auth), not in the profiles table
+            want = q.lower()
+            found_uid = None
+            for page in range(1, 26):
+                req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/admin/users?page={page}&per_page=200", headers=hdrs)
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    data = json.load(r)
+                users = data.get("users") if isinstance(data, dict) else data
+                if not users:
+                    break
+                for u in users:
+                    if (u.get("email") or "").strip().lower() == want:
+                        found_uid = u.get("id")
+                        break
+                if found_uid or len(users) < 200:
+                    break
+            if not found_uid:
                 return {"events": [], "note": "No user with that email."}
-            flt = f"uid=eq.{rows[0]['id']}&"
+            flt = f"uid=eq.{found_uid}&"
         elif q:
             if not _re.fullmatch(r"[0-9a-fA-F-]{4,36}", q):
                 return {"events": [], "note": "Enter a job id (or its first characters) or an email."}
