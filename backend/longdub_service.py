@@ -39,6 +39,7 @@ from types import SimpleNamespace
 
 from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_KEY
 import ffmpeg_utils
+import voice_clean
 
 LONG_DIR = DATA_DIR / "longjobs"
 LONG_DIR.mkdir(parents=True, exist_ok=True)
@@ -2704,13 +2705,42 @@ def _run_dubbing(job):
             return
         mix_dir = d / "mix"
         mixed = []
+        clean_slot = _Slot(job)
+        clean_stats = {"cleaned": 0, "kept": 0, "reasons": [], "loss": [], "floor": []}
         for k, (g, s0, s1) in enumerate(chunks):
             out = mix_dir / f"c{k:03d}.wav"
             _mark(job, "mix", 75 + int(10 * k / len(chunks)), f"Mixing (part {k + 1} of {len(chunks)})...")
             if not out.exists():
-                _mix_chunk(g, s0, s1, d / "fit", out)
+                raw_mix = mix_dir / f"c{k:03d}.raw.wav"
+                _mix_chunk(g, s0, s1, d / "fit", raw_mix)
+                # Isolate the voice from any noise before it is joined to the background.
+                _mark(job, "mix", 75 + int(10 * k / len(chunks)), f"Cleaning the voice (part {k + 1} of {len(chunks)})...")
+                clean_slot.take()
+                try:
+                    res = voice_clean.clean_voice(raw_mix, out, mix_dir, SAMPLE_RATE)
+                finally:
+                    clean_slot.drop()
+                try:
+                    raw_mix.unlink()
+                except Exception:
+                    pass
+                if res.get("cleaned"):
+                    clean_stats["cleaned"] += 1
+                    if res.get("loss_db") is not None:
+                        clean_stats["loss"].append(res["loss_db"])
+                    if res.get("floor_db") is not None:
+                        clean_stats["floor"].append(res["floor_db"])
+                else:
+                    clean_stats["kept"] += 1
+                    if res.get("reason") and res["reason"] not in clean_stats["reasons"]:
+                        clean_stats["reasons"].append(res["reason"])
             mixed.append(out)
             time.sleep(0.05)
+        if voice_clean.ENABLED and (clean_stats["cleaned"] or clean_stats["kept"]):
+            _ev(job, "voice_clean", "ok" if not clean_stats["kept"] else "partial",
+                f"{clean_stats['cleaned']} of {len(chunks)} parts cleaned"
+                + (f"; noise floor before cleaning {min(clean_stats['floor']):.0f} to {max(clean_stats['floor']):.0f} dB" if clean_stats["floor"] else "")
+                + (f"; {clean_stats['kept']} kept as they were: {'; '.join(clean_stats['reasons'])[:400]}" if clean_stats["kept"] else ""))
         dub_full = d / "dub_full.wav"
         _concat_wavs(mixed, dub_full)
         got = ffmpeg_utils.get_media_duration(dub_full)

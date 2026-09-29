@@ -8,6 +8,7 @@ import threading
 import urllib.request
 import uuid
 import audio_enhance
+import voice_clean
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -3833,7 +3834,18 @@ def merge_video(req: MergeRequest, request: Request):
 
     bg = job_background_audio(req.job_id)
     final = OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4"
-    
+
+    # Isolate the dubbed voice from noise before it goes back into the video.
+    # Never fails the merge: on any problem the original dubbed audio is used.
+    clean_dub = OUTPUT_DIR / f"merge_clean_{req.job_id}.wav"
+    try:
+        _vc = voice_clean.clean_voice(dub, clean_dub, OUTPUT_DIR, copy_on_keep=False)
+        print(f"[voice-clean] {req.job_id}: cleaned={_vc['cleaned']} loss={_vc['loss_db']} floor={_vc.get('floor_db')} denoised={_vc.get('denoised')} {_vc['reason']}")
+        if _vc["cleaned"] and clean_dub.exists() and clean_dub.stat().st_size > 1000:
+            dub = clean_dub
+    except Exception as _vc_ex:
+        print(f"[voice-clean] {req.job_id}: skipped ({_vc_ex})")
+
     if bg is not None:
         # Optionally enhance the separated background
         bg_to_use = bg
@@ -3851,7 +3863,11 @@ def merge_video(req: MergeRequest, request: Request):
             pass
     else:
         ffmpeg_utils.mux_audio_into_video(video, dub, final)
-    
+    try:
+        clean_dub.unlink()
+    except Exception:
+        pass
+
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background}
 
 # Optional reference photos for Step 7 -- uploaded separately from the
