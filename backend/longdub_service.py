@@ -36,7 +36,7 @@ import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
-from config import DATA_DIR, GEMINI_API_KEY, HF_TOKEN
+from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_KEY
 import ffmpeg_utils
 
 LONG_DIR = DATA_DIR / "longjobs"
@@ -67,6 +67,16 @@ EST_SPEAKERS = 2
 
 SAMPLE_RATE = 44100
 
+MAX_SPEAKERS = 8
+# Bump when the wording of what the user is told with the offer changes, so a
+# complaint can be matched to the exact terms that were shown.
+TERMS_VERSION = "2026-09-29"
+
+# Time estimates: how many seconds of work per second of video, until real
+# measurements from finished jobs replace these (see _record_speed).
+DEFAULT_SPEED = {"analysis": 4.0, "dubbing": 0.8}
+DUB_BASE_SEC = 120          # fixed part of a dubbing run (start-up, clones, final assembly)
+
 _LOCK = threading.RLock()
 _JOBS = {}          # job_id -> job dict (memory copy of job.json)
 _JOB_LOCKS = {}     # job_id -> Lock (serialises chunk writes / saves per job)
@@ -82,6 +92,11 @@ class Hooks:
     refund = staticmethod(lambda uid, amount, job_id: True)
     send_email = staticmethod(lambda uid, subject, text: False)
     pricing = staticmethod(lambda: {})
+    # log_event(uid, job_id, step, status, detail, credits) writes one row to
+    # the long_dub_events table (best effort, never raises).
+    log_event = staticmethod(lambda uid, job_id, step, status, detail="", credits=None: None)
+    # allowed(uid) -> (True, "") or (False, "message"): Studio-plan check.
+    allowed = staticmethod(lambda uid: (True, ""))
 
 
 def configure(**kwargs):
@@ -93,6 +108,17 @@ def configure(**kwargs):
 
 def _now():
     return time.time()
+
+
+def _ev(job, step, status="ok", detail="", credits=None):
+    """One line in the job's permanent record (long_dub_events table) -- what
+    happened, whether it worked, and why not. Also printed to the server log.
+    Never raises: logging must never break the job itself."""
+    try:
+        print(f"[longdub] {job['id']} {step} {status} {detail}"[:400])
+        Hooks.log_event(job.get("uid"), job["id"], step, status, str(detail)[:1500], credits)
+    except Exception:
+        pass
 
 
 def job_dir(job_id):
@@ -169,19 +195,85 @@ def _ffprobe_json(path, entries):
 
 PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "message", "duration",
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
-                 "updated", "received_count", "total_chunks", "warnings", "price", "result")
+                 "updated", "received_count", "total_chunks", "warnings", "price", "result",
+                 "stated_speakers", "detected_speakers", "speaker_list")
+
+
+def result_file(job):
+    """Path of the finished file if it still exists on disk, else None."""
+    r = job.get("result") or {}
+    name = r.get("file")
+    if not name or "/" in name or "\\" in name or ".." in name:
+        return None
+    p = OUTPUT_DIR / name
+    return p if p.exists() else None
 
 
 def public_view(job):
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
     v["received_count"] = len(job.get("received", []))
     v["total_chunks"] = job.get("total_chunks", 0)
+    if job.get("status") == "done":
+        v["file_available"] = result_file(job) is not None
     return v
 
 
 # ---------------------------------------------------------------- estimate
 
-def compute_estimate(duration_sec, cfg):
+STATS_PATH = LONG_DIR / "stats.json"
+
+
+def _load_stats():
+    try:
+        return json.loads(STATS_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _speed_factor(kind):
+    """Seconds of work per second of video for this kind of stage: the median
+    of the last real runs on this server once there are at least 2, else the
+    built-in default."""
+    runs = _load_stats().get(kind) or []
+    ratios = sorted(e / m for m, e in runs if m > 0 and e > 0)
+    if len(ratios) >= 2:
+        return ratios[len(ratios) // 2]
+    return DEFAULT_SPEED[kind]
+
+
+def _record_speed(kind, media_sec, elapsed_sec):
+    """Remember how long a finished stage really took so future estimates get
+    more accurate (last 30 runs kept)."""
+    try:
+        with _LOCK:
+            st = _load_stats()
+            runs = st.get(kind) or []
+            runs.append([round(float(media_sec), 1), round(float(elapsed_sec), 1)])
+            st[kind] = runs[-30:]
+            tmp = STATS_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(st), encoding="utf-8")
+            os.replace(tmp, STATS_PATH)
+    except Exception as ex:
+        print(f"[longdub] could not record speed: {ex}")
+
+
+def estimate_times(duration_sec):
+    """Rough waiting time, as minute ranges: analysis (transcribe/translate),
+    dubbing, and both together. The user's own reviewing time is not included."""
+    a = _speed_factor("analysis") * duration_sec
+    d = _speed_factor("dubbing") * duration_sec + DUB_BASE_SEC
+
+    def rng(x):
+        lo = max(1, int(x * 0.7 / 60))
+        hi = max(lo + 1, int(math.ceil(x * 1.6 / 60)))
+        return lo, hi
+    a_lo, a_hi = rng(a)
+    d_lo, d_hi = rng(d)
+    return {"analysis_min": a_lo, "analysis_max": a_hi, "dub_min": d_lo, "dub_max": d_hi,
+            "total_min": a_lo + d_lo, "total_max": a_hi + d_hi}
+
+
+def compute_estimate(duration_sec, cfg, speakers=2):
     """Cost of the whole job, shown to the user before anything expensive
     runs. cfg = Hooks.pricing():
       fee               -- small fixed charge for producing this estimate
@@ -191,17 +283,20 @@ def compute_estimate(duration_sec, cfg):
       merge_credits     -- final assembly
     The fee is NOT extra: it counts toward the total."""
     minutes = max(0.0, float(duration_sec)) / 60.0
+    speakers = max(1, min(MAX_SPEAKERS, int(speakers or 2)))
     fee = int(cfg.get("fee", 3))
     analysis = int(math.ceil(minutes * float(cfg.get("analysis_per_min", 2))))
     cpc = max(1, int(cfg.get("chars_per_credit", 60)))
     voice = int(math.ceil(minutes * EST_CHARS_PER_MIN / cpc))
-    clones = int(cfg.get("clone_credits", 5)) * EST_SPEAKERS
+    clone_each = int(cfg.get("clone_credits", 5))
+    clones = clone_each * speakers
     merge = max(1, int(cfg.get("merge_credits", 1)))
     total = fee + analysis + voice + clones + merge
     return {
         "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "voice": voice,
-        "clones": clones, "merge": merge, "total": total,
-        "assumed_speakers": EST_SPEAKERS,
+        "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
+        "speakers": speakers, "assumed_speakers": speakers,
+        "times": estimate_times(float(duration_sec)), "terms_version": TERMS_VERSION,
     }
 
 
@@ -215,7 +310,7 @@ def active_count(uid):
     return n
 
 
-def init_upload(uid, filename, size):
+def init_upload(uid, filename, size, speakers=2):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -225,6 +320,12 @@ def init_upload(uid, filename, size):
         size = int(size)
     except Exception:
         return None, ("Missing file size.", 400)
+    try:
+        speakers = int(speakers)
+    except Exception:
+        speakers = 2
+    if speakers < 1 or speakers > MAX_SPEAKERS:
+        return None, (f"The number of speakers must be between 1 and {MAX_SPEAKERS}.", 400)
     if size <= 0:
         return None, ("The file is empty.", 400)
     if size > MAX_UPLOAD_BYTES:
@@ -248,11 +349,13 @@ def init_upload(uid, filename, size):
         "percent": 0, "message": "Uploading...", "received": [], "total_chunks": total_chunks,
         "chunk_bytes": CHUNK_BYTES, "duration": 0.0, "has_video": ext in VIDEO_EXTS,
         "estimate": None, "paid": {"fee": 0, "analysis": 0, "dub": 0}, "error": "",
-        "n_segments": 0, "speakers": [], "warnings": [],
+        "n_segments": 0, "speakers": [], "warnings": [], "stated_speakers": speakers,
+        "speaker_list": [], "detected_speakers": 0,
     }
     with _LOCK:
         _JOBS[job_id] = job
     _save(job)
+    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers}")
     return job, None
 
 
@@ -298,6 +401,7 @@ def finish_upload(job, uid):
     d = job_dir(job["id"])
     part = d / "src.part"
     if not part.exists() or part.stat().st_size != job["size"]:
+        _ev(job, "upload_finished", "failed", "uploaded file damaged or incomplete")
         return False, ("The uploaded file is damaged or incomplete. Please upload it again.", 400)
     src = d / f"src{job['ext']}"
     os.replace(part, src)
@@ -307,16 +411,20 @@ def finish_upload(job, uid):
         streams = [s.get("codec_type") for s in info.get("streams", [])]
         duration = float(info.get("format", {}).get("duration"))
     except Exception:
+        _ev(job, "upload_finished", "failed", "file could not be read as audio/video")
         _discard(job)
         return False, ("This file couldn't be read as audio/video. Please try another file.", 400)
     if "audio" not in streams:
+        _ev(job, "upload_finished", "failed", "no audio track")
         _discard(job)
         return False, ("This file has no audio track to dub.", 400)
     max_min = float(cfg.get("max_min", DEFAULT_MAX_MIN))
     if duration < MIN_SEC:
+        _ev(job, "upload_finished", "failed", f"too short: {duration:.1f}s")
         _discard(job)
         return False, (f"This clip is only {duration:.0f} seconds. For clips under {MIN_SEC:.0f} seconds use the normal dubbing page.", 400)
     if duration > max_min * 60 + 1:
+        _ev(job, "upload_finished", "failed", f"too long: {duration / 60:.1f} min (limit {max_min:g})")
         _discard(job)
         return False, (f"This video is {duration / 60:.1f} minutes long. The limit is {max_min:g} minutes.", 413)
     fee = int(cfg.get("fee", 3))
@@ -324,19 +432,24 @@ def finish_upload(job, uid):
     if bal is not None and bal < fee:
         # Keep the upload so the user can top up and retry finishing.
         os.replace(src, part)
+        _ev(job, "upload_finished", "failed", f"not enough credits for the estimate fee (need {fee}, have {bal})")
         return False, (f"Getting an estimate costs {fee} credits and you have {bal}. Use Buy to top up, then try again.", 402)
     with _lock_for(job["id"]):
         job["duration"] = round(duration, 3)
         job["has_video"] = "video" in streams and job["ext"] in VIDEO_EXTS
-        job["estimate"] = compute_estimate(duration, cfg)
+        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2))
         if fee > 0 and not job["paid"]["fee"]:
             Hooks.charge(uid, fee, "long_dub_estimate", job["id"])
             job["paid"]["fee"] = fee
+            _ev(job, "estimate_fee_charged", "ok", f"{fee} credits", fee)
         job["status"] = "estimated"
         job["stage"] = "estimate"
         job["percent"] = 100
         job["message"] = "Estimate ready."
     _save(job)
+    e = job["estimate"]
+    _ev(job, "estimate_created", "ok",
+        f"duration={duration:.1f}s total={e['total']} speakers={e['speakers']} time={e['times']['total_min']}-{e['times']['total_max']}min terms={TERMS_VERSION}")
     return True, None
 
 
@@ -347,26 +460,31 @@ def _discard(job):
     shutil.rmtree(job_dir(job["id"]), ignore_errors=True)
 
 
-def accept(job, uid):
-    """User agreed to the estimate: check balance for the analysis part, charge
-    it, and start the background worker. Returns (True, None) or
-    (False, (message, http_status))."""
+def accept(job, uid, agreed=False):
+    """User agreed to the estimate and the terms: check balance for the whole
+    estimate, charge the analysis part, and start the background worker.
+    Returns (True, None) or (False, (message, http_status))."""
     if job.get("status") != "estimated":
         return False, ("This job is not waiting for approval.", 409)
+    if not agreed:
+        return False, ("Please tick the box to confirm you have read the terms of this offer.", 400)
     est = job["estimate"]
-    cfg = Hooks.pricing()
     need_now = est["analysis"]
     bal = Hooks.get_credits(uid)
     # He must be able to cover the whole estimate (minus what he already paid)
     # to proceed -- the exact voice cost is confirmed later after editing.
     remaining_total = est["total"] - job["paid"]["fee"]
     if bal is not None and bal < remaining_total:
+        _ev(job, "accepted", "failed", f"not enough credits (need {remaining_total}, have {bal})")
         return False, (f"Not enough credits. The full estimate is {est['total']} credits (you already paid {job['paid']['fee']}); "
                        f"you have {bal}. Use Buy to top up.", 402)
     with _lock_for(job["id"]):
+        job["terms_accepted"] = {"version": TERMS_VERSION, "at": _now()}
+        _ev(job, "terms_accepted", "ok", f"version={TERMS_VERSION} estimate_total={est['total']}")
         if need_now > 0 and not job["paid"]["analysis"]:
             Hooks.charge(uid, need_now, "long_dub_analysis", job["id"])
             job["paid"]["analysis"] = need_now
+            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits", need_now)
         job["status"] = "accepted"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -380,6 +498,8 @@ def delete_job(job, uid):
     """User throws a job away (only when no worker is busy on it)."""
     if job["id"] in _RUNNING:
         return False, ("This job is being processed right now and can't be deleted yet.", 409)
+    _ev(job, "deleted_by_user", "ok", f"status={job.get('status')} paid={job.get('paid')}")
+    _delete_pending_voices(job)
     with _LOCK:
         _JOBS.pop(job["id"], None)
     shutil.rmtree(job_dir(job["id"]), ignore_errors=True)
@@ -492,6 +612,7 @@ def resume_all():
         job = load_job(d.name)
         if job and job.get("status") in ("accepted", "analyzing", "confirmed", "dubbing"):
             if start_worker(job["id"]):
+                _ev(job, "resumed_after_restart", "info", f"status={job.get('status')}")
                 n += 1
     return n
 
@@ -514,6 +635,8 @@ def _fail(job, message, refund_kind=None):
         job["error"] = message
         job["message"] = message
     _save(job)
+    _ev(job, "job_failed", "failed", f"{message} | refunded={refunded} kind={refund_kind}", refunded or None)
+    _delete_pending_voices(job)
     try:
         extra = f" We refunded {refunded} credits." if refunded else ""
         Hooks.send_email(uid, "Your Lisan AI long video could not be finished",
@@ -665,11 +788,16 @@ def _run_analysis(job):
     wd = _wd(job)
     src = wd / f"src{job['ext']}"
     try:
+        resumed = job.get("status") == "analyzing"
         job["status"] = "analyzing"
         an = job.setdefault("analysis", {})
         an.setdefault("sep_done", [])
         an.setdefault("asr_done", [])
+        if resumed:
+            an["resumed"] = True
+        an.setdefault("started", _now())
         _save(job)
+        _ev(job, "analysis_started", "info", "resumed from checkpoint" if resumed else "first run")
 
         # 1. audio track -------------------------------------------------
         audio = wd / "audio.wav"
@@ -677,6 +805,7 @@ def _run_analysis(job):
             _mark(job, "extract", 2, "Extracting the audio...")
             ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(src), "-vn", "-ac", "2", "-ar", str(SAMPLE_RATE),
                                      "-acodec", "pcm_s16le", str(audio)])
+            _ev(job, "audio_extracted", "ok", f"{audio.stat().st_size // 1048576} MB")
         # 2. pieces --------------------------------------------------------
         if not an.get("pieces"):
             _mark(job, "plan", 4, "Finding natural pauses to split at...")
@@ -685,6 +814,7 @@ def _run_analysis(job):
             an["pieces"] = [list(p) for p in plan_pieces(dur, sil)]
             an["audio_duration"] = dur
             _save(job)
+            _ev(job, "pieces_planned", "ok", f"{len(an['pieces'])} pieces, audio {dur:.1f}s")
         pieces = an["pieces"]
         n = len(pieces)
         (wd / "pieces").mkdir(exist_ok=True)
@@ -732,6 +862,7 @@ def _run_analysis(job):
                     _silence_wav(b1 - b0, bg_dst)
                     job.setdefault("warnings", []).append(
                         f"Background music could not be separated for part {i + 1}; that part will have no background sound.")
+                    _ev(job, "separation", "failed", f"piece {i + 1}/{n}: separation failed twice; used the original sound and silent background")
             else:
                 shutil.copy(piece, vocals_dst)
             try:
@@ -742,6 +873,10 @@ def _run_analysis(job):
             _save(job)
             time.sleep(0.05)
 
+        if not an.get("sep_logged"):
+            _ev(job, "separation", "ok" if has_video else "skipped",
+                f"{n} pieces" if has_video else "audio-only file: no background separation")
+            an["sep_logged"] = True
         vocals_all = wd / "vocals.wav"
         if not vocals_all.exists():
             _concat_wavs([wd / "vocals" / f"p{i:03d}.wav" for i in range(n)], vocals_all)
@@ -771,6 +906,12 @@ def _run_analysis(job):
             turns_path.write_text(json.dumps(turns), encoding="utf-8")
             an["diarized"] = True
             _save(job)
+            if not HF_TOKEN:
+                _ev(job, "speaker_detection", "skipped", "no HF_TOKEN configured")
+            elif turns:
+                _ev(job, "speaker_detection", "ok", f"{len({t['speaker'] for t in turns})} speakers, {len(turns)} turns")
+            else:
+                _ev(job, "speaker_detection", "failed", "no speaker turns returned")
         turns = json.loads(turns_path.read_text(encoding="utf-8")) if turns_path.exists() else []
 
         # 5. transcribe piece by piece -------------------------------------
@@ -801,6 +942,7 @@ def _run_analysis(job):
             except Exception:
                 pass
             slot.drop()
+        _ev(job, "transcription", "ok", f"{n} pieces")
 
         # 6. build lines ----------------------------------------------------
         _mark(job, "build", 86, "Building the transcript...")
@@ -819,13 +961,26 @@ def _run_analysis(job):
         if len(rows) > MAX_SEGMENTS:
             _fail(job, f"This video has too many separate lines ({len(rows)}); the limit is {MAX_SEGMENTS}", "analysis")
             return
+        _init_speakers(job, rows)
         _write_segments(job, rows)
+        _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
+                                           f"{job.get('stated_speakers')} stated by the user")
 
         # 7. translate in small batches ------------------------------------
         _translate_all(job, rows)
         _write_segments(job, rows)
+        missing_ar = sum(1 for r in rows if not (r.get("arabic_text") or "").strip())
+        _ev(job, "translation", "ok" if not missing_ar else "partial",
+            f"{len(rows) - missing_ar} of {len(rows)} lines translated")
 
         # 8. done: free the big intermediates, keep what dubbing needs ------
+        # (a mono copy of the separated voices stays: it is the reference for
+        # cloning and for volume matching later)
+        try:
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vocals_all), "-ac", "1", "-ar", str(SAMPLE_RATE),
+                                     "-acodec", "pcm_s16le", str(wd / "vocals_mono.wav")])
+        except Exception as ex:
+            print(f"[longdub] could not keep a mono voices copy: {ex}")
         for sub in ("pieces", "vocals", "bg", "asr", "sep"):
             shutil.rmtree(wd / sub, ignore_errors=True)
         for f in ("vocals.wav", "vocals_normalized.wav"):
@@ -833,11 +988,16 @@ def _run_analysis(job):
                 (wd / f).unlink()
             except Exception:
                 pass
-        job["speakers"] = sorted({r["speaker"] for r in rows})
+        job["speakers"] = [sp["name"] for sp in job["speaker_list"]]
         job["n_segments"] = len(rows)
         job["status"] = "editing"
         _mark(job, "review", 100, "Ready for you to review.")
         _save(job)
+        elapsed = _now() - an.get("started", _now())
+        _ev(job, "analysis_done", "ok", f"{elapsed:.0f}s for {an.get('audio_duration', 0):.0f}s of audio"
+            + (" (resumed run)" if an.get("resumed") else ""))
+        if not an.get("resumed"):
+            _record_speed("analysis", an.get("audio_duration", 0), elapsed)
         try:
             Hooks.send_email(job["uid"], "Your Lisan AI transcript is ready to review",
                              f"Hi,\n\nThe transcript and Arabic translation of \"{job['filename']}\" are ready. "
@@ -848,6 +1008,7 @@ def _run_analysis(job):
     except Exception as ex:
         import traceback
         print(f"[longdub] analysis failed for {job['id']}: {ex}\n{traceback.format_exc()}")
+        _ev(job, "analysis_failed", "failed", f"{type(ex).__name__}: {ex}"[:600])
         _fail(job, "Something went wrong while analysing this video", "analysis")
 
 
@@ -917,17 +1078,22 @@ MAX_TEXT_LEN = 2000
 
 
 def update_segments(job, edits):
-    """edits = [{segment_id, text?, arabic_text?}]. Only text fields are
-    editable; times, speakers and ids can never be changed from the page."""
+    """edits = [{segment_id, text?, arabic_text?, speaker_id?}]. Only the text and
+    which speaker says the line can be changed; times and ids never can."""
     if job.get("status") != "editing":
         return False, "This job is not open for editing."
     rows = read_segments(job)
     by_id = {r["segment_id"]: r for r in rows}
+    sp_names = {sp["id"]: sp["name"] for sp in job.get("speaker_list", [])}
     changed = 0
     for e in edits or []:
         r = by_id.get(str(e.get("segment_id", "")))
         if not r:
             continue
+        if e.get("speaker_id") in sp_names and e["speaker_id"] != r.get("speaker_id"):
+            r["speaker_id"] = e["speaker_id"]
+            r["speaker"] = sp_names[e["speaker_id"]]
+            changed += 1
         if isinstance(e.get("text"), str):
             r["text"] = e["text"][:MAX_TEXT_LEN]
             changed += 1
@@ -956,11 +1122,608 @@ def retranslate_line(job, segment_id):
     return True, "", r["arabic_text"]
 
 
+# ------------------------------------------------------------ speakers
+
+def _speaker_num(name):
+    m = re.search(r"(\d+)\s*$", name or "")
+    return int(m.group(1)) if m else 10 ** 6
+
+
+def _init_speakers(job, rows):
+    """Builds the speaker list from what was detected, and adds empty speakers
+    up to the number the user said at upload (so the count he gave is honoured;
+    lines can then be moved to them)."""
+    names = sorted({r["speaker"] for r in rows}, key=lambda n: (_speaker_num(n), n))
+    lst = [{"id": f"sp{i + 1}", "name": n} for i, n in enumerate(names)]
+    by_name = {sp["name"]: sp["id"] for sp in lst}
+    for r in rows:
+        r["speaker_id"] = by_name[r["speaker"]]
+    detected = len(lst)
+    stated = max(1, min(MAX_SPEAKERS, int(job.get("stated_speakers") or detected)))
+    k = len(lst)
+    while len(lst) < stated:
+        k += 1
+        nm = f"Speaker {k}"
+        while any(sp["name"].lower() == nm.lower() for sp in lst):
+            k += 1
+            nm = f"Speaker {k}"
+        lst.append({"id": f"sp{len(lst) + 1}", "name": nm})
+    job["speaker_list"] = lst
+    job["detected_speakers"] = detected
+
+
+def set_speakers(job, speakers):
+    """Replace the speaker list (rename / add / remove). A speaker can only be
+    removed when no line is assigned to it. Returns (ok, message)."""
+    if job.get("status") != "editing":
+        return False, "This job is not open for editing."
+    if not isinstance(speakers, list) or not (1 <= len(speakers) <= MAX_SPEAKERS):
+        return False, f"You can have between 1 and {MAX_SPEAKERS} speakers."
+    existing = {sp["id"] for sp in job.get("speaker_list", [])}
+    nums = [int(re.sub(r"\D", "", i) or 0) for i in existing] or [0]
+    next_num = max(nums) + 1
+    new, names, used_ids = [], set(), set()
+    for item in speakers:
+        name = re.sub(r"\s+", " ", str((item or {}).get("name", ""))).strip()[:40]
+        if not name:
+            return False, "Every speaker needs a name."
+        if name.lower() in names:
+            return False, f'Two speakers are called "{name}". Give each one a different name.'
+        names.add(name.lower())
+        sid = str((item or {}).get("id") or "")
+        if sid not in existing or sid in used_ids:
+            sid = f"sp{next_num}"
+            next_num += 1
+        used_ids.add(sid)
+        new.append({"id": sid, "name": name})
+    kept = {sp["id"]: sp["name"] for sp in new}
+    rows = read_segments(job)
+    for r in rows:
+        if r.get("speaker_id") not in kept:
+            return False, "A speaker that still has lines can't be removed. Move its lines to another speaker first."
+    for r in rows:
+        r["speaker"] = kept[r["speaker_id"]]
+    _write_segments(job, rows)
+    job["speaker_list"] = new
+    job["speakers"] = [sp["name"] for sp in new]
+    _save(job)
+    _ev(job, "speakers_updated", "ok", "speakers: " + ", ".join(sp["name"] for sp in new))
+    return True, ""
+
+
+# ------------------------------------------------------ price + confirm
+
+def dub_price(job, cfg=None):
+    """Exact price of the dubbing stage, from the text as it stands now."""
+    cfg = cfg or Hooks.pricing()
+    import inworld_service
+    rows = read_segments(job)
+    names = {sp["id"]: sp["name"] for sp in job.get("speaker_list", [])}
+    chars = 0
+    lines = 0
+    without = 0
+    used = {}
+    for r in rows:
+        ar = (r.get("arabic_text") or "").strip()
+        if not ar:
+            if (r.get("text") or "").strip():
+                without += 1
+            continue
+        chars += len(inworld_service.instruction_tag(r.get("emotion"))) + len(ar)
+        lines += 1
+        used[r.get("speaker_id")] = used.get(r.get("speaker_id"), 0) + 1
+    cpc = max(1, int(cfg.get("chars_per_credit", 60)))
+    clone_each = int(cfg.get("clone_credits", 5))
+    voice = int(math.ceil(chars / float(cpc))) if chars else 0
+    clones = clone_each * len(used)
+    merge = max(1, int(cfg.get("merge_credits", 1)))
+    due = voice + clones + merge
+    already = int(job["paid"].get("fee", 0)) + int(job["paid"].get("analysis", 0))
+    dur = float(job.get("duration") or 0)
+    d = _speed_factor("dubbing") * dur + DUB_BASE_SEC
+    lo = max(1, int(d * 0.7 / 60))
+    hi = max(lo + 1, int(math.ceil(d * 1.6 / 60)))
+    return {
+        "lines": lines, "chars": chars, "voice": voice, "clones": clones, "clone_each": clone_each,
+        "merge": merge, "due": due, "already_paid": already, "total": already + due,
+        "lines_without_arabic": without, "chars_per_credit": cpc,
+        "speakers_used": [{"id": k, "name": names.get(k, "?"), "lines": v} for k, v in used.items()],
+        "time_min": lo, "time_max": hi,
+    }
+
+
+def confirm(job, uid, expected_due):
+    """User reviewed everything and accepts the exact price: charge it and
+    start the dubbing. Returns (True, None) or (False, (message, status))."""
+    if job.get("status") != "editing":
+        return False, ("This job is not waiting for confirmation.", 409)
+    price = dub_price(job)
+    if price["lines"] <= 0:
+        return False, ("There is no Arabic text to dub yet.", 400)
+    if not INWORLD_API_KEY:
+        _ev(job, "dub_confirmed", "failed", "voice service (Inworld) is not configured")
+        return False, ("The voice service is not available right now. Nothing was charged. Please try again later.", 503)
+    try:
+        if int(expected_due) != price["due"]:
+            return False, ("The price changed because the text was edited. Please check the new price and confirm again.", 409)
+    except (TypeError, ValueError):
+        return False, ("Missing price confirmation.", 400)
+    bal = Hooks.get_credits(uid)
+    if bal is not None and bal < price["due"]:
+        _ev(job, "dub_confirmed", "failed", f"not enough credits (need {price['due']}, have {bal})")
+        return False, (f"Not enough credits. Dubbing costs {price['due']} credits and you have {bal}. Use Buy to top up.", 402)
+    with _lock_for(job["id"]):
+        Hooks.charge(uid, price["due"], "long_dub_dub", job["id"])
+        job["paid"]["dub"] = price["due"]
+        job["dub_plan"] = {"chars": price["chars"], "cpc": price["chars_per_credit"], "clone_each": price["clone_each"],
+                           "merge": price["merge"], "lines": price["lines"],
+                           "speakers": [s["id"] for s in price["speakers_used"]], "confirmed_at": _now()}
+        job["status"] = "confirmed"
+        job["stage"] = "queued"
+        job["percent"] = 0
+        job["message"] = "Waiting for a free processing slot..."
+    _save(job)
+    _ev(job, "dub_confirmed", "ok",
+        f"due={price['due']} (voice {price['voice']}, clones {price['clones']}, merge {price['merge']}) chars={price['chars']} "
+        f"lines={price['lines']} speakers={len(price['speakers_used'])}", price["due"])
+    start_worker(job["id"])
+    return True, None
+
+
+# --------------------------------------------------------------- dubbing
+
+DUB_CHUNK_SPAN = 45.0          # seconds of dubbed speech mixed per ffmpeg call
+TEMPO_MIN, TEMPO_MAX = 0.75, 1.35
+MAX_FAILED_LINE_SHARE = 0.10   # more failed lines than this and the whole job fails (refunded)
+
+
+def _delete_pending_voices(job):
+    """Delete every temporary cloned voice this job still has on Inworld.
+    Voices are never kept: they are removed as soon as the job ends, whether
+    it finished, failed or was deleted. Anything that can't be deleted right
+    now stays listed and is retried by the hourly housekeeping."""
+    ids = list(job.get("voices_pending_delete") or [])
+    if not ids:
+        return
+    import inworld_service
+    remaining = []
+    for vid in ids:
+        res = {"ok": False, "error": "no key"}
+        if INWORLD_API_KEY:
+            res = inworld_service.delete_voice(vid, INWORLD_API_KEY)
+        if res.get("ok") or "404" in str(res.get("error", "")):
+            _ev(job, "voice_deleted", "ok", vid)
+        else:
+            remaining.append(vid)
+            _ev(job, "voice_deleted", "failed", f"{vid}: {res.get('error')}")
+    job["voices_pending_delete"] = remaining
+    if job_dir(job["id"]).exists():
+        _save(job)
+
+
+def sweep_voices():
+    """Retry deleting temporary voices left behind (e.g. Inworld was down when
+    the job ended)."""
+    if not LONG_DIR.exists():
+        return
+    for d in LONG_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        job = load_job(d.name)
+        if job and job.get("voices_pending_delete") and job["id"] not in _RUNNING \
+                and job.get("status") not in ("confirmed", "dubbing"):
+            _delete_pending_voices(job)
+
+
+def _clone_sample(job, spid, rows, out_dir):
+    """One reference clip (up to ~20 s, well under Inworld's 30 s limit) for a
+    speaker, cut from that speaker's longest lines in the separated voices.
+    Returns (path or None, seconds)."""
+    wd = _wd(job)
+    ref = wd / "vocals_mono.wav"
+    if not ref.exists():
+        ref = wd / "audio.wav"
+    total = float(job.get("analysis", {}).get("audio_duration") or 0) or ffmpeg_utils.get_media_duration(ref)
+    cands = [r for r in rows if r.get("speaker_id") == spid and (r.get("text") or "").strip()
+             and r["end"] - r["start"] > 0.3]
+    cands.sort(key=lambda r: r["end"] - r["start"], reverse=True)
+    parts, acc = [], 0.0
+    for r in cands:
+        if acc >= 20.0:
+            break
+        a = max(0.0, float(r["start"]) - 0.35)
+        b = min(total, float(r["end"]) + 0.35)
+        d = min(b - a, 28.0 - acc)
+        if d < 0.3:
+            continue
+        out = out_dir / f"ref_{spid}_{len(parts)}.wav"
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-ss", f"{a:.3f}", "-t", f"{d:.3f}", "-i", str(ref), "-vn", "-ac", "1",
+                                 "-ar", str(SAMPLE_RATE), "-acodec", "pcm_s16le", str(out)])
+        if out.exists() and out.stat().st_size > 2000:
+            parts.append(out)
+            acc += d
+    if acc < 0.5 or not parts:
+        return None, acc
+    final = out_dir / f"ref_{spid}.wav"
+    if len(parts) == 1:
+        shutil.copy(parts[0], final)
+    else:
+        _concat_wavs(parts, final)
+    if acc < 1.0:
+        padded = out_dir / f"ref_{spid}_pad.wav"
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(final), "-af", f"apad=pad_dur={1.15 - acc:.3f}", "-ac", "1",
+                                 "-ar", str(SAMPLE_RATE), "-acodec", "pcm_s16le", str(padded)])
+        final = padded
+        acc = 1.15
+    for p in parts:
+        try:
+            p.unlink()
+        except Exception:
+            pass
+    return final, acc
+
+
+def _clone_with_retry(name, wav):
+    import inworld_service
+    last = ""
+    for attempt in range(3):
+        try:
+            return inworld_service.clone_voice_from_file(name, wav, INWORLD_API_KEY), ""
+        except Exception as ex:
+            last = inworld_service._http_error_detail(ex)
+            time.sleep(5 * (attempt + 1))
+    return None, last
+
+
+def _tts_with_retry(voice_id, text):
+    import inworld_service
+    import urllib.error
+    last = ""
+    for wait in (0, 4, 12, 30):
+        if wait:
+            time.sleep(wait)
+        try:
+            return inworld_service.synthesize(voice_id, text, INWORLD_API_KEY, language="ar"), ""
+        except urllib.error.HTTPError as ex:
+            last = inworld_service._http_error_detail(ex)
+            if ex.code in (400, 401, 403, 404, 422):
+                break
+        except Exception as ex:
+            last = str(ex)
+    return None, last
+
+
+def _fit_line(raw_path, out_wav, target, loud_ref, start):
+    """Fit one generated line into its time slot (same rules as the normal
+    flow: speed up / slow down within limits) and match its loudness to the
+    original speaker. Returns metadata for the mixer."""
+    actual = ffmpeg_utils.get_media_duration(raw_path)
+    if actual <= 0:
+        actual = target
+    required = actual / target
+    warn = False
+    if required < TEMPO_MIN:
+        tempo = 1.0
+    elif required > TEMPO_MAX:
+        tempo, warn = TEMPO_MAX, True
+    else:
+        tempo = required
+    cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
+    if abs(tempo - 1.0) > 0.02:
+        cmd += ["-filter:a", f"atempo={tempo:.6f}"]
+    cmd += ["-ac", "2", "-ar", str(SAMPLE_RATE), "-acodec", "pcm_s16le", str(out_wav)]
+    ffmpeg_utils.run_ffmpeg(cmd)
+    dur = ffmpeg_utils.get_media_duration(out_wav)
+    gain = 0.0
+    try:
+        orig_db = ffmpeg_utils.measure_loudness_db(str(loud_ref), start, target)
+        dub_db = ffmpeg_utils.measure_loudness_db(str(out_wav))
+        if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
+            gain = max(-10.0, min(10.0, orig_db - dub_db))
+    except Exception:
+        gain = 0.0
+    return {"dur": round(dur, 3), "tempo": round(tempo, 3), "warn": warn, "gain_db": round(gain, 1)}
+
+
+def _mix_part(input_index, allowed, delay_ms, gdb, trim):
+    vol = f"volume={10 ** (gdb / 20.0):.4f}," if abs(gdb) > 0.05 else ""
+    if trim:
+        fade_start = max(0, allowed - 0.06)
+        return (f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},"
+                f"afade=t=out:st={fade_start:.3f}:d=0.06,asetpts=PTS-STARTPTS,"
+                f"adelay={delay_ms}|{delay_ms},apad[a{input_index - 1}]")
+    return (f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},"
+            f"asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{input_index - 1}]")
+
+
+def _mix_chunk(items, s0, s1, fit_dir, out_wav):
+    """Mix the lines of one stretch of the timeline into an exact-length wav
+    (s0..s1 are sample positions)."""
+    n = s1 - s0
+    t0 = s0 / float(SAMPLE_RATE)
+    inputs = ["-f", "lavfi", "-t", f"{n / float(SAMPLE_RATE) + 1.0:.3f}", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo"]
+    parts = []
+    for idx, it in enumerate(items):
+        inputs += ["-i", str(fit_dir / f"{it['seg']}.wav")]
+        delay_ms = max(0, int(round((it["start"] - t0) * 1000)))
+        parts.append(_mix_part(idx + 1, max(it["allowed"], 0.05), delay_ms, it["gain_db"], it["trim"]))
+    ins = "".join(f"[a{i}]" for i in range(len(items)))
+    parts.append(f"[0]{ins}amix=inputs={len(items) + 1}:duration=first:normalize=0,"
+                 f"atrim=end_sample={n},asetpts=PTS-STARTPTS[out]")
+    ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", ";".join(parts), "-map", "[out]",
+                                                         "-ac", "2", "-ar", str(SAMPLE_RATE), "-acodec", "pcm_s16le",
+                                                         str(out_wav)])
+
+
+def _plan_timeline(lines, total):
+    """Decide, for every generated line, how much of it may play (it may run
+    into the silence after it but never over the next line) and split the
+    timeline into stretches that start at a line, so no line crosses a
+    stretch boundary. Returns (kept_items, chunks[(items, s0, s1)], dropped)."""
+    lines = sorted(lines, key=lambda x: x["start"])
+    dropped = []
+    for i, it in enumerate(lines):
+        nxt = lines[i + 1]["start"] - 0.05 if i + 1 < len(lines) else total
+        room = nxt - it["start"]
+        it["allowed"] = min(it["dur"], room)
+        it["trim"] = it["dur"] > it["allowed"] + 0.02
+        if it["allowed"] <= 0.02:
+            dropped.append(it)
+    kept = [it for it in lines if it["allowed"] > 0.02]
+    groups, cur = [], []
+    for it in kept:
+        if cur and it["start"] - cur[0]["start"] >= DUB_CHUNK_SPAN:
+            groups.append(cur)
+            cur = []
+        cur.append(it)
+    if cur:
+        groups.append(cur)
+    total_samples = int(math.ceil(total * SAMPLE_RATE))
+    chunks = []
+    for k, g in enumerate(groups):
+        s0 = 0 if k == 0 else int(math.floor(g[0]["start"] * SAMPLE_RATE))
+        s1 = total_samples if k == len(groups) - 1 else int(math.floor(groups[k + 1][0]["start"] * SAMPLE_RATE))
+        chunks.append((g, s0, s1))
+    return kept, chunks, dropped
+
+
+def _run_dubbing(job):
+    """confirmed -> per-speaker temporary voice clones -> Arabic speech line by
+    line -> fit to timing -> mix in stretches -> join with the background ->
+    ONE final file. Checkpointed: a restart continues where it stopped (clones
+    already made are reused, never re-made, never double-charged)."""
+    wd = _wd(job)
+    uid = job["uid"]
+    try:
+        resumed = job.get("status") == "dubbing"
+        job["status"] = "dubbing"
+        dub = job.setdefault("dub", {})
+        dub.setdefault("voices", {})
+        dub.setdefault("fallback", {})
+        dub.setdefault("lines", {})
+        dub.setdefault("failed", [])
+        dub.setdefault("started", _now())
+        if resumed:
+            dub["resumed"] = True
+        _save(job)
+        _ev(job, "dubbing_started", "info", "resumed from checkpoint" if resumed else "first run")
+        plan = job["dub_plan"]
+        if not INWORLD_API_KEY:
+            _fail(job, "The voice service is not available right now", "dub")
+            return
+        d = wd / "dub"
+        for sub in ("", "lines", "fit", "mix"):
+            (d / sub if sub else d).mkdir(parents=True, exist_ok=True)
+        rows_all = read_segments(job)
+        names = {sp["id"]: sp["name"] for sp in job.get("speaker_list", [])}
+        rows = sorted([r for r in rows_all if (r.get("arabic_text") or "").strip()], key=lambda r: r["start"])
+        total = float(job["analysis"]["audio_duration"])
+        import inworld_service
+
+        # 1. temporary voice per speaker ---------------------------------
+        sp_ids = [s for s in plan["speakers"]]
+        for i, spid in enumerate(sp_ids):
+            if spid in dub["voices"] or spid in dub["fallback"]:
+                continue
+            _mark(job, "clone", 3 + int(7 * i / max(1, len(sp_ids))), f"Copying the voice of {names.get(spid, spid)}...")
+            wav, secs = _clone_sample(job, spid, rows_all, d)
+            vid, err = (None, f"not enough clear speech to copy this voice ({secs:.1f}s)")
+            if wav is not None:
+                vid, err = _clone_with_retry(f"lisan-tmp-{job['id'][:8]}-{spid}", wav)
+                try:
+                    wav.unlink()
+                except Exception:
+                    pass
+            if vid:
+                dub["voices"][spid] = vid
+                job.setdefault("voices_pending_delete", []).append(vid)
+                _save(job)
+                _ev(job, "voice_cloned", "ok", f"{names.get(spid)}: reference {secs:.1f}s")
+            else:
+                dub["fallback"][spid] = ""     # resolved below once the others are done
+                _save(job)
+                _ev(job, "voice_cloned", "failed", f"{names.get(spid)}: {err}")
+        good = [s for s in sp_ids if s in dub["voices"]]
+        if not good:
+            _fail(job, "The voices could not be copied from this video", "dub")
+            return
+        # A speaker whose voice couldn't be copied borrows the voice of the
+        # speaker with the most lines, and its clone charge is refunded.
+        busiest = max(good, key=lambda s: sum(1 for r in rows if r.get("speaker_id") == s))
+        for spid in [s for s in sp_ids if s in dub["fallback"] and not dub["fallback"][s]]:
+            dub["fallback"][spid] = dub["voices"][busiest]
+            refund = int(plan["clone_each"])
+            if refund and job["paid"].get("dub", 0) >= refund:
+                try:
+                    Hooks.refund(uid, refund, job["id"])
+                    job["paid"]["dub"] -= refund
+                    _ev(job, "clone_refund", "ok", f"{names.get(spid)}: {refund} credits back", refund)
+                except Exception as ex:
+                    _ev(job, "clone_refund", "failed", str(ex))
+            job.setdefault("warnings", []).append(
+                f"The voice of {names.get(spid)} could not be copied, so {names.get(busiest)}'s voice was used for those lines.")
+            _save(job)
+
+        def voice_for(spid):
+            return dub["voices"].get(spid) or dub["fallback"].get(spid) or dub["voices"][busiest]
+
+        # 2. speak every line, fit it to its slot ----------------------------
+        loud_ref = wd / "vocals_mono.wav"
+        if not loud_ref.exists():
+            loud_ref = wd / "audio.wav"
+        n = len(rows)
+        for i, r in enumerate(rows):
+            sid = r["segment_id"]
+            if sid in dub["lines"] or sid in dub["failed"]:
+                continue
+            _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Generating the Arabic voice (line {i + 1} of {n})...")
+            text = f"{inworld_service.instruction_tag(r.get('emotion'))}{r['arabic_text'].strip()}"
+            audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text)
+            if audio is None:
+                dub["failed"].append(sid)
+                _ev(job, "line_generation", "failed", f"{sid} ({len(text)} chars): {err}")
+                _save(job)
+                continue
+            raw = d / "lines" / f"{sid}.mp3"
+            raw.write_bytes(audio)
+            target = max(float(r["end"]) - float(r["start"]), 0.5)
+            meta = _fit_line(raw, d / "fit" / f"{sid}.wav", target, loud_ref, float(r["start"]))
+            meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text)})
+            dub["lines"][sid] = meta
+            try:
+                raw.unlink()
+            except Exception:
+                pass
+            if len(dub["lines"]) % 10 == 0:
+                _save(job)
+            time.sleep(0.15)
+        _save(job)
+        failed = list(dub["failed"])
+        if n and len(failed) / float(n) > MAX_FAILED_LINE_SHARE:
+            _ev(job, "speech_generation", "failed", f"{len(failed)} of {n} lines failed")
+            _fail(job, "Too many lines could not be generated by the voice service", "dub")
+            return
+        if not dub["lines"]:
+            _fail(job, "No line could be generated", "dub")
+            return
+        by_seg = {r["segment_id"]: r for r in rows}
+        _ev(job, "speech_generation", "ok" if not failed else "partial",
+            f"{len(dub['lines'])} of {n} lines generated, {len(failed)} failed")
+        if failed:
+            # Pro-rata refund for the characters of lines that were not generated.
+            fchars = sum(len(inworld_service.instruction_tag(by_seg[s].get("emotion"))) + len(by_seg[s]["arabic_text"].strip())
+                         for s in failed)
+            back = int(math.ceil(fchars / float(max(1, plan["cpc"]))))
+            if back and job["paid"].get("dub", 0) >= back and not dub.get("line_refund"):
+                try:
+                    Hooks.refund(uid, back, job["id"])
+                    job["paid"]["dub"] -= back
+                    dub["line_refund"] = back
+                    _ev(job, "line_refund", "ok", f"{len(failed)} lines left silent: {back} credits back", back)
+                except Exception as ex:
+                    _ev(job, "line_refund", "failed", str(ex))
+            job.setdefault("warnings", []).append(
+                f"{len(failed)} line(s) could not be generated and were left silent; the price of those lines was refunded.")
+            _save(job)
+
+        # 3. timeline: fit into gaps, mix in stretches ------------------------
+        _mark(job, "mix", 74, "Placing the lines on the timeline...")
+        items = [dict(m) for m in dub["lines"].values()]
+        for it in items:
+            it["end"] = float(by_seg[it["seg"]]["end"])
+        kept, chunks, dropped = _plan_timeline(items, total)
+        if dropped:
+            _ev(job, "timeline", "partial", f"{len(dropped)} lines had no room and were left out")
+            job.setdefault("warnings", []).append(f"{len(dropped)} line(s) had no room before the next line and were left out.")
+        if not chunks:
+            _fail(job, "No generated line fits the timeline", "dub")
+            return
+        mix_dir = d / "mix"
+        mixed = []
+        for k, (g, s0, s1) in enumerate(chunks):
+            out = mix_dir / f"c{k:03d}.wav"
+            _mark(job, "mix", 75 + int(10 * k / len(chunks)), f"Mixing (part {k + 1} of {len(chunks)})...")
+            if not out.exists():
+                _mix_chunk(g, s0, s1, d / "fit", out)
+            mixed.append(out)
+            time.sleep(0.05)
+        dub_full = d / "dub_full.wav"
+        _concat_wavs(mixed, dub_full)
+        got = ffmpeg_utils.get_media_duration(dub_full)
+        if abs(got - total) > 0.25:
+            raise Exception(f"dubbed track length {got:.2f}s does not match the video ({total:.2f}s)")
+        _ev(job, "mix", "ok", f"{len(kept)} lines in {len(chunks)} parts; {sum(1 for x in kept if x['trim'])} trimmed, "
+                              f"{sum(1 for x in kept if x['warn'])} at the speed limit")
+
+        # 4. one final file ---------------------------------------------------
+        _mark(job, "finish", 88, "Building your final file...")
+        video_out = bool(job.get("has_video"))
+        final_name = f"{job['id']}_final_dubbed_video.mp4" if video_out else f"{job['id']}_final_dubbed.mp3"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        tmp_final = OUTPUT_DIR / f"{job['id']}_finalizing{Path(final_name).suffix}"
+        src = wd / f"src{job['ext']}"
+        bg = wd / "background.wav"
+        if video_out and bg.exists():
+            fc = ("[1:a]volume=1.0[d];"
+                  "[2:a]highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
+                  "alimiter=limit=0.95,volume=0.8[b];"
+                  "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(src), "-i", str(dub_full), "-i", str(bg),
+                                     "-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
+                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
+        elif video_out:
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(src), "-i", str(dub_full), "-map", "0:v:0", "-map", "1:a:0",
+                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
+        else:
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(dub_full), "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)])
+        if not tmp_final.exists() or tmp_final.stat().st_size < 1000:
+            raise Exception("the final file was not produced")
+        os.replace(tmp_final, OUTPUT_DIR / final_name)
+        size = (OUTPUT_DIR / final_name).stat().st_size
+        _ev(job, "output_saved", "ok", f"{final_name} {size // 1024} KB")
+
+        # 5. voices gone, working files gone, tell the user ---------------------
+        _delete_pending_voices(job)
+        elapsed = _now() - dub.get("started", _now())
+        job["result"] = {"kind": "video" if video_out else "audio", "file": final_name, "size": size,
+                         "duration": round(total, 1), "lines": len(dub["lines"]), "failed_lines": len(failed),
+                         "finished": _now()}
+        job["status"] = "done"
+        _mark(job, "done", 100, "Your dubbed file is ready.")
+        _save(job)
+        for sub in ("dub",):
+            shutil.rmtree(wd / sub, ignore_errors=True)
+        for f in ("audio.wav", "background.wav", "vocals_mono.wav", f"src{job['ext']}", "turns.json"):
+            try:
+                (wd / f).unlink()
+            except Exception:
+                pass
+        _ev(job, "dubbing_done", "ok", f"{elapsed:.0f}s" + (" (resumed run)" if dub.get("resumed") else ""))
+        if not dub.get("resumed"):
+            _record_speed("dubbing", total, max(elapsed - DUB_BASE_SEC, 0.1 * total))
+        note = ""
+        if failed or dropped:
+            note = ("\n\nNote: some lines could not be dubbed and were left silent; the price of the lines that could not be "
+                    "generated was refunded.")
+        ok = Hooks.send_email(uid, "Your dubbed video is ready",
+                              f"Hi,\n\nYour dubbed {'video' if video_out else 'audio'} \"{job['filename']}\" is ready.\n"
+                              "Download it from https://lisanai.org/dub-long (or your Account page).\n"
+                              "As agreed, the copied voices were deleted and you get this one file. "
+                              f"It stays available for your plan's storage period.{note}\n\n-- Lisan AI")
+        _ev(job, "email_sent", "ok" if ok else "failed", "finished email")
+    except Exception as ex:
+        import traceback
+        print(f"[longdub] dubbing failed for {job['id']}: {ex}\n{traceback.format_exc()}")
+        _ev(job, "dubbing_failed", "failed", f"{type(ex).__name__}: {ex}"[:600])
+        _fail(job, "Something went wrong while dubbing this video", "dub")
+
+
 # ------------------------------------------------------ housekeeping
 
 # Unfinished jobs nobody came back to are removed so they never pile up on
 # the disk. (Finished results are handled by the app's normal retention.)
-STALE_HOURS = {"uploading": 24, "estimated": 24, "failed": 24, "cancelled": 24, "editing": 24 * 7}
+STALE_HOURS = {"uploading": 24, "estimated": 24, "failed": 24, "cancelled": 24, "editing": 24 * 7,
+               "done": 24 * 35}
 
 
 def sweep_stale():
@@ -983,6 +1746,8 @@ def sweep_stale():
             continue
         hours = STALE_HOURS.get(job.get("status"))
         if hours and job["id"] not in _RUNNING and now - job.get("updated", now) > hours * 3600:
+            _ev(job, "removed_by_housekeeping", "ok", f"status={job.get('status')} idle for over {hours} hours")
+            _delete_pending_voices(job)
             with _LOCK:
                 _JOBS.pop(job["id"], None)
             shutil.rmtree(d, ignore_errors=True)
@@ -996,6 +1761,7 @@ def start_housekeeping():
             time.sleep(3600)
             try:
                 sweep_stale()
+                sweep_voices()
             except Exception as ex:
                 print(f"[longdub] sweep error: {ex}")
     threading.Thread(target=_loop, daemon=True).start()

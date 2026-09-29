@@ -299,6 +299,19 @@ button.btn-success:hover { background: #15803d; }
           <tbody id="auditTable"><tr><td colspan="5" class="muted">Loading...</td></tr></tbody>
         </table>
       </div>
+      <div class="card">
+        <h3>🎞️ Dub Long Video — job log</h3>
+        <p class="muted" style="margin-bottom:12px;">Every step of every long dub (upload, estimate, terms accepted, each analysis and dubbing step, charges, refunds, voice deletion, emails) with success or failure. Search by job id (or its first characters) or by the user's email; leave empty for the newest events.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+          <input type="text" id="ldLogQuery" placeholder="job id or user email" style="max-width:340px;">
+          <button class="btn" onclick="loadLongDubLog()">Search</button>
+        </div>
+        <p class="muted" id="ldLogNote"></p>
+        <table>
+          <thead><tr><th>Time (UTC)</th><th>Job</th><th>Step</th><th>Result</th><th>Credits</th><th>Details</th></tr></thead>
+          <tbody id="ldLogTable"><tr><td colspan="6" class="muted">Press Search.</td></tr></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- HEALTH -->
@@ -781,6 +794,22 @@ async function loadAudit() {
     html += `<tr><td>${escapeHtml(a.created_at)}</td><td>${escapeHtml(a.admin)}</td><td>${a.target_uid.slice(0,8)}...</td><td style="color:${a.delta>0?'#16a34a':'#dc2626'}">${sign}${a.delta}</td><td>${escapeHtml(a.reason)}</td></tr>`;
   });
   document.getElementById('auditTable').innerHTML = html || '<tr><td colspan="5" class="muted">No adjustments yet</td></tr>';
+}
+
+async function loadLongDubLog() {
+  const q = (document.getElementById('ldLogQuery').value || '').trim();
+  const r = await api('/api/admin/longdub_log?q=' + encodeURIComponent(q));
+  const note = document.getElementById('ldLogNote');
+  if (!r.ok) { note.textContent = 'Could not load the log.'; return; }
+  note.textContent = r.data.note || '';
+  const col = { ok: '#16a34a', info: '#64748b', skipped: '#64748b', partial: '#f59e0b', failed: '#dc2626' };
+  let html = '';
+  (r.data.events || []).forEach(e => {
+    const t = String(e.created_at || '').replace('T', ' ').slice(0, 19);
+    html += `<tr><td>${escapeHtml(t)}</td><td title="${escapeHtml(e.job_id)}">${escapeHtml(String(e.job_id).slice(0, 8))}…</td><td>${escapeHtml(e.step)}</td>` +
+      `<td style="color:${col[e.status] || '#64748b'};font-weight:700">${escapeHtml(e.status)}</td><td>${e.credits == null ? '' : e.credits}</td><td>${escapeHtml(e.detail || '')}</td></tr>`;
+  });
+  document.getElementById('ldLogTable').innerHTML = html || '<tr><td colspan="6" class="muted">No events found.</td></tr>';
 }
 
 async function loadHealth() {

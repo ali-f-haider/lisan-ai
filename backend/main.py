@@ -4219,7 +4219,9 @@ def _send_plain_email(to_email, subject, body_text):
 
 def _ld_pricing():
     cfg = _get_pricing_config()
-    inworld = _active_voice_engine() == "inworld"
+    # Long dubs always use Inworld (cloning there is unlimited, so every
+    # speaker is cloned fresh and the copy is deleted when the job ends) --
+    # so its rates apply whatever the admin's Voice Engine switch says.
 
     def _num(v, d):
         try:
@@ -4230,8 +4232,8 @@ def _ld_pricing():
     return {
         "fee": int(_num(cfg.get("transcribeCredits"), 3)),
         "analysis_per_min": _num(cfg.get("longDubAnalysisPerMin"), 2),
-        "chars_per_credit": int(_num(cfg.get("inworldCharsPerCredit" if inworld else "charsPerCredit"), 60)) or 60,
-        "clone_credits": int(_num(cfg.get("inworldCloneCredits" if inworld else "cloneCredits"), 5)),
+        "chars_per_credit": int(_num(cfg.get("inworldCharsPerCredit"), 60)) or 60,
+        "clone_credits": int(_num(cfg.get("inworldCloneCredits"), 5)),
         "merge_credits": int(_num(cfg.get("mergeCredits"), 1)),
         "max_min": _num(cfg.get("longDubMaxMin"), 10),
     }
@@ -4254,8 +4256,75 @@ def _ld_email(uid, subject, text):
     return _send_plain_email(_email_for_uid(uid), subject, text)
 
 
+# ---- Permanent record of every step (table long_dub_events, SQL sent with
+# v1.52.0). Written by one background thread so a slow database never slows a
+# job down; a failed write is printed to the server log, never raised.
+import queue as _queue
+_ld_event_q = _queue.Queue()
+
+
+def _ld_event_writer():
+    while True:
+        row = _ld_event_q.get()
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/long_dub_events",
+                    data=json.dumps(row).encode("utf-8"),
+                    headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                             "Content-Type": "application/json", "Prefer": "return=minimal"},
+                    method="POST")
+                urllib.request.urlopen(req, timeout=8).read()
+                break
+            except Exception as ex:
+                if attempt == 2:
+                    print(f"[longdub] event NOT saved (has the long_dub_events SQL been run?): {row} -> {_http_error_detail(ex)}")
+                else:
+                    _time.sleep(2)
+
+
+threading.Thread(target=_ld_event_writer, daemon=True).start()
+
+
+def _ld_log_event(uid, job_id, step, status, detail="", credits=None):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return
+    row = {"job_id": job_id, "uid": uid, "step": step, "status": status, "detail": str(detail or "")[:1500]}
+    if credits is not None:
+        row["credits"] = int(credits)
+    _ld_event_q.put(row)
+
+
+def _ld_is_studio(uid):
+    """Dub Long Video is a Studio-plan feature: an active subscription whose
+    plan key or plan name says 'studio'."""
+    prof = _read_subscription_profile(uid) or {}
+    if prof.get("subscription_status") != "active":
+        return False
+    key = str(prof.get("subscription_plan_key") or "").strip().lower()
+    if "studio" in key:
+        return True
+    try:
+        plan = _get_subscription_plan(key) or {}
+    except Exception:
+        plan = {}
+    return "studio" in str(plan.get("name") or "").lower()
+
+
+def _ld_allowed(uid):
+    if _ld_is_studio(uid):
+        return True, ""
+    return False, "Dub Long Video is available with the Studio plan. Upgrade from the Buy menu or the Pricing page."
+
+
 longdub_service.configure(get_credits=get_credits, charge=_ld_charge, refund=_ld_refund,
-                          send_email=_ld_email, pricing=_ld_pricing)
+                          send_email=_ld_email, pricing=_ld_pricing,
+                          log_event=_ld_log_event, allowed=_ld_allowed)
+
+
+def _ld_studio_only(uid):
+    ok, msg = _ld_allowed(uid)
+    return None if ok else JSONResponse({"error": msg, "studio_required": True}, status_code=403)
 
 
 def _ld_job(request: Request, job_id: str):
@@ -4290,7 +4359,8 @@ def longdub_config(request: Request):
         "chunk_bytes": longdub_service.CHUNK_BYTES,
         "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"],
-        "credits": get_credits(uid),
+        "credits": get_credits(uid), "studio": _ld_is_studio(uid),
+        "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
     }
 
 
@@ -4306,6 +4376,7 @@ def longdub_list(request: Request):
 class LongDubInit(BaseModel):
     filename: str = ""
     size: int = 0
+    speakers: int = 2
 
 
 @app.post("/api/longdub/init")
@@ -4313,7 +4384,10 @@ def longdub_init(body: LongDubInit, request: Request):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "login required"}, status_code=401)
-    job, err = longdub_service.init_upload(uid, body.filename, body.size)
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers)
     if err:
         return JSONResponse({"error": err[0]}, status_code=err[1])
     return longdub_service.public_view(job)
@@ -4350,12 +4424,19 @@ def longdub_finish(job_id: str, request: Request):
     return v
 
 
+class LongDubAccept(BaseModel):
+    agree: bool = False
+
+
 @app.post("/api/longdub/{job_id}/accept")
-def longdub_accept(job_id: str, request: Request):
+def longdub_accept(job_id: str, body: LongDubAccept, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
-    ok, e = longdub_service.accept(job, uid)
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    ok, e = longdub_service.accept(job, uid, body.agree)
     if not ok:
         return JSONResponse({"error": e[0]}, status_code=e[1])
     v = longdub_service.public_view(job)
@@ -4379,10 +4460,11 @@ def longdub_get_segments(job_id: str, request: Request):
     if err:
         return err
     # Word-level timings stay on the server -- the editor only needs the text.
-    rows = [{k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "gender", "emotion", "text", "arabic_text")}
+    rows = [{k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "speaker_id", "gender", "emotion", "text", "arabic_text")}
             for r in longdub_service.read_segments(job)]
     return {"segments": rows, "status": job.get("status"),
-            "warnings": job.get("warnings", []), "speakers": job.get("speakers", [])}
+            "warnings": job.get("warnings", []), "speaker_list": job.get("speaker_list", []),
+            "stated_speakers": job.get("stated_speakers"), "detected_speakers": job.get("detected_speakers")}
 
 
 class LongDubEdits(BaseModel):
@@ -4398,6 +4480,69 @@ def longdub_put_segments(job_id: str, body: LongDubEdits, request: Request):
     if not ok:
         return JSONResponse({"error": res}, status_code=409)
     return {"ok": True, "changed": res}
+
+
+class LongDubSpeakers(BaseModel):
+    speakers: List[dict] = []
+
+
+@app.put("/api/longdub/{job_id}/speakers")
+def longdub_put_speakers(job_id: str, body: LongDubSpeakers, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, msg = longdub_service.set_speakers(job, body.speakers)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=409)
+    return {"ok": True, "speaker_list": job.get("speaker_list", [])}
+
+
+@app.get("/api/longdub/{job_id}/preview")
+def longdub_preview(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    if job.get("status") != "editing":
+        return JSONResponse({"error": "This job is not open for editing."}, status_code=409)
+    p = longdub_service.dub_price(job)
+    p["credits"] = get_credits(uid)
+    return p
+
+
+class LongDubConfirm(BaseModel):
+    expected_due: int = -1
+
+
+@app.post("/api/longdub/{job_id}/confirm")
+def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    ok, e = longdub_service.confirm(job, uid, body.expected_due)
+    if not ok:
+        extra = {}
+        if e[1] == 409 and job.get("status") == "editing":
+            extra = {"price": longdub_service.dub_price(job)}
+        return JSONResponse({"error": e[0], **extra}, status_code=e[1])
+    v = longdub_service.public_view(job)
+    v["credits"] = get_credits(uid)
+    return v
+
+
+@app.get("/api/longdub/{job_id}/download")
+def longdub_download(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    p = longdub_service.result_file(job)
+    if job.get("status") != "done" or p is None:
+        return JSONResponse({"error": "This file has expired or was already deleted."}, status_code=404)
+    base = Path(job.get("filename") or "video").stem[:80] or "video"
+    ext = p.suffix
+    return FileResponse(p, media_type="video/mp4" if ext == ".mp4" else "audio/mpeg", filename=f"{base}_dubbed{ext}")
 
 
 class LongDubRetranslate(BaseModel):
@@ -5373,6 +5518,42 @@ def admin_audit(request: Request):
     except Exception:
         rows = []
     return {"audit": rows}
+
+@app.get("/api/admin/longdub_log")
+def admin_longdub_log(request: Request, q: str = "", limit: int = 300):
+    """Step-by-step record of Dub Long Video jobs (table long_dub_events) --
+    for answering a complaint. q = a job id (or its first characters) or a
+    user's email; empty = the newest events of all jobs."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import re as _re
+    import urllib.parse as _up
+    limit = max(1, min(int(limit or 300), 1000))
+    q = (q or "").strip()
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    flt = ""
+    note = ""
+    try:
+        if "@" in q:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/profiles?email=ilike.{_up.quote(q)}&select=id&limit=1", headers=hdrs)
+            with urllib.request.urlopen(req, timeout=10) as r:
+                rows = json.load(r)
+            if not rows:
+                return {"events": [], "note": "No user with that email."}
+            flt = f"uid=eq.{rows[0]['id']}&"
+        elif q:
+            if not _re.fullmatch(r"[0-9a-fA-F-]{4,36}", q):
+                return {"events": [], "note": "Enter a job id (or its first characters) or an email."}
+            flt = f"job_id=like.{q.lower()}*&"
+        req = urllib.request.Request(
+            f"{SUPABASE_URL}/rest/v1/long_dub_events?{flt}select=*&order=id.desc&limit={limit}", headers=hdrs)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            events = json.load(r) or []
+    except Exception as ex:
+        return {"events": [], "note": f"Could not read the log (has the long_dub_events SQL been run?): {_http_error_detail(ex)}"}
+    events.reverse()
+    return {"events": events, "note": note}
 
 @app.get("/api/admin/health")
 def admin_health(request: Request):

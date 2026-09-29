@@ -5008,6 +5008,10 @@ window.cleanOldClones = function () {
             if (subEn) subEn.style.display = (lang === "ar") ? "none" : "";
             var subAr = document.getElementById("subtitleAr");
             if (subAr) subAr.style.display = (lang === "ar") ? "" : "none";
+            var longEn = document.getElementById("longEnPart");
+            if (longEn) longEn.style.display = (lang === "ar") ? "none" : "";
+            var longAr = document.getElementById("longArPart");
+            if (longAr) longAr.style.display = (lang === "ar") ? "" : "none";
             var helpEn = document.getElementById("helpEnPart");
             if (helpEn) helpEn.style.display = (lang === "ar") ? "none" : "";
             var helpAr = document.getElementById("helpArPart");
