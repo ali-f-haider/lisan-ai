@@ -4124,11 +4124,32 @@ def account_summary(request: Request):
         return []
 
     spends = _fetch_and_filter("credit_spends")
-    orders = _fetch_and_filter("credit_orders")
-        
+    orders = [dict(o, kind="pack") for o in _fetch_and_filter("credit_orders")]
+
+    # Monthly plan credits (one row per paid subscription invoice, written by
+    # _grant_subscription_credits) belong in the same list -- until now they
+    # only showed up inside the total balance. Tolerant of the table having
+    # no created_at column yet: falls back to unordered rows with no date.
+    grants = []
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    for order_q in ("&order=created_at.desc", ""):
+        try:
+            req = _ur.Request(
+                f"{SUPABASE_URL}/rest/v1/subscription_invoices?uid=eq.{uid}&select=*{order_q}&limit=200",
+                headers=hdrs)
+            with _ur.urlopen(req, timeout=10) as r:
+                rows = json.load(r)
+            grants = [{"created_at": g.get("created_at"), "credits": g.get("credits"),
+                       "session_id": g.get("invoice_id"), "kind": "subscription"} for g in rows]
+            break
+        except Exception as e:
+            print(f"[account_summary] Error fetching subscription_invoices{order_q}: {_http_err_detail(e)}")
+    purchases = orders + grants
+    purchases.sort(key=lambda p: p.get("created_at") or "", reverse=True)
+
     return {
         "credits": get_credits(uid) or 0,
-        "purchases": orders,
+        "purchases": purchases,
         "spends": spends
     }
 

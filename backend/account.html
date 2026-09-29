@@ -146,7 +146,7 @@
 <div class="acct-panel" id="panel-purchases">
   <div class="card">
     <h3 id="purchasesHeading">🛒 Credit purchases</h3>
-    <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPCredits">Credits</th><th id="thPSession">Stripe session</th></tr></thead><tbody></tbody></table>
+    <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPType">Type</th><th id="thPCredits">Credits</th><th id="thPSession">Stripe session</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -243,7 +243,8 @@ var T = {
     filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
     filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
     loading: "Loading…",
-    purchasesHeading: "🛒 Credit purchases", thPDate: "Date", thPCredits: "Credits", thPSession: "Stripe session",
+    purchasesHeading: "🛒 Credit purchases & plan credits", thPDate: "Date", thPType: "Type", thPCredits: "Credits", thPSession: "Stripe reference",
+    typePack: "Credit pack", typeSub: "Monthly plan credits",
     spendsHeading: "📉 Credit consumption", thSDate: "Date", thSAction: "Action", thSJob: "Job", thSCredits: "Credits",
     noPurchases: "No purchases yet.", noSpends: "No consumption recorded yet.",
     expiringSoon: "expiring soon", expiresOneDay: "expires in 1 day",
@@ -309,7 +310,8 @@ var T = {
     filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     loading: "جارٍ التحميل…",
-    purchasesHeading: "🛒 مشتريات الائتمان", thPDate: "التاريخ", thPCredits: "الائتمانات", thPSession: "جلسة Stripe",
+    purchasesHeading: "🛒 مشتريات الائتمان وائتمان الاشتراك", thPDate: "التاريخ", thPType: "النوع", thPCredits: "الائتمانات", thPSession: "مرجع Stripe",
+    typePack: "باقة رصيد", typeSub: "رصيد الاشتراك الشهري",
     spendsHeading: "📉 استهلاك الائتمان", thSDate: "التاريخ", thSAction: "الإجراء", thSJob: "المهمة", thSCredits: "الائتمانات",
     noPurchases: "لا توجد مشتريات بعد.", noSpends: "لم يُسجَّل أي استهلاك بعد.",
     expiringSoon: "تنتهي صلاحيته قريبًا", expiresOneDay: "تنتهي صلاحيته خلال يوم واحد",
@@ -360,6 +362,7 @@ var T = {
   document.getElementById("loadingText").textContent = T.loading;
   document.getElementById("purchasesHeading").textContent = T.purchasesHeading;
   document.getElementById("thPDate").textContent = T.thPDate;
+  document.getElementById("thPType").textContent = T.thPType;
   document.getElementById("thPCredits").textContent = T.thPCredits;
   document.getElementById("thPSession").textContent = T.thPSession;
   document.getElementById("spendsHeading").textContent = T.spendsHeading;
@@ -508,10 +511,11 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
   var pt = document.querySelector("#purchasesTable tbody");
   (d.purchases || []).forEach(function(p){
     var tr = document.createElement("tr");
-    tr.innerHTML = "<td>" + fmtStamp(p.created_at) + "</td><td style='color:#059669;font-weight:700;'>+" + p.credits + "</td><td style='font-size:11px;color:#6b7280;'>" + (p.session_id||"").slice(0,24) + "…</td>";
+    var isSub = p.kind === "subscription";
+    tr.innerHTML = "<td>" + (p.created_at ? fmtStamp(p.created_at) : "—") + "</td><td>" + (isSub ? "🔁 " + T.typeSub : "🛒 " + T.typePack) + "</td><td style='color:#059669;font-weight:700;'>+" + p.credits + "</td><td style='font-size:11px;color:#6b7280;'>" + (p.session_id||"").slice(0,24) + "…</td>";
     pt.appendChild(tr);
   });
-  if (!(d.purchases || []).length) pt.innerHTML = '<tr><td colspan="3" style="color:#6b7280;">' + T.noPurchases + '</td></tr>';
+  if (!(d.purchases || []).length) pt.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">' + T.noPurchases + '</td></tr>';
   var st = document.querySelector("#spendsTable tbody");
   (d.spends || []).forEach(function(s){
     var tr = document.createElement("tr");
