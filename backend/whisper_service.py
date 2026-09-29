@@ -299,7 +299,7 @@ def split_segment(segment, max_duration=15.0):
     return results
 
 
-def get_speaker_turns(input_path: str, hf_token: str, speaker_count):
+def get_speaker_turns(input_path: str, hf_token: str, speaker_count, min_speakers=None):
     try:
         from pyannote.audio import Pipeline
         import soundfile as sf
@@ -322,6 +322,8 @@ def get_speaker_turns(input_path: str, hf_token: str, speaker_count):
         kwargs["num_speakers"] = int(speaker_count)
         kwargs["min_speakers"] = int(speaker_count)
         kwargs["max_speakers"] = int(speaker_count)
+    elif min_speakers and int(min_speakers) > 1:
+        kwargs["min_speakers"] = int(min_speakers)      # a lower bound only: more may still be found
 
     result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, **kwargs)
     if hasattr(result, "speaker_diarization"):

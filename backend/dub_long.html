@@ -298,10 +298,12 @@ var T = {
     doneWarn: function (n) { return n + " line(s) could not be dubbed and were left silent (their price was refunded)."; },
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
-    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. This project is kept for 7 days.",
+    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, split a line in two (if one line holds two people talking), insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. This project is kept for 7 days.",
     colTime: "Time / speaker", colEn: "English", colAr: "Arabic", emotionLbl: "Emotion",
     timeFrom: "From", timeTo: "To", timeBad: "Write the time like 1:23.5 or 83.5 (minutes:seconds).",
     insertLine: "+ Insert a line after", deleteLine: "Delete line",
+    splitLine: "Split at cursor", splitting: "Splitting…",
+    splitHint: "Click in the English text, between the words where the second person starts, then press Split at cursor.",
     confirmDelLine: "Delete this line? Its English and Arabic text will be removed from this project.",
     doneCut: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " longer than the time available even after speeding up to our limit, so " + (n === 1 ? "its end was" : "their ends were") + " cut short (at " + at + "). Next time, shorten those Arabic lines or change their timing."; },
     doneFast: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " sped up by 20% or more to fit (at " + at + ")."; },
@@ -448,10 +450,12 @@ var T = {
     doneWarn: function (n) { return "تعذّرت دبلجة " + n + " سطر وتُرك صامتاً (وأُعيد ثمنه)."; },
     doneLip: function (a, b) { return "مزامنة الشفاه: تمت مزامنة " + a + " من " + b + " مقطعاً."; },
     editorHeading: "٣. المراجعة والتعديل",
-    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
+    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو تقسيم سطر إلى اثنين (إذا كان يحوي كلام شخصين)، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
     colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية", emotionLbl: "الأسلوب",
     timeFrom: "من", timeTo: "إلى", timeBad: "اكتب الوقت بهذا الشكل: 1:23.5 أو 83.5 (دقائق:ثوانٍ).",
     insertLine: "+ إدراج سطر بعده", deleteLine: "حذف السطر",
+    splitLine: "تقسيم عند المؤشر", splitting: "جارٍ التقسيم…",
+    splitHint: "انقر داخل النص الإنجليزي بين الكلمتين حيث يبدأ المتحدث الثاني، ثم اضغط «تقسيم عند المؤشر».",
     confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الإنجليزي والعربي من هذا المشروع.",
     doneCut: function (n, at) { return "كان " + n + " سطر أطول من الوقت المتاح حتى بعد التسريع إلى حدّنا الأقصى، فقُطعت نهاياتها (عند " + at + "). في المرة القادمة اختصر هذه الأسطر العربية أو عدّل توقيتها."; },
     doneFast: function (n, at) { return "سُرّع " + n + " سطر بمقدار 20٪ أو أكثر ليتناسب مع الوقت (عند " + at + ")."; },
@@ -1099,9 +1103,10 @@ function buildRow(s) {
   time.appendChild(sel);
   var lb = document.createElement("div"); lb.className = "ld-lbtns";
   var bIns = document.createElement("button"); bIns.className = "btn-plain"; bIns.textContent = T.insertLine;
+  var bSplit = document.createElement("button"); bSplit.className = "btn-plain"; bSplit.textContent = T.splitLine; bSplit.title = T.splitHint;
   var bDel = document.createElement("button"); bDel.className = "btn-danger"; bDel.textContent = T.deleteLine;
   bDel.style.padding = "4px 10px"; bDel.style.fontSize = "12px";
-  lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
+  lb.appendChild(bSplit); lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
   var en = document.createElement("textarea"); en.className = "en"; en.value = s.text || ""; en.dir = "ltr"; en.maxLength = 2000;
   var wrap = document.createElement("div"); wrap.className = "ld-arwrap";
   var ar = document.createElement("textarea"); ar.className = "ar"; ar.value = s.arabic_text || ""; ar.maxLength = 2000;
@@ -1138,6 +1143,21 @@ function buildRow(s) {
         if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
         applyRows(r.data.segments, r.data.new_id);
       });
+  });
+  var caretSet = false;       // only a cursor the user really placed counts
+  ["click", "keyup", "select"].forEach(function (ev) { en.addEventListener(ev, function () { caretSet = true; }); });
+  bSplit.addEventListener("click", function () {
+    if (!caretSet) { alertMsg(T.splitHint); return; }
+    var pos = en.selectionStart;
+    var restore = function () { bSplit.disabled = false; bSplit.textContent = T.splitLine; };
+    bSplit.disabled = true; bSplit.textContent = T.splitting;
+    lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/split", { segment_id: s.segment_id, position: pos }); },
+      function (r) {
+        restore();
+        if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+        delete dirty[s.segment_id];
+        applyRows(r.data.segments, r.data.new_id);
+      }).then(restore);
   });
   bDel.addEventListener("click", function () {
     var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(T.confirmDelLine, { danger: true, okText: T.deleteLine }) : Promise.resolve(window.confirm(T.confirmDelLine));

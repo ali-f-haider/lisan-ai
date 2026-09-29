@@ -4592,6 +4592,22 @@ def longdub_line_insert(job_id: str, body: LongDubLineRef, request: Request):
     return {"ok": True, "segments": _ld_public_rows(rows), "new_id": new_id}
 
 
+class LongDubLineSplit(BaseModel):
+    segment_id: str = ""
+    position: int = -1
+
+
+@app.post("/api/longdub/{job_id}/segments/split")
+def longdub_line_split(job_id: str, body: LongDubLineSplit, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, msg, rows, new_id = longdub_service.split_line(job, body.segment_id, body.position)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=409)
+    return {"ok": True, "segments": _ld_public_rows(rows), "new_id": new_id}
+
+
 @app.post("/api/longdub/{job_id}/segments/delete")
 def longdub_line_delete(job_id: str, body: LongDubLineRef, request: Request):
     uid, job, err = _ld_job(request, job_id)

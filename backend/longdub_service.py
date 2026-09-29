@@ -840,7 +840,76 @@ def split_rows_by_sentence(rows):
     return out
 
 
-def rows_from_raw(raw_segments, turns, speaker_label_map):
+PAUSE_MIN_SEC = 0.6          # a real pause between two phrases (same threshold as the short flow)
+PAUSE_HALF_MIN_SEC = 0.4     # a cut never leaves a piece shorter than this
+
+
+def _pause_boundary(words, g0, g1):
+    """Index of the last word that belongs BEFORE the silence (g0, g1), or -1.
+    A word whose middle lies inside the silence is never trusted as being on
+    either side of it (the recogniser's word times drift around a pause)."""
+    idx = -1
+    for m in range(len(words) - 1):
+        mid = (float(words[m]["start"]) + float(words[m]["end"])) / 2.0
+        if mid < g0:
+            idx = m
+        elif mid <= g1:
+            continue
+        else:
+            break
+    return idx
+
+
+def _piece(row, words):
+    text = " ".join(str(w.get("word") or "").strip() for w in words).strip()
+    nr = dict(row)
+    nr.update({"words": words, "text": text, "start": round(float(words[0]["start"]), 2), "end": round(float(words[-1]["end"]), 2)})
+    return nr
+
+
+def split_rows_at_pauses(rows, silences, min_gap=PAUSE_MIN_SEC):
+    """Cuts a line wherever there is a real pause inside it. Two people trading
+    lines (or one person taking a beat between two phrases) come out of the
+    speech recogniser as one long stretch; each phrase is dubbed, timed and
+    assigned better as its own line. The pause is taken from the real silence in
+    the audio (silences = [(start, end)]); only when a line holds no measured
+    silence does a wide gap between two words count. Returns (rows, n_cuts)."""
+    cuts = [0]
+
+    def cut(row, was_split):
+        words = row.get("words") or []
+        if len(words) < 2:
+            return [row]
+        inside = [(a, b) for (a, b) in silences
+                  if a > float(row["start"]) + 0.15 and b < float(row["end"]) - 0.05 and (b - a) >= min_gap]
+        best = None
+        for a, b in sorted(inside, key=lambda g: g[1] - g[0], reverse=True):
+            i = _pause_boundary(words, a, b)
+            if 0 <= i < len(words) - 1:
+                best = i
+                break
+        if best is None and not was_split:
+            widest = 0.0
+            for k in range(len(words) - 1):
+                gap = float(words[k + 1]["start"]) - float(words[k]["end"])
+                if gap >= min_gap and gap > widest:
+                    widest, best = gap, k
+        if best is None:
+            return [row]
+        first, second = words[:best + 1], words[best + 1:]
+        if (float(first[-1]["end"]) - float(first[0]["start"]) < PAUSE_HALF_MIN_SEC
+                or float(second[-1]["end"]) - float(second[0]["start"]) < PAUSE_HALF_MIN_SEC):
+            return [row]
+        cuts[0] += 1
+        return cut(_piece(row, first), True) + cut(_piece(row, second), True)
+
+    out = []
+    for r in rows:
+        out.extend(cut(r, False))
+    return out, cuts[0]
+
+
+def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
     """Same row building as whisper_service.transcribe_worker (speaker-turn
     grouping, 15 s cap per line, merge of mid-sentence splits), copied so the
     short flow stays untouched."""
@@ -889,6 +958,12 @@ def rows_from_raw(raw_segments, turns, speaker_label_map):
                 })
                 seg_index += 1
     result = ws.merge_mid_sentence_rows(split_rows_by_sentence(result))
+    if silences:
+        try:
+            result, _n_cuts = split_rows_at_pauses(result, silences)
+            print(f"[longdub] pause cuts: {_n_cuts} line(s) cut at a real pause")
+        except Exception as ex:
+            print(f"[longdub] pause cutting skipped: {ex}")
     for i, r in enumerate(result):
         r["segment_id"] = f"seg_{i}"
     return result
@@ -1008,7 +1083,12 @@ def _run_analysis(job):
                 _mark(job, "speakers", 46, "Detecting who is speaking...")
                 slot.take()
                 try:
-                    turns = whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0)
+                    stated = int(job.get("stated_speakers") or 0)
+                    try:
+                        turns = whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0, min_speakers=stated)
+                    except Exception as ex_min:
+                        print(f"[longdub] speaker detection with at least {stated} speakers failed ({ex_min}); retrying without that hint")
+                        turns = whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0)
                 except Exception as ex:
                     print(f"[longdub] speaker detection failed: {ex}")
                     job.setdefault("warnings", []).append("Speaker detection failed; every line was assigned to Speaker 1.")
@@ -1025,7 +1105,12 @@ def _run_analysis(job):
             if not HF_TOKEN:
                 _ev(job, "speaker_detection", "skipped", "no HF_TOKEN configured")
             elif turns:
-                _ev(job, "speaker_detection", "ok", f"{len({t['speaker'] for t in turns})} speakers, {len(turns)} turns")
+                secs = {}
+                for t in turns:
+                    secs[t["speaker"]] = secs.get(t["speaker"], 0.0) + max(0.0, t["end"] - t["start"])
+                _ev(job, "speaker_detection", "ok",
+                    f"{len(secs)} speakers, {len(turns)} turns (at least {job.get('stated_speakers')} asked for); seconds each: "
+                    + ", ".join(f"{k} {v:.0f}" for k, v in sorted(secs.items(), key=lambda kv: -kv[1])))
             else:
                 _ev(job, "speaker_detection", "failed", "no speaker turns returned")
         turns = json.loads(turns_path.read_text(encoding="utf-8")) if turns_path.exists() else []
@@ -1070,7 +1155,20 @@ def _run_analysis(job):
         for t in sorted(turns, key=lambda x: x["start"]):
             if t["speaker"] not in label_map:
                 label_map[t["speaker"]] = f"Speaker {len(label_map) + 1}"
-        rows = rows_from_raw(raw_all, turns, label_map)
+        silences = []
+        pauses_path = wd / "pauses.json"
+        if pauses_path.exists():
+            try:
+                silences = [tuple(x) for x in json.loads(pauses_path.read_text(encoding="utf-8"))]
+            except Exception:
+                silences = []
+        elif vocals_all.exists():
+            try:
+                silences = detect_silences(vocals_all, noise_db="-30dB", min_sec=PAUSE_MIN_SEC)
+                pauses_path.write_text(json.dumps(silences), encoding="utf-8")
+            except Exception as ex:
+                print(f"[longdub] pause detection failed: {ex}")
+        rows = rows_from_raw(raw_all, turns, label_map, silences)
         if not rows:
             _fail(job, "No speech was found in this video", "analysis")
             return
@@ -1080,7 +1178,8 @@ def _run_analysis(job):
         _init_speakers(job, rows)
         _write_segments(job, rows)
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
-                                           f"{job.get('stated_speakers')} stated by the user")
+                                           f"{job.get('stated_speakers')} stated by the user; "
+                                           f"{len(silences)} pauses of {PAUSE_MIN_SEC:g}s+ measured")
 
         # 7. translate in small batches ------------------------------------
         _translate_all(job, rows)
@@ -1455,6 +1554,93 @@ def insert_line(job, after_id):
     _save(job)
     _ev(job, "line_inserted", "ok", f"{sid} after {after_id} at {start}-{end}")
     return True, "", rows, sid
+
+
+def _split_plan(row, position):
+    """Where to cut a line's English text. Returns (plan, None) or (None, message).
+    The cut is moved to the nearest gap between two words; the two new times come
+    from the recognised word times when they still match the text, otherwise from
+    how far into the text the cut is."""
+    text = str(row.get("text") or "")
+    toks = [(m.start(), m.end()) for m in re.finditer(r"\S+", text)]
+    if len(toks) < 2:
+        return None, "This line has only one word, so it can't be split."
+    try:
+        pos = int(position)
+    except (TypeError, ValueError):
+        pos = -1
+    if pos <= 0 or pos >= len(text.rstrip()):
+        return None, "Click in the English text, between the words where the second part starts, then press Split."
+    k = sum(1 for (s, e) in toks if e <= pos)
+    for (s, e) in toks:
+        if s < pos < e and (pos - s) > (e - pos):
+            k += 1
+    if k < 1 or k > len(toks) - 1:
+        return None, "Click between two words in the middle of the text, then press Split."
+    left, right = text[:toks[k - 1][1]].strip(), text[toks[k][0]:].strip()
+    start, end = float(row["start"]), float(row["end"])
+    words = row.get("words") or []
+    if len(words) == len(toks):
+        w_left, w_right = words[:k], words[k:]
+        t1 = float(w_left[-1]["end"])
+        t2 = float(w_right[0]["start"])
+    else:
+        w_left, w_right = [], []
+        frac = len(left) / float(max(1, len(left) + len(right)))
+        t1 = t2 = start + (end - start) * frac
+    t1, t2 = round(max(t1, start + MIN_LINE_SEC), 2), round(min(t2, end - MIN_LINE_SEC), 2)
+    if t2 < t1:
+        t1 = t2 = round((t1 + t2) / 2.0, 2)
+    if t1 - start < MIN_LINE_SEC - 1e-6 or end - t2 < MIN_LINE_SEC - 1e-6:
+        return None, f"One of the two lines would be shorter than {MIN_LINE_SEC:g} seconds. Put the cut nearer the middle of the line."
+    return {"left": left, "right": right, "t1": t1, "t2": t2, "w_left": w_left, "w_right": w_right}, None
+
+
+def split_line(job, segment_id, position):
+    """Cut one line in two at a place in its English text (the user clicks
+    between two words). Both parts keep the speaker; both are translated again
+    together so each Arabic line matches its own English. Returns
+    (ok, message, rows, new_segment_id)."""
+    if job.get("status") != "editing":
+        return False, "This job is not open for editing.", None, None
+    rows = read_segments(job)
+    if len(rows) >= MAX_SEGMENTS:
+        return False, f"A project can have at most {MAX_SEGMENTS} lines.", None, None
+    r0 = next((x for x in rows if x["segment_id"] == segment_id), None)
+    if not r0:
+        return False, "Line not found.", None, None
+    plan, err = _split_plan(r0, position)
+    if err:
+        return False, err, None, None
+    first = dict(r0)
+    second = dict(r0)
+    first.update({"text": plan["left"], "words": plan["w_left"], "end": plan["t1"], "arabic_text": ""})
+    second.update({"text": plan["right"], "words": plan["w_right"], "start": plan["t2"], "arabic_text": "", "added": True})
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        cur = next((x for x in rows if x["segment_id"] == segment_id), None)
+        if not cur or cur.get("text") != r0.get("text"):
+            return False, "The line changed while it was being split. Please try again.", None, None
+        new_id = _new_segment_id(job, rows)
+    second["segment_id"] = new_id
+    got = _translate_batch(job["id"], [first, second])
+    if not all(got.get(x["segment_id"], ("",))[0] for x in (first, second)):
+        return False, "The translation service didn't answer, so nothing was changed. Please try again.", None, None
+    for x in (first, second):
+        x["arabic_text"], emo = got[x["segment_id"]]
+        if not x.get("emotion_set"):
+            x["emotion"] = emo
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        idx = next((i for i, x in enumerate(rows) if x["segment_id"] == segment_id), None)
+        if idx is None or rows[idx].get("text") != r0.get("text"):
+            return False, "The line changed while it was being split. Please try again.", None, None
+        rows[idx:idx + 1] = [first, second]
+        rows = _by_start(rows)
+        _write_segments(job, rows)
+    _save(job)
+    _ev(job, "line_split", "ok", f"{segment_id} -> {segment_id} + {new_id} at {plan['t1']}/{plan['t2']}")
+    return True, "", rows, new_id
 
 
 def delete_line(job, segment_id):
@@ -2857,7 +3043,7 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "background_ducked.wav", "vocals_mono.wav", f"src{job['ext']}", "turns.json"):
+        for f in ("audio.wav", "background.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", f"src{job['ext']}", "turns.json"):
             try:
                 (wd / f).unlink()
             except Exception:
