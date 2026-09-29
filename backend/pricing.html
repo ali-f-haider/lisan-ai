@@ -142,6 +142,22 @@ var PLAN_NAME_AR = {starter_monthly: "المبتدئة", pro_monthly: "الاح�
 
 var loggedIn = false;
 var alreadySubscribed = false;
+var userInfo = {};
+var planStates = {};   // plan key -> what clicking that card does for THIS visitor
+var planInfo = {};     // plan key -> the plan object (name, price, credits)
+
+// Long local date ("28 September 2026"); "" when unknown.
+function fmtDay(iso) {
+  if (!iso) return "";
+  try {
+    var s = String(iso);
+    if (!/(Z|[+-]\d\d:?\d\d)$/.test(s)) s += "Z";
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
+  } catch (e) { return ""; }
+}
+function pageIsArabic() { try { return localStorage.getItem("lisan_lang") === "ar"; } catch (e) { return false; } }
 
 function renderSubs(plans) {
   var box = document.getElementById("subCards");
@@ -150,12 +166,41 @@ function renderSubs(plans) {
     return;
   }
   var html = "";
+  // Subscriber state (only for a logged-in subscriber): which tier they're
+  // on, whether the subscription is cancelled, whether a downgrade is
+  // already scheduled -- same rules as the Buy box in the app.
+  var subCanceling = alreadySubscribed && !!userInfo.subscription_cancel_at_period_end;
+  var curKey = String(userInfo.subscription_plan_key || "").toLowerCase();
+  var pendKey = String(userInfo.subscription_pending_plan_key || "").toLowerCase();
+  var periodEnd = fmtDay(userInfo.subscription_current_period_end);
+  var curPrice = 0;
+  plans.forEach(function (pp) { if (String(pp.key || "").toLowerCase() === curKey) curPrice = parseFloat(pp.price_usd || 0); });
+  planStates = {}; planInfo = {};
   plans.forEach(function (p) {
     var arName = PLAN_NAME_AR[p.key] || p.name;
     var slots = parseInt(p.voice_slots || 0, 10);
     var credits = parseInt(p.credits_per_month || 0, 10);
     var price = parseFloat(p.price_usd || 0);
-    var disabledAttr = alreadySubscribed ? "disabled" : "";
+    var pkey = String(p.key || "").toLowerCase();
+    var state = "new";
+    if (alreadySubscribed) {
+      if (subCanceling) state = "locked_cancelled";
+      else if (pkey === curKey) state = pendKey ? "current_keep" : "current";
+      else if (pendKey) state = (pkey === pendKey) ? "scheduled" : "locked_pending";
+      else state = (price > curPrice) ? "upgrade" : "downgrade";
+    }
+    planStates[p.key] = state;
+    planInfo[p.key] = p;
+    var disabledAttr = (state === "current" || state === "scheduled" || state === "locked_pending" || state === "locked_cancelled") ? "disabled" : "";
+    var ctaEn, ctaAr;
+    if (state === "new") { ctaEn = "Subscribe →"; ctaAr = "اشترك ←"; }
+    else if (state === "current") { ctaEn = "✓ Your current plan"; ctaAr = "✓ باقتك الحالية"; }
+    else if (state === "current_keep") { ctaEn = "✓ Your current plan — click to cancel the scheduled change"; ctaAr = "✓ باقتك الحالية — انقر لإلغاء التغيير المجدول"; }
+    else if (state === "scheduled") { ctaEn = "Scheduled" + (periodEnd ? " — starts " + periodEnd : ""); ctaAr = "مجدولة" + (periodEnd ? " — تبدأ في " + periodEnd : ""); }
+    else if (state === "locked_pending") { ctaEn = "A plan change is already scheduled"; ctaAr = "هناك تغيير مجدول بالفعل"; }
+    else if (state === "locked_cancelled") { ctaEn = "Your subscription is cancelled — renew it from your Account page"; ctaAr = "اشتراكك ملغى — جدّده من صفحة الحساب"; }
+    else if (state === "upgrade") { ctaEn = "⬆ Upgrade now — you only pay the prorated difference"; ctaAr = "⬆ ترقية الآن — تدفع الفرق النسبي فقط"; }
+    else { ctaEn = "⬇ Switches at your next renewal" + (periodEnd ? " (" + periodEnd + ")" : ""); ctaAr = "⬇ التحويل عند التجديد القادم" + (periodEnd ? " (" + periodEnd + ")" : ""); }
     var isPro = p.key === "pro_monthly";
     // clones_per_month is blank/null in admin when a tier has no separate
     // monthly cloning cap set (see main.py's _get_subscription_plan) --
@@ -175,7 +220,7 @@ function renderSubs(plans) {
       '<div class="pdetail">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '<span class="ar2">' + slots + ' مكان صوت محفوظ</span></div>' +
       clonesLine +
       '<div class="pdetail">⏳ 30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا · إلغاء في أي وقت</span></div>' +
-      '<div class="pcta">' + (alreadySubscribed ? "You're already subscribed — manage it from your Account page" : "Subscribe →") + '<span class="ar2">' + (alreadySubscribed ? "أنت مشترك بالفعل — أدِر اشتراكك من صفحة الحساب" : "اشترك ←") + '</span></div>' +
+      '<div class="pcta">' + ctaEn + '<span class="ar2">' + ctaAr + '</span></div>' +
       '</button>';
   });
   box.innerHTML = html;
@@ -206,8 +251,54 @@ function renderPacks(packs) {
   box.innerHTML = html;
 }
 
+// Existing subscriber switching tier (or undoing a scheduled downgrade):
+// confirm first, then /api/billing/change_plan. Same behaviour and wording as
+// the Buy box in the app.
+function changePlan(key, state, btn) {
+  var p = planInfo[key] || {};
+  var ar = pageIsArabic();
+  var name = p.name || key;
+  var priceTxt = "$" + parseFloat(p.price_usd || 0).toFixed(2);
+  var creditsTxt = parseInt(p.credits_per_month || 0, 10).toLocaleString();
+  var when = fmtDay(userInfo.subscription_current_period_end);
+  var msg, okText, title;
+  if (state === "upgrade") {
+    title = ar ? "ترقية الاشتراك" : "Upgrade subscription";
+    okText = ar ? "ترقية الآن" : "Upgrade now";
+    msg = ar
+      ? "الترقية إلى باقة " + name + "؟\n\nسيتم خصم الفرق النسبي عن المدة المتبقية من فترة الفوترة الحالية فورًا، ويتحول رصيدك الشهري إلى " + creditsTxt + " فورًا. وابتداءً من التجديد القادم ستدفع " + priceTxt + " شهريًا."
+      : "Upgrade to " + name + "?\n\nYou'll be charged the prorated difference for the rest of this billing period right away, and your monthly credits switch to " + creditsTxt + " immediately. From your next renewal you'll pay " + priceTxt + "/month.";
+  } else if (state === "downgrade") {
+    title = ar ? "تغيير الباقة" : "Change plan";
+    okText = ar ? "جدولة التغيير" : "Schedule the change";
+    msg = ar
+      ? "التحويل إلى باقة " + name + " عند التجديد القادم" + (when ? " بتاريخ " + when : "") + "؟\n\nتحتفظ بباقتك ورصيدك الحاليين حتى ذلك الحين. بعدها ستدفع " + priceTxt + " شهريًا وتحصل على " + creditsTxt + " رصيد كل شهر."
+      : "Switch to " + name + " at your next renewal" + (when ? " on " + when : "") + "?\n\nYou keep your current plan and credits until then. Afterwards you'll pay " + priceTxt + "/month and receive " + creditsTxt + " credits every month.";
+  } else {
+    title = ar ? "الإبقاء على الباقة" : "Keep your plan";
+    okText = ar ? "الإبقاء على باقتي" : "Keep my plan";
+    msg = ar ? "الإبقاء على باقتك الحالية؟ سيتم إلغاء التغيير المجدول." : "Keep your current plan? The scheduled change will be cancelled.";
+  }
+  LisanDialog.confirm(msg, { title: title, okText: okText }).then(function (ok) {
+    if (!ok) return;
+    btn.disabled = true; btn.style.opacity = "0.6";
+    fetch("/api/billing/change_plan?plan_key=" + encodeURIComponent(key), { method: "POST" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) { btn.disabled = false; btn.style.opacity = "1"; LisanDialog.alert(d.error, { type: "error" }); return; }
+        var done;
+        if (d.mode === "upgraded") done = ar ? "تمت الترقية إلى باقة " + (d.plan || name) + ". تم تحديث رصيدك." : "You're now on " + (d.plan || name) + ". Your credits have been updated.";
+        else if (d.mode === "scheduled") { var w = fmtDay(d.effective); done = ar ? "تم. ستتحول إلى باقة " + (d.plan || name) + " عند التجديد القادم" + (w ? " (" + w + ")" : "") + "." : "Done. You'll switch to " + (d.plan || name) + " at your next renewal" + (w ? " (" + w + ")" : "") + "."; }
+        else done = ar ? "تم. ستبقى على باقتك الحالية." : "Done. You'll stay on your current plan.";
+        LisanDialog.alert(done, { type: "success" }).then(function () { window.location.reload(); });
+      })
+      .catch(function (e) { btn.disabled = false; btn.style.opacity = "1"; LisanDialog.alert(e.message, { type: "error" }); });
+  });
+}
+
 function chooseSub(key, btn) {
   if (!loggedIn) { window.location.href = "/login"; return; }
+  if (planStates[key] && planStates[key] !== "new") { changePlan(key, planStates[key], btn); return; }
   btn.disabled = true; btn.style.opacity = "0.6";
   fetch("/api/billing/subscribe?plan_key=" + encodeURIComponent(key), { method: "POST" })
     .then(function (r) { return r.json(); })
@@ -240,7 +331,9 @@ Promise.all([
   var data = results[0] || {};
   var user = results[1] || {};
   loggedIn = user.is_guest === false;
-  alreadySubscribed = user.subscription_status === "active";
+  userInfo = user;
+  // Only a logged-in visitor can be a subscriber.
+  alreadySubscribed = loggedIn && user.subscription_status === "active";
   renderSubs(data.subscriptionPlans || []);
   renderPacks(data.packs || {});
 }).catch(function () {
