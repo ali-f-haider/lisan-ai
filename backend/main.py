@@ -31,6 +31,7 @@ import eleven_service
 import inworld_service
 import ffmpeg_utils
 import lipsync_service
+import longdub_service
 import r2_backup
 import railway_monitor
 import service_usage_monitor
@@ -4179,6 +4180,267 @@ except NameError:
 
 
 
+# ===== DUB LONG VIDEO (videos of several minutes; see longdub_service.py) =====
+# Everything heavy lives in longdub_service.py; this block only wires it to
+# this app's credits, e-mail and pricing settings and exposes the routes.
+# Every /api/longdub/<id> route checks the job belongs to the logged-in user.
+def _send_plain_email(to_email, subject, body_text):
+    """Same Resend call as _send_expiry_email / /api/contact, for any subject
+    and text. Silently does nothing when RESEND_API_KEY isn't set."""
+    if not RESEND_API_KEY or not to_email:
+        return False
+    payload = json.dumps({
+        "from": "Lisan AI <noreply@lisanai.org>",
+        "to": [to_email],
+        "subject": subject,
+        "text": body_text,
+    }).encode("utf-8")
+    try:
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+                "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            try:
+                service_usage_monitor.record_resend_usage(_resend_quota_header(r))
+            except Exception:
+                pass
+            return r.status in (200, 201)
+    except Exception as ex:
+        print(f"[longdub] Resend send failed: {ex}")
+        return False
+
+
+def _ld_pricing():
+    cfg = _get_pricing_config()
+    inworld = _active_voice_engine() == "inworld"
+
+    def _num(v, d):
+        try:
+            return float(v) if v is not None else float(d)
+        except (TypeError, ValueError):
+            return float(d)
+
+    return {
+        "fee": int(_num(cfg.get("transcribeCredits"), 3)),
+        "analysis_per_min": _num(cfg.get("longDubAnalysisPerMin"), 2),
+        "chars_per_credit": int(_num(cfg.get("inworldCharsPerCredit" if inworld else "charsPerCredit"), 60)) or 60,
+        "clone_credits": int(_num(cfg.get("inworldCloneCredits" if inworld else "cloneCredits"), 5)),
+        "merge_credits": int(_num(cfg.get("mergeCredits"), 1)),
+        "max_min": _num(cfg.get("longDubMaxMin"), 10),
+    }
+
+
+def _ld_charge(uid, amount, action, job_id, seconds=None):
+    return deduct_credits(uid, int(amount), action, job_id)
+
+
+def _ld_refund(uid, amount, job_id):
+    amount = int(amount)
+    if amount <= 0:
+        return True
+    r = _sb_rpc("add_credits", {"uid": uid, "amount": amount})
+    _record_spend(uid, "long_dub_refund", -amount, job_id)
+    return r
+
+
+def _ld_email(uid, subject, text):
+    return _send_plain_email(_email_for_uid(uid), subject, text)
+
+
+longdub_service.configure(get_credits=get_credits, charge=_ld_charge, refund=_ld_refund,
+                          send_email=_ld_email, pricing=_ld_pricing)
+
+
+def _ld_job(request: Request, job_id: str):
+    """(uid, job, error_response) -- error_response is set when the caller
+    isn't logged in or the job isn't theirs (404 either way, so job ids of
+    other users are never confirmed to exist)."""
+    uid = _current_uid(request)
+    if not uid:
+        return None, None, JSONResponse({"error": "login required"}, status_code=401)
+    job = longdub_service.load_job(job_id)
+    if not job or job.get("uid") != uid:
+        return uid, None, JSONResponse({"error": "Job not found."}, status_code=404)
+    return uid, job, None
+
+
+@app.get("/dub-long")
+def dub_long_page():
+    html = (BASE_DIR / "dub_long.html").read_text(encoding="utf-8")
+    if (_get_pricing_config().get("uiStyle") or "classic") == "new":
+        html = html.replace("<body>", '<body class="ui-new">', 1)
+    return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/api/longdub/config")
+def longdub_config(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    p = _ld_pricing()
+    return {
+        "max_min": p["max_min"], "min_sec": longdub_service.MIN_SEC,
+        "chunk_bytes": longdub_service.CHUNK_BYTES,
+        "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
+        "fee": p["fee"], "analysis_per_min": p["analysis_per_min"],
+        "credits": get_credits(uid),
+    }
+
+
+@app.get("/api/longdub")
+def longdub_list(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    return {"jobs": [longdub_service.public_view(j) for j in longdub_service.list_jobs_for_uid(uid)],
+            "credits": get_credits(uid)}
+
+
+class LongDubInit(BaseModel):
+    filename: str = ""
+    size: int = 0
+
+
+@app.post("/api/longdub/init")
+def longdub_init(body: LongDubInit, request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "login required"}, status_code=401)
+    job, err = longdub_service.init_upload(uid, body.filename, body.size)
+    if err:
+        return JSONResponse({"error": err[0]}, status_code=err[1])
+    return longdub_service.public_view(job)
+
+
+@app.put("/api/longdub/{job_id}/chunk")
+async def longdub_chunk(job_id: str, index: int, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    try:
+        clen = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        clen = 0
+    if clen > longdub_service.CHUNK_BYTES + 4096:
+        return JSONResponse({"error": "Chunk too large."}, status_code=413)
+    data = await request.body()
+    ok, msg = await asyncio.to_thread(longdub_service.write_chunk, job, index, data)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=400)
+    return {"ok": True, "received_count": len(job.get("received", []))}
+
+
+@app.post("/api/longdub/{job_id}/finish")
+def longdub_finish(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.finish_upload(job, uid)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    v = longdub_service.public_view(longdub_service.load_job(job_id) or job)
+    v["credits"] = get_credits(uid)
+    return v
+
+
+@app.post("/api/longdub/{job_id}/accept")
+def longdub_accept(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.accept(job, uid)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    v = longdub_service.public_view(job)
+    v["credits"] = get_credits(uid)
+    return v
+
+
+@app.get("/api/longdub/{job_id}")
+def longdub_status(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    v = longdub_service.public_view(job)
+    v["received"] = sorted(job.get("received", [])) if job.get("status") == "uploading" else []
+    return v
+
+
+@app.get("/api/longdub/{job_id}/segments")
+def longdub_get_segments(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    # Word-level timings stay on the server -- the editor only needs the text.
+    rows = [{k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "gender", "emotion", "text", "arabic_text")}
+            for r in longdub_service.read_segments(job)]
+    return {"segments": rows, "status": job.get("status"),
+            "warnings": job.get("warnings", []), "speakers": job.get("speakers", [])}
+
+
+class LongDubEdits(BaseModel):
+    edits: List[dict] = []
+
+
+@app.put("/api/longdub/{job_id}/segments")
+def longdub_put_segments(job_id: str, body: LongDubEdits, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, res = longdub_service.update_segments(job, body.edits)
+    if not ok:
+        return JSONResponse({"error": res}, status_code=409)
+    return {"ok": True, "changed": res}
+
+
+class LongDubRetranslate(BaseModel):
+    segment_id: str = ""
+
+
+@app.post("/api/longdub/{job_id}/retranslate")
+def longdub_retranslate(job_id: str, body: LongDubRetranslate, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, msg, arabic = longdub_service.retranslate_line(job, body.segment_id)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=409)
+    return {"ok": True, "arabic_text": arabic}
+
+
+@app.delete("/api/longdub/{job_id}")
+def longdub_delete(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.delete_job(job, uid)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return {"ok": True}
+
+
+def _ld_startup():
+    try:
+        longdub_service.resume_all()
+        longdub_service.start_housekeeping()
+    except Exception as _ld_ex:
+        print(f"[longdub] startup error: {_ld_ex}")
+
+
+# Resume interrupted long jobs a little after start-up so the app is fully up
+# (and the first normal requests aren't competing with a resumed job).
+_ld_timer = threading.Timer(20.0, _ld_startup)
+_ld_timer.daemon = True
+_ld_timer.start()
+
+
 @app.get("/api/account/summary")
 def account_summary(request: Request):
     uid = _current_uid(request)
@@ -4594,6 +4856,11 @@ def _get_pricing_config():
         # panel's "App Appearance" card -- takes effect on next page load,
         # no redeploy needed.
         "uiStyle": "classic",
+        # Dub Long Video (longdub_service.py): longest video allowed, in
+        # minutes, and the per-minute charge for transcribing + speaker
+        # detection + translating it. Both editable in the admin panel.
+        "longDubMaxMin": 10,
+        "longDubAnalysisPerMin": 2,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -4659,6 +4926,8 @@ def _get_pricing_config():
                 # column simply isn't present in `row` and .get() returns
                 # None, falling back to "classic" -- safe either way.
                 "uiStyle": row.get("ui_style") or defaults["uiStyle"],
+                "longDubMaxMin": row.get("long_dub_max_min") or defaults["longDubMaxMin"],
+                "longDubAnalysisPerMin": defaults["longDubAnalysisPerMin"] if row.get("long_dub_analysis_per_min") is None else row.get("long_dub_analysis_per_min"),
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -4731,6 +5000,19 @@ def _save_pricing_config(config):
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=10) as r:
             pass
+        # The two Dub Long Video settings are written in their OWN request:
+        # if their columns don't exist yet (SQL not run), only this small
+        # write fails -- the main save above (everything else) is unaffected.
+        try:
+            _ld_body = json.dumps({
+                "id": "singleton",
+                "long_dub_max_min": max(1, int(float(config.get("longDubMaxMin") or 10))),
+                "long_dub_analysis_per_min": max(0.0, float(config.get("longDubAnalysisPerMin") if config.get("longDubAnalysisPerMin") is not None else 2)),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_ld_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _ld_ex:
+            print(f"[admin] long-dub settings not saved (has the long_dub_* SQL been run?): {_ld_ex}")
         return True, None
     except Exception as ex:
         detail = _http_error_detail(ex)

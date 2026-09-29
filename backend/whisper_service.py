@@ -199,6 +199,14 @@ class _JobQueue:
                     return self._in_use + i
             return 0
 
+    def has_waiters(self):
+        """True when somebody is queued behind the job(s) currently running.
+        Used by the Dub Long Video engine (longdub_service.py) to step aside
+        between pieces so a long job never blocks a short one for more than
+        one piece."""
+        with self._lock:
+            return bool(self._waiting)
+
     def acquire(self, job_id, on_update=None):
         """Blocks until a slot is free and job_id is next in line. Calls
         on_update(ahead_count) roughly every 2 seconds while waiting, so

@@ -173,6 +173,16 @@ button.btn-success:hover { background: #15803d; }
           </div>
         </div>
         <div class="form-group">
+          <label>Dub Long Video: longest video allowed (minutes)</label>
+          <input type="number" id="longDubMaxMin" style="width:120px;" step="1" min="1" max="120">
+          <span class="muted">Current default: 10. The page /dub-long refuses anything longer. Needs the long_dub_max_min column (SQL sent with v1.51.0) to be saved.</span>
+        </div>
+        <div class="form-group">
+          <label>Dub Long Video: analysis credits per minute of video</label>
+          <input type="number" id="longDubAnalysisPerMin" style="width:120px;" step="0.5" min="0" max="1000">
+          <span class="muted">Current default: 2. Covers transcribing, speaker detection and translating each minute. The estimate also adds the voice cost (from the rates above), the cloning cost for 2 speakers, and the merge fee; the small "estimate fee" is the Transcribe price above and counts toward the total.</span>
+        </div>
+        <div class="form-group">
           <label>Lip-sync (credits per second of video)</label>
           <input type="number" id="lipsyncCreditsPerSec" style="width:120px;" step="1" min="0" max="1000">
           <span class="muted">Current default: 40 (= $0.40/sec at 100 credits = $1). Wan 3.0 (Step 7, via Alibaba Model Studio) actually costs this app ~$0.1153/sec (confirmed from a real 15-second 720P test: $1.73), so 40 leaves roughly 52–71% margin depending on which credit pack the user bought — a 1-minute video costs the user 2,400 credits at the default rate.</span>
@@ -568,7 +578,7 @@ function updateEngineFieldVisibility() {
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
+  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','longDubMaxMin','longDubAnalysisPerMin','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   // Checkbox, not a text/number field -- .checked, not .value, and defaults
@@ -689,6 +699,8 @@ async function savePricing() {
     inworldCharsPerCredit: parseInt(document.getElementById('inworldCharsPerCredit')?.value || '60'),
     inworldCloneCredits: parseInt(document.getElementById('inworldCloneCredits')?.value || '5'),
     inworldSlotLimit: parseInt(document.getElementById('inworldSlotLimit')?.value || '100') || 100,
+    longDubMaxMin: parseInt(document.getElementById('longDubMaxMin')?.value || '10') || 10,
+    longDubAnalysisPerMin: (function(){ const v = parseFloat(document.getElementById('longDubAnalysisPerMin')?.value); return isNaN(v) ? 2 : v; })(),
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,

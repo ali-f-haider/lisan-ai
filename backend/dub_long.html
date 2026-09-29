@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lisan AI — Dub Long Video</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .ld-wrap { max-width: 1100px; margin: 0 auto; padding: 0 12px 60px; }
+  .ld-drop {
+    border: 2px dashed var(--border); border-radius: 12px; padding: 34px 16px; text-align: center;
+    cursor: pointer; transition: border-color .2s, background .2s; margin-top: 12px;
+  }
+  .ld-drop:hover, .ld-drop.over { border-color: var(--accent); background: var(--muted-surface); }
+  .ld-drop strong { display: block; font-size: 16px; margin-bottom: 6px; }
+  .ld-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  .ld-table td { padding: 9px 6px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: top; }
+  .ld-table td.num { text-align: end; font-weight: 700; white-space: nowrap; }
+  .ld-table tr.total td { border-bottom: none; font-size: 16px; font-weight: 800; color: var(--primary-fg); padding-top: 14px; }
+  .ld-table .sub { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
+  .ld-row-btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .ld-err { color: var(--error); font-size: 14px; margin-top: 10px; font-weight: 600; }
+  .ld-warn { background: rgba(217,119,6,.12); border-left: 3px solid var(--warning); padding: 8px 12px; border-radius: 8px; font-size: 13px; margin: 8px 0; }
+  .ld-status { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: var(--muted-surface); color: var(--text-muted); }
+  .ld-status.ok { color: var(--success); }
+  .ld-status.bad { color: var(--error); }
+  .ld-list-item { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border-top: 1px solid var(--border); padding: 12px 0; }
+  .ld-list-item:first-child { border-top: none; }
+  .ld-list-name { font-weight: 700; word-break: break-all; }
+  .ld-list-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .btn-danger {
+    padding: 10px 20px; background: var(--card); color: var(--error); border: 1px solid #fecaca;
+    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .btn-danger:hover { background: rgba(248,113,113,.12); transform: none; }
+  body.dark .btn-danger { border-color: #7f1d1d; }
+  .btn-plain { background: var(--logout-bg); color: var(--text-muted); border: 1px solid var(--border); }
+  .btn-plain:hover { background: var(--logout-hover-bg); }
+
+  /* Editor */
+  .ld-edhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .ld-saved { font-size: 13px; color: var(--text-muted); }
+  .ld-seg { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); align-items: start; }
+  .ld-seg:first-child { border-top: none; }
+  .ld-time { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+  .ld-time b { display: block; color: var(--text); font-size: 13px; }
+  .ld-seg textarea { min-height: 54px; width: 100%; resize: vertical; line-height: 1.5; }
+  .ld-seg textarea.missing { border-color: var(--error); }
+  .ld-arwrap { display: flex; flex-direction: column; gap: 6px; }
+  .ld-arwrap textarea { direction: rtl; text-align: right; font-size: 16px; }
+  .ld-arfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .ld-arfoot button { padding: 5px 12px; font-size: 12px; }
+  .ld-cnt { font-size: 11px; color: var(--text-muted); }
+  .ld-colhead { display: grid; grid-template-columns: 96px 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  @media (max-width: 720px) {
+    .ld-seg, .ld-colhead { grid-template-columns: 1fr; }
+    .ld-colhead { display: none; }
+    .card { margin: 10px 0; padding: 18px; }
+  }
+  html[dir="rtl"] .ld-wrap { direction: rtl; }
+  html[dir="rtl"] .note { border-left: none; border-right: 3px solid var(--accent); }
+  html[dir="rtl"] .ld-warn { border-left: none; border-right: 3px solid var(--warning); }
+  html[dir="rtl"] .ld-seg textarea.en { direction: ltr; text-align: left; }
+  html[dir="rtl"] #userBar { direction: rtl; }
+</style>
+</head>
+<body>
+<div id="userBar">
+  <div class="brand-row" style="display:flex;align-items:center;gap:10px;">
+    <img src="/logo.png" style="height:30px;" alt="">
+    <strong id="pageTitle" style="color:#1a237e;">Lisan AI — Dub Long Video</strong>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <button id="langBtn" class="btn-logout" title="Language" onclick="window._toggleLang()">العربية</button>
+    <button id="darkModeBtn" class="btn-logout" title="Toggle dark mode" onclick="window._toggleDarkMode()">🌙</button>
+    <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">–</span> <span id="creditsWord">credits</span></span>
+    <button id="backBtn" class="btn-logout" onclick="location.href='/app'">← Back to App</button>
+    <button id="logoutBtn" class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
+  </div>
+</div>
+
+<div class="ld-wrap">
+
+  <div class="card" id="introCard">
+    <h3 id="introHeading">🎞️ Dub Long Video</h3>
+    <p id="introText" class="note"></p>
+    <ol id="introSteps" style="margin:10px 22px;line-height:1.7;font-size:14px;"></ol>
+  </div>
+
+  <div class="card" id="uploadCard">
+    <h3 id="uploadHeading">1. Upload your video</h3>
+    <div class="ld-drop" id="dropZone" tabindex="0">
+      <strong id="dropTitle">Choose a video or audio file</strong>
+      <span id="dropHint" class="note" style="display:inline-block;border:none;background:none;padding:0;margin:0;"></span>
+    </div>
+    <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg" class="hidden">
+    <div id="uploadError" class="ld-err hidden"></div>
+  </div>
+
+  <div class="card hidden" id="jobCard">
+    <h3 id="jobHeading">Your video</h3>
+    <div id="jobBody"></div>
+  </div>
+
+  <div class="card hidden" id="editorCard">
+    <h3 id="editorHeading">3. Review and edit</h3>
+    <div id="editorBody"></div>
+  </div>
+
+  <div class="card hidden" id="listCard">
+    <h3 id="listHeading">My long dubs</h3>
+    <div id="listBody"></div>
+  </div>
+
+</div>
+
+<script src="/dialogs.js"></script>
+<script>
+// ---- Dark mode (same key + logic as account.html) ----
+(function () {
+  function apply(on) {
+    try {
+      document.body.classList.toggle("dark", !!on);
+      localStorage.setItem("lisan_dark_mode", on ? "1" : "0");
+      var db = document.getElementById("darkModeBtn");
+      if (db) db.textContent = on ? "☀️" : "🌙";
+    } catch (e) {}
+  }
+  window._toggleDarkMode = function () { apply(!document.body.classList.contains("dark")); };
+  var saved;
+  try { saved = localStorage.getItem("lisan_dark_mode"); } catch (e) { saved = null; }
+  apply(saved === "1");
+})();
+
+var LANG = "en";
+try { LANG = (localStorage.getItem("lisan_lang") === "ar") ? "ar" : "en"; } catch (e) {}
+window._toggleLang = function () {
+  try { localStorage.setItem("lisan_lang", LANG === "ar" ? "en" : "ar"); } catch (e) {}
+  location.reload();
+};
+
+var T = {
+  en: {
+    title: "Lisan AI — Dub Long Video", credits: "credits", back: "← Back to App", logout: "Log Out",
+    introHeading: "🎞️ Dub Long Video",
+    introText: function (maxMin) {
+      return "For videos longer than the normal 15-second limit — up to " + maxMin + " minutes. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you at each step.";
+    },
+    introSteps: [
+      "Upload your video. You pay a small fee to get a price estimate for the whole job — it counts toward the total.",
+      "If you accept the estimate, we transcribe it, detect who is speaking and translate it into Arabic.",
+      "You review and edit the English and Arabic text.",
+      "You confirm, we do the dubbing on our servers and email you when it's finished."
+    ],
+    uploadHeading: "1. Upload your video",
+    dropTitle: "Choose a video or audio file (or drop it here)",
+    dropHint: function (maxMin, maxMb) { return "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A · " + maxMin + " minutes max · up to " + maxMb + " MB"; },
+    tooBig: function (mb, maxMb) { return "This file is " + mb + " MB. The limit is " + maxMb + " MB."; },
+    jobHeading: "Your video",
+    uploading: "Uploading…", uploadingPct: function (p, a, b) { return "Uploading… " + p + "% (" + a + " of " + b + " parts)"; },
+    uploadPaused: "The upload was interrupted. Choose the same file again and it will continue where it stopped.",
+    chooseSame: "Choose the same file to continue", wrongFile: "That isn't the same file that was being uploaded. Choose the original file to continue.",
+    cancelUpload: "Cancel upload",
+    finishBtn: "Get my estimate", finishing: "Checking your file…",
+    estHeading: "2. Your estimate",
+    estIntro: function (name, minutes) { return name + " — " + minutes + " min"; },
+    estFeeRow: "Estimate fee (already paid)", estFeeSub: "Counts toward the total",
+    estAnalysisRow: "Transcribe, detect speakers and translate", estAnalysisSub: "Charged when you accept",
+    estVoiceRow: "Voice generation (about)", estVoiceSub: "Final price is calculated from your edited text",
+    estCloneRow: function (n) { return "Voice cloning (about " + n + " speakers)"; }, estCloneSub: "Only if you clone the original voices (subscribers)",
+    estMergeRow: "Final assembly", estMergeSub: "",
+    estTotal: "Estimated total",
+    estBalance: function (b) { return "Your balance: " + b + " credits"; },
+    estAlready: function (n) { return "You have already paid " + n + " credits for this estimate — it counts toward the total."; },
+    estNow: function (n) { return "If you accept, " + n + " credits are charged now for the analysis. The rest is charged only after you review the text and confirm."; },
+    estDeclineNote: "If you don't accept, that is all you pay.",
+    acceptBtn: "Accept and start", declineBtn: "Not now — delete this",
+    notEnough: function (need, have) { return "Not enough credits: you need " + need + " and you have " + have + "."; },
+    buyCredits: "Buy credits",
+    confirmDeleteEst: "Delete this video? You have already paid for the estimate and it will not be refunded.",
+    confirmDeleteEdit: "Delete this project? The transcript and translation you paid for will be lost and cannot be refunded.",
+    confirmDeleteAny: "Delete this project? This cannot be undone.",
+    deleteBtn: "Delete", openBtn: "Open",
+    analyzingHeading: "2. We are working on it",
+    analyzingNote: "This takes several times the length of your video. You can close this page — we will email you when your text is ready to review.",
+    queued: "Waiting for a free processing slot…",
+    stage: { extract: "Extracting the audio…", plan: "Finding natural pauses…", separate: "Separating voices from background sound…",
+      speakers: "Detecting who is speaking…", transcribe: "Transcribing…", build: "Building the transcript…",
+      translate: "Translating to Arabic…", review: "Ready for you to review." },
+    failedHeading: "This one didn't finish",
+    startNew: "Upload another video",
+    editorHeading: "3. Review and edit",
+    editorNote: "Fix any wrong words in the English or the Arabic. Your changes are saved automatically. This project is kept for 7 days.",
+    colTime: "Time", colEn: "English", colAr: "Arabic",
+    linesCount: function (n, missing) { return n + " lines" + (missing ? " · " + missing + " without Arabic" : ""); },
+    saving: "Saving…", saved: "All changes saved ✓", saveFailed: "Couldn't save — trying again…",
+    retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "The translation service didn't answer. Please try again.",
+    chars: function (n) { return n + " characters"; },
+    speakerWord: "Speaker",
+    confirmSoon: "Confirm and dub (coming in the next update)",
+    confirmSoonNote: "Your transcript is saved. The dubbing step will be added here shortly — you'll find this project waiting for you.",
+    listHeading: "My long dubs",
+    st: { uploading: "Uploading", estimated: "Waiting for your approval", accepted: "Queued", analyzing: "Analysing",
+      editing: "Ready to review", confirmed: "Queued for dubbing", dubbing: "Dubbing", done: "Finished", failed: "Failed",
+      cancelled: "Cancelled", expired: "Expired" },
+    minShort: "min", loading: "Loading…", genericErr: "Something went wrong. Please try again.",
+    netErr: "Connection problem. Please check your internet and try again."
+  },
+  ar: {
+    title: "لسان AI — دبلجة فيديو طويل", credits: "رصيد", back: "→ العودة إلى التطبيق", logout: "تسجيل الخروج",
+    introHeading: "🎞️ دبلجة فيديو طويل",
+    introText: function (maxMin) {
+      return "للفيديوهات الأطول من حدّ الـ15 ثانية المعتاد — حتى " + maxMin + " دقائق. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عند كل خطوة.";
+    },
+    introSteps: [
+      "ارفع الفيديو. تدفع رسماً صغيراً للحصول على تقدير لتكلفة العملية كاملة — ويُحتسب من الإجمالي.",
+      "إذا وافقت على التقدير، نقوم بتفريغ الكلام وتحديد المتحدثين وترجمته إلى العربية.",
+      "تراجع النص الإنجليزي والعربي وتعدّله كما تشاء.",
+      "تؤكد، فنقوم بالدبلجة على خوادمنا ونراسلك عند الانتهاء."
+    ],
+    uploadHeading: "١. ارفع الفيديو",
+    dropTitle: "اختر ملف فيديو أو صوت (أو أفلته هنا)",
+    dropHint: function (maxMin, maxMb) { return "MP4 وMOV وMKV وWEBM وAVI وMP3 وWAV وM4A · حتى " + maxMin + " دقائق · حتى " + maxMb + " ميغابايت"; },
+    tooBig: function (mb, maxMb) { return "حجم الملف " + mb + " ميغابايت. الحد الأقصى " + maxMb + " ميغابايت."; },
+    jobHeading: "الفيديو الخاص بك",
+    uploading: "جارٍ الرفع…", uploadingPct: function (p, a, b) { return "جارٍ الرفع… " + p + "٪ (" + a + " من " + b + " أجزاء)"; },
+    uploadPaused: "انقطع الرفع. اختر الملف نفسه مرة أخرى وسيتابع من حيث توقف.",
+    chooseSame: "اختر الملف نفسه للمتابعة", wrongFile: "هذا ليس الملف نفسه الذي كان قيد الرفع. اختر الملف الأصلي للمتابعة.",
+    cancelUpload: "إلغاء الرفع",
+    finishBtn: "احصل على التقدير", finishing: "جارٍ فحص الملف…",
+    estHeading: "٢. تقدير التكلفة",
+    estIntro: function (name, minutes) { return name + " — " + minutes + " د"; },
+    estFeeRow: "رسم التقدير (مدفوع)", estFeeSub: "يُحتسب من الإجمالي",
+    estAnalysisRow: "التفريغ وتحديد المتحدثين والترجمة", estAnalysisSub: "يُخصم عند الموافقة",
+    estVoiceRow: "توليد الصوت (تقريباً)", estVoiceSub: "السعر النهائي يُحسب من النص بعد تعديلك",
+    estCloneRow: function (n) { return "استنساخ الأصوات (تقريباً " + n + " متحدثين)"; }, estCloneSub: "فقط إذا استنسخت الأصوات الأصلية (للمشتركين)",
+    estMergeRow: "التجميع النهائي", estMergeSub: "",
+    estTotal: "الإجمالي المقدَّر",
+    estBalance: function (b) { return "رصيدك: " + b + " رصيد"; },
+    estAlready: function (n) { return "دفعت مسبقاً " + n + " رصيد لهذا التقدير — ويُحتسب من الإجمالي."; },
+    estNow: function (n) { return "عند الموافقة يُخصم " + n + " رصيد الآن للتحليل. والباقي لا يُخصم إلا بعد أن تراجع النص وتؤكد."; },
+    estDeclineNote: "إذا لم توافق فهذا كل ما تدفعه.",
+    acceptBtn: "موافق، ابدأ", declineBtn: "ليس الآن — احذف هذا",
+    notEnough: function (need, have) { return "رصيدك غير كافٍ (تحتاج " + need + " وعندك " + have + ")."; },
+    buyCredits: "شراء رصيد",
+    confirmDeleteEst: "حذف هذا الفيديو؟ لقد دفعت رسم التقدير ولن يُسترد.",
+    confirmDeleteEdit: "حذف هذا المشروع؟ سيضيع التفريغ والترجمة اللذان دفعت ثمنهما ولن يُستردّ المبلغ.",
+    confirmDeleteAny: "حذف هذا المشروع؟ لا يمكن التراجع.",
+    deleteBtn: "حذف", openBtn: "فتح",
+    analyzingHeading: "٢. نعمل على الفيديو",
+    analyzingNote: "يستغرق هذا عدة أضعاف مدة الفيديو. يمكنك إغلاق الصفحة — سنراسلك عندما يصبح النص جاهزاً للمراجعة.",
+    queued: "بانتظار دور المعالجة…",
+    stage: { extract: "جارٍ استخراج الصوت…", plan: "جارٍ البحث عن الوقفات الطبيعية…", separate: "جارٍ فصل الأصوات عن الخلفية…",
+      speakers: "جارٍ تحديد المتحدثين…", transcribe: "جارٍ تفريغ الكلام…", build: "جارٍ بناء النص…",
+      translate: "جارٍ الترجمة إلى العربية…", review: "جاهز للمراجعة." },
+    failedHeading: "لم تكتمل هذه العملية",
+    startNew: "ارفع فيديو آخر",
+    editorHeading: "٣. المراجعة والتعديل",
+    editorNote: "صحّح أي كلمات خاطئة في النص الإنجليزي أو العربي. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
+    colTime: "الوقت", colEn: "الإنجليزية", colAr: "العربية",
+    linesCount: function (n, missing) { return n + " سطر" + (missing ? " · " + missing + " بلا ترجمة" : ""); },
+    saving: "جارٍ الحفظ…", saved: "تم حفظ كل التعديلات ✓", saveFailed: "تعذّر الحفظ — نحاول مجدداً…",
+    retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "لم تستجب خدمة الترجمة. حاول مرة أخرى.",
+    chars: function (n) { return n + " حرفاً"; },
+    speakerWord: "المتحدث",
+    confirmSoon: "تأكيد وبدء الدبلجة (في التحديث القادم)",
+    confirmSoonNote: "تم حفظ النص. ستُضاف خطوة الدبلجة هنا قريباً — وسيبقى هذا المشروع بانتظارك.",
+    listHeading: "دبلجاتي الطويلة",
+    st: { uploading: "قيد الرفع", estimated: "بانتظار موافقتك", accepted: "في الانتظار", analyzing: "قيد التحليل",
+      editing: "جاهز للمراجعة", confirmed: "بانتظار الدبلجة", dubbing: "قيد الدبلجة", done: "اكتمل", failed: "فشل",
+      cancelled: "أُلغي", expired: "انتهت صلاحيته" },
+    minShort: "د", loading: "جارٍ التحميل…", genericErr: "حدث خطأ ما. حاول مرة أخرى.",
+    netErr: "مشكلة في الاتصال. تحقق من الإنترنت وحاول مرة أخرى."
+  }
+}[LANG];
+
+var LS_KEY = "lisan_longdub_job";
+var cfg = null;          // /api/longdub/config
+var jobs = [];           // list of public job views
+var cur = null;          // job currently on screen
+var segs = [];           // transcript rows while editing
+var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?} waiting to be saved
+var saveTimer = null, saving = false;
+var pollTimer = null;
+var uploading = false, uploadAbort = false;
+var lastErr = "";
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function fmtTime(sec) { sec = Math.max(0, Math.round(sec || 0)); var m = Math.floor(sec / 60), s = sec % 60; return m + ":" + (s < 10 ? "0" : "") + s; }
+function fmtMin(sec) { return (Math.round((sec || 0) / 6) / 10).toString(); }
+function fmtDate(ts) { try { return new Date(ts * 1000).toLocaleString(LANG === "ar" ? "ar" : undefined, { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return ""; } }
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+function api(method, url, body, opts) {
+  var init = { method: method, headers: {} };
+  if (body !== undefined && body !== null) { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+  if (opts && opts.keepalive) init.keepalive = true;
+  return fetch(url, init).then(function (r) {
+    if (r.status === 401) { location.href = "/login"; return new Promise(function () {}); }
+    return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, data: d || {} }; });
+  });
+}
+
+function setCredits(n) {
+  if (n === undefined || n === null) return;
+  if (cfg) cfg.credits = n;
+  $("creditsNum").textContent = n;
+}
+
+function applyStaticText() {
+  document.documentElement.lang = LANG;
+  if (LANG === "ar") document.documentElement.dir = "rtl";
+  document.title = T.title;
+  $("pageTitle").textContent = T.title;
+  $("creditsWord").textContent = T.credits;
+  $("backBtn").textContent = T.back;
+  $("logoutBtn").textContent = T.logout;
+  $("langBtn").textContent = LANG === "ar" ? "English" : "العربية";
+  $("introHeading").textContent = T.introHeading;
+  $("uploadHeading").textContent = T.uploadHeading;
+  $("dropTitle").textContent = T.dropTitle;
+  $("listHeading").textContent = T.listHeading;
+  $("jobHeading").textContent = T.jobHeading;
+  $("editorHeading").textContent = T.editorHeading;
+}
+
+function applyConfigText() {
+  var maxMin = cfg ? cfg.max_min : 10;
+  $("introText").textContent = T.introText(maxMin);
+  $("introSteps").innerHTML = T.introSteps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
+  $("dropHint").textContent = T.dropHint(maxMin, cfg ? cfg.max_upload_mb : 2048);
+}
+
+// ------------------------------------------------------------------ jobs
+
+function isOpen(st) { return ["done", "failed", "cancelled", "expired"].indexOf(st) < 0; }
+
+function loadList() {
+  return api("GET", "/api/longdub").then(function (r) {
+    if (!r.ok) return;
+    jobs = r.data.jobs || [];
+    setCredits(r.data.credits);
+  });
+}
+
+function pickInitial() {
+  var stored = null;
+  try { stored = localStorage.getItem(LS_KEY); } catch (e) {}
+  var j = null;
+  if (stored) j = jobs.filter(function (x) { return x.id === stored; })[0] || null;
+  if (!j) j = jobs.filter(function (x) { return isOpen(x.status); })[0] || null;
+  return j;
+}
+
+function selectJob(j) {
+  stopPoll();
+  cur = j || null;
+  segs = []; dirty = {};
+  try { if (cur) localStorage.setItem(LS_KEY, cur.id); else localStorage.removeItem(LS_KEY); } catch (e) {}
+  render();
+  if (cur && cur.status === "editing") loadSegments();
+  if (cur && (cur.status === "accepted" || cur.status === "analyzing" || cur.status === "confirmed" || cur.status === "dubbing")) startPoll();
+}
+
+function refreshCurrent() {
+  if (!cur) return Promise.resolve();
+  var id = cur.id;
+  return api("GET", "/api/longdub/" + id).then(function (r) {
+    if (!cur || cur.id !== id) return;
+    if (r.status === 404) { selectJob(null); return loadList().then(renderList); }
+    if (!r.ok) return;
+    var was = cur.status;
+    cur = r.data;
+    if (cur.status !== was) {
+      if (cur.status === "editing") { stopPoll(); render(); loadSegments(); loadList().then(renderList); return; }
+      if (!isOpen(cur.status)) stopPoll();
+      render(); loadList().then(renderList);
+    } else {
+      renderJob();
+    }
+  });
+}
+
+function startPoll() { stopPoll(); pollTimer = setInterval(refreshCurrent, 4000); }
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+// ---------------------------------------------------------------- render
+
+function render() {
+  var st = cur ? cur.status : null;
+  $("uploadCard").classList.toggle("hidden", !!cur && (isOpen(st) || st === "done"));
+  $("jobCard").classList.toggle("hidden", !cur || st === "editing");
+  $("editorCard").classList.toggle("hidden", !cur || st !== "editing");
+  renderJob();
+  renderEditor();
+  renderList();
+}
+
+function statusBadge(st) {
+  var cls = (st === "done" || st === "editing") ? "ok" : (st === "failed" || st === "cancelled" || st === "expired") ? "bad" : "";
+  return '<span class="ld-status ' + cls + '">' + esc(T.st[st] || st) + "</span>";
+}
+
+function renderJob() {
+  if (!cur) { $("jobBody").innerHTML = ""; return; }
+  var j = cur, h = "";
+  $("jobHeading").textContent = (j.status === "estimated") ? T.estHeading :
+    (j.status === "accepted" || j.status === "analyzing") ? T.analyzingHeading :
+    (j.status === "failed") ? T.failedHeading : T.jobHeading;
+  var name = '<p style="margin:0 0 6px;"><strong style="word-break:break-all;">' + esc(j.filename) + "</strong> " + statusBadge(j.status) + "</p>";
+
+  if (j.status === "uploading") {
+    var pct = j.percent || 0;
+    h += name;
+    h += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+    h += "<p class='note'>" + esc(uploading ? T.uploadingPct(pct, j.received_count || 0, j.total_chunks || 0) : T.uploadPaused) + "</p>";
+    if (!uploading) {
+      if (j.total_chunks && (j.received_count || 0) >= j.total_chunks) {
+        h += '<div class="ld-row-btns"><button id="btnFinish">' + esc(T.finishBtn) + "</button></div>";
+      } else {
+        h += '<div class="ld-row-btns"><button id="btnResume">' + esc(T.chooseSame) + "</button></div>";
+      }
+    }
+    h += '<div class="ld-row-btns"><button class="btn-plain" id="btnDelete">' + esc(T.cancelUpload) + "</button></div>";
+  } else if (j.status === "estimated") {
+    h += name + renderEstimate(j);
+  } else if (j.status === "accepted" || j.status === "analyzing") {
+    h += name;
+    h += '<div class="progress-bar"><div class="progress-fill" style="width:' + (j.percent || 0) + '%"></div></div>';
+    var label = j.status === "accepted" ? T.queued : (T.stage[j.stage] || j.message || "");
+    var extra = "";
+    if ((j.stage === "transcribe" || j.stage === "separate" || j.stage === "translate") && j.message) {
+      var m = String(j.message).match(/\(([^)]*)\)/); if (m) extra = " (" + m[1].replace(/part/g, "").replace(/lines/g, "").replace(/\s+/g, " ").trim() + ")";
+    }
+    h += "<p style='font-weight:600;'>" + esc(label + extra) + " <span style='color:var(--text-muted);font-weight:400;'>" + (j.percent || 0) + "%</span></p>";
+    h += "<p class='note'>" + esc(T.analyzingNote) + "</p>";
+  } else if (j.status === "failed") {
+    h += name + "<p class='ld-err'>" + esc(j.error || j.message || T.genericErr) + "</p>";
+    h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + '</button><button class="btn-plain" id="btnDelete">' + esc(T.deleteBtn) + "</button></div>";
+  } else {
+    h += name;
+    h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + "</button></div>";
+  }
+  if (lastErr) h += '<div class="ld-err">' + esc(lastErr) + "</div>";
+  $("jobBody").innerHTML = h;
+  wireJobButtons();
+}
+
+function renderEstimate(j) {
+  var e = j.estimate || {}, paid = (j.paid && j.paid.fee) || 0;
+  var bal = cfg ? cfg.credits : null;
+  var remaining = (e.total || 0) - paid;
+  var short = (bal !== null && bal !== undefined) && bal < remaining;
+  var row = function (label, sub, n) {
+    return "<tr><td>" + esc(label) + (sub ? '<span class="sub">' + esc(sub) + "</span>" : "") + '</td><td class="num">' + n + "</td></tr>";
+  };
+  var h = "<p style='margin:4px 0 10px;color:var(--text-muted);'>" + esc(T.estIntro(j.filename, fmtMin(j.duration))) + "</p>";
+  h += '<table class="ld-table">';
+  h += row(T.estFeeRow, T.estFeeSub, e.fee);
+  h += row(T.estAnalysisRow, T.estAnalysisSub, e.analysis);
+  h += row(T.estVoiceRow, T.estVoiceSub, "≈ " + e.voice);
+  h += row(T.estCloneRow(e.assumed_speakers), T.estCloneSub, "≈ " + e.clones);
+  h += row(T.estMergeRow, T.estMergeSub, e.merge);
+  h += '<tr class="total"><td>' + esc(T.estTotal) + '</td><td class="num">≈ ' + e.total + " " + esc(T.credits) + "</td></tr>";
+  h += "</table>";
+  h += "<p style='font-weight:600;'>" + esc(bal === null || bal === undefined ? "" : T.estBalance(bal)) + "</p>";
+  if (paid) h += "<p class='note'>" + esc(T.estAlready(paid)) + " " + esc(T.estDeclineNote) + "</p>";
+  h += "<p class='note'>" + esc(T.estNow((e.analysis || 0))) + "</p>";
+  if (short) h += "<p class='ld-err'>" + esc(T.notEnough(remaining, bal)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
+  h += '<div class="ld-row-btns"><button class="green" id="btnAccept"' + (short ? " disabled" : "") + ">" + esc(T.acceptBtn) + '</button><button class="btn-plain" id="btnDelete">' + esc(T.declineBtn) + "</button></div>";
+  return h;
+}
+
+function wireJobButtons() {
+  var b;
+  if ((b = $("btnAccept"))) b.onclick = onAccept;
+  if ((b = $("btnDelete"))) b.onclick = onDelete;
+  if ((b = $("btnNew"))) b.onclick = function () { selectJob(null); };
+  if ((b = $("btnFinish"))) b.onclick = function () { finishUpload(cur); };
+  if ((b = $("btnResume"))) b.onclick = function () { $("fileInput").dataset.resume = "1"; $("fileInput").click(); };
+}
+
+function renderList() {
+  var others = jobs;
+  $("listCard").classList.toggle("hidden", !others.length);
+  var h = "";
+  others.forEach(function (j) {
+    h += '<div class="ld-list-item"><div><div class="ld-list-name">' + esc(j.filename) + "</div>" +
+      '<div class="ld-list-meta">' + statusBadge(j.status) + " · " + fmtMin(j.duration) + " " + esc(T.minShort) + " · " + esc(fmtDate(j.updated || j.created)) + "</div></div>" +
+      '<div style="display:flex;gap:8px;"><button data-open="' + esc(j.id) + '" class="btn-plain">' + esc(T.openBtn) + '</button><button data-del="' + esc(j.id) + '" class="btn-danger">' + esc(T.deleteBtn) + "</button></div></div>";
+  });
+  $("listBody").innerHTML = h;
+  Array.prototype.forEach.call($("listBody").querySelectorAll("[data-open]"), function (btn) {
+    btn.onclick = function () { var j = jobs.filter(function (x) { return x.id === btn.dataset.open; })[0]; if (j) selectJob(j); window.scrollTo(0, 0); };
+  });
+  Array.prototype.forEach.call($("listBody").querySelectorAll("[data-del]"), function (btn) {
+    btn.onclick = function () { var j = jobs.filter(function (x) { return x.id === btn.dataset.del; })[0]; if (j) deleteJob(j); };
+  });
+}
+
+// ---------------------------------------------------------------- upload
+
+function showUploadError(msg) {
+  var el = $("uploadError");
+  el.textContent = msg || "";
+  el.classList.toggle("hidden", !msg);
+}
+
+function onFilePicked(file) {
+  showUploadError("");
+  lastErr = "";
+  if (!file) return;
+  var resume = $("fileInput").dataset.resume === "1";
+  $("fileInput").dataset.resume = "";
+  $("fileInput").value = "";
+  if (resume && cur && cur.status === "uploading") {
+    if (file.name !== cur.filename || file.size !== cur.size) { lastErr = T.wrongFile; renderJob(); return; }
+    continueUpload(cur, file);
+    return;
+  }
+  var maxMb = cfg ? cfg.max_upload_mb : 2048;
+  if (file.size > maxMb * 1048576) { showUploadError(T.tooBig(Math.round(file.size / 1048576), maxMb)); return; }
+  api("POST", "/api/longdub/init", { filename: file.name, size: file.size }).then(function (r) {
+    if (!r.ok) { showUploadError(r.data.error || T.genericErr); return; }
+    cur = r.data; jobs.unshift(cur);
+    try { localStorage.setItem(LS_KEY, cur.id); } catch (e) {}
+    render();
+    continueUpload(cur, file);
+  }).catch(function () { showUploadError(T.netErr); });
+}
+
+async function putChunk(job, index, blob) {
+  var lastMsg = "";
+  for (var attempt = 1; attempt <= 6; attempt++) {
+    if (uploadAbort) return { ok: false, aborted: true };
+    try {
+      var r = await fetch("/api/longdub/" + job.id + "/chunk?index=" + index, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: blob });
+      if (r.status === 401) { location.href = "/login"; return { ok: false }; }
+      if (r.ok) return { ok: true };
+      var d = {}; try { d = await r.json(); } catch (e) {}
+      lastMsg = d.error || ("HTTP " + r.status);
+      if (r.status >= 400 && r.status < 500 && r.status !== 429 && r.status !== 408) return { ok: false, msg: lastMsg };
+    } catch (e) { lastMsg = T.netErr; }
+    await sleep(1200 * attempt);
+  }
+  return { ok: false, msg: lastMsg };
+}
+
+async function continueUpload(job, file) {
+  if (uploading) return;
+  uploading = true; uploadAbort = false; lastErr = "";
+  try {
+    var st = await api("GET", "/api/longdub/" + job.id);
+    if (!st.ok) { lastErr = st.data.error || T.genericErr; return; }
+    var have = {}; (st.data.received || []).forEach(function (i) { have[i] = true; });
+    var total = job.total_chunks, cb = cfg.chunk_bytes;
+    job.received_count = Object.keys(have).length;
+    for (var i = 0; i < total; i++) {
+      if (have[i]) continue;
+      if (uploadAbort) return;
+      var blob = file.slice(i * cb, Math.min(file.size, (i + 1) * cb));
+      var res = await putChunk(job, i, blob);
+      if (!res.ok) { if (!res.aborted) lastErr = res.msg || T.netErr; return; }
+      have[i] = true;
+      job.received_count = Object.keys(have).length;
+      job.percent = Math.floor(100 * job.received_count / total);
+      renderJob();
+    }
+    uploading = false;
+    await finishUpload(job);
+  } finally {
+    if (uploading) { uploading = false; if (cur && cur.id === job.id) renderJob(); }
+  }
+}
+
+function finishUpload(job) {
+  uploading = false;
+  $("jobBody").insertAdjacentHTML("beforeend", "<p class='note'>" + esc(T.finishing) + "</p>");
+  return api("POST", "/api/longdub/" + job.id + "/finish").then(function (r) {
+    if (!r.ok) {
+      lastErr = r.data.error || T.genericErr;
+      // The server removes a file it can't use (too long, no audio...).
+      return loadList().then(function () {
+        var still = jobs.filter(function (x) { return x.id === job.id; })[0];
+        if (still) { cur = still; render(); }
+        else { var m = lastErr; selectJob(null); showUploadError(m); lastErr = ""; }
+      });
+    }
+    setCredits(r.data.credits);
+    cur = r.data; lastErr = "";
+    return loadList().then(function () { render(); });
+  }).catch(function () { lastErr = T.netErr; renderJob(); });
+}
+
+// --------------------------------------------------------- accept / delete
+
+function onAccept() {
+  var b = $("btnAccept"); if (b) b.disabled = true;
+  lastErr = "";
+  api("POST", "/api/longdub/" + cur.id + "/accept").then(function (r) {
+    if (!r.ok) { lastErr = r.data.error || T.genericErr; renderJob(); return; }
+    setCredits(r.data.credits);
+    cur = r.data;
+    render(); startPoll();
+    loadList().then(renderList);
+  }).catch(function () { lastErr = T.netErr; renderJob(); });
+}
+
+function onDelete() { deleteJob(cur); }
+
+function deleteJob(j) {
+  var msg = j.status === "editing" ? T.confirmDeleteEdit : (j.status === "estimated" ? T.confirmDeleteEst : T.confirmDeleteAny);
+  var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { danger: true, okText: T.deleteBtn }) : Promise.resolve(window.confirm(msg));
+  ask.then(function (yes) {
+    if (!yes) return;
+    if (uploading && cur && cur.id === j.id) uploadAbort = true;
+    api("DELETE", "/api/longdub/" + j.id).then(function (r) {
+      if (!r.ok) {
+        var m = r.data.error || T.genericErr;
+        if (window.LisanDialog) LisanDialog.alert(m); else alert(m);
+        return;
+      }
+      jobs = jobs.filter(function (x) { return x.id !== j.id; });
+      if (cur && cur.id === j.id) selectJob(null); else renderList();
+    });
+  });
+}
+
+// ---------------------------------------------------------------- editor
+
+function loadSegments() {
+  var id = cur.id;
+  $("editorBody").innerHTML = "<p class='note'>" + esc(T.loading) + "</p>";
+  api("GET", "/api/longdub/" + id + "/segments").then(function (r) {
+    if (!cur || cur.id !== id) return;
+    if (!r.ok) { $("editorBody").innerHTML = "<p class='ld-err'>" + esc(r.data.error || T.genericErr) + "</p>"; return; }
+    segs = r.data.segments || [];
+    cur.warnings = r.data.warnings || [];
+    renderEditor();
+  });
+}
+
+function missingCount() { return segs.filter(function (s) { return !(s.arabic_text || "").trim(); }).length; }
+
+function renderEditor() {
+  if (!cur || cur.status !== "editing") return;
+  var body = $("editorBody");
+  if (!segs.length) { if (!body.innerHTML) body.innerHTML = "<p class='note'>" + esc(T.loading) + "</p>"; return; }
+  body.innerHTML = "";
+  var head = document.createElement("div");
+  head.innerHTML =
+    "<p class='note'>" + esc(T.editorNote) + "</p>" +
+    ((cur.warnings || []).map(function (w) { return "<div class='ld-warn'>" + esc(w) + "</div>"; }).join("")) +
+    "<div class='ld-edhead'><strong id='lineCount'></strong><span class='ld-saved' id='savedState'></span></div>" +
+    "<div class='ld-colhead'><div>" + esc(T.colTime) + "</div><div>" + esc(T.colEn) + "</div><div>" + esc(T.colAr) + "</div></div>";
+  body.appendChild(head);
+  var list = document.createElement("div"); list.id = "segList";
+  segs.forEach(function (s) { list.appendChild(buildRow(s)); });
+  body.appendChild(list);
+  var foot = document.createElement("div");
+  foot.innerHTML = "<div class='ld-row-btns' style='margin-top:18px;'><button disabled>" + esc(T.confirmSoon) + "</button>" +
+    "<button class='btn-danger' id='btnDelete'>" + esc(T.deleteBtn) + "</button></div><p class='note'>" + esc(T.confirmSoonNote) + "</p>";
+  body.appendChild(foot);
+  $("btnDelete").onclick = onDelete;
+  updateCount();
+  setSaved(true);
+}
+
+function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.max(54, ta.scrollHeight + 2) + "px"; }
+
+function buildRow(s) {
+  var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
+  var spk = String(s.speaker || "");
+  var time = document.createElement("div"); time.className = "ld-time";
+  time.innerHTML = "<b>" + fmtTime(s.start) + " – " + fmtTime(s.end) + "</b>" + esc(spk);
+  var en = document.createElement("textarea"); en.className = "en"; en.value = s.text || ""; en.dir = "ltr"; en.maxLength = 2000;
+  var wrap = document.createElement("div"); wrap.className = "ld-arwrap";
+  var ar = document.createElement("textarea"); ar.className = "ar"; ar.value = s.arabic_text || ""; ar.maxLength = 2000;
+  ar.classList.toggle("missing", !ar.value.trim());
+  var foot = document.createElement("div"); foot.className = "ld-arfoot";
+  var cnt = document.createElement("span"); cnt.className = "ld-cnt"; cnt.textContent = T.chars((ar.value || "").length);
+  var btn = document.createElement("button"); btn.className = "btn-plain"; btn.textContent = T.retranslate;
+  foot.appendChild(cnt); foot.appendChild(btn);
+  wrap.appendChild(ar); wrap.appendChild(foot);
+  row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
+
+  en.addEventListener("input", function () { s.text = en.value; queueSave(s.segment_id, "text", en.value); autosize(en); });
+  ar.addEventListener("input", function () {
+    s.arabic_text = ar.value; queueSave(s.segment_id, "arabic_text", ar.value); autosize(ar);
+    ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
+  });
+  btn.addEventListener("click", function () {
+    btn.disabled = true; btn.textContent = T.retranslating;
+    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/retranslate", { segment_id: s.segment_id }); }).then(function (r) {
+      btn.disabled = false; btn.textContent = T.retranslate;
+      if (!r.ok) { var m = r.data.error || T.retranslateFail; if (window.LisanDialog) LisanDialog.alert(m); else alert(m); return; }
+      s.arabic_text = r.data.arabic_text || ""; ar.value = s.arabic_text; autosize(ar);
+      ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
+    }).catch(function () { btn.disabled = false; btn.textContent = T.retranslate; });
+  });
+  // Size the boxes once they are in the page.
+  setTimeout(function () { autosize(en); autosize(ar); }, 0);
+  return row;
+}
+
+function updateCount() {
+  var el = $("lineCount"); if (el) el.textContent = T.linesCount(segs.length, missingCount());
+}
+
+function setSaved(ok, text) {
+  var el = $("savedState"); if (!el) return;
+  el.textContent = text || (ok ? T.saved : T.saving);
+}
+
+function queueSave(id, field, value) {
+  var d = dirty[id] || (dirty[id] = { segment_id: id });
+  d[field] = value;
+  setSaved(false);
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 900);
+}
+
+function flushSave(opts) {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  var ids = Object.keys(dirty);
+  if (!ids.length || !cur || saving) return Promise.resolve();
+  saving = true;
+  var batch = ids.map(function (i) { return Object.assign({}, dirty[i]); });
+  var jobId = cur.id;
+  return api("PUT", "/api/longdub/" + jobId + "/segments", { edits: batch }, opts).then(function (r) {
+    saving = false;
+    if (!r.ok) { setSaved(false, T.saveFailed); saveTimer = setTimeout(flushSave, 3000); return; }
+    // Clear only what was sent and hasn't been typed over since.
+    batch.forEach(function (b) {
+      var d = dirty[b.segment_id]; if (!d) return;
+      ["text", "arabic_text"].forEach(function (f) { if (f in b && d[f] === b[f]) delete d[f]; });
+      if (!("text" in d) && !("arabic_text" in d)) delete dirty[b.segment_id];
+    });
+    if (Object.keys(dirty).length) { saveTimer = setTimeout(flushSave, 400); setSaved(false); } else setSaved(true);
+  }).catch(function () { saving = false; setSaved(false, T.saveFailed); saveTimer = setTimeout(flushSave, 3000); });
+}
+
+window.addEventListener("pagehide", function () { if (Object.keys(dirty).length) { saving = false; flushSave({ keepalive: true }); } });
+window.addEventListener("beforeunload", function (e) { if (uploading) { e.preventDefault(); e.returnValue = ""; } });
+
+// ------------------------------------------------------------------ init
+
+(function init() {
+  applyStaticText();
+  var dz = $("dropZone"), fi = $("fileInput");
+  dz.onclick = function () { fi.dataset.resume = ""; fi.click(); };
+  dz.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.dataset.resume = ""; fi.click(); } };
+  ["dragenter", "dragover"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("over"); }); });
+  ["dragleave", "drop"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("over"); }); });
+  dz.addEventListener("drop", function (e) { var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) { fi.dataset.resume = ""; onFilePicked(f); } });
+  fi.onchange = function () { onFilePicked(fi.files && fi.files[0]); };
+
+  api("GET", "/api/longdub/config").then(function (r) {
+    if (!r.ok) { showUploadError(r.data.error || T.genericErr); return; }
+    cfg = r.data; setCredits(cfg.credits);
+    applyConfigText();
+    return loadList().then(function () { selectJob(pickInitial()); });
+  }).catch(function () { showUploadError(T.netErr); });
+})();
+</script>
+</body>
+</html>
