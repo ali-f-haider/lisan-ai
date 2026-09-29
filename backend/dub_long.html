@@ -192,11 +192,11 @@ var T = {
     title: "Lisan AI — Dub Long Video", credits: "credits", back: "← Back to App", logout: "Log Out",
     introHeading: "🎞️ Dub Long Video",
     introText: function (maxMin) {
-      return "For videos longer than the normal 15-second limit — up to " + maxMin + " minutes. Available with the Studio plan. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you at each step.";
+      return "For videos longer than the normal 15-second limit — up to " + maxMin + " minutes. Available with the Studio plan. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you when your dubbed file is ready.";
     },
     introSteps: [
       "Upload your video and tell us how many people speak. You pay a small fee to get a price and time estimate for the whole job — it counts toward the total.",
-      "If you accept the estimate, we transcribe it, detect who is speaking and translate it into Arabic.",
+      "If you accept the estimate, we translate it into Arabic.",
       "You review the text, name the speakers, assign each line to its speaker and edit the English and Arabic.",
       "You confirm the exact price. We clone each speaker's voice for this job only, dub the video on our servers and email you when it's finished."
     ],
@@ -243,9 +243,8 @@ var T = {
     termsHeading: "What you get, and the conditions",
     terms: function (e) {
       return [
-        "Dub Long Video is a Studio plan feature.",
-        "You will receive ONE file: the dubbed " + "video (or the dubbed audio if you uploaded audio). No separate voice, music or text files.",
-        "For each speaker we clone the voice from your video for this job only. Every cloned speaker is charged " + e.clone_each + " credits. The cloned voices are NOT saved: they are deleted as soon as the job is finished (or fails).",
+        "You will receive one file: the dubbed video (or the dubbed audio if you uploaded audio) when the dubbing is finished.",
+        "The cloned voices are not saved.",
         "The exact price is calculated from your edited Arabic text and shown to you before the dubbing starts — nothing more is charged without your confirmation.",
         "If you decline this estimate you only pay the estimate fee. If a step fails on our side, the credits of that step are refunded automatically.",
         "Timing is automatic for the Arabic lines.",
@@ -255,7 +254,7 @@ var T = {
         "Lip-sync is charged per second of the clips that are lip-synced (" + e.lipsync_per_sec + " credits per second). This estimate shows the highest possible price (every second of the video); the exact price is calculated after you edit the text and is shown before the dubbing starts. A clip that cannot be lip-synced is refunded and keeps the original picture.",
         "A lip-synced video is delivered in up to 720p (HD) picture size. Lip-sync takes much longer than dubbing alone."
         ] : []).concat([
-        "You choose the speakers, their names and which speaker says each line. We email you when the text is ready to review and again when the dubbed file is ready. Your finished file is kept for your plan's storage period."
+        "You choose the speakers, their names and which speaker says each line. We email you when the dubbed file is ready. Your finished file is kept for your plan's storage period."
       ]);
     },
     agree: "I have read and accept these conditions.",
@@ -267,7 +266,7 @@ var T = {
     confirmDeleteAny: "Delete this project? This cannot be undone.",
     deleteBtn: "Delete", openBtn: "Open",
     analyzingHeading: "2. We are working on it",
-    analyzingNote: "This takes several times the length of your video. You can close this page — we will email you when your text is ready to review.",
+    analyzingNote: "This takes several times the length of your video. You can close this page and come back later — your text will be waiting here for you to review.",
     dubbingHeading: "4. Dubbing in progress",
     dubbingNote: "We are dubbing your video. You can close this page — we will email you when the finished file is ready.",
     queued: "Waiting for a free processing slot…",
@@ -333,11 +332,11 @@ var T = {
     title: "لسان AI — دبلجة فيديو طويل", credits: "رصيد", back: "→ العودة إلى التطبيق", logout: "تسجيل الخروج",
     introHeading: "🎞️ دبلجة فيديو طويل",
     introText: function (maxMin) {
-      return "للفيديوهات الأطول من حدّ الـ15 ثانية المعتاد — حتى " + maxMin + " دقائق. متاحة مع باقة Studio. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عند كل خطوة.";
+      return "للفيديوهات الأطول من حدّ الـ15 ثانية المعتاد — حتى " + maxMin + " دقائق. متاحة مع باقة Studio. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عندما يجهز الملف المدبلج.";
     },
     introSteps: [
       "ارفع الفيديو وأخبرنا بعدد المتحدثين. تدفع رسماً صغيراً للحصول على تقدير السعر والوقت للعملية كاملة — ويُحتسب من الإجمالي.",
-      "إذا وافقت على التقدير، نقوم بتفريغ الكلام وتحديد المتحدثين وترجمته إلى العربية.",
+      "إذا وافقت على التقدير، نقوم بترجمته إلى العربية.",
       "تراجع النص، وتسمّي المتحدثين، وتُسند كل سطر إلى متحدثه، وتعدّل النص الإنجليزي والعربي.",
       "تؤكد السعر النهائي. نستنسخ صوت كل متحدث لهذه العملية فقط، وندبلج الفيديو على خوادمنا ونراسلك عند الانتهاء."
     ],
@@ -384,9 +383,8 @@ var T = {
     termsHeading: "ماذا تحصل عليه، والشروط",
     terms: function (e) {
       return [
-        "دبلجة الفيديو الطويل ميزة في باقة Studio.",
-        "ستحصل على ملف واحد فقط: الفيديو المدبلج (أو الصوت المدبلج إن رفعت ملفاً صوتياً). لا ملفات منفصلة للصوت أو الموسيقى أو النص.",
-        "نستنسخ صوت كل متحدث من الفيديو لهذه العملية فقط. يُحتسب على كل متحدث مستنسَخ " + e.clone_each + " رصيد. الأصوات المستنسَخة لا تُحفظ: تُحذف فور انتهاء العملية (أو فشلها).",
+        "ستحصل على ملف واحد: الفيديو المدبلج (أو الصوت المدبلج إن رفعت ملفاً صوتياً) عند انتهاء الدبلجة.",
+        "الأصوات المستنسَخة لا تُحفظ.",
         "يُحسب السعر الدقيق من النص العربي بعد تعديلك ويُعرض عليك قبل بدء الدبلجة — ولا يُخصم أي مبلغ إضافي دون تأكيدك.",
         "إذا رفضت هذا التقدير فلا تدفع إلا رسم التقدير. وإذا فشلت أي خطوة من جانبنا تُعاد أرصدة تلك الخطوة تلقائياً.",
         "التوقيت تلقائي للأسطر العربية.",
@@ -396,7 +394,7 @@ var T = {
         "تُحتسب مزامنة الشفاه لكل ثانية من المقاطع التي تُزامَن (" + e.lipsync_per_sec + " رصيد لكل ثانية). يعرض هذا التقدير أعلى سعر ممكن (كل ثانية من الفيديو)؛ ويُحسب السعر الدقيق بعد تعديلك النص ويُعرض عليك قبل بدء الدبلجة. والمقطع الذي تتعذر مزامنته يُعاد ثمنه ويحتفظ بالصورة الأصلية.",
         "يُسلَّم الفيديو المُزامَن بحجم صورة حتى 720p (HD). وتستغرق مزامنة الشفاه وقتاً أطول بكثير من الدبلجة وحدها."
         ] : []).concat([
-        "أنت تحدد المتحدثين وأسماءهم ومن يقول كل سطر. نراسلك عندما يصبح النص جاهزاً للمراجعة، ومرة أخرى عندما يجهز الملف المدبلج. يُحتفظ بملفك النهائي طوال مدة التخزين في باقتك."
+        "أنت تحدد المتحدثين وأسماءهم ومن يقول كل سطر. نراسلك عندما يجهز الملف المدبلج. يُحتفظ بملفك النهائي طوال مدة التخزين في باقتك."
       ]);
     },
     agree: "قرأت هذه الشروط وأوافق عليها.",
@@ -408,7 +406,7 @@ var T = {
     confirmDeleteAny: "حذف هذا المشروع؟ لا يمكن التراجع.",
     deleteBtn: "حذف", openBtn: "فتح",
     analyzingHeading: "٢. نعمل على الفيديو",
-    analyzingNote: "يستغرق هذا عدة أضعاف مدة الفيديو. يمكنك إغلاق الصفحة — سنراسلك عندما يصبح النص جاهزاً للمراجعة.",
+    analyzingNote: "يستغرق هذا عدة أضعاف مدة الفيديو. يمكنك إغلاق الصفحة والعودة لاحقاً — سيكون النص بانتظارك هنا للمراجعة.",
     dubbingHeading: "٤. الدبلجة قيد التنفيذ",
     dubbingNote: "نقوم بدبلجة الفيديو. يمكنك إغلاق الصفحة — سنراسلك عندما يجهز الملف النهائي.",
     queued: "بانتظار دور المعالجة…",

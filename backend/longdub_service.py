@@ -108,6 +108,7 @@ class Hooks:
     charge = staticmethod(lambda uid, amount, action, job_id, seconds=None: True)
     refund = staticmethod(lambda uid, amount, job_id: True)
     send_email = staticmethod(lambda uid, subject, text: False)
+    email_error = staticmethod(lambda: "")       # why the last send_email failed (for the event log)
     pricing = staticmethod(lambda: {})
     # log_event(uid, job_id, step, status, detail, credits) writes one row to
     # the long_dub_events table (best effort, never raises).
@@ -1068,13 +1069,7 @@ def _run_analysis(job):
             + (" (resumed run)" if an.get("resumed") else ""))
         if not an.get("resumed"):
             _record_speed("analysis", an.get("audio_duration", 0), elapsed)
-        try:
-            Hooks.send_email(job["uid"], "Your Lisan AI transcript is ready to review",
-                             f"Hi,\n\nThe transcript and Arabic translation of \"{job['filename']}\" are ready. "
-                             "Please review and edit them, then confirm to start the dubbing:\n"
-                             "https://lisanai.org/dub-long\n\n-- Lisan AI")
-        except Exception:
-            pass
+        # (No e-mail here on purpose: the only e-mail a user gets is the one saying the dubbed file is ready.)
     except Exception as ex:
         import traceback
         print(f"[longdub] analysis failed for {job['id']}: {ex}\n{traceback.format_exc()}")
@@ -2596,7 +2591,7 @@ def _run_dubbing(job):
                               "Download it from https://lisanai.org/dub-long (or your Account page).\n"
                               "As agreed, the copied voices were deleted and you get this one file. "
                               f"It stays available for your plan's storage period.{note}\n\n-- Lisan AI")
-        _ev(job, "email_sent", "ok" if ok else "failed", "finished email")
+        _ev(job, "email_sent", "ok" if ok else "failed", "finished email" + ("" if ok else f": {Hooks.email_error() or 'unknown reason'}"))
     except Exception as ex:
         import traceback
         print(f"[longdub] dubbing failed for {job['id']}: {ex}\n{traceback.format_exc()}")

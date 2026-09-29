@@ -4184,10 +4184,19 @@ except NameError:
 # Everything heavy lives in longdub_service.py; this block only wires it to
 # this app's credits, e-mail and pricing settings and exposes the routes.
 # Every /api/longdub/<id> route checks the job belongs to the logged-in user.
+_ld_email_last = {"reason": ""}      # why the last long-dub e-mail was not sent (shown in the event log)
+
+
 def _send_plain_email(to_email, subject, body_text):
     """Same Resend call as _send_expiry_email / /api/contact, for any subject
     and text. Silently does nothing when RESEND_API_KEY isn't set."""
-    if not RESEND_API_KEY or not to_email:
+    if not RESEND_API_KEY:
+        _ld_email_last["reason"] = "RESEND_API_KEY is not set on the server"
+        print("[longdub] e-mail not sent: RESEND_API_KEY is not set")
+        return False
+    if not to_email:
+        _ld_email_last["reason"] = "no e-mail address was found for this user"
+        print("[longdub] e-mail not sent: no address found for the user")
         return False
     payload = json.dumps({
         "from": "Lisan AI <noreply@lisanai.org>",
@@ -4211,9 +4220,18 @@ def _send_plain_email(to_email, subject, body_text):
                 service_usage_monitor.record_resend_usage(_resend_quota_header(r))
             except Exception:
                 pass
-            return r.status in (200, 201)
+            if r.status in (200, 201):
+                return True
+            _ld_email_last["reason"] = f"Resend answered HTTP {r.status}"
+            return False
     except Exception as ex:
-        print(f"[longdub] Resend send failed: {ex}")
+        detail = str(ex)
+        try:
+            detail += " " + ex.read().decode("utf-8", "ignore")[:200]     # the answer Resend gave (HTTPError)
+        except Exception:
+            pass
+        _ld_email_last["reason"] = f"Resend send failed: {detail}"[:300]
+        print(f"[longdub] Resend send failed: {detail}")
         return False
 
 
@@ -4255,8 +4273,30 @@ def _ld_refund(uid, amount, job_id):
     return r
 
 
+def _ld_email_address(uid):
+    """The user's e-mail: the profiles table first, then the sign-in account
+    itself (Supabase auth), so a missing profile e-mail can't silence a job's mail."""
+    addr = _email_for_uid(uid)
+    if addr:
+        return addr
+    if uid and SUPABASE_URL and SUPABASE_SERVICE_KEY:
+        try:
+            import urllib.parse as _uparse
+            req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/admin/users/{_uparse.quote(str(uid), safe='')}",
+                                         headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                addr = (json.load(r).get("email") or "").strip() or None
+            if addr:
+                print("[longdub] profile had no e-mail; used the sign-in account's address")
+            return addr
+        except Exception as ex:
+            print(f"[longdub] could not look up the user's e-mail: {ex}")
+    return None
+
+
 def _ld_email(uid, subject, text):
-    return _send_plain_email(_email_for_uid(uid), subject, text)
+    _ld_email_last["reason"] = ""
+    return _send_plain_email(_ld_email_address(uid), subject, text)
 
 
 # ---- Permanent record of every step (table long_dub_events, SQL sent with
@@ -4321,7 +4361,7 @@ def _ld_allowed(uid):
 
 
 longdub_service.configure(get_credits=get_credits, charge=_ld_charge, refund=_ld_refund,
-                          send_email=_ld_email, pricing=_ld_pricing,
+                          send_email=_ld_email, email_error=lambda: _ld_email_last.get("reason", ""), pricing=_ld_pricing,
                           log_event=_ld_log_event, allowed=_ld_allowed)
 
 
