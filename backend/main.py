@@ -9,6 +9,7 @@ import urllib.request
 import uuid
 import audio_enhance
 import voice_clean
+import bg_duck
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
@@ -3837,14 +3838,16 @@ def merge_video(req: MergeRequest, request: Request):
 
     # Isolate the dubbed voice from noise before it goes back into the video.
     # Never fails the merge: on any problem the original dubbed audio is used.
+    # (Off by default: set CLEAN_VOICE=1 to switch it on.)
     clean_dub = OUTPUT_DIR / f"merge_clean_{req.job_id}.wav"
-    try:
-        _vc = voice_clean.clean_voice(dub, clean_dub, OUTPUT_DIR, copy_on_keep=False)
-        print(f"[voice-clean] {req.job_id}: cleaned={_vc['cleaned']} loss={_vc['loss_db']} floor={_vc.get('floor_db')} denoised={_vc.get('denoised')} {_vc['reason']}")
-        if _vc["cleaned"] and clean_dub.exists() and clean_dub.stat().st_size > 1000:
-            dub = clean_dub
-    except Exception as _vc_ex:
-        print(f"[voice-clean] {req.job_id}: skipped ({_vc_ex})")
+    if voice_clean.ENABLED:
+        try:
+            _vc = voice_clean.clean_voice(dub, clean_dub, OUTPUT_DIR, copy_on_keep=False)
+            print(f"[voice-clean] {req.job_id}: cleaned={_vc['cleaned']} loss={_vc['loss_db']} floor={_vc.get('floor_db')} denoised={_vc.get('denoised')} {_vc['reason']}")
+            if _vc["cleaned"] and clean_dub.exists() and clean_dub.stat().st_size > 1000:
+                dub = clean_dub
+        except Exception as _vc_ex:
+            print(f"[voice-clean] {req.job_id}: skipped ({_vc_ex})")
 
     if bg is not None:
         # Optionally enhance the separated background
@@ -3854,13 +3857,22 @@ def merge_video(req: MergeRequest, request: Request):
             audio_enhance.enhance_background(req.job_id, str(bg), str(enhanced_bg))
             if enhanced_bg.exists() and enhanced_bg.stat().st_size > 0:
                 bg_to_use = enhanced_bg
+        # The separated background keeps a faint metallic copy of the original
+        # voices; lower its voice range while the original speakers talk.
+        ducked_bg = OUTPUT_DIR / f"{req.job_id}_bg_ducked.wav"
+        if bg_duck.ENABLED:
+            _bd = bg_duck.duck_background(bg_to_use, bg.parent / "vocals.wav", ducked_bg)
+            print(f"[bg-duck] {req.job_id}: ducked={_bd['ducked']} {_bd['reason']}")
+            if _bd["ducked"] and ducked_bg.exists() and ducked_bg.stat().st_size > 1000:
+                bg_to_use = ducked_bg
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
         ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed)
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
-        try:
-            mixed.unlink()
-        except Exception:
-            pass
+        for _tmp in (mixed, ducked_bg):
+            try:
+                _tmp.unlink()
+            except Exception:
+                pass
     else:
         ffmpeg_utils.mux_audio_into_video(video, dub, final)
     try:

@@ -593,7 +593,20 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
         final_video = OUTPUT_DIR / f"{job_id}_final_lipsync.mp4"
         if background is not None:
             mixed = OUTPUT_DIR / f"lipsync_mixed_{job_id}.wav"
-            mix_two_audio(raw_video, background, mixed)
+            bg_used = background
+            ducked = OUTPUT_DIR / f"lipsync_bg_ducked_{job_id}.wav"
+            try:
+                import bg_duck
+                if bg_duck.ENABLED:
+                    _bd = bg_duck.duck_background(background, background.parent / "vocals.wav", ducked)
+                    print(f"[bg-duck] {job_id}: lip-sync ducked={_bd['ducked']} {_bd['reason']}")
+                    if _bd["ducked"] and ducked.exists() and ducked.stat().st_size > 1000:
+                        bg_used = ducked
+            except Exception as _bd_ex:
+                print(f"[bg-duck] {job_id}: lip-sync skipped ({_bd_ex})")
+            mix_two_audio(raw_video, bg_used, mixed)
+            try: ducked.unlink()
+            except Exception: pass
             mux_audio_into_video(raw_video, mixed, final_video)
             try: mixed.unlink()
             except Exception: pass

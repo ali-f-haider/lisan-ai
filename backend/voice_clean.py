@@ -18,7 +18,7 @@ from pathlib import Path
 
 import ffmpeg_utils
 
-ENABLED = (os.environ.get("CLEAN_VOICE") or "1").strip().lower() not in ("0", "false", "no", "off")
+ENABLED = (os.environ.get("CLEAN_VOICE") or "0").strip().lower() in ("1", "true", "yes", "on")   # off unless CLEAN_VOICE=1
 # Light on purpose: strong reduction makes speech sound watery. The noise
 # reduction is told the real noise floor of the file (measured in its quietest
 # moments); when the floor is already very low nothing is applied at all.

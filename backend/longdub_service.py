@@ -40,6 +40,7 @@ from types import SimpleNamespace
 from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_KEY
 import ffmpeg_utils
 import voice_clean
+import bg_duck
 
 LONG_DIR = DATA_DIR / "longjobs"
 LONG_DIR.mkdir(parents=True, exist_ok=True)
@@ -2807,12 +2808,20 @@ def _run_dubbing(job):
             _ev(job, "background_mix", "ok" if bg_info["state"] == "mixed" else "failed",
                 f"{bg_info['state']}; background track mean {bg_info.get('mean_db')} dB, peak {bg_info.get('max_db')} dB; "
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
+        bg_mix = bg
+        if video_out and bg.exists() and bg_duck.ENABLED:
+            # the separated background keeps a faint metallic copy of the original voices:
+            # lower its voice range only while the original speakers talk
+            _bdk = bg_duck.duck_background(bg, wd / "vocals_mono.wav", wd / "background_ducked.wav")
+            if _bdk["ducked"]:
+                bg_mix = wd / "background_ducked.wav"
+            _ev(job, "background_duck", "ok" if _bdk["ducked"] else "failed", _bdk["reason"])
         if video_out and bg.exists():
             fc = ("[1:a]volume=1.0[d];"
                   "[2:a]highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
                   "alimiter=limit=0.95,volume=0.8[b];"
                   "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg),
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg_mix),
                                      "-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
                                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
         elif video_out:
@@ -2848,7 +2857,7 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "vocals_mono.wav", f"src{job['ext']}", "turns.json"):
+        for f in ("audio.wav", "background.wav", "background_ducked.wav", "vocals_mono.wav", f"src{job['ext']}", "turns.json"):
             try:
                 (wd / f).unlink()
             except Exception:
