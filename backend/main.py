@@ -4236,6 +4236,9 @@ def _ld_pricing():
         "clone_credits": int(_num(cfg.get("inworldCloneCredits"), 5)),
         "merge_credits": int(_num(cfg.get("mergeCredits"), 1)),
         "max_min": _num(cfg.get("longDubMaxMin"), 10),
+        # lip-sync: same per-second price as Step 7, and its own length limit
+        "lipsync_per_sec": _num(cfg.get("lipsyncCreditsPerSec"), 40),
+        "lipsync_max_min": _num(cfg.get("longDubLipsyncMaxMin"), 3),
     }
 
 
@@ -4361,6 +4364,8 @@ def longdub_config(request: Request):
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"],
         "credits": get_credits(uid), "studio": _ld_is_studio(uid),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
+        "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
+                    "max_min": p["lipsync_max_min"]},
     }
 
 
@@ -4377,6 +4382,7 @@ class LongDubInit(BaseModel):
     filename: str = ""
     size: int = 0
     speakers: int = 2
+    lipsync: bool = False
 
 
 @app.post("/api/longdub/init")
@@ -4387,7 +4393,7 @@ def longdub_init(body: LongDubInit, request: Request):
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
-    job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers)
+    job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync)
     if err:
         return JSONResponse({"error": err[0]}, status_code=err[1])
     return longdub_service.public_view(job)
@@ -5006,6 +5012,7 @@ def _get_pricing_config():
         # detection + translating it. Both editable in the admin panel.
         "longDubMaxMin": 10,
         "longDubAnalysisPerMin": 2,
+        "longDubLipsyncMaxMin": 3,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -5073,6 +5080,7 @@ def _get_pricing_config():
                 "uiStyle": row.get("ui_style") or defaults["uiStyle"],
                 "longDubMaxMin": row.get("long_dub_max_min") or defaults["longDubMaxMin"],
                 "longDubAnalysisPerMin": defaults["longDubAnalysisPerMin"] if row.get("long_dub_analysis_per_min") is None else row.get("long_dub_analysis_per_min"),
+                "longDubLipsyncMaxMin": row.get("long_dub_lipsync_max_min") or defaults["longDubLipsyncMaxMin"],
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -5158,6 +5166,16 @@ def _save_pricing_config(config):
                 pass
         except Exception as _ld_ex:
             print(f"[admin] long-dub settings not saved (has the long_dub_* SQL been run?): {_ld_ex}")
+        # ...and the lip-sync length limit in its own request too (its column came later).
+        try:
+            _ll_body = json.dumps({
+                "id": "singleton",
+                "long_dub_lipsync_max_min": max(1, int(float(config.get("longDubLipsyncMaxMin") or 3))),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_ll_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _ll_ex:
+            print(f"[admin] long-dub lip-sync limit not saved (has the long_dub_lipsync_max_min SQL been run?): {_ll_ex}")
         return True, None
     except Exception as ex:
         detail = _http_error_detail(ex)

@@ -33,6 +33,7 @@ import subprocess
 import threading
 import time
 import uuid
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -70,18 +71,34 @@ SAMPLE_RATE = 44100
 MAX_SPEAKERS = 8
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
-TERMS_VERSION = "2026-09-29"
+TERMS_VERSION = "2026-09-30"
 
 # Time estimates: how many seconds of work per second of video, until real
 # measurements from finished jobs replace these (see _record_speed).
-DEFAULT_SPEED = {"analysis": 4.0, "dubbing": 0.8}
+DEFAULT_SPEED = {"analysis": 4.0, "dubbing": 0.8, "lipsync": 30.0}   # seconds of waiting per second of video (lip-sync: per clip second)
 DUB_BASE_SEC = 120          # fixed part of a dubbing run (start-up, clones, final assembly)
+
+# Lip-sync (optional). The lip-sync engine (Wan 3.0, see lipsync_service.py)
+# takes clips of 4-15 seconds only, so a long video is lip-synced clip by clip:
+# only the stretches where somebody speaks, each clip at most LIPSYNC_MAX_CLIP
+# seconds, a few at a time, then everything is joined back into one video.
+LIPSYNC_MIN_CLIP = 4.2      # engine minimum is 4 s; a little margin for frame rounding
+LIPSYNC_MAX_CLIP = 14.5     # engine maximum is 15 s
+LIPSYNC_HEAD = 0.2          # seconds of picture before the first word of a clip
+LIPSYNC_TAIL = 0.6          # ...and after the last one (dubbed lines may run a bit long)
+LIPSYNC_PARALLEL = 3        # clips of one job at the engine at the same time
+LIPSYNC_MAX_SIZE = (1280, 720)   # lip-synced videos are delivered in up to 720p, the size the price is calibrated for
+DEFAULT_LIPSYNC_MAX_MIN = 3      # overridden by admin (longDubLipsyncMaxMin)
+LIPSYNC_RETRY_WAITS = (0, 30, 90)
+_LIPSYNC_SLOTS = threading.Semaphore(4)   # clips at the engine at once, whole server
+_FF_LOCAL = threading.Semaphore(1)        # local video encodes, one at a time, whole server
 
 _LOCK = threading.RLock()
 _JOBS = {}          # job_id -> job dict (memory copy of job.json)
 _JOB_LOCKS = {}     # job_id -> Lock (serialises chunk writes / saves per job)
 _RUNNING = set()    # job_ids that currently have a worker thread
 _worker_slots = threading.Semaphore(MAX_CONCURRENT_WORKERS)
+_slot_state = threading.local()      # .held -- does this worker thread hold one of the slots?
 
 
 class Hooks:
@@ -196,7 +213,7 @@ def _ffprobe_json(path, entries):
 PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "message", "duration",
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
-                 "stated_speakers", "detected_speakers", "speaker_list")
+                 "stated_speakers", "detected_speakers", "speaker_list", "lipsync")
 
 
 def result_file(job):
@@ -257,9 +274,11 @@ def _record_speed(kind, media_sec, elapsed_sec):
         print(f"[longdub] could not record speed: {ex}")
 
 
-def estimate_times(duration_sec):
+def estimate_times(duration_sec, lipsync=False):
     """Rough waiting time, as minute ranges: analysis (transcribe/translate),
-    dubbing, and both together. The user's own reviewing time is not included."""
+    dubbing, and both together. The user's own reviewing time is not included.
+    With lip-sync the lip-sync waiting time is reported separately
+    (lipsync_min/max) and is part of the totals."""
     a = _speed_factor("analysis") * duration_sec
     d = _speed_factor("dubbing") * duration_sec + DUB_BASE_SEC
 
@@ -269,11 +288,26 @@ def estimate_times(duration_sec):
         return lo, hi
     a_lo, a_hi = rng(a)
     d_lo, d_hi = rng(d)
-    return {"analysis_min": a_lo, "analysis_max": a_hi, "dub_min": d_lo, "dub_max": d_hi,
-            "total_min": a_lo + d_lo, "total_max": a_hi + d_hi}
+    out = {"analysis_min": a_lo, "analysis_max": a_hi, "dub_min": d_lo, "dub_max": d_hi,
+           "total_min": a_lo + d_lo, "total_max": a_hi + d_hi}
+    if lipsync:
+        out.update(lipsync_range(duration_sec))
+        out["total_min"] += out["lipsync_min"]
+        out["total_max"] += out["lipsync_max"]
+    return out
 
 
-def compute_estimate(duration_sec, cfg, speakers=2):
+def lipsync_range(clip_seconds):
+    """Waiting time (minutes) for lip-syncing clip_seconds of video: the
+    engine works on clips of at most 15 seconds, LIPSYNC_PARALLEL at a time.
+    The real speed is learned from finished jobs (stats 'lipsync')."""
+    x = _speed_factor("lipsync") * max(0.0, float(clip_seconds)) / LIPSYNC_PARALLEL
+    lo = max(1, int(x * 0.4 / 60))
+    hi = max(lo + 1, int(math.ceil(x * 1.6 / 60)))
+    return {"lipsync_min": lo, "lipsync_max": hi}
+
+
+def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False):
     """Cost of the whole job, shown to the user before anything expensive
     runs. cfg = Hooks.pricing():
       fee               -- small fixed charge for producing this estimate
@@ -281,7 +315,11 @@ def compute_estimate(duration_sec, cfg, speakers=2):
       chars_per_credit  -- text-to-speech rate
       clone_credits     -- per cloned speaker voice
       merge_credits     -- final assembly
-    The fee is NOT extra: it counts toward the total."""
+      lipsync_per_sec   -- lip-sync, per second of the clips that are lip-synced
+    The fee is NOT extra: it counts toward the total. With lip-sync the
+    estimate carries its highest possible price (every second of the video);
+    the exact price is fixed later, after editing, and only covers the
+    seconds where somebody actually speaks."""
     minutes = max(0.0, float(duration_sec)) / 60.0
     speakers = max(1, min(MAX_SPEAKERS, int(speakers or 2)))
     fee = int(cfg.get("fee", 3))
@@ -291,12 +329,15 @@ def compute_estimate(duration_sec, cfg, speakers=2):
     clone_each = int(cfg.get("clone_credits", 5))
     clones = clone_each * speakers
     merge = max(1, int(cfg.get("merge_credits", 1)))
-    total = fee + analysis + voice + clones + merge
+    per_sec = float(cfg.get("lipsync_per_sec", 40))
+    lip = int(math.ceil(max(0.0, float(duration_sec)) * per_sec)) if lipsync else 0
+    total = fee + analysis + voice + clones + merge + lip
     return {
         "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "voice": voice,
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
         "speakers": speakers, "assumed_speakers": speakers,
-        "times": estimate_times(float(duration_sec)), "terms_version": TERMS_VERSION,
+        "lipsync_wanted": bool(lipsync), "lipsync": lip, "lipsync_per_sec": per_sec if lipsync else 0,
+        "times": estimate_times(float(duration_sec), bool(lipsync)), "terms_version": TERMS_VERSION,
     }
 
 
@@ -310,7 +351,7 @@ def active_count(uid):
     return n
 
 
-def init_upload(uid, filename, size, speakers=2):
+def init_upload(uid, filename, size, speakers=2, lipsync=False):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -326,6 +367,11 @@ def init_upload(uid, filename, size, speakers=2):
         speakers = 2
     if speakers < 1 or speakers > MAX_SPEAKERS:
         return None, (f"The number of speakers must be between 1 and {MAX_SPEAKERS}.", 400)
+    lipsync = bool(lipsync)
+    if lipsync and ext not in VIDEO_EXTS:
+        return None, ("Lip-sync needs a video file. Choose \"without lip-sync\" for audio files.", 400)
+    if lipsync and not lipsync_available():
+        return None, ("Lip-sync is not available right now. Please choose \"without lip-sync\" or try again later.", 503)
     if size <= 0:
         return None, ("The file is empty.", 400)
     if size > MAX_UPLOAD_BYTES:
@@ -350,12 +396,12 @@ def init_upload(uid, filename, size, speakers=2):
         "chunk_bytes": CHUNK_BYTES, "duration": 0.0, "has_video": ext in VIDEO_EXTS,
         "estimate": None, "paid": {"fee": 0, "analysis": 0, "dub": 0}, "error": "",
         "n_segments": 0, "speakers": [], "warnings": [], "stated_speakers": speakers,
-        "speaker_list": [], "detected_speakers": 0,
+        "speaker_list": [], "detected_speakers": 0, "lipsync": {"wanted": lipsync},
     }
     with _LOCK:
         _JOBS[job_id] = job
     _save(job)
-    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers}")
+    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers} lipsync={'yes' if lipsync else 'no'}")
     return job, None
 
 
@@ -427,6 +473,24 @@ def finish_upload(job, uid):
         _ev(job, "upload_finished", "failed", f"too long: {duration / 60:.1f} min (limit {max_min:g})")
         _discard(job)
         return False, (f"This video is {duration / 60:.1f} minutes long. The limit is {max_min:g} minutes.", 413)
+    lip_wanted = bool((job.get("lipsync") or {}).get("wanted"))
+    geo = None
+    if lip_wanted:
+        lmax = float(cfg.get("lipsync_max_min", DEFAULT_LIPSYNC_MAX_MIN))
+        if duration > lmax * 60 + 1:
+            _ev(job, "upload_finished", "failed", f"too long for lip-sync: {duration / 60:.1f} min (limit {lmax:g})")
+            _discard(job)
+            return False, (f"With lip-sync the limit is {lmax:g} minutes and this video is {duration / 60:.1f} minutes long. "
+                           f"Choose \"without lip-sync\" or use a shorter video. Nothing was charged.", 413)
+        if not lipsync_available():
+            _ev(job, "upload_finished", "failed", "lip-sync engine is not available")
+            _discard(job)
+            return False, ("Lip-sync is not available right now. Please start again without lip-sync or try later. Nothing was charged.", 503)
+        geo = _video_geometry(src)
+        if geo is None or "video" not in streams:
+            _ev(job, "upload_finished", "failed", "no readable video picture for lip-sync")
+            _discard(job)
+            return False, ("This file has no readable video picture, so it cannot be lip-synced. Nothing was charged.", 400)
     fee = int(cfg.get("fee", 3))
     bal = Hooks.get_credits(uid)
     if bal is not None and bal < fee:
@@ -437,7 +501,9 @@ def finish_upload(job, uid):
     with _lock_for(job["id"]):
         job["duration"] = round(duration, 3)
         job["has_video"] = "video" in streams and job["ext"] in VIDEO_EXTS
-        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2))
+        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2), lip_wanted)
+        if lip_wanted and geo:
+            job["lipsync"].update({"fps": str(geo[0]), "w": geo[1], "h": geo[2]})
         if fee > 0 and not job["paid"]["fee"]:
             Hooks.charge(uid, fee, "long_dub_estimate", job["id"])
             job["paid"]["fee"] = fee
@@ -449,7 +515,8 @@ def finish_upload(job, uid):
     _save(job)
     e = job["estimate"]
     _ev(job, "estimate_created", "ok",
-        f"duration={duration:.1f}s total={e['total']} speakers={e['speakers']} time={e['times']['total_min']}-{e['times']['total_max']}min terms={TERMS_VERSION}")
+        f"duration={duration:.1f}s total={e['total']} speakers={e['speakers']} time={e['times']['total_min']}-{e['times']['total_max']}min "
+        f"lipsync={'yes (up to ' + str(e['lipsync']) + ' credits at ' + format(e['lipsync_per_sec'], 'g') + '/s)' if lip_wanted else 'no'} terms={TERMS_VERSION}")
     return True, None
 
 
@@ -585,6 +652,7 @@ def _worker_main(job_id):
         if not job:
             return
         _worker_slots.acquire()
+        _slot_state.held = True
         try:
             job = load_job(job_id)
             if job["status"] in ("accepted", "analyzing"):
@@ -594,7 +662,9 @@ def _worker_main(job_id):
                 if runner:
                     runner(job)
         finally:
-            _worker_slots.release()
+            if getattr(_slot_state, "held", False):
+                _slot_state.held = False
+                _worker_slots.release()
     finally:
         with _LOCK:
             _RUNNING.discard(job_id)
@@ -1193,6 +1263,445 @@ def set_speakers(job, speakers):
 
 # ------------------------------------------------------ price + confirm
 
+# ------------------------------------------------------------- lip-sync
+#
+# What "with lip-sync" does, step by step:
+#   1. At confirm time the clips are planned from the edited text (so the price
+#      is exact): only stretches where somebody speaks, each 4.2-14.5 seconds,
+#      cut in the pauses between lines, snapped to exact video frames.
+#   2. After the dub is mixed, every clip goes (picture + the dubbed speech of
+#      that stretch) to the lip-sync engine, a few at a time.
+#   3. A clip the engine cannot do is refunded and keeps the original picture.
+#   4. All pieces (lip-synced clips + untouched stretches) are joined back into
+#      one silent video of the exact original length; the audio of the final
+#      file is always OUR mix, never the engine's.
+
+_STD_FPS = [Fraction(24000, 1001), Fraction(24), Fraction(25), Fraction(30000, 1001), Fraction(30),
+            Fraction(50), Fraction(60000, 1001), Fraction(60)]
+
+
+def lipsync_available():
+    """True when everything the lip-sync engine needs is configured: switched
+    on, not in test mode, Alibaba key + workspace, and the R2 storage the
+    clips are staged in."""
+    try:
+        import config
+        import r2_backup
+        return bool(config.LIPSYNC_ENABLED and not config.LIPSYNC_TEST_MODE
+                    and config.DASHSCOPE_API_KEY and config.DASHSCOPE_WORKSPACE_ID
+                    and r2_backup._enabled())
+    except Exception:
+        return False
+
+
+def _pick_fps(text):
+    """Frame rate to deliver at: the source's own, snapped to the usual
+    broadcast rates when it is within 2% of one (29.97, 25, ...); rates that are
+    not sensible (variable or broken metadata) become 30."""
+    try:
+        n, d = str(text).split("/")
+        v = float(n) / float(d)
+    except Exception:
+        return Fraction(30)
+    if not (8.0 <= v <= 120.0):
+        return Fraction(30)
+    best = min(_STD_FPS, key=lambda f: abs(float(f) - v))
+    if abs(float(best) - v) / float(best) < 0.02:
+        return best
+    return Fraction(v).limit_denominator(1001)
+
+
+def _capped_size(w, h):
+    """Picture size lip-synced videos are delivered in: the source size, but
+    at most 1280x720 (720x1280 upright), even numbers."""
+    w, h = max(2, int(w)), max(2, int(h))
+    s = min(1.0, LIPSYNC_MAX_SIZE[0] / float(max(w, h)), LIPSYNC_MAX_SIZE[1] / float(min(w, h)))
+    return max(2, int(w * s) // 2 * 2), max(2, int(h * s) // 2 * 2)
+
+
+def _video_geometry(path):
+    """(frame rate as Fraction, width, height as the picture is SHOWN) of the
+    first video stream, or None."""
+    try:
+        out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+             "stream=width,height,avg_frame_rate,r_frame_rate:stream_tags=rotate:stream_side_data=rotation",
+             "-of", "json", str(path)], timeout=60)
+        st = (json.loads(out.decode() or "{}").get("streams") or [None])[0]
+        if not st:
+            return None
+        w, h = int(st["width"]), int(st["height"])
+        rot = 0
+        try:
+            rot = int(float((st.get("tags") or {}).get("rotate", 0)))
+        except Exception:
+            pass
+        for sd in st.get("side_data_list") or []:
+            if "rotation" in sd:
+                try:
+                    rot = int(float(sd["rotation"]))
+                except Exception:
+                    pass
+        if abs(rot) % 180 == 90:
+            w, h = h, w
+        fps = _pick_fps(st.get("avg_frame_rate") if st.get("avg_frame_rate") not in (None, "0/0") else st.get("r_frame_rate"))
+        cw, ch = _capped_size(w, h)
+        return fps, cw, ch
+    except Exception:
+        return None
+
+
+def plan_lipsync_clips(lines, total, fps):
+    """lines: [(start, end)] of the dubbed lines; total: length in seconds;
+    fps: Fraction. Returns (clips, short) where clips is a list of
+    {"f0", "f1", "dur"} (frame numbers; frame f is at f/fps seconds) that are
+    sorted, never overlap, and last LIPSYNC_MIN_CLIP..LIPSYNC_MAX_CLIP seconds,
+    and short is the number of speaking moments too short (and too boxed in by
+    neighbouring clips) to become a clip -- those keep the original picture.
+    Deterministic: the same input always gives the same plan (the price shown
+    to the user is computed from it)."""
+    fr = float(fps)
+    n_total = int(math.floor(float(total) * fr))
+    body = LIPSYNC_MAX_CLIP - LIPSYNC_HEAD - LIPSYNC_TAIL
+    items = []
+    for s, e in sorted((max(0.0, float(a)), min(float(total), float(b))) for a, b in lines):
+        if e - s <= 0.01:
+            continue
+        pieces = int(math.ceil((e - s) / body))
+        for k in range(pieces):
+            items.append((s + (e - s) * k / pieces, s + (e - s) * (k + 1) / pieces))
+    groups, cur = [], None
+    for s, e in items:
+        if cur is not None and (e + LIPSYNC_TAIL) - (cur[0] - LIPSYNC_HEAD) <= LIPSYNC_MAX_CLIP:
+            cur[1] = max(cur[1], e)
+        else:
+            if cur is not None:
+                groups.append(cur)
+            cur = [s, e]
+    if cur is not None:
+        groups.append(cur)
+    # frame boundaries; between two neighbouring groups the cut is midway
+    # between the last word of one and the first word of the next
+    bounds = []
+    for k, (s, e) in enumerate(groups):
+        t0 = max(0.0, s - LIPSYNC_HEAD)
+        t1 = min(float(total), e + LIPSYNC_TAIL)
+        if bounds and t0 < bounds[-1][1]:
+            b = (groups[k - 1][1] + s) / 2.0
+            bounds[-1][1] = min(bounds[-1][1], b)
+            t0 = b
+        bounds.append([t0, t1])
+    clips = []
+    for t0, t1 in bounds:
+        f0, f1 = int(round(t0 * fr)), int(round(t1 * fr))
+        f0, f1 = max(0, f0), min(n_total, f1)
+        if f1 > f0:
+            clips.append({"f0": f0, "f1": f1})
+    # no overlap after rounding
+    for k in range(1, len(clips)):
+        if clips[k]["f0"] < clips[k - 1]["f1"]:
+            clips[k]["f0"] = clips[k - 1]["f1"]
+    clips = [c for c in clips if c["f1"] > c["f0"]]
+    # too short: grow into free picture on either side, else give up on it
+    min_f = int(math.ceil(LIPSYNC_MIN_CLIP * fr))
+    max_f = int(math.floor(LIPSYNC_MAX_CLIP * fr))
+    short = 0
+    out = []
+    for k, c in enumerate(clips):
+        lo = out[-1]["f1"] if out else 0
+        hi = clips[k + 1]["f0"] if k + 1 < len(clips) else n_total
+        need = min_f - (c["f1"] - c["f0"])
+        if need > 0:
+            right = min(need, hi - c["f1"])
+            c["f1"] += right
+            need -= right
+            left = min(need, c["f0"] - lo)
+            c["f0"] -= left
+            need -= left
+        if need > 0:
+            short += 1
+            continue
+        if c["f1"] - c["f0"] > max_f:      # rounding only; never more than a frame or two
+            c["f1"] = c["f0"] + max_f
+        out.append(c)
+    for c in out:
+        c["dur"] = round((c["f1"] - c["f0"]) / fr, 3)
+    return out, short
+
+
+def lipsync_price(job, rows, cfg):
+    """Exact lip-sync price for the text as it stands now. rows: the dubbed
+    lines (with Arabic text). Returns a dict, or None when lip-sync was not
+    chosen for this job."""
+    ls = job.get("lipsync") or {}
+    if not ls.get("wanted"):
+        return None
+    per_sec = float(cfg.get("lipsync_per_sec", 40))
+    total = float((job.get("analysis") or {}).get("audio_duration") or job.get("duration") or 0)
+    fps = Fraction(ls.get("fps") or "30")
+    clips, short = plan_lipsync_clips([(r["start"], r["end"]) for r in rows], total, fps)
+    for c in clips:
+        c["credits"] = max(1, int(round(c["dur"] * per_sec)))
+    secs = sum(c["dur"] for c in clips)
+    lo_hi = lipsync_range(secs) if clips else {"lipsync_min": 0, "lipsync_max": 0}
+    return {"clips": clips, "short": short, "seconds": round(secs, 1), "per_sec": per_sec,
+            "credits": sum(c["credits"] for c in clips), "n": len(clips),
+            "time_min": lo_hi["lipsync_min"], "time_max": lo_hi["lipsync_max"]}
+
+
+def _enc_common():
+    return ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an",
+            "-threads", "2", "-movflags", "+faststart"]
+
+
+def _encode_from_source(src, f0, f1, fps, w, h, out):
+    """Exactly f1-f0 frames of the source, in the delivery format."""
+    tmp = out.with_name(out.stem + ".tmp.mp4")
+    vf = f"fps={fps},scale={w}:{h}:flags=lanczos,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop_duration=3"
+    with _FF_LOCAL:
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-ss", f"{float(f0 / fps):.6f}", "-i", str(src), "-vf", vf,
+                                 "-frames:v", str(f1 - f0)] + _enc_common() + [str(tmp)])
+    os.replace(tmp, out)
+
+
+def _encode_engine_output(raw, f0, f1, fps, w, h, out):
+    """The engine's clip, brought to the delivery format and to exactly
+    f1-f0 frames (its own frame rate/size/length may differ a little)."""
+    tmp = out.with_name(out.stem + ".tmp.mp4")
+    vf = (f"fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,"
+          f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop_duration=3")
+    with _FF_LOCAL:
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(raw), "-vf", vf, "-frames:v", str(f1 - f0)] + _enc_common() + [str(tmp)])
+    os.replace(tmp, out)
+
+
+def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag):
+    """Lip-sync one clip. Returns (task_id, None) on success, (task_id, error)
+    on failure. Runs in a worker thread and never touches the job dict."""
+    import lipsync_service
+    from config import DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION
+    t0 = float(f0 / fps)
+    dur = float((f1 - f0) / fps)
+    inp = work / f"{tag}_in.mp4"
+    aud = work / f"{tag}_dub.mp3"
+    raw = work / f"{tag}_raw.mp4"
+    prog = {}
+    try:
+        with _FF_LOCAL:
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-ss", f"{t0:.6f}", "-i", str(src), "-t", f"{dur:.6f}",
+                                     "-map", "0:v:0", "-map", "0:a:0?",
+                                     "-vf", f"scale={w}:{h}:flags=lanczos,setsar=1,format=yuv420p",
+                                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-c:a", "aac", "-b:a", "96k",
+                                     "-threads", "2", "-movflags", "+faststart", str(inp)])
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-ss", f"{t0:.6f}", "-t", f"{dur:.6f}", "-i", str(dub_full),
+                                     "-ac", "2", "-ar", "44100", "-codec:a", "libmp3lame", "-q:a", "2", str(aud)])
+        last = None
+        for wait in LIPSYNC_RETRY_WAITS:
+            if wait:
+                time.sleep(wait)
+            try:
+                with _LIPSYNC_SLOTS:
+                    lipsync_service._alibaba_wan3_lipsync(inp, aud, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID,
+                                                          DASHSCOPE_REGION, raw, prog, job["id"], None)
+                last = None
+                break
+            except Exception as ex:
+                last = ex
+                msg = str(ex)
+                # only failures that happened BEFORE a task existed are worth repeating
+                if not (re.match(r"Lip-sync create HTTP (429|500|502|503|504)", msg) or msg.startswith("Could not stage")):
+                    break
+        if last is not None:
+            return prog.get("generation_id"), last
+        if not raw.exists() or raw.stat().st_size < 1000:
+            return prog.get("generation_id"), Exception("the engine returned no picture")
+        return prog.get("generation_id"), None
+    except Exception as ex:
+        return prog.get("generation_id"), ex
+
+
+def _run_lipsync(job, dub_full, kept, total, d):
+    """Lip-sync stage. Returns the path of the joined picture-only video, or
+    None when nothing could be lip-synced (the original picture is then used
+    as it is). Resumable: finished clips are kept on disk and in job['dub']['lip']."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    wd = _wd(job)
+    uid = job["uid"]
+    dub = job["dub"]
+    plan = (job.get("dub_plan") or {}).get("lipsync") or {}
+    clips = plan.get("clips") or []
+    if not clips:
+        _ev(job, "lipsync", "info", "no speaking stretch long enough for a lip-sync clip")
+        return None
+    ls = job["lipsync"]
+    fps = Fraction(ls["fps"])
+    w, h = int(ls["w"]), int(ls["h"])
+    n_total = int(math.floor(float(total) * float(fps)))
+    src = wd / f"src{job['ext']}"
+    ldir = d / "lip"
+    ldir.mkdir(parents=True, exist_ok=True)
+    state = dub.setdefault("lip", {})
+
+    # order of pieces on the timeline: untouched stretch, clip, untouched stretch...
+    pieces, pos = [], 0
+    for k, c in enumerate(clips):
+        if c["f0"] > pos:
+            pieces.append(("gap", pos, c["f0"], None))
+        pieces.append(("clip", c["f0"], c["f1"], k))
+        pos = c["f1"]
+    if pos < n_total:
+        pieces.append(("gap", pos, n_total, None))
+
+    def pfile(j):
+        return ldir / f"p{j:03d}.mp4"
+
+    def clip_done(k):
+        j = [i for i, p in enumerate(pieces) if p[3] == k][0]
+        return state.get(str(k), {}).get("state") in ("done", "failed", "skipped") and pfile(j).exists()
+
+    todo = [k for k in range(len(clips)) if not clip_done(k)]
+    n_clips = len(clips)
+    _ev(job, "lipsync", "info", f"{n_clips} clips ({sum(c['dur'] for c in clips):.1f}s), {len(todo)} still to do, {w}x{h} at {fps} fps")
+    started = time.time()
+    finished = {"n": n_clips - len(todo)}
+
+    def worker(k):
+        c = clips[k]
+        f0, f1 = c["f0"], c["f1"]
+        t0, t1 = float(f0 / fps), float(f1 / fps)
+        spoken = any(it["start"] < t1 and it["start"] + it["allowed"] > t0 for it in kept)
+        if not spoken:
+            return {"k": k, "status": "skipped", "why": "no dubbed speech was left in this stretch", "task": None, "secs": 0}
+        j = [i for i, p in enumerate(pieces) if p[3] == k][0]
+        t_start = time.time()
+        task, err = _engine_clip(job, src, dub_full, f0, f1, fps, w, h, ldir, f"k{k:03d}")
+        if err is None:
+            try:
+                _encode_engine_output(ldir / f"k{k:03d}_raw.mp4", f0, f1, fps, w, h, pfile(j))
+            except Exception as ex:
+                err = ex
+        for suffix in ("_in.mp4", "_dub.mp3", "_raw.mp4"):
+            try:
+                (ldir / f"k{k:03d}{suffix}").unlink()
+            except Exception:
+                pass
+        if err is not None:
+            return {"k": k, "status": "failed", "why": f"{type(err).__name__}: {err}"[:300], "task": task, "secs": time.time() - t_start}
+        return {"k": k, "status": "done", "why": "", "task": task, "secs": time.time() - t_start}
+
+    def refund_clip(k, why):
+        st = state.setdefault(str(k), {})
+        if st.get("refunded"):
+            return
+        credits = int(clips[k].get("credits", 0))
+        if credits and job["paid"].get("dub", 0) >= credits:
+            try:
+                Hooks.refund(uid, credits, job["id"])
+                job["paid"]["dub"] -= credits
+                st["refunded"] = credits
+                _ev(job, "lipsync_refund", "ok", f"clip {k + 1}: {why}: {credits} credits back", credits)
+            except Exception as ex:
+                _ev(job, "lipsync_refund", "failed", f"clip {k + 1}: {ex}")
+
+    def fallback_piece(k):
+        j = [i for i, p in enumerate(pieces) if p[3] == k][0]
+        _encode_from_source(src, clips[k]["f0"], clips[k]["f1"], fps, w, h, pfile(j))
+
+    # The waiting for the engine is done WITHOUT holding a worker slot, so a
+    # long lip-sync never blocks other people's jobs. What is left after it
+    # (joining the pieces, the final file) is light, so the slot is not taken
+    # back; the worker thread simply won't release it a second time.
+    if getattr(_slot_state, "held", False):
+        _slot_state.held = False
+        _worker_slots.release()
+    pool = ThreadPoolExecutor(max_workers=LIPSYNC_PARALLEL)
+    futs = []
+    try:
+        futs = [pool.submit(worker, k) for k in todo]
+        # untouched stretches are encoded while the engine is busy
+        for j, (kind, f0, f1, k) in enumerate(pieces):
+            if kind == "gap" and not pfile(j).exists():
+                _encode_from_source(src, f0, f1, fps, w, h, pfile(j))
+        for fut in as_completed(futs):
+            r = fut.result()
+            k = r["k"]
+            c = clips[k]
+            label = f"clip {k + 1}/{n_clips} ({c['dur']:.1f}s at {c['f0'] / float(fps):.1f}s)"
+            st = state.setdefault(str(k), {})
+            if r["status"] == "done":
+                st.update({"state": "done", "task": r["task"], "secs": round(r["secs"], 1)})
+                _ev(job, "lipsync_clip", "ok", f"{label} task={r['task']} {r['secs']:.0f}s")
+                if not job["dub"].get("resumed"):
+                    _record_speed("lipsync", c["dur"], r["secs"])
+            else:
+                fallback_piece(k)
+                st.update({"state": r["status"], "task": r["task"], "why": r["why"]})
+                _ev(job, "lipsync_clip", "failed" if r["status"] == "failed" else "skipped", f"{label} task={r['task']} {r['why']}")
+                refund_clip(k, "clip not lip-synced")
+            finished["n"] += 1
+            _mark(job, "lipsync", 86 + int(9 * finished["n"] / max(1, n_clips)), f"Lip-syncing (clip {finished['n']} of {n_clips})...")
+            _save(job)
+        pool.shutdown(wait=True)
+    except BaseException:
+        for f in futs:
+            f.cancel()
+        pool.shutdown(wait=False)
+        raise
+
+    n_done = sum(1 for k in range(n_clips) if state.get(str(k), {}).get("state") == "done")
+    n_failed = sum(1 for k in range(n_clips) if state.get(str(k), {}).get("state") == "failed")
+    n_skip = sum(1 for k in range(n_clips) if state.get(str(k), {}).get("state") == "skipped")
+    if n_done == 0:
+        _ev(job, "lipsync", "failed", f"no clip could be lip-synced ({n_failed} failed, {n_skip} without speech); original picture kept")
+        job.setdefault("warnings", []).append(
+            "The lip-sync could not be done for this video, so the original picture was kept. The price of the lip-sync was refunded.")
+        return None
+    # join everything into one picture-only video of the exact length
+    lst = ldir / "list.txt"
+    lst.write_text("".join(f"file '{pfile(j).name}'\n" for j in range(len(pieces))), encoding="utf-8")
+    out = d / "video_lip.mp4"
+    with _FF_LOCAL:
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy",
+                                 "-movflags", "+faststart", str(out)])
+    got = ffmpeg_utils.get_media_duration(out)
+    want = n_total / float(fps)
+    if abs(got - want) > 0.2:
+        raise Exception(f"joined picture is {got:.2f}s long, expected {want:.2f}s")
+    if n_failed or n_skip:
+        job.setdefault("warnings", []).append(
+            f"{n_failed + n_skip} of {n_clips} lip-sync clip(s) could not be lip-synced and keep the original mouth movement; "
+            "their price was refunded.")
+    _ev(job, "lipsync", "ok" if not n_failed else "partial",
+        f"{n_done} of {n_clips} clips lip-synced, {n_failed} failed, {n_skip} without speech, {time.time() - started:.0f}s")
+    return out
+
+
+def _refund_all_lipsync(job, why):
+    """The lip-sync stage broke as a whole: give back every lip-sync credit
+    that has not been given back yet, and go on with the original picture."""
+    uid = job["uid"]
+    plan = (job.get("dub_plan") or {}).get("lipsync") or {}
+    state = job.setdefault("dub", {}).setdefault("lip", {})
+    todo = []
+    for k, c in enumerate(plan.get("clips") or []):
+        st = state.setdefault(str(k), {})
+        cr = int(c.get("credits", 0))
+        if not st.get("refunded") and cr:
+            todo.append((k, cr))
+    back = sum(cr for _, cr in todo)
+    if back and job["paid"].get("dub", 0) >= back:
+        try:
+            Hooks.refund(uid, back, job["id"])
+            for k, cr in todo:
+                state[str(k)]["refunded"] = cr
+            job["paid"]["dub"] -= back
+            _ev(job, "lipsync_refund", "ok", f"lip-sync stage failed ({why}): {back} credits back", back)
+        except Exception as ex:
+            _ev(job, "lipsync_refund", "failed", str(ex))
+    job.setdefault("warnings", []).append("The lip-sync could not be completed, so the original picture was kept. Its price was refunded.")
+    _save(job)
+
+
 def dub_price(job, cfg=None):
     """Exact price of the dubbing stage, from the text as it stands now."""
     cfg = cfg or Hooks.pricing()
@@ -1218,17 +1727,25 @@ def dub_price(job, cfg=None):
     clones = clone_each * len(used)
     merge = max(1, int(cfg.get("merge_credits", 1)))
     due = voice + clones + merge
+    lip = lipsync_price(job, [r for r in rows if (r.get("arabic_text") or "").strip()], cfg)
+    if lip:
+        due += lip["credits"]
     already = int(job["paid"].get("fee", 0)) + int(job["paid"].get("analysis", 0))
     dur = float(job.get("duration") or 0)
     d = _speed_factor("dubbing") * dur + DUB_BASE_SEC
     lo = max(1, int(d * 0.7 / 60))
     hi = max(lo + 1, int(math.ceil(d * 1.6 / 60)))
+    if lip:
+        lo += lip["time_min"]
+        hi += lip["time_max"]
     return {
         "lines": lines, "chars": chars, "voice": voice, "clones": clones, "clone_each": clone_each,
         "merge": merge, "due": due, "already_paid": already, "total": already + due,
         "lines_without_arabic": without, "chars_per_credit": cpc,
         "speakers_used": [{"id": k, "name": names.get(k, "?"), "lines": v} for k, v in used.items()],
         "time_min": lo, "time_max": hi,
+        "lipsync": ({"clips": lip["n"], "seconds": lip["seconds"], "credits": lip["credits"], "per_sec": lip["per_sec"],
+                     "short": lip["short"], "time_min": lip["time_min"], "time_max": lip["time_max"]} if lip else None),
     }
 
 
@@ -1248,6 +1765,17 @@ def confirm(job, uid, expected_due):
             return False, ("The price changed because the text was edited. Please check the new price and confirm again.", 409)
     except (TypeError, ValueError):
         return False, ("Missing price confirmation.", 400)
+    lip_plan = None
+    if (job.get("lipsync") or {}).get("wanted"):
+        if not lipsync_available():
+            _ev(job, "dub_confirmed", "failed", "lip-sync engine is not available")
+            return False, ("Lip-sync is not available right now. Nothing was charged. Please try again later.", 503)
+        cfg = Hooks.pricing()
+        lp = lipsync_price(job, [r for r in read_segments(job) if (r.get("arabic_text") or "").strip()], cfg)
+        if lp["credits"] != (price.get("lipsync") or {}).get("credits"):
+            return False, ("The price changed. Please check the new price and confirm again.", 409)
+        lip_plan = {"per_sec": lp["per_sec"], "credits": lp["credits"], "seconds": lp["seconds"], "short": lp["short"],
+                    "clips": [{"f0": c["f0"], "f1": c["f1"], "dur": c["dur"], "credits": c["credits"]} for c in lp["clips"]]}
     bal = Hooks.get_credits(uid)
     if bal is not None and bal < price["due"]:
         _ev(job, "dub_confirmed", "failed", f"not enough credits (need {price['due']}, have {bal})")
@@ -1258,14 +1786,17 @@ def confirm(job, uid, expected_due):
         job["dub_plan"] = {"chars": price["chars"], "cpc": price["chars_per_credit"], "clone_each": price["clone_each"],
                            "merge": price["merge"], "lines": price["lines"],
                            "speakers": [s["id"] for s in price["speakers_used"]], "confirmed_at": _now()}
+        if lip_plan is not None:
+            job["dub_plan"]["lipsync"] = lip_plan
         job["status"] = "confirmed"
         job["stage"] = "queued"
         job["percent"] = 0
         job["message"] = "Waiting for a free processing slot..."
     _save(job)
     _ev(job, "dub_confirmed", "ok",
-        f"due={price['due']} (voice {price['voice']}, clones {price['clones']}, merge {price['merge']}) chars={price['chars']} "
-        f"lines={price['lines']} speakers={len(price['speakers_used'])}", price["due"])
+        f"due={price['due']} (voice {price['voice']}, clones {price['clones']}, merge {price['merge']}"
+        + (f", lip-sync {lip_plan['credits']} for {len(lip_plan['clips'])} clips / {lip_plan['seconds']}s at {lip_plan['per_sec']:g}/s" if lip_plan else "")
+        + f") chars={price['chars']} lines={price['lines']} speakers={len(price['speakers_used'])}", price["due"])
     start_worker(job["id"])
     return True, None
 
@@ -1655,24 +2186,47 @@ def _run_dubbing(job):
         _ev(job, "mix", "ok", f"{len(kept)} lines in {len(chunks)} parts; {sum(1 for x in kept if x['trim'])} trimmed, "
                               f"{sum(1 for x in kept if x['warn'])} at the speed limit")
 
+        # 3b. optional lip-sync ---------------------------------------------------
+        lip_video = None
+        lip_summary = None
+        lip_secs = 0.0
+        if (job.get("lipsync") or {}).get("wanted") and job.get("has_video") and (job.get("dub_plan") or {}).get("lipsync"):
+            _mark(job, "lipsync", 86, "Lip-syncing the picture...")
+            _save(job)
+            lip_t0 = time.time()
+            try:
+                lip_video = _run_lipsync(job, dub_full, kept, total, d)
+            except Exception as ex:
+                import traceback
+                print(f"[longdub] lip-sync failed for {job['id']}: {ex}\n{traceback.format_exc()}")
+                _ev(job, "lipsync", "failed", f"{type(ex).__name__}: {ex}"[:600])
+                lip_video = None
+                _refund_all_lipsync(job, str(ex)[:120])
+            lip_secs = time.time() - lip_t0
+            st_lip = job["dub"].get("lip", {})
+            lip_summary = {"clips": len((job["dub_plan"]["lipsync"]).get("clips") or []),
+                           "synced": sum(1 for v in st_lip.values() if v.get("state") == "done") if lip_video else 0,
+                           "refunded": sum(int(v.get("refunded") or 0) for v in st_lip.values())}
+
         # 4. one final file ---------------------------------------------------
-        _mark(job, "finish", 88, "Building your final file...")
+        _mark(job, "finish", 88 if lip_video is None else 96, "Building your final file...")
         video_out = bool(job.get("has_video"))
         final_name = f"{job['id']}_final_dubbed_video.mp4" if video_out else f"{job['id']}_final_dubbed.mp3"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         tmp_final = OUTPUT_DIR / f"{job['id']}_finalizing{Path(final_name).suffix}"
         src = wd / f"src{job['ext']}"
+        vsrc = lip_video if lip_video is not None else src      # picture: lip-synced or original
         bg = wd / "background.wav"
         if video_out and bg.exists():
             fc = ("[1:a]volume=1.0[d];"
                   "[2:a]highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
                   "alimiter=limit=0.95,volume=0.8[b];"
                   "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(src), "-i", str(dub_full), "-i", str(bg),
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg),
                                      "-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
                                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
         elif video_out:
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(src), "-i", str(dub_full), "-map", "0:v:0", "-map", "1:a:0",
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-map", "0:v:0", "-map", "1:a:0",
                                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
         else:
             ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(dub_full), "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)])
@@ -1688,6 +2242,8 @@ def _run_dubbing(job):
         job["result"] = {"kind": "video" if video_out else "audio", "file": final_name, "size": size,
                          "duration": round(total, 1), "lines": len(dub["lines"]), "failed_lines": len(failed),
                          "finished": _now()}
+        if lip_summary is not None:
+            job["result"]["lipsync"] = lip_summary
         job["status"] = "done"
         _mark(job, "done", 100, "Your dubbed file is ready.")
         _save(job)
@@ -1700,11 +2256,15 @@ def _run_dubbing(job):
                 pass
         _ev(job, "dubbing_done", "ok", f"{elapsed:.0f}s" + (" (resumed run)" if dub.get("resumed") else ""))
         if not dub.get("resumed"):
-            _record_speed("dubbing", total, max(elapsed - DUB_BASE_SEC, 0.1 * total))
+            _record_speed("dubbing", total, max(elapsed - lip_secs - DUB_BASE_SEC, 0.1 * total))
         note = ""
         if failed or dropped:
             note = ("\n\nNote: some lines could not be dubbed and were left silent; the price of the lines that could not be "
                     "generated was refunded.")
+        if lip_summary is not None:
+            note += (f"\n\nLip-sync: {lip_summary['synced']} of {lip_summary['clips']} clips were lip-synced."
+                     + (f" The price of the clips that could not be lip-synced ({lip_summary['refunded']} credits) was refunded."
+                        if lip_summary["refunded"] else ""))
         ok = Hooks.send_email(uid, "Your dubbed video is ready",
                               f"Hi,\n\nYour dubbed {'video' if video_out else 'audio'} \"{job['filename']}\" is ready.\n"
                               "Download it from https://lisanai.org/dub-long (or your Account page).\n"
