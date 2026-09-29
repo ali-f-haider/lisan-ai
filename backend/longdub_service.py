@@ -800,6 +800,44 @@ def _shift_segments(raw, offset):
     return out
 
 
+_SENT_END = re.compile(r'[.!?\u061F\u2026]["\')\]\u201D]*$')
+_NOT_SENT_END = {"mr.", "mrs.", "ms.", "dr.", "prof.", "st.", "jr.", "sr.", "vs.", "etc.", "e.g.", "i.e.", "no.", "inc.",
+                 "ltd.", "co.", "mt.", "gen.", "col.", "lt.", "capt.", "sgt.", "a.m.", "p.m."}
+
+
+def split_rows_by_sentence(rows):
+    """One row per sentence. The speech recogniser hands over stretches that can
+    hold two or three sentences by the same speaker; each sentence is dubbed
+    (and edited) better as its own line. Uses the word times, so every new line
+    starts where its first word starts and ends where its last word ends."""
+    out = []
+    for r in rows:
+        words = r.get("words") or []
+        if len(words) < 2:
+            out.append(r)
+            continue
+        pieces, cur = [], []
+        for k, w in enumerate(words):
+            cur.append(w)
+            tok = str(w.get("word") or "").strip()
+            if k < len(words) - 1 and _SENT_END.search(tok) and tok.lower() not in _NOT_SENT_END:
+                pieces.append(cur)
+                cur = []
+        if cur:
+            pieces.append(cur)
+        if len(pieces) <= 1:
+            out.append(r)
+            continue
+        for pw in pieces:
+            text = " ".join(str(w.get("word") or "").strip() for w in pw).strip()
+            if not text:
+                continue
+            nr = dict(r)
+            nr.update({"words": pw, "text": text, "start": round(float(pw[0]["start"]), 2), "end": round(float(pw[-1]["end"]), 2)})
+            out.append(nr)
+    return out
+
+
 def rows_from_raw(raw_segments, turns, speaker_label_map):
     """Same row building as whisper_service.transcribe_worker (speaker-turn
     grouping, 15 s cap per line, merge of mid-sentence splits), copied so the
@@ -848,7 +886,10 @@ def rows_from_raw(raw_segments, turns, speaker_label_map):
                     "arabic_text": "", "words": part_words,
                 })
                 seg_index += 1
-    return ws.merge_mid_sentence_rows(result)
+    result = ws.merge_mid_sentence_rows(split_rows_by_sentence(result))
+    for i, r in enumerate(result):
+        r["segment_id"] = f"seg_{i}"
+    return result
 
 
 def _run_analysis(job):
