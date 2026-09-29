@@ -2455,12 +2455,19 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
             break
         max_letters = max(3, int(letters * ratio))
         new = None
-        try:
-            new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY)
-        except Exception as ex:
-            print(f"[longdub] rephrase call failed for {sid}: {ex}")
-        if not new or _ar_letters(new) >= letters * 0.95:
-            _ev(job, "line_rephrase", "failed", f"{sid}: no usable shorter version (try {attempt})")
+        for ask in range(2):        # the AI service sometimes answers with nothing: ask once more
+            try:
+                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY)
+            except Exception as ex:
+                print(f"[longdub] rephrase call failed for {sid}: {ex}")
+            if new:
+                break
+            time.sleep(2)
+        if not new:
+            _ev(job, "line_rephrase", "failed", f"{sid}: the AI service gave no usable answer (try {attempt})")
+            break
+        if _ar_letters(new) >= letters * 0.95:
+            _ev(job, "line_rephrase", "failed", f"{sid}: the new text was not shorter (try {attempt})")
             break
         if needs_tashkeel(new):
             try:

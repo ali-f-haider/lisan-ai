@@ -230,7 +230,7 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
     )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1024, "responseMimeType": "application/json"},
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
     }
     data, err = call_gemini(api_key, payload, timeout=90)
     record_gemini(job_id, data)
