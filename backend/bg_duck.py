@@ -226,9 +226,13 @@ def duck_background(bg_path, vocals_path, out_path, depth_db=None):
             pass
 
 
-def _frame_power_db(path):
-    """Mean power (dB, one value per 10 ms) of a file, mono 16 kHz."""
-    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vn", "-ac", "1", "-ar", str(ANALYSIS_RATE), "-f", "f32le", "-"]
+def _frame_power_db(path, af=None):
+    """Mean power (dB, one value per 10 ms) of a file, mono 16 kHz. `af` = an ffmpeg audio filter chain
+    applied first (used to measure a track exactly as it is mixed)."""
+    cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vn"]
+    if af:
+        cmd += ["-af", af]
+    cmd += ["-ac", "1", "-ar", str(ANALYSIS_RATE), "-f", "f32le", "-"]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     out, left, fb = [], b"", HOP * 4
     try:
@@ -273,6 +277,36 @@ def level_report(original, background, pauses):
         rep = {"orig_all": _db(o.mean()), "bg_all": _db(b.mean()), "pause_sec": round(float(mask.sum()) * FRAME_SEC, 1)}
         if mask.sum() >= 100:
             rep["orig_pauses"], rep["bg_pauses"] = _db(o[mask].mean()), _db(b[mask].mean())
+        return rep
+    except Exception:
+        return {}
+
+
+def final_level_report(mixed_background, mix_filter, dub, pauses):
+    """Levels (dB) of the background exactly as it goes into the final video (after the ducking
+    and the mix filter), overall and inside the pauses of the voices, and of the dubbed voices.
+    Returns a dict, {} on any problem."""
+    try:
+        b = _frame_power_db(mixed_background, mix_filter)
+        n = b.size
+        if n < 100:
+            return {}
+        mask = np.zeros(n, dtype=bool)
+        for (a, z) in pauses or []:
+            i0, i1 = int((float(a) + 0.15) / FRAME_SEC), int((float(z) - 0.15) / FRAME_SEC)
+            if i1 > i0:
+                mask[max(0, i0):min(n, i1)] = True
+        rep = {"final_bg_all": _db(b.mean())}
+        if mask.sum() >= 100:
+            rep["final_bg_pauses"] = _db(b[mask].mean())
+        if dub is not None:
+            d = _frame_power_db(dub)
+            if d.size >= 100:
+                talk = d > (10.0 ** (-50.0 / 10.0))       # frames where the dubbed voice is actually speaking
+                rep["dub_voice"] = _db(d[talk].mean()) if talk.sum() >= 100 else _db(d.mean())
+                m2 = talk[:n]
+                if m2.sum() >= 100:
+                    rep["final_bg_while_dub_speaks"] = _db(b[:m2.size][m2].mean())
         return rep
     except Exception:
         return {}

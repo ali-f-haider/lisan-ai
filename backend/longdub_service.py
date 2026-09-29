@@ -2501,6 +2501,31 @@ def _volume_stats(path):
 
 
 FAINT_BG_MEAN_DB = -50.0     # a separated background this quiet on average is reported to the user
+# what the background goes through on its way into the final video (volume=0.8 is -1.9 dB)
+BG_MIX_FILTER = ("highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
+                 "alimiter=limit=0.95,volume=0.8")
+
+
+def _bg_final_event(job, wd, bg_mix, dub_full):
+    """Log how loud the background really is in the final video, next to the original's and the voices'."""
+    try:
+        pauses = []
+        pp = wd / "pauses.json"
+        if pp.exists():
+            pauses = [tuple(x) for x in json.loads(pp.read_text(encoding="utf-8"))]
+        rep = bg_duck.final_level_report(bg_mix, BG_MIX_FILTER, dub_full, pauses)
+        if not rep:
+            return
+        msg = f"background in the final video {rep['final_bg_all']} dB overall"
+        if "final_bg_pauses" in rep:
+            msg += f", {rep['final_bg_pauses']} dB in the pauses of the voices"
+        if "final_bg_while_dub_speaks" in rep:
+            msg += f", {rep['final_bg_while_dub_speaks']} dB while the dubbed voice speaks"
+        if "dub_voice" in rep:
+            msg += f"; dubbed voice {rep['dub_voice']} dB"
+        _ev(job, "background_final", "info", msg)
+    except Exception as ex:
+        print(f"[longdub] final level report skipped: {ex}")
 
 
 def _bg_levels_event(job, wd, bg):
@@ -3064,9 +3089,9 @@ def _run_dubbing(job):
                 bg_mix = wd / "background_ducked.wav"
             _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
         if video_out and bg.exists():
+            _bg_final_event(job, wd, bg_mix, dub_full)
             fc = ("[1:a]volume=1.0[d];"
-                  "[2:a]highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
-                  "alimiter=limit=0.95,volume=0.8[b];"
+                  f"[2:a]{BG_MIX_FILTER}[b];"
                   "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
             ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg_mix),
                                      "-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
