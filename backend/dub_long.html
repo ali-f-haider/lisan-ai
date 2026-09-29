@@ -62,11 +62,17 @@
   .ld-spkrow { display: flex; gap: 10px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
   .ld-spkrow input { max-width: 260px; }
   .ld-spkrow .cnt { font-size: 12px; color: var(--text-muted); min-width: 70px; }
-  .ld-seg { display: grid; grid-template-columns: 150px 1fr 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); align-items: start; }
+  .ld-seg { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); align-items: start; }
   .ld-seg:first-child { border-top: none; }
   .ld-time { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
   .ld-time b { display: block; color: var(--text); font-size: 13px; }
   .ld-time select { margin-top: 6px; padding: 6px 8px; font-size: 13px; }
+  .ld-tf { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
+  .ld-tf span { width: 30px; }
+  .ld-tf input.ld-t { width: 82px; padding: 5px 6px; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+  .ld-terr { color: var(--error); font-size: 11px; margin: 2px 0 4px; line-height: 1.4; }
+  .ld-lbtns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+  .ld-lbtns button { padding: 4px 10px; font-size: 12px; }
   .ld-seg textarea { min-height: 54px; width: 100%; resize: vertical; line-height: 1.5; }
   .ld-seg textarea.missing { border-color: var(--error); }
   .ld-arwrap { display: flex; flex-direction: column; gap: 6px; }
@@ -74,7 +80,7 @@
   .ld-arfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .ld-arfoot button { padding: 5px 12px; font-size: 12px; }
   .ld-cnt { font-size: 11px; color: var(--text-muted); }
-  .ld-colhead { display: grid; grid-template-columns: 150px 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  .ld-colhead { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
   @media (max-width: 720px) {
     .ld-seg, .ld-colhead { grid-template-columns: 1fr; }
     .ld-colhead { display: none; }
@@ -242,8 +248,8 @@ var T = {
         "For each speaker we clone the voice from your video for this job only. Every cloned speaker is charged " + e.clone_each + " credits. The cloned voices are NOT saved: they are deleted as soon as the job is finished (or fails).",
         "The exact price is calculated from your edited Arabic text and shown to you before the dubbing starts — nothing more is charged without your confirmation.",
         "If you decline this estimate you only pay the estimate fee. If a step fails on our side, the credits of that step are refunded automatically.",
-        "Timing is automatic: each Arabic line is sped up or slowed within our \"good\" range (about 15% slower to 25% faster) to fit the original timing, and if it is still too long it continues into the silent gap after it, never over the next line. There are no manual timing edits.",
-        "Tashkeel: when you check the price, we add tashkeel (Arabic vowel marks) to every Arabic word that has none. Words you already marked are never changed. The marks are characters, so they are part of the price.",
+        "Timing is automatic for the Arabic lines.",
+        "Tashkeel is added automatically, you do not have to add it.",
         ].concat(e.lipsync_wanted ? [
         "You chose LIP-SYNC. AI re-generates the mouth movements of the people who speak so they match the Arabic. Your video is cut into clips of at most 15 seconds, only where somebody speaks, and each clip is processed on its own. Because the AI generates the picture of those clips, small differences in look, colour or detail compared with your original can be visible, especially where a clip starts and ends.",
         "Lip-sync is charged per second of the clips that are lip-synced (" + e.lipsync_per_sec + " credits per second). This estimate shows the highest possible price (every second of the video); the exact price is calculated after you edit the text and is shown before the dubbing starts. A clip that cannot be lip-synced is refunded and keeps the original picture.",
@@ -281,8 +287,13 @@ var T = {
     doneWarn: function (n) { return n + " line(s) could not be dubbed and were left silent (their price was refunded)."; },
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
-    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. Your changes are saved automatically. Arabic words you leave without tashkeel get it automatically when you check the price. This project is kept for 7 days.",
+    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. This project is kept for 7 days.",
     colTime: "Time / speaker", colEn: "English", colAr: "Arabic",
+    timeFrom: "From", timeTo: "To", timeBad: "Write the time like 1:23.5 or 83.5 (minutes:seconds).",
+    insertLine: "+ Insert a line after", deleteLine: "Delete line",
+    confirmDelLine: "Delete this line? Its English and Arabic text will be removed from this project.",
+    doneCut: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " longer than the time available even after speeding up to our limit, so " + (n === 1 ? "its end was" : "their ends were") + " cut short (at " + at + "). Next time, shorten those Arabic lines or change their timing."; },
+    doneFast: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " sped up by 20% or more to fit (at " + at + ")."; },
     linesCount: function (n, missing) { return n + " lines" + (missing ? " · " + missing + " without Arabic" : ""); },
     saving: "Saving…", saved: "All changes saved ✓", saveFailed: "Couldn't save — trying again…",
     retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "The translation service didn't answer. Please try again.",
@@ -378,8 +389,8 @@ var T = {
         "نستنسخ صوت كل متحدث من الفيديو لهذه العملية فقط. يُحتسب على كل متحدث مستنسَخ " + e.clone_each + " رصيد. الأصوات المستنسَخة لا تُحفظ: تُحذف فور انتهاء العملية (أو فشلها).",
         "يُحسب السعر الدقيق من النص العربي بعد تعديلك ويُعرض عليك قبل بدء الدبلجة — ولا يُخصم أي مبلغ إضافي دون تأكيدك.",
         "إذا رفضت هذا التقدير فلا تدفع إلا رسم التقدير. وإذا فشلت أي خطوة من جانبنا تُعاد أرصدة تلك الخطوة تلقائياً.",
-        "التوقيت تلقائي: يُسرَّع كل سطر عربي أو يُبطَّأ ضمن نطاقنا «الجيد» (نحو 15٪ أبطأ إلى 25٪ أسرع) ليتوافق مع توقيت الأصل، وإن بقي أطول من اللازم فيُكمل في الفراغ الصامت بعده، ولا يتداخل أبداً مع السطر التالي. ولا يوجد تعديل يدوي للتوقيت.",
-        "التشكيل: عند عرض السعر نضيف التشكيل (الحركات) إلى كل كلمة عربية لا تشكيل فيها. الكلمات التي شكّلتها بنفسك لا تتغير أبداً. والحركات أحرف فهي جزء من السعر.",
+        "التوقيت تلقائي للأسطر العربية.",
+        "يُضاف التشكيل تلقائياً، ولا حاجة لأن تضيفه بنفسك.",
         ].concat(e.lipsync_wanted ? [
         "اخترت مزامنة الشفاه. يعيد الذكاء الاصطناعي توليد حركة أفواه المتحدثين لتطابق العربية. يُقسَّم الفيديو إلى مقاطع لا تزيد عن 15 ثانية، فقط حيث يتحدث أحد، ويُعالَج كل مقطع على حدة. ولأن الذكاء الاصطناعي يولّد صورة هذه المقاطع، قد تظهر فروق صغيرة في الشكل أو اللون أو التفاصيل مقارنة بالأصل، خصوصاً عند بداية المقطع ونهايته.",
         "تُحتسب مزامنة الشفاه لكل ثانية من المقاطع التي تُزامَن (" + e.lipsync_per_sec + " رصيد لكل ثانية). يعرض هذا التقدير أعلى سعر ممكن (كل ثانية من الفيديو)؛ ويُحسب السعر الدقيق بعد تعديلك النص ويُعرض عليك قبل بدء الدبلجة. والمقطع الذي تتعذر مزامنته يُعاد ثمنه ويحتفظ بالصورة الأصلية.",
@@ -417,8 +428,13 @@ var T = {
     doneWarn: function (n) { return "تعذّرت دبلجة " + n + " سطر وتُرك صامتاً (وأُعيد ثمنه)."; },
     doneLip: function (a, b) { return "مزامنة الشفاه: تمت مزامنة " + a + " من " + b + " مقطعاً."; },
     editorHeading: "٣. المراجعة والتعديل",
-    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. تُحفظ تعديلاتك تلقائياً. الكلمات العربية التي تتركها بلا تشكيل يُضاف إليها التشكيل تلقائياً عند عرض السعر. يُحفظ هذا المشروع لمدة 7 أيام.",
+    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
     colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية",
+    timeFrom: "من", timeTo: "إلى", timeBad: "اكتب الوقت بهذا الشكل: 1:23.5 أو 83.5 (دقائق:ثوانٍ).",
+    insertLine: "+ إدراج سطر بعده", deleteLine: "حذف السطر",
+    confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الإنجليزي والعربي من هذا المشروع.",
+    doneCut: function (n, at) { return "كان " + n + " سطر أطول من الوقت المتاح حتى بعد التسريع إلى حدّنا الأقصى، فقُطعت نهاياتها (عند " + at + "). في المرة القادمة اختصر هذه الأسطر العربية أو عدّل توقيتها."; },
+    doneFast: function (n, at) { return "سُرّع " + n + " سطر بمقدار 20٪ أو أكثر ليتناسب مع الوقت (عند " + at + ")."; },
     linesCount: function (n, missing) { return n + " سطر" + (missing ? " · " + missing + " بلا ترجمة" : ""); },
     saving: "جارٍ الحفظ…", saved: "تم حفظ كل التعديلات ✓", saveFailed: "تعذّر الحفظ — نحاول مجدداً…",
     retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "لم تستجب خدمة الترجمة. حاول مرة أخرى.",
@@ -655,6 +671,9 @@ function renderJob() {
     if (j.file_available) {
       h += "<p>" + esc(T.doneText(r.kind === "audio" ? T.kindAudio : T.kindVideo, fmtTime(r.duration))) + "</p>";
       if (r.failed_lines) h += "<div class='ld-warn'>" + esc(T.doneWarn(r.failed_lines)) + "</div>";
+      var at = function (a) { return a.map(fmtTime).join("، "); };
+      if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
+      if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";
       if (r.lipsync) h += "<p class='note'>" + esc(T.doneLip(r.lipsync.synced, r.lipsync.clips)) + "</p>";
       h += '<div class="ld-row-btns"><a class="ld-dl" href="/api/longdub/' + esc(j.id) + '/download">' + esc(T.download) + "</a></div>";
     } else {
@@ -965,12 +984,67 @@ function saveSpeakers(rerender) {
 // ---- transcript rows
 function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.max(54, ta.scrollHeight + 2) + "px"; }
 
+function fmtT(sec) {
+  var t = Math.round(Math.max(0, +sec || 0) * 10) / 10, m = Math.floor(t / 60), x = t - m * 60;
+  return m + ":" + (x < 10 ? "0" : "") + x.toFixed(1);
+}
+// "1:23.5", "83.5" or Arabic digits -> seconds, or null when it isn't a time
+function parseT(str) {
+  var t = String(str || "").trim().replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 1632); })
+    .replace(/[\u06F0-\u06F9]/g, function (d) { return String(d.charCodeAt(0) - 1776); }).replace(/[,\u066B\u060C]/g, ".");
+  var m = t.match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
+  if (!m) return null;
+  return (m[1] ? parseInt(m[1], 10) * 60 : 0) + parseFloat(m[2]);
+}
+function timeField(label) {
+  var w = document.createElement("label"); w.className = "ld-tf";
+  var sp = document.createElement("span"); sp.textContent = label;
+  var inp = document.createElement("input"); inp.type = "text"; inp.className = "ld-t"; inp.dir = "ltr";
+  inp.maxLength = 12; inp.autocomplete = "off"; inp.setAttribute("inputmode", "decimal");
+  w.appendChild(sp); w.appendChild(inp);
+  return { wrap: w, input: inp };
+}
+
+var lineBusy = false;
+// Insert / delete / time change: send what is typed first, then do the change on the server, then show the rows it returns.
+function lineOp(send, done) {
+  if (lineBusy) return Promise.resolve();
+  lineBusy = true;
+  return flushSave().then(send).then(function (r) { lineBusy = false; done(r); })
+    .catch(function () { lineBusy = false; alertMsg(T.netErr); });
+}
+
+function applyRows(rows, focusId) {
+  segs = (rows || []).map(function (r) {
+    var d = dirty[r.segment_id];      // text typed but not yet saved stays as typed
+    if (d) ["text", "arabic_text", "speaker_id"].forEach(function (f) { if (f in d) r[f] = d[f]; });
+    return r;
+  });
+  Object.keys(dirty).forEach(function (id) { if (!segs.some(function (x) { return x.segment_id === id; })) delete dirty[id]; });
+  pricePreview = null; tashNote = "";
+  var list = $("segList");
+  if (list) { list.innerHTML = ""; segs.forEach(function (x) { list.appendChild(buildRow(x)); }); }
+  renderSpeakers(); renderConfirm(); updateCount();
+  if (focusId && list) {
+    var row = list.querySelector('[data-id="' + focusId + '"]');
+    if (row) { try { row.scrollIntoView({ block: "center" }); } catch (e) {} var ta = row.querySelector("textarea.ar"); if (ta && document.activeElement && document.activeElement.tagName !== "TEXTAREA") ta.focus(); }
+  }
+}
+
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   var time = document.createElement("div"); time.className = "ld-time";
-  time.innerHTML = "<b>" + fmtTime(s.start) + " – " + fmtTime(s.end) + "</b>";
+  var tf0 = timeField(T.timeFrom), tf1 = timeField(T.timeTo);
+  tf0.input.value = fmtT(s.start); tf1.input.value = fmtT(s.end);
+  var terr = document.createElement("div"); terr.className = "ld-terr hidden";
+  time.appendChild(tf0.wrap); time.appendChild(tf1.wrap); time.appendChild(terr);
   var sel = document.createElement("select"); sel.className = "ld-spksel"; fillSelect(sel, s.speaker_id);
   time.appendChild(sel);
+  var lb = document.createElement("div"); lb.className = "ld-lbtns";
+  var bIns = document.createElement("button"); bIns.className = "btn-plain"; bIns.textContent = T.insertLine;
+  var bDel = document.createElement("button"); bDel.className = "btn-danger"; bDel.textContent = T.deleteLine;
+  bDel.style.padding = "4px 10px"; bDel.style.fontSize = "12px";
+  lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
   var en = document.createElement("textarea"); en.className = "en"; en.value = s.text || ""; en.dir = "ltr"; en.maxLength = 2000;
   var wrap = document.createElement("div"); wrap.className = "ld-arwrap";
   var ar = document.createElement("textarea"); ar.className = "ar"; ar.value = s.arabic_text || ""; ar.maxLength = 2000;
@@ -982,6 +1056,42 @@ function buildRow(s) {
   wrap.appendChild(ar); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
 
+  function commitTime() {
+    terr.classList.add("hidden");
+    var a = parseT(tf0.input.value), b = parseT(tf1.input.value);
+    var back = function () { tf0.input.value = fmtT(s.start); tf1.input.value = fmtT(s.end); };
+    if (a === null || b === null) { terr.textContent = T.timeBad; terr.classList.remove("hidden"); back(); return; }
+    // a box the user did not touch keeps its exact stored value (the box only shows tenths)
+    var ns = tf0.input.value.trim() === fmtT(s.start) ? s.start : a;
+    var ne = tf1.input.value.trim() === fmtT(s.end) ? s.end : b;
+    if (ns === s.start && ne === s.end) return;
+    lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/time", { segment_id: s.segment_id, start: ns, end: ne }); },
+      function (r) {
+        if (!r.ok) { terr.textContent = r.data.error || T.genericErr; terr.classList.remove("hidden"); back(); return; }
+        applyRows(r.data.segments, s.segment_id);
+      });
+  }
+  tf0.input.addEventListener("change", commitTime);
+  tf1.input.addEventListener("change", commitTime);
+  bIns.addEventListener("click", function () {
+    lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/insert", { segment_id: s.segment_id }); },
+      function (r) {
+        if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+        applyRows(r.data.segments, r.data.new_id);
+      });
+  });
+  bDel.addEventListener("click", function () {
+    var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(T.confirmDelLine, { danger: true, okText: T.deleteLine }) : Promise.resolve(window.confirm(T.confirmDelLine));
+    ask.then(function (yes) {
+      if (!yes) return;
+      delete dirty[s.segment_id];
+      lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/delete", { segment_id: s.segment_id }); },
+        function (r) {
+          if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+          applyRows(r.data.segments, null);
+        });
+    });
+  });
   sel.addEventListener("change", function () {
     s.speaker_id = sel.value; queueSave(s.segment_id, "speaker_id", sel.value); pricePreview = null;
     renderSpeakers();

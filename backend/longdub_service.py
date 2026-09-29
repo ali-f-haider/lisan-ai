@@ -71,7 +71,7 @@ SAMPLE_RATE = 44100
 MAX_SPEAKERS = 8
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
-TERMS_VERSION = "2026-10-01"
+TERMS_VERSION = "2026-10-02"
 
 # Time estimates: how many seconds of work per second of video, until real
 # measurements from finished jobs replace these (see _record_speed).
@@ -1248,32 +1248,166 @@ def ensure_tashkeel(job):
     return changed, None
 
 
+MIN_LINE_SEC = 0.3        # shortest line the editor allows
+MAX_LINE_SEC = 60.0       # longest line the editor allows
+NEW_LINE_SEC = 2.0        # default length of a line the user inserts
+OVERLAP_OK = 0.05         # two lines may not overlap by more than this
+
+
+def _fmt_t(sec):
+    sec = max(0.0, float(sec))
+    m = int(sec // 60)
+    return f"{m}:{sec - 60 * m:04.1f}"
+
+
+def _total_secs(job):
+    return float((job.get("analysis") or {}).get("audio_duration") or job.get("duration") or 0)
+
+
+def _by_start(rows):
+    """Rows in time order (rows that start together keep their order)."""
+    return [r for _, r in sorted(enumerate(rows), key=lambda p: (float(p[1].get("start") or 0), p[0]))]
+
+
+def _time_error(rows, seg_id, start, end, total):
+    """Why (start, end) can't be this line's time, or None when it can."""
+    if start < 0:
+        return "A line can't start before the beginning of the video."
+    if total and end > total + 0.01:
+        return f"A line can't end after the end of the video ({_fmt_t(total)})."
+    if end - start < MIN_LINE_SEC:
+        return f"A line must be at least {MIN_LINE_SEC:g} seconds long."
+    if end - start > MAX_LINE_SEC:
+        return f"A line can be at most {MAX_LINE_SEC:g} seconds long. Split it into two lines."
+    for o in rows:
+        if o.get("segment_id") == seg_id:
+            continue
+        ov = min(end, float(o["end"])) - max(start, float(o["start"]))
+        if ov > OVERLAP_OK:
+            return (f"This time overlaps another line ({_fmt_t(o['start'])} – {_fmt_t(o['end'])}). "
+                    "Change that line's time first, or choose a free gap.")
+    return None
+
+
 def update_segments(job, edits):
-    """edits = [{segment_id, text?, arabic_text?, speaker_id?}]. Only the text and
-    which speaker says the line can be changed; times and ids never can."""
+    """edits = [{segment_id, text?, arabic_text?, speaker_id?}]. The text and
+    which speaker says a line are saved here; times, inserting and deleting
+    lines have their own calls (set_line_time, insert_line, delete_line)."""
     if job.get("status") != "editing":
         return False, "This job is not open for editing."
-    rows = read_segments(job)
-    by_id = {r["segment_id"]: r for r in rows}
-    sp_names = {sp["id"]: sp["name"] for sp in job.get("speaker_list", [])}
-    changed = 0
-    for e in edits or []:
-        r = by_id.get(str(e.get("segment_id", "")))
-        if not r:
-            continue
-        if e.get("speaker_id") in sp_names and e["speaker_id"] != r.get("speaker_id"):
-            r["speaker_id"] = e["speaker_id"]
-            r["speaker"] = sp_names[e["speaker_id"]]
-            changed += 1
-        if isinstance(e.get("text"), str):
-            r["text"] = e["text"][:MAX_TEXT_LEN]
-            changed += 1
-        if isinstance(e.get("arabic_text"), str):
-            r["arabic_text"] = e["arabic_text"][:MAX_TEXT_LEN]
-            changed += 1
-    if changed:
-        _write_segments(job, rows)
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        by_id = {r["segment_id"]: r for r in rows}
+        sp_names = {sp["id"]: sp["name"] for sp in job.get("speaker_list", [])}
+        changed = 0
+        for e in edits or []:
+            r = by_id.get(str(e.get("segment_id", "")))
+            if not r:
+                continue
+            if e.get("speaker_id") in sp_names and e["speaker_id"] != r.get("speaker_id"):
+                r["speaker_id"] = e["speaker_id"]
+                r["speaker"] = sp_names[e["speaker_id"]]
+                changed += 1
+            if isinstance(e.get("text"), str):
+                r["text"] = e["text"][:MAX_TEXT_LEN]
+                changed += 1
+            if isinstance(e.get("arabic_text"), str):
+                r["arabic_text"] = e["arabic_text"][:MAX_TEXT_LEN]
+                changed += 1
+        if changed:
+            _write_segments(job, rows)
     return True, changed
+
+
+def set_line_time(job, segment_id, start, end):
+    """Change when one line starts and ends. Returns (ok, message, rows)."""
+    if job.get("status") != "editing":
+        return False, "This job is not open for editing.", None
+    try:
+        start, end = round(float(start), 2), round(float(end), 2)
+    except (TypeError, ValueError):
+        return False, "Enter the times as numbers (for example 1:23.5 or 83.5).", None
+    if not (math.isfinite(start) and math.isfinite(end)):
+        return False, "Enter the times as numbers (for example 1:23.5 or 83.5).", None
+    total = _total_secs(job)
+    if total and end > total and end - total <= 0.01:
+        end = round(total, 2)
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        r = next((x for x in rows if x["segment_id"] == segment_id), None)
+        if not r:
+            return False, "Line not found.", None
+        err = _time_error(rows, segment_id, start, end, total)
+        if err:
+            return False, err, None
+        r["start"], r["end"] = start, end
+        rows = _by_start(rows)
+        _write_segments(job, rows)
+    _ev(job, "line_time_changed", "ok", f"{segment_id} -> {start}-{end}")
+    return True, "", rows
+
+
+def _new_segment_id(job, rows):
+    top = -1
+    for r in rows:
+        m = re.fullmatch(r"seg_(\d+)", str(r.get("segment_id", "")))
+        if m:
+            top = max(top, int(m.group(1)))
+    n = max(int(job.get("seg_counter") or 0), top + 1)
+    job["seg_counter"] = n + 1
+    return f"seg_{n}"
+
+
+def insert_line(job, after_id):
+    """Add an empty line right after the given line, in the free time between
+    it and the next line. Returns (ok, message, rows, new_segment_id)."""
+    if job.get("status") != "editing":
+        return False, "This job is not open for editing.", None, None
+    total = _total_secs(job)
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        if len(rows) >= MAX_SEGMENTS:
+            return False, f"A project can have at most {MAX_SEGMENTS} lines.", None, None
+        idx = next((i for i, x in enumerate(rows) if x["segment_id"] == after_id), None)
+        if idx is None:
+            return False, "Line not found.", None, None
+        a = rows[idx]
+        a_end = float(a["end"])
+        later = [float(o["start"]) for o in rows if o is not a and float(o["start"]) >= a_end - OVERLAP_OK
+                 and float(o["start"]) > float(a["start"])]
+        limit = min(later) if later else total
+        start = round(a_end, 2)
+        end = round(min(start + NEW_LINE_SEC, limit), 2)
+        if end - start < MIN_LINE_SEC:
+            return False, ("There is no free time after this line for a new one. Shorten this line's time (or the next "
+                           "line's) first, then insert."), None, None
+        err = _time_error(rows, "", start, end, total)
+        if err:
+            return False, err, None, None
+        sid = _new_segment_id(job, rows)
+        rows.insert(idx + 1, {
+            "segment_id": sid, "start": start, "end": end, "text": "", "arabic_text": "",
+            "speaker": a.get("speaker"), "speaker_id": a.get("speaker_id"), "gender": a.get("gender") or "male",
+            "emotion": "neutral", "words": [], "added": True})
+        rows = _by_start(rows)
+        _write_segments(job, rows)
+    _save(job)
+    _ev(job, "line_inserted", "ok", f"{sid} after {after_id} at {start}-{end}")
+    return True, "", rows, sid
+
+
+def delete_line(job, segment_id):
+    """Remove one line. Returns (ok, message, rows)."""
+    if job.get("status") != "editing":
+        return False, "This job is not open for editing.", None
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        keep = [r for r in rows if r["segment_id"] != segment_id]
+        if len(keep) == len(rows):
+            return False, "Line not found.", None
+        _write_segments(job, keep)
+    _ev(job, "line_deleted", "ok", segment_id)
+    return True, "", keep
 
 
 def retranslate_line(job, segment_id):
@@ -2032,36 +2166,109 @@ def _tts_with_retry(voice_id, text):
     return None, last
 
 
-def _fit_line(raw_path, out_wav, target, loud_ref, start):
-    """Fit one generated line into its time slot (same rules as the normal
-    flow: speed up / slow down within limits) and match its loudness to the
-    original speaker. Returns metadata for the mixer."""
-    actual = ffmpeg_utils.get_media_duration(raw_path)
-    if actual <= 0:
-        actual = target
-    required = actual / target
-    warn = False
-    if required < TEMPO_MIN:
-        tempo = 1.0
-    elif required > TEMPO_MAX:
-        tempo, warn = TEMPO_MAX, True
+SILENCE_TRIM_DB = -50          # below this a voice is treated as silence at the start/end of a line
+GAIN_MAX_DB = 8.0              # most a line is made louder / quieter to match the original speaker
+PEAK_CEIL_DB = -1.0            # a boosted line never peaks above this
+
+
+def _trim_silence(raw_path, out_wav):
+    """Copy of a generated line without the silence the voice adds before and
+    after the words (a little is kept so nothing is clipped). Returns its
+    length, or None when nothing sensible came out."""
+    af = (f"silenceremove=start_periods=1:start_threshold={SILENCE_TRIM_DB}dB:start_silence=0.03,areverse,"
+          f"silenceremove=start_periods=1:start_threshold={SILENCE_TRIM_DB}dB:start_silence=0.08,areverse")
+    try:
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(raw_path), "-af", af, "-ac", "2", "-ar", str(SAMPLE_RATE),
+                                 "-acodec", "pcm_s16le", str(out_wav)])
+        d = ffmpeg_utils.get_media_duration(out_wav)
+        return d if d >= 0.15 else None
+    except Exception:
+        return None
+
+
+def _speech_levels(path, start=None, dur=None):
+    """(mean_db, max_db) of the SPEECH in a file or a slice of it -- pauses are
+    left out, so a line with pauses is not judged quieter than it is. Uses the
+    info log level because volumedetect prints its result at that level (the
+    shared helper in ffmpeg_utils asks for errors only and so never sees it).
+    Returns (None, None) when there is no speech to measure."""
+    cmd = ["ffmpeg", "-nostats", "-hide_banner"]
+    if start is not None:
+        cmd += ["-ss", f"{float(start):.3f}"]
+    if dur is not None:
+        cmd += ["-t", f"{float(dur):.3f}"]      # before -i: the slice is cut from the INPUT (the filter drops silence, so an output limit would read on)
+    cmd += ["-i", str(path)]
+    cmd += ["-af", "silenceremove=start_periods=1:start_threshold=-45dB:stop_periods=-1:stop_duration=0.25:stop_threshold=-45dB,"
+                   "volumedetect", "-f", "null", "-"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        m1 = re.search(r"mean_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
+        m2 = re.search(r"max_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
+        if m1 and m2:
+            return float(m1.group(1)), float(m2.group(1))
+    except Exception:
+        pass
+    return None, None
+
+
+def _pick_tempo(actual, slot, room):
+    """How fast to play a generated line of `actual` seconds.
+    slot = the length the original line had; room = the time the line may
+    really use (its slot plus the silence after it, never over the next line).
+    1. It fits its own slot: slow it down a little to fill it if that stays in
+       our "good" range, else keep it natural.
+    2. It is longer than its slot but fits the silence after it: keep it
+       natural and let it run on into that silence (no speeding up at all).
+    3. Still too long: speed it up, but never beyond the "good" limit; if it is
+       still too long the mixer has to cut its end (reported as a warning).
+    Returns (tempo, at_limit)."""
+    own = max(min(slot, room), 0.3)
+    room = max(room, own)
+    if actual <= own:
+        req = actual / own
+        return (1.0 if req < TEMPO_MIN else req), False
+    if actual <= room:
+        return 1.0, False
+    req = actual / room
+    if req > TEMPO_MAX:
+        return TEMPO_MAX, True
+    return req, False
+
+
+def _fit_line(raw_path, out_wav, slot, room, loud_ref, start):
+    """Fit one generated line into its time slot (see _pick_tempo) and match its
+    loudness to the original speaker. Returns metadata for the mixer."""
+    trimmed = out_wav.with_name(out_wav.stem + "_trim.wav")
+    src = raw_path
+    actual = _trim_silence(raw_path, trimmed)
+    if actual is not None:
+        src = trimmed
     else:
-        tempo = required
-    cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
+        actual = ffmpeg_utils.get_media_duration(raw_path)
+    if actual <= 0:
+        actual = max(min(slot, room), 0.3)
+    tempo, warn = _pick_tempo(actual, slot, room)
+    cmd = ["ffmpeg", "-y", "-i", str(src)]
     if abs(tempo - 1.0) > 0.02:
         cmd += ["-filter:a", f"atempo={tempo:.6f}"]
     cmd += ["-ac", "2", "-ar", str(SAMPLE_RATE), "-acodec", "pcm_s16le", str(out_wav)]
     ffmpeg_utils.run_ffmpeg(cmd)
+    try:
+        trimmed.unlink()
+    except Exception:
+        pass
     dur = ffmpeg_utils.get_media_duration(out_wav)
     gain = 0.0
     try:
-        orig_db = ffmpeg_utils.measure_loudness_db(str(loud_ref), start, target)
-        dub_db = ffmpeg_utils.measure_loudness_db(str(out_wav))
-        if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
-            gain = max(-10.0, min(10.0, orig_db - dub_db))
+        o_mean, _o_max = _speech_levels(loud_ref, start, max(min(slot, room), 0.3))
+        d_mean, d_max = _speech_levels(out_wav)
+        if o_mean is not None and d_mean is not None and o_mean > -60 and d_mean > -60:
+            gain = max(-GAIN_MAX_DB, min(GAIN_MAX_DB, o_mean - d_mean))
+            gain = min(gain, PEAK_CEIL_DB - d_max)      # a boost must not clip
     except Exception:
         gain = 0.0
-    return {"dur": round(dur, 3), "tempo": round(tempo, 3), "warn": warn, "gain_db": round(gain, 1)}
+    return {"dur": round(dur, 3), "tempo": round(tempo, 3), "warn": warn, "gain_db": round(gain, 1),
+            "raw": round(actual, 3), "slot": round(slot, 2), "room": round(room, 2)}
 
 
 def _mix_part(input_index, allowed, delay_ms, gdb, trim):
@@ -2225,8 +2432,10 @@ def _run_dubbing(job):
                 continue
             raw = d / "lines" / f"{sid}.mp3"
             raw.write_bytes(audio)
-            target = max(float(r["end"]) - float(r["start"]), 0.5)
-            meta = _fit_line(raw, d / "fit" / f"{sid}.wav", target, loud_ref, float(r["start"]))
+            slot = max(float(r["end"]) - float(r["start"]), 0.5)
+            nxt = float(rows[i + 1]["start"]) - 0.05 if i + 1 < n else total
+            room = max(nxt - float(r["start"]), 0.05)
+            meta = _fit_line(raw, d / "fit" / f"{sid}.wav", slot, room, loud_ref, float(r["start"]))
             meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text)})
             dub["lines"][sid] = meta
             try:
@@ -2293,6 +2502,13 @@ def _run_dubbing(job):
             raise Exception(f"dubbed track length {got:.2f}s does not match the video ({total:.2f}s)")
         _ev(job, "mix", "ok", f"{len(kept)} lines in {len(chunks)} parts; {sum(1 for x in kept if x['trim'])} trimmed, "
                               f"{sum(1 for x in kept if x['warn'])} at the speed limit")
+        # A plain report of the lines the user may want to look at next time.
+        cut = sorted(round(x["start"], 1) for x in kept if x["trim"])
+        fast = sorted(round(x["start"], 1) for x in kept if not x["trim"] and float(x.get("tempo") or 1.0) >= 1.2)
+        dub["timing"] = {"n_cut": len(cut), "cut": cut[:30], "n_fast": len(fast), "fast": fast[:30]}
+        if cut or fast:
+            _ev(job, "timing_report", "partial",
+                f"cut short at {cut[:12]}; sped up to 1.2x or more at {fast[:12]}")
 
         # 3b. optional lip-sync ---------------------------------------------------
         lip_video = None
@@ -2352,6 +2568,8 @@ def _run_dubbing(job):
                          "finished": _now()}
         if lip_summary is not None:
             job["result"]["lipsync"] = lip_summary
+        if dub.get("timing") and (dub["timing"]["n_cut"] or dub["timing"]["n_fast"]):
+            job["result"]["timing"] = dub["timing"]
         job["status"] = "done"
         _mark(job, "done", 100, "Your dubbed file is ready.")
         _save(job)
