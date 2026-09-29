@@ -4510,8 +4510,14 @@ def longdub_preview(job_id: str, request: Request):
         return err
     if job.get("status") != "editing":
         return JSONResponse({"error": "This job is not open for editing."}, status_code=409)
+    # Arabic words that have no tashkeel get it before the price is fixed
+    # (the marks are characters, so this can raise the price).
+    added, terr = longdub_service.ensure_tashkeel(job)
+    if terr:
+        return JSONResponse({"error": terr}, status_code=503)
     p = longdub_service.dub_price(job)
     p["credits"] = get_credits(uid)
+    p["tashkeel_added"] = added
     return p
 
 

@@ -167,6 +167,45 @@ Segments:
     return {"status": "success", "translated_segments": translated_segments}
 
 
+def add_tashkeel_lines(job_id: str, items: list, api_key: str):
+    """Adds Arabic tashkeel (diacritics) to the lines that need it.
+    items: [{"segment_id": ..., "arabic_text": ...}]. Returns
+    {segment_id: text_with_tashkeel}, or None when the AI service did not
+    answer. The caller checks the result word by word (see longdub_service)."""
+    if not api_key or not items:
+        return None
+    prompt = (
+        "You are an Arabic diacritization (tashkeel) engine.\n"
+        "Add full, correct Arabic tashkeel (harakat) to every Arabic word in each text below that has none.\n"
+        "STRICT RULES:\n"
+        "- Do NOT translate.\n"
+        "- Do NOT change, add, remove, or reorder any words or letters.\n"
+        "- Words that already carry tashkeel must stay exactly as they are.\n"
+        "- Keep punctuation and spacing exactly as is.\n"
+        '- Return ONLY a valid JSON array: [{"segment_id": "...", "arabic_text": "..."}]\n'
+        "Texts:\n" + json.dumps(items, ensure_ascii=False, indent=1)
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+    }
+    data, err = call_gemini(api_key, payload, timeout=120)
+    record_gemini(job_id, data)
+    if data is None:
+        print(f"[gemini] tashkeel failed on all models: {err}")
+        return None
+    try:
+        arr = json.loads(_strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"]))
+    except Exception as ex:
+        print(f"[gemini] tashkeel answer was not valid JSON: {ex}")
+        return None
+    out = {}
+    for it in arr if isinstance(arr, list) else []:
+        if isinstance(it, dict) and it.get("segment_id") is not None and isinstance(it.get("arabic_text"), str):
+            out[str(it["segment_id"])] = it["arabic_text"]
+    return out
+
+
 def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments: list):
     """Background worker: listen to each segment and classify its emotion."""
     progress_key = f"emotions_{job_id}"

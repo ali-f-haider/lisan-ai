@@ -71,11 +71,11 @@ SAMPLE_RATE = 44100
 MAX_SPEAKERS = 8
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
-TERMS_VERSION = "2026-09-30"
+TERMS_VERSION = "2026-10-01"
 
 # Time estimates: how many seconds of work per second of video, until real
 # measurements from finished jobs replace these (see _record_speed).
-DEFAULT_SPEED = {"analysis": 4.0, "dubbing": 0.8, "lipsync": 30.0}   # seconds of waiting per second of video (lip-sync: per clip second)
+DEFAULT_SPEED = {"analysis": 4.0, "dubbing": 0.8, "lipsync": 60.0}   # seconds of waiting per second of video (lip-sync: per clip second; the engine needs ~15 min per 15 s clip)
 DUB_BASE_SEC = 120          # fixed part of a dubbing run (start-up, clones, final assembly)
 
 # Lip-sync (optional). The lip-sync engine (Wan 3.0, see lipsync_service.py)
@@ -302,8 +302,8 @@ def lipsync_range(clip_seconds):
     engine works on clips of at most 15 seconds, LIPSYNC_PARALLEL at a time.
     The real speed is learned from finished jobs (stats 'lipsync')."""
     x = _speed_factor("lipsync") * max(0.0, float(clip_seconds)) / LIPSYNC_PARALLEL
-    lo = max(1, int(x * 0.4 / 60))
-    hi = max(lo + 1, int(math.ceil(x * 1.6 / 60)))
+    lo = max(1, int(x * 0.5 / 60))
+    hi = max(lo + 1, int(math.ceil(x * 1.5 / 60)))
     return {"lipsync_min": lo, "lipsync_max": hi}
 
 
@@ -1147,6 +1147,107 @@ def _translate_all(job, rows):
 MAX_TEXT_LEN = 2000
 
 
+# ------------------------------------------------------------- tashkeel
+#
+# Before the price is fixed (and again when the user confirms) every Arabic word
+# that has no tashkeel (vowel marks) gets it. Words that already carry marks are
+# never touched, and the AI's answer is accepted word by word only when the
+# letters are exactly the ones the user had.
+
+TASHKEEL_BATCH = 25
+_MARKS = "\u064B\u064C\u064D\u064E\u064F\u0650\u0651\u0652\u0653\u0654\u0655\u0670"
+_AR_LETTER = re.compile("[\u0621-\u064A\u0671-\u06D3]")
+_MARK_RE = re.compile("[" + _MARKS + "]")
+
+
+def _strip_marks(t):
+    return _MARK_RE.sub("", t)
+
+
+def _same_letters(a, b):
+    """Same letters, ignoring marks and the hamza on an alef (a diacritizer
+    restoring \u0623/\u0625 for a bare alef is correct spelling, not a change of word)."""
+    def norm(t):
+        return _strip_marks(t).replace("\u0623", "\u0627").replace("\u0625", "\u0627").replace("\u0622", "\u0627").replace("\u0671", "\u0627")
+    return norm(a) == norm(b)
+
+
+def _word_needs_tashkeel(w):
+    """An Arabic word (2+ letters) that has no vowel mark at all."""
+    return len(_AR_LETTER.findall(w)) >= 2 and not _MARK_RE.search(w)
+
+
+def needs_tashkeel(text):
+    return any(_word_needs_tashkeel(w) for w in (text or "").split())
+
+
+def merge_tashkeel(original, returned):
+    """Original text with tashkeel taken from `returned` for the words that
+    had none. Returns the new text (== original when nothing could be used)."""
+    parts = re.split(r"(\s+)", original)
+    words = [x for x in returned.split()] if isinstance(returned, str) else []
+    toks = [x for x in parts[0::2] if x != ""]
+    if len(words) != len(toks):
+        return original
+    it = iter(words)
+    out = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1 or part == "":
+            out.append(part)
+            continue
+        cand = next(it)
+        if _word_needs_tashkeel(part) and _same_letters(cand, part) and _MARK_RE.search(cand):
+            out.append(cand)
+        else:
+            out.append(part)
+    return "".join(out)
+
+
+def ensure_tashkeel(job):
+    """Adds tashkeel to every line that lacks it. Returns (lines_changed, None)
+    or (0, error message) when the AI service did not answer (nothing changed)."""
+    import gemini_service
+    rows = read_segments(job)
+    todo = [r for r in rows if (r.get("arabic_text") or "").strip() and needs_tashkeel(r["arabic_text"])]
+    if not todo:
+        return 0, None
+    changed = 0
+    unresolved = 0
+    for i in range(0, len(todo), TASHKEEL_BATCH):
+        batch = todo[i:i + TASHKEEL_BATCH]
+        got = None
+        for attempt in range(2):
+            try:
+                got = gemini_service.add_tashkeel_lines(
+                    job["id"], [{"segment_id": r["segment_id"], "arabic_text": r["arabic_text"]} for r in batch], GEMINI_API_KEY)
+            except Exception as ex:
+                print(f"[longdub] tashkeel batch failed (attempt {attempt + 1}): {ex}")
+                got = None
+            if got is not None:
+                break
+            time.sleep(2)
+        if got is None:
+            _ev(job, "tashkeel", "failed", f"the AI service did not answer for {len(batch)} lines")
+            return 0, "The tashkeel service did not answer. Nothing was charged. Please try again in a moment."
+        for r in batch:
+            new = merge_tashkeel(r["arabic_text"], got.get(r["segment_id"], ""))
+            if new != r["arabic_text"]:
+                r["arabic_text"] = new
+                changed += 1
+            if needs_tashkeel(r["arabic_text"]):
+                unresolved += 1
+    if changed:
+        with _lock_for(job["id"]):
+            fresh = {x["segment_id"]: x for x in read_segments(job)}
+            for r in todo:
+                if r["segment_id"] in fresh and fresh[r["segment_id"]].get("arabic_text") != r["arabic_text"]:
+                    fresh[r["segment_id"]]["arabic_text"] = r["arabic_text"]
+            _write_segments(job, [fresh[x["segment_id"]] for x in rows if x["segment_id"] in fresh])
+    _ev(job, "tashkeel", "ok" if not unresolved else "partial",
+        f"{changed} of {len(todo)} lines got tashkeel" + (f", {unresolved} still have words without" if unresolved else ""))
+    return changed, None
+
+
 def update_segments(job, edits):
     """edits = [{segment_id, text?, arabic_text?, speaker_id?}]. Only the text and
     which speaker says the line can be changed; times and ids never can."""
@@ -1754,6 +1855,9 @@ def confirm(job, uid, expected_due):
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
         return False, ("This job is not waiting for confirmation.", 409)
+    added, terr = ensure_tashkeel(job)      # words typed without tashkeel get it (this changes the price)
+    if terr:
+        return False, (terr, 503)
     price = dub_price(job)
     if price["lines"] <= 0:
         return False, ("There is no Arabic text to dub yet.", 400)
@@ -1804,7 +1908,11 @@ def confirm(job, uid, expected_due):
 # --------------------------------------------------------------- dubbing
 
 DUB_CHUNK_SPAN = 45.0          # seconds of dubbed speech mixed per ffmpeg call
-TEMPO_MIN, TEMPO_MAX = 0.75, 1.35
+# The app's "good" stretching values (same as tempo_mode "good" in the normal
+# flow: eleven_service.py / tts_service.py). Every long dub uses them by default.
+# A line that is still too long after stretching is allowed to continue into the
+# silence after it (never over the next line) -- see _plan_timeline.
+TEMPO_MIN, TEMPO_MAX = 0.85, 1.25
 MAX_FAILED_LINE_SHARE = 0.10   # more failed lines than this and the whole job fails (refunded)
 
 

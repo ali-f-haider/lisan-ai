@@ -242,7 +242,8 @@ var T = {
         "For each speaker we clone the voice from your video for this job only. Every cloned speaker is charged " + e.clone_each + " credits. The cloned voices are NOT saved: they are deleted as soon as the job is finished (or fails).",
         "The exact price is calculated from your edited Arabic text and shown to you before the dubbing starts — nothing more is charged without your confirmation.",
         "If you decline this estimate you only pay the estimate fee. If a step fails on our side, the credits of that step are refunded automatically.",
-        "The Arabic speech is automatically sped up or slowed slightly to fit the timing of the original; there are no manual timing edits.",
+        "Timing is automatic: each Arabic line is sped up or slowed within our \"good\" range (about 15% slower to 25% faster) to fit the original timing, and if it is still too long it continues into the silent gap after it, never over the next line. There are no manual timing edits.",
+        "Tashkeel: when you check the price, we add tashkeel (Arabic vowel marks) to every Arabic word that has none. Words you already marked are never changed. The marks are characters, so they are part of the price.",
         ].concat(e.lipsync_wanted ? [
         "You chose LIP-SYNC. AI re-generates the mouth movements of the people who speak so they match the Arabic. Your video is cut into clips of at most 15 seconds, only where somebody speaks, and each clip is processed on its own. Because the AI generates the picture of those clips, small differences in look, colour or detail compared with your original can be visible, especially where a clip starts and ends.",
         "Lip-sync is charged per second of the clips that are lip-synced (" + e.lipsync_per_sec + " credits per second). This estimate shows the highest possible price (every second of the video); the exact price is calculated after you edit the text and is shown before the dubbing starts. A clip that cannot be lip-synced is refunded and keeps the original picture.",
@@ -280,7 +281,7 @@ var T = {
     doneWarn: function (n) { return n + " line(s) could not be dubbed and were left silent (their price was refunded)."; },
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
-    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. Your changes are saved automatically. This project is kept for 7 days.",
+    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. Your changes are saved automatically. Arabic words you leave without tashkeel get it automatically when you check the price. This project is kept for 7 days.",
     colTime: "Time / speaker", colEn: "English", colAr: "Arabic",
     linesCount: function (n, missing) { return n + " lines" + (missing ? " · " + missing + " without Arabic" : ""); },
     saving: "Saving…", saved: "All changes saved ✓", saveFailed: "Couldn't save — trying again…",
@@ -293,7 +294,8 @@ var T = {
     spkRemoveBlocked: "Move this speaker's lines to another speaker first.",
     spkMax: function (m) { return "You can have up to " + m + " speakers."; },
     confirmHeading: "4. Confirm and dub",
-    checkPrice: "Check the price", refreshPrice: "Update the price",
+    checkPrice: "Check the price", refreshPrice: "Update the price", checking: "Checking…",
+    priceTashkeel: function (n) { return "✍️ Tashkeel was added to " + n + " line" + (n === 1 ? "" : "s") + " that had none. Check the lines above and the new price."; },
     priceLines: function (n, chars) { return n + " lines · " + chars + " characters of Arabic"; },
     priceVoice: "Arabic voice generation", priceClones: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; },
     priceMerge: "Final assembly", priceDue: "To pay now", priceAlready: function (n) { return "Already paid (estimate + analysis): " + n; },
@@ -376,7 +378,8 @@ var T = {
         "نستنسخ صوت كل متحدث من الفيديو لهذه العملية فقط. يُحتسب على كل متحدث مستنسَخ " + e.clone_each + " رصيد. الأصوات المستنسَخة لا تُحفظ: تُحذف فور انتهاء العملية (أو فشلها).",
         "يُحسب السعر الدقيق من النص العربي بعد تعديلك ويُعرض عليك قبل بدء الدبلجة — ولا يُخصم أي مبلغ إضافي دون تأكيدك.",
         "إذا رفضت هذا التقدير فلا تدفع إلا رسم التقدير. وإذا فشلت أي خطوة من جانبنا تُعاد أرصدة تلك الخطوة تلقائياً.",
-        "يُسرَّع الكلام العربي أو يُبطَّأ قليلاً تلقائياً ليتوافق مع توقيت الأصل؛ ولا يوجد تعديل يدوي للتوقيت.",
+        "التوقيت تلقائي: يُسرَّع كل سطر عربي أو يُبطَّأ ضمن نطاقنا «الجيد» (نحو 15٪ أبطأ إلى 25٪ أسرع) ليتوافق مع توقيت الأصل، وإن بقي أطول من اللازم فيُكمل في الفراغ الصامت بعده، ولا يتداخل أبداً مع السطر التالي. ولا يوجد تعديل يدوي للتوقيت.",
+        "التشكيل: عند عرض السعر نضيف التشكيل (الحركات) إلى كل كلمة عربية لا تشكيل فيها. الكلمات التي شكّلتها بنفسك لا تتغير أبداً. والحركات أحرف فهي جزء من السعر.",
         ].concat(e.lipsync_wanted ? [
         "اخترت مزامنة الشفاه. يعيد الذكاء الاصطناعي توليد حركة أفواه المتحدثين لتطابق العربية. يُقسَّم الفيديو إلى مقاطع لا تزيد عن 15 ثانية، فقط حيث يتحدث أحد، ويُعالَج كل مقطع على حدة. ولأن الذكاء الاصطناعي يولّد صورة هذه المقاطع، قد تظهر فروق صغيرة في الشكل أو اللون أو التفاصيل مقارنة بالأصل، خصوصاً عند بداية المقطع ونهايته.",
         "تُحتسب مزامنة الشفاه لكل ثانية من المقاطع التي تُزامَن (" + e.lipsync_per_sec + " رصيد لكل ثانية). يعرض هذا التقدير أعلى سعر ممكن (كل ثانية من الفيديو)؛ ويُحسب السعر الدقيق بعد تعديلك النص ويُعرض عليك قبل بدء الدبلجة. والمقطع الذي تتعذر مزامنته يُعاد ثمنه ويحتفظ بالصورة الأصلية.",
@@ -414,7 +417,7 @@ var T = {
     doneWarn: function (n) { return "تعذّرت دبلجة " + n + " سطر وتُرك صامتاً (وأُعيد ثمنه)."; },
     doneLip: function (a, b) { return "مزامنة الشفاه: تمت مزامنة " + a + " من " + b + " مقطعاً."; },
     editorHeading: "٣. المراجعة والتعديل",
-    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
+    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. تُحفظ تعديلاتك تلقائياً. الكلمات العربية التي تتركها بلا تشكيل يُضاف إليها التشكيل تلقائياً عند عرض السعر. يُحفظ هذا المشروع لمدة 7 أيام.",
     colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية",
     linesCount: function (n, missing) { return n + " سطر" + (missing ? " · " + missing + " بلا ترجمة" : ""); },
     saving: "جارٍ الحفظ…", saved: "تم حفظ كل التعديلات ✓", saveFailed: "تعذّر الحفظ — نحاول مجدداً…",
@@ -427,7 +430,8 @@ var T = {
     spkRemoveBlocked: "انقل أسطر هذا المتحدث إلى متحدث آخر أولاً.",
     spkMax: function (m) { return "الحد الأقصى " + m + " متحدثين."; },
     confirmHeading: "٤. التأكيد والدبلجة",
-    checkPrice: "اعرض السعر", refreshPrice: "حدّث السعر",
+    checkPrice: "اعرض السعر", refreshPrice: "حدّث السعر", checking: "جارٍ الفحص…",
+    priceTashkeel: function (n) { return "✍️ أُضيف التشكيل إلى " + n + " سطراً لم يكن فيه تشكيل. راجع الأسطر أعلاه والسعر الجديد."; },
     priceLines: function (n, chars) { return n + " سطر · " + chars + " حرفاً عربياً"; },
     priceVoice: "توليد الصوت العربي", priceClones: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; },
     priceMerge: "التجميع النهائي", priceDue: "المطلوب الآن", priceAlready: function (n) { return "المدفوع مسبقاً (التقدير + التحليل): " + n; },
@@ -464,6 +468,7 @@ var pollTimer = null;
 var uploading = false, uploadAbort = false;
 var lastErr = "";
 var pricePreview = null; // result of /preview while confirming
+var tashNote = "";       // shown under the price when tashkeel was just added
 
 function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
@@ -555,7 +560,7 @@ function pickInitial() {
 function selectJob(j) {
   stopPoll();
   cur = j || null;
-  segs = []; spk = []; dirty = {}; pricePreview = null; lastErr = "";
+  segs = []; spk = []; dirty = {}; pricePreview = null; tashNote = ""; lastErr = "";
   try { if (cur) localStorage.setItem(LS_KEY, cur.id); else localStorage.removeItem(LS_KEY); } catch (e) {}
   render();
   if (cur && cur.status === "editing") loadSegments();
@@ -1058,6 +1063,7 @@ function renderConfirm() {
     if (p.lipsync && !p.lipsync.clips) h += "<div class='ld-warn'>" + esc(T.priceLipNone) + "</div>";
     if (p.lipsync && p.lipsync.short) h += "<div class='ld-warn'>" + esc(T.priceLipShort(p.lipsync.short)) + "</div>";
     if (p.lines_without_arabic) h += "<div class='ld-warn'>" + esc(T.priceNoArabic(p.lines_without_arabic)) + "</div>";
+    if (tashNote) h += "<div class='ld-warn'>" + esc(tashNote) + "</div>";
     if (lastErr) h += "<p class='ld-err'>" + esc(lastErr) + "</p>";
     var short = p.credits !== null && p.credits !== undefined && p.credits < p.due;
     if (short) h += "<p class='ld-err'>" + esc(T.notEnough(p.due, p.credits)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
@@ -1074,12 +1080,23 @@ function renderConfirm() {
 }
 
 function loadPrice() {
-  lastErr = "";
+  lastErr = ""; tashNote = "";
+  var pb = $("btnPrice"); if (pb) { pb.disabled = true; pb.textContent = T.checking; }
   return flushSave().then(function () { return saveSpeakersIfPending(); }).then(function () {
     return api("GET", "/api/longdub/" + cur.id + "/preview");
   }).then(function (r) {
-    if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
-    pricePreview = r.data; setCredits(r.data.credits); renderConfirm();
+    if (!r.ok) { alertMsg(r.data.error || T.genericErr); renderConfirm(); return; }
+    pricePreview = r.data; setCredits(r.data.credits);
+    if (r.data.tashkeel_added) {
+      tashNote = T.priceTashkeel(r.data.tashkeel_added);
+      // the Arabic text changed on the server: show it
+      var id = cur.id;
+      return api("GET", "/api/longdub/" + id + "/segments").then(function (g) {
+        if (g.ok && cur && cur.id === id) { segs = g.data.segments || segs; renderEditor(); }
+        else renderConfirm();
+      });
+    }
+    renderConfirm();
   });
 }
 function saveSpeakersIfPending() { return spkTimer ? saveSpeakers(false) : Promise.resolve(); }
@@ -1094,7 +1111,13 @@ function doConfirm() {
     flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due }); }).then(function (r) {
       if (!r.ok) {
         lastErr = r.data.error || T.genericErr;
-        if (r.status === 409 && r.data.price) { pricePreview = Object.assign({ credits: p.credits }, r.data.price); lastErr = T.priceChanged; }
+        if (r.status === 409 && r.data.price) {
+          pricePreview = Object.assign({ credits: p.credits }, r.data.price); lastErr = T.priceChanged;
+          var cid = cur.id;   // the Arabic text may have changed (tashkeel added at confirm): show it
+          return api("GET", "/api/longdub/" + cid + "/segments").then(function (g) {
+            if (g.ok && cur && cur.id === cid) { segs = g.data.segments || segs; renderEditor(); } else renderConfirm();
+          });
+        }
         renderConfirm(); return;
       }
       setCredits(r.data.credits);
