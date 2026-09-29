@@ -592,19 +592,23 @@ def user_info(request: Request):
             credits = int(_get_pricing_config().get("freeCredits", 100))
             
         subscription_status = "none"
+        # The profile is read with the SERVER key, not the user's own token:
+        # Supabase now refuses the user's token on public.profiles ("permission
+        # denied for table profiles", code 42501 -- seen in the logs), which
+        # made display names fall back to the e-mail prefix and every
+        # subscriber look unsubscribed. user_id was already verified from the
+        # token above, so reading this one user's row server-side is safe.
         try:
-            prof_url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name,subscription_status"
-            prof_req = urllib.request.Request(prof_url, headers={
-                "Authorization": f"Bearer {sb_token}",
-                "apikey": SUPABASE_ANON_KEY
-            })
-            with urllib.request.urlopen(prof_req, timeout=10) as pr:
-                prof_data = json.load(pr)
-            if prof_data:
-                display_name = prof_data[0].get("display_name", display_name)
-                subscription_status = prof_data[0].get("subscription_status") or "none"
+            if SUPABASE_SERVICE_KEY:
+                dn_req = urllib.request.Request(
+                    f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name",
+                    headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                with urllib.request.urlopen(dn_req, timeout=10) as dn_r:
+                    dn_rows = json.load(dn_r)
+                if dn_rows and dn_rows[0].get("display_name"):
+                    display_name = dn_rows[0]["display_name"]
         except Exception as ex:
-            print("[user_info] profile read with user token failed:", _http_err_detail(ex))
+            print("[user_info] display_name read failed:", _http_err_detail(ex))
         # The user-token read above can miss subscription_status (row-level or
         # column-level permissions for the user's own token), which made an
         # active subscriber look "not subscribed". The uid is already verified
