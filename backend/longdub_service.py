@@ -972,6 +972,8 @@ def _run_analysis(job):
                 if not ok:
                     shutil.copy(piece, vocals_dst)
                     _silence_wav(b1 - b0, bg_dst)
+                    if i not in an.setdefault("bg_failed", []):
+                        an["bg_failed"].append(i)
                     job.setdefault("warnings", []).append(
                         f"Background music could not be separated for part {i + 1}; that part will have no background sound.")
                     _ev(job, "separation", "failed", f"piece {i + 1}/{n}: separation failed twice; used the original sound and silent background")
@@ -1325,9 +1327,24 @@ def _time_error(rows, seg_id, start, end, total):
     return None
 
 
+def clean_emotion(value):
+    """Only known delivery words are kept (at most 3, comma separated); anything
+    else, or an empty value, becomes 'neutral'."""
+    import inworld_service
+    from config import CANONICAL_EMOTIONS
+    allowed = set(CANONICAL_EMOTIONS) | set(inworld_service.INWORLD_EXTRA_TAGS)
+    kept = []
+    for p in str(value or "").lower().split(","):
+        p = " ".join(p.split())
+        if p in allowed and p not in kept:
+            kept.append(p)
+    kept = [p for p in kept if p != "neutral"] or ["neutral"]
+    return ", ".join(kept[:3])
+
+
 def update_segments(job, edits):
-    """edits = [{segment_id, text?, arabic_text?, speaker_id?}]. The text and
-    which speaker says a line are saved here; times, inserting and deleting
+    """edits = [{segment_id, text?, arabic_text?, speaker_id?, emotion?}]. The
+    text, the speaker and the emotion of a line are saved here; times, inserting and deleting
     lines have their own calls (set_line_time, insert_line, delete_line)."""
     if job.get("status") != "editing":
         return False, "This job is not open for editing."
@@ -1350,6 +1367,12 @@ def update_segments(job, edits):
             if isinstance(e.get("arabic_text"), str):
                 r["arabic_text"] = e["arabic_text"][:MAX_TEXT_LEN]
                 changed += 1
+            if isinstance(e.get("emotion"), str):
+                emo = clean_emotion(e["emotion"])
+                if emo != r.get("emotion"):
+                    r["emotion"] = emo
+                    r["emotion_set"] = True
+                    changed += 1
         if changed:
             _write_segments(job, rows)
     return True, changed
@@ -1458,9 +1481,17 @@ def retranslate_line(job, segment_id):
     got = _translate_batch(job["id"], [r])
     if segment_id not in got or not got[segment_id][0]:
         return False, "The translation service didn't answer. Please try again.", None
-    r["arabic_text"], r["emotion"] = got[segment_id]
+    new_ar, new_emo = got[segment_id]
+    r["arabic_text"] = new_ar
+    if not r.get("emotion_set"):      # a delivery the user picked is never overwritten
+        r["emotion"] = new_emo
     _write_segments(job, rows)
     return True, "", r["arabic_text"]
+
+
+def line_emotion(job, segment_id):
+    r = next((x for x in read_segments(job) if x["segment_id"] == segment_id), None)
+    return (r or {}).get("emotion") or "neutral"
 
 
 # ------------------------------------------------------------ speakers
@@ -2172,14 +2203,23 @@ def _clone_sample(job, spid, rows, out_dir):
     return final, acc
 
 
+SAMPLE_LANGUAGE = "en"      # the language spoken in the video we copy the voices from
+
+
 def _clone_with_retry(name, wav):
     import inworld_service
+    # The sample is English speech, so it is labelled English. (Labelling it
+    # Arabic made the copied voice sound like an English speaker reading
+    # Arabic.) If the service refuses that label, the default one is tried.
     last = ""
+    lang = SAMPLE_LANGUAGE
     for attempt in range(3):
         try:
-            return inworld_service.clone_voice_from_file(name, wav, INWORLD_API_KEY), ""
+            return inworld_service.clone_voice_from_file(name, wav, INWORLD_API_KEY, language_code=lang), ""
         except Exception as ex:
             last = inworld_service._http_error_detail(ex)
+            if lang != inworld_service.DEFAULT_LANGUAGE and "language" in str(last).lower():
+                lang = inworld_service.DEFAULT_LANGUAGE
             time.sleep(5 * (attempt + 1))
     return None, last
 
@@ -2238,6 +2278,20 @@ def _speech_levels(path, start=None, dur=None):
                    "volumedetect", "-f", "null", "-"]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        m1 = re.search(r"mean_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
+        m2 = re.search(r"max_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
+        if m1 and m2:
+            return float(m1.group(1)), float(m2.group(1))
+    except Exception:
+        pass
+    return None, None
+
+
+def _volume_stats(path):
+    """(mean_db, max_db) of a whole file, or (None, None)."""
+    try:
+        p = subprocess.run(["ffmpeg", "-nostats", "-hide_banner", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=300)
         m1 = re.search(r"mean_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
         m2 = re.search(r"max_volume:\s*(-?[0-9.]+)\s*dB", p.stderr or "")
         if m1 and m2:
@@ -2678,6 +2732,26 @@ def _run_dubbing(job):
         src = wd / f"src{job['ext']}"
         vsrc = lip_video if lip_video is not None else src      # picture: lip-synced or original
         bg = wd / "background.wav"
+        bg_info = None
+        if video_out:
+            an_ = job.get("analysis") or {}
+            failed_parts = len(an_.get("bg_failed") or [])
+            parts_total = len(an_.get("pieces") or [])
+            if not bg.exists():
+                bg_info = {"state": "missing", "failed_parts": failed_parts, "parts": parts_total}
+            else:
+                b_mean, b_max = _volume_stats(bg)
+                if b_max is None or b_max < -60:
+                    bg_info = {"state": "silent", "failed_parts": failed_parts, "parts": parts_total}
+                elif failed_parts:
+                    bg_info = {"state": "partial", "failed_parts": failed_parts, "parts": parts_total}
+                else:
+                    bg_info = {"state": "mixed", "failed_parts": 0, "parts": parts_total}
+                if b_max is not None:
+                    bg_info["mean_db"], bg_info["max_db"] = round(b_mean, 1), round(b_max, 1)
+            _ev(job, "background_mix", "ok" if bg_info["state"] == "mixed" else "failed",
+                f"{bg_info['state']}; background track mean {bg_info.get('mean_db')} dB, peak {bg_info.get('max_db')} dB; "
+                f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
         if video_out and bg.exists():
             fc = ("[1:a]volume=1.0[d];"
                   "[2:a]highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
@@ -2705,6 +2779,8 @@ def _run_dubbing(job):
                          "finished": _now()}
         if lip_summary is not None:
             job["result"]["lipsync"] = lip_summary
+        if bg_info and bg_info["state"] != "mixed":
+            job["result"]["background"] = {"state": bg_info["state"], "failed_parts": bg_info["failed_parts"], "parts": bg_info["parts"]}
         if dub.get("timing") and (dub["timing"]["n_cut"] or dub["timing"]["n_fast"]):
             job["result"]["timing"] = dub["timing"]
         if dub.get("rephrased"):
@@ -2733,6 +2809,11 @@ def _run_dubbing(job):
             note += (f"\n\n{len(dub['rephrased'])} Arabic line(s) were too long for their time even after stretching, so they were "
                      "rephrased shorter with the same meaning. You can see what changed on the download page."
                      + (f" The credits saved on the shorter text ({dub['rephrase_refund']}) were refunded." if dub.get("rephrase_refund") else ""))
+        if bg_info and bg_info["state"] != "mixed":
+            note += ("\n\nNote: the original background sound (music, ambience) could not be separated "
+                     + ("for the whole video" if bg_info["state"] in ("missing", "silent") else
+                        f"for {bg_info['failed_parts']} of {bg_info['parts']} parts of the video")
+                     + ", so it is missing from the dubbed file there.")
         if lip_summary is not None:
             note += (f"\n\nLip-sync: {lip_summary['synced']} of {lip_summary['clips']} clips were lip-synced."
                      + (f" The price of the clips that could not be lip-synced ({lip_summary['refunded']} credits) was refunded."

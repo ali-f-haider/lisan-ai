@@ -40,6 +40,8 @@ h2{color:var(--indigo);font-size:24px;margin-bottom:6px;text-align:center}
 .plan-card{position:relative;border:2px solid var(--line);border-radius:16px;padding:22px 20px;background:#fff;text-align:left;cursor:pointer;font-family:inherit;transition:border-color .15s,transform .15s,box-shadow .15s;display:block;width:100%}
 .plan-card:hover:not(:disabled){border-color:var(--indigo);transform:translateY(-3px);box-shadow:0 8px 20px rgba(26,35,126,.1)}
 .plan-card:disabled{cursor:not-allowed;opacity:.65}
+.plan-card.info{cursor:default}
+.plan-card.info:hover{border-color:var(--line);transform:none;box-shadow:none}
 .plan-card.sub{border-color:var(--purple)}
 .plan-card.sub:hover:not(:disabled){border-color:#5b21b6}
 .pbadge{position:absolute;top:-11px;right:16px;background:var(--purple);color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:10px;line-height:1.3}
@@ -98,6 +100,19 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
     <h2>Monthly Subscriptions<span class="ar2">الاشتراكات الشهرية</span></h2>
     <p class="section-note">Voice cloning is a subscription feature — each plan includes a number of saved, reusable voice slots on top of its monthly credits. If a plan also has a monthly cloning allowance, it is shown on that plan's card.<span class="ar2">استنساخ الصوت ميزة حصرية للمشتركين — تتضمن كل خطة عددًا من أماكن الأصوات المحفوظة والقابلة لإعادة الاستخدام فوق الرصيد الشهري. وإذا كانت الخطة تتضمن رصيد استنساخ شهريًا فسيظهر على بطاقتها.</span></p>
     <div class="plan-grid" id="subCards"><p class="loading-note">Loading plans…</p></div>
+  </div>
+</section>
+
+<section id="dubLong">
+  <div class="wrap">
+    <h2>Dub Long Video — Studio plan<span class="ar2">دبلجة فيديو طويل — باقة Studio</span></h2>
+    <p class="section-note">Dub videos of several minutes in one go. It is included with the Studio plan — there is no separate subscription; you pay for each job with your credits. Before anything is dubbed you see the exact price.<span class="ar2">دبلج فيديوهات تمتد لعدة دقائق دفعة واحدة. الميزة متاحة مع باقة Studio — بلا اشتراك منفصل؛ تدفع ثمن كل مهمة من رصيدك. وترى السعر الدقيق قبل بدء أي دبلجة.</span></p>
+    <div class="plan-grid">
+      <div class="plan-card info"><div class="pname">1. Estimate<span class="ar2">١. التقدير</span></div><div class="pdetail">A small fee gives you the price and time for the whole video. The fee counts toward the total.<span class="ar2">رسم صغير يمنحك السعر والمدة للفيديو كاملًا. ويُحتسب الرسم ضمن الإجمالي.</span></div><div class="pdetail">Then a charge per minute of video for analysis: transcription, speakers and Arabic translation.<span class="ar2">ثم رسم لكل دقيقة من الفيديو للتحليل: التفريغ والمتحدثون والترجمة العربية.</span></div></div>
+      <div class="plan-card info"><div class="pname">2. Exact price<span class="ar2">٢. السعر الدقيق</span></div><div class="pdetail">After you have reviewed your text, you see the exact price: the Arabic voice (by amount of text), a charge for each copied speaker voice, and a small charge for the final merge.<span class="ar2">بعد مراجعة نصك ترى السعر الدقيق: الصوت العربي (بحسب كمية النص)، ورسم لكل صوت متحدث يُنسخ، ورسم صغير للدمج النهائي.</span></div><div class="pdetail">Optional lip-sync for video is priced per second and shown before you choose.<span class="ar2">مزامنة الشفاه الاختيارية للفيديو تُسعَّر بالثانية وتُعرض قبل اختيارك.</span></div></div>
+      <div class="plan-card info"><div class="pname">3. Fair by design<span class="ar2">٣. عادل بطبيعته</span></div><div class="pdetail">If a line or a voice cannot be generated, its credits are refunded automatically.<span class="ar2">إذا تعذّر توليد سطر أو صوت، يُعاد رصيده تلقائيًا.</span></div><div class="pdetail">You receive one file and we email you when it is ready. Copied voices are not saved.<span class="ar2">تستلم ملفًا واحدًا ونراسلك عندما يجهز. ولا تُحفظ الأصوات المنسوخة.</span></div></div>
+    </div>
+    <p class="section-note" style="margin-top:14px;text-align:center;"><a href="/dub-long" style="color:var(--indigo);font-weight:700;">🎞️ Open Dub Long Video<span class="ar2">🎞️ افتح دبلجة فيديو طويل</span></a></p>
   </div>
 </section>
 
@@ -219,6 +234,7 @@ function renderSubs(plans) {
       '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits every month<span class="ar2">' + credits.toLocaleString() + ' رصيد كل شهر</span></div>' +
       '<div class="pdetail">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '<span class="ar2">' + slots + ' مكان صوت محفوظ</span></div>' +
       clonesLine +
+      (p.key === "studio_monthly" ? '<div class="pdetail">🎞️ Includes Dub Long Video<span class="ar2">🎞️ تشمل دبلجة فيديو طويل</span></div>' : '') +
       '<div class="pdetail">⏳ 30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا · إلغاء في أي وقت</span></div>' +
       '<div class="pcta">' + ctaEn + '<span class="ar2">' + ctaAr + '</span></div>' +
       '</button>';

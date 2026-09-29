@@ -79,6 +79,7 @@
   .ld-arwrap textarea { direction: rtl; text-align: right; font-size: 16px; }
   .ld-arfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .ld-arfoot button { padding: 5px 12px; font-size: 12px; }
+  .ld-arfoot .ld-emosel { padding: 4px 6px; font-size: 12px; max-width: 150px; min-width: 0; flex: 0 1 auto; width: auto; }
   .ld-cnt { font-size: 11px; color: var(--text-muted); }
   .ld-colhead { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
   @media (max-width: 720px) {
@@ -187,6 +188,9 @@ window._toggleLang = function () {
   location.reload();
 };
 
+var EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "surprised", "disgusted", "shouting", "whispering", "screaming", "yelling", "crying", "laughing", "sarcastic", "seductive", "narrative", "announcer", "conversational", "depressed", "anxious", "confident", "indifferent", "excited", "serious", "playful", "terrified", "relieved", "thoughtful", "mocking", "pleading", "commanding", "slowly", "rushed", "drawn out", "hesitant", "stammering", "softly", "booming", "sorrowful", "frustrated", "annoyed", "appalled", "awe", "regretful", "resigned", "curious", "deadpan", "tired", "sneezing", "coughing", "sighing", "gasping", "laugh", "sigh", "clear throat", "yawn", "very fast", "very quiet", "high pitch"];
+var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "angry": "غاضب", "fearful": "خائف", "surprised": "متفاجئ", "disgusted": "مشمئز", "shouting": "يصيح", "whispering": "يهمس", "screaming": "يصرخ", "yelling": "ينادي بصوت عالٍ", "crying": "يبكي", "laughing": "يضحك أثناء الكلام", "sarcastic": "ساخر", "seductive": "مُغرٍ", "narrative": "سردي", "announcer": "مذيع", "conversational": "حواري", "depressed": "مكتئب", "anxious": "قلق", "confident": "واثق", "indifferent": "لامبالٍ", "excited": "متحمس", "serious": "جاد", "playful": "مرح", "terrified": "مرعوب", "relieved": "مرتاح", "thoughtful": "متأمل", "mocking": "مستهزئ", "pleading": "متوسل", "commanding": "آمر", "slowly": "ببطء", "rushed": "مستعجل", "drawn out": "مع مدّ الكلمات", "hesitant": "متردد", "stammering": "متلعثم", "softly": "بصوت خافت", "booming": "بصوت جهوري", "sorrowful": "كئيب", "frustrated": "محبط", "annoyed": "منزعج", "appalled": "مصدوم", "awe": "مبهور", "regretful": "نادم", "resigned": "مستسلم", "curious": "فضولي", "deadpan": "ببرود", "tired": "متعب", "sneezing": "يعطس", "coughing": "يسعل", "sighing": "يتنهد", "gasping": "يشهق", "laugh": "ضحكة", "sigh": "تنهيدة", "clear throat": "تنحنح", "yawn": "تثاؤب", "very fast": "سريع جداً", "very quiet": "هادئ جداً", "high pitch": "نبرة عالية"};
+
 var T = {
   en: {
     title: "Lisan AI — Dub Long Video", credits: "credits", back: "← Back to App", logout: "Log Out",
@@ -277,6 +281,13 @@ var T = {
       clone: "Copying the voices…", speak: "Generating the Arabic voice…", mix: "Fitting and mixing the lines…",
       lipsync: "Lip-syncing the picture…",
       finish: "Building your final file…", done: "Done." },
+    readyNote: "Your text is ready. Opening it for review…",
+    readyHead: "Your text is ready to review.",
+    doneBg: function (state, n, total) {
+      return (state === "partial")
+        ? "The original background sound (music, ambience) could not be separated for " + n + " of " + total + " parts of your video, so it is missing there."
+        : "The original background sound (music, ambience) could not be separated from your video, so it is not in the dubbed file.";
+    },
     lipNote: "Lip-sync takes a while — for a long video it can be an hour or more. You can close this page — we will email you when the finished file is ready.",
     failedHeading: "This one didn't finish",
     startNew: "Upload another video",
@@ -288,7 +299,7 @@ var T = {
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
     editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. This project is kept for 7 days.",
-    colTime: "Time / speaker", colEn: "English", colAr: "Arabic",
+    colTime: "Time / speaker", colEn: "English", colAr: "Arabic", emotionLbl: "Emotion",
     timeFrom: "From", timeTo: "To", timeBad: "Write the time like 1:23.5 or 83.5 (minutes:seconds).",
     insertLine: "+ Insert a line after", deleteLine: "Delete line",
     confirmDelLine: "Delete this line? Its English and Arabic text will be removed from this project.",
@@ -420,6 +431,13 @@ var T = {
       clone: "جارٍ نسخ الأصوات…", speak: "جارٍ توليد الصوت العربي…", mix: "جارٍ ضبط التوقيت والمزج…",
       lipsync: "جارٍ مزامنة الشفاه مع الصورة…",
       finish: "جارٍ بناء الملف النهائي…", done: "اكتمل." },
+    readyNote: "نصك جاهز. جارٍ فتحه للمراجعة…",
+    readyHead: "نصك جاهز للمراجعة.",
+    doneBg: function (state, n, total) {
+      return (state === "partial")
+        ? "تعذّر فصل الصوت الخلفي الأصلي (الموسيقى والأجواء) في " + n + " من " + total + " أجزاء من الفيديو، لذلك هو غائب في تلك الأجزاء."
+        : "تعذّر فصل الصوت الخلفي الأصلي (الموسيقى والأجواء) عن الفيديو، لذلك لا يوجد في الملف المدبلج.";
+    },
     lipNote: "تستغرق مزامنة الشفاه وقتاً — وقد تبلغ ساعة أو أكثر للفيديو الطويل. يمكنك إغلاق الصفحة — سنراسلك عندما يجهز الملف النهائي.",
     failedHeading: "لم تكتمل هذه العملية",
     startNew: "ارفع فيديو آخر",
@@ -431,7 +449,7 @@ var T = {
     doneLip: function (a, b) { return "مزامنة الشفاه: تمت مزامنة " + a + " من " + b + " مقطعاً."; },
     editorHeading: "٣. المراجعة والتعديل",
     editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
-    colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية",
+    colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية", emotionLbl: "الأسلوب",
     timeFrom: "من", timeTo: "إلى", timeBad: "اكتب الوقت بهذا الشكل: 1:23.5 أو 83.5 (دقائق:ثوانٍ).",
     insertLine: "+ إدراج سطر بعده", deleteLine: "حذف السطر",
     confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الإنجليزي والعربي من هذا المشروع.",
@@ -607,6 +625,10 @@ function refreshCurrent() {
   });
 }
 
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden && cur && isWorking(cur.status)) refreshCurrent();
+});
+
 function startPoll() { stopPoll(); pollTimer = setInterval(refreshCurrent, 4000); }
 function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
@@ -665,7 +687,8 @@ function renderJob() {
       var m = String(j.message).match(/\(([^)]*)\)/); if (m) extra = " (" + m[1].replace(/part|lines|line|clip/g, "").replace(/\s+/g, " ").trim() + ")";
     }
     h += "<p style='font-weight:600;'>" + esc(label + extra) + " <span style='color:var(--text-muted);font-weight:400;'>" + (j.percent || 0) + "%</span></p>";
-    h += "<p class='note'>" + esc(j.stage === "lipsync" ? T.lipNote : ((j.status === "confirmed" || j.status === "dubbing") ? T.dubbingNote : T.analyzingNote)) + "</p>";
+    if (j.stage === "review") h += "<p class='note'>" + esc(T.readyNote) + "</p>";
+    else h += "<p class='note'>" + esc(j.stage === "lipsync" ? T.lipNote : ((j.status === "confirmed" || j.status === "dubbing") ? T.dubbingNote : T.analyzingNote)) + "</p>";
   } else if (j.status === "failed") {
     h += name + "<p class='ld-err'>" + esc(j.error || j.message || T.genericErr) + "</p>";
     h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + '</button><button class="btn-plain" id="btnDelete">' + esc(T.deleteBtn) + "</button></div>";
@@ -685,6 +708,7 @@ function renderJob() {
               "<div style='color:var(--text-muted);margin-top:4px;'>" + esc(T.chAfter) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.after) + "</div></div>";
           }).join("") + "</details>";
       }
+      if (r.background) h += "<div class='ld-warn'>" + esc(T.doneBg(r.background.state, r.background.failed_parts, r.background.parts)) + "</div>";
       if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
       if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";
       if (r.lipsync) h += "<p class='note'>" + esc(T.doneLip(r.lipsync.synced, r.lipsync.clips)) + "</p>";
@@ -916,6 +940,7 @@ function renderEditor() {
   body.innerHTML = "";
   var head = document.createElement("div");
   head.innerHTML =
+    "<p style='font-weight:600;margin:0 0 6px;'>" + esc(T.readyHead) + "</p>" +
     "<p class='note'>" + esc(T.editorNote) + "</p>" +
     ((cur.warnings || []).map(function (w) { return "<div class='ld-warn'>" + esc(w) + "</div>"; }).join("")) +
     "<div class='ld-spkpanel' id='spkPanel'></div>" +
@@ -1044,6 +1069,25 @@ function applyRows(rows, focusId) {
   }
 }
 
+function emoLabel(tag) {
+  if (LANG === "ar") return EMO_AR[tag] || tag;
+  return tag.charAt(0).toUpperCase() + tag.slice(1);
+}
+function emoLabelMulti(v) {
+  return String(v || "neutral").split(",").map(function (p) { return emoLabel(p.trim()); }).join(LANG === "ar" ? "، " : ", ");
+}
+function fillEmotion(sel, value) {
+  var v = String(value || "neutral").trim() || "neutral";
+  sel.innerHTML = "";
+  if (EMOTIONS.indexOf(v) < 0) {
+    var o0 = document.createElement("option"); o0.value = v; o0.textContent = emoLabelMulti(v); sel.appendChild(o0);
+  }
+  EMOTIONS.forEach(function (e) {
+    var o = document.createElement("option"); o.value = e; o.textContent = emoLabel(e); sel.appendChild(o);
+  });
+  sel.value = v;
+}
+
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   var time = document.createElement("div"); time.className = "ld-time";
@@ -1065,7 +1109,9 @@ function buildRow(s) {
   var foot = document.createElement("div"); foot.className = "ld-arfoot";
   var cnt = document.createElement("span"); cnt.className = "ld-cnt"; cnt.textContent = T.chars((ar.value || "").length);
   var btn = document.createElement("button"); btn.className = "btn-plain"; btn.textContent = T.retranslate;
-  foot.appendChild(cnt); foot.appendChild(btn);
+  var emoSel = document.createElement("select"); emoSel.className = "ld-emosel"; emoSel.title = T.emotionLbl; emoSel.setAttribute("aria-label", T.emotionLbl);
+  fillEmotion(emoSel, s.emotion);
+  foot.appendChild(cnt); foot.appendChild(emoSel); foot.appendChild(btn);
   wrap.appendChild(ar); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
 
@@ -1109,6 +1155,9 @@ function buildRow(s) {
     s.speaker_id = sel.value; queueSave(s.segment_id, "speaker_id", sel.value); pricePreview = null;
     renderSpeakers();
   });
+  emoSel.addEventListener("change", function () {
+    s.emotion = emoSel.value; queueSave(s.segment_id, "emotion", emoSel.value); pricePreview = null;
+  });
   en.addEventListener("input", function () { s.text = en.value; queueSave(s.segment_id, "text", en.value); autosize(en); });
   ar.addEventListener("input", function () {
     s.arabic_text = ar.value; queueSave(s.segment_id, "arabic_text", ar.value); autosize(ar); pricePreview = null;
@@ -1120,6 +1169,7 @@ function buildRow(s) {
       btn.disabled = false; btn.textContent = T.retranslate;
       if (!r.ok) { alertMsg(r.data.error || T.retranslateFail); return; }
       s.arabic_text = r.data.arabic_text || ""; ar.value = s.arabic_text; autosize(ar); pricePreview = null;
+      if (r.data.emotion) { s.emotion = r.data.emotion; fillEmotion(emoSel, s.emotion); }
       ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
     }).catch(function () { btn.disabled = false; btn.textContent = T.retranslate; });
   });
@@ -1156,8 +1206,8 @@ function flushSave(opts) {
     if (!r.ok) { setSaved(false, T.saveFailed); saveTimer = setTimeout(flushSave, 3000); return; }
     batch.forEach(function (b) {
       var d = dirty[b.segment_id]; if (!d) return;
-      ["text", "arabic_text", "speaker_id"].forEach(function (f) { if (f in b && d[f] === b[f]) delete d[f]; });
-      if (!("text" in d) && !("arabic_text" in d) && !("speaker_id" in d)) delete dirty[b.segment_id];
+      ["text", "arabic_text", "speaker_id", "emotion"].forEach(function (f) { if (f in b && d[f] === b[f]) delete d[f]; });
+      if (!("text" in d) && !("arabic_text" in d) && !("speaker_id" in d) && !("emotion" in d)) delete dirty[b.segment_id];
     });
     if (Object.keys(dirty).length) { saveTimer = setTimeout(flushSave, 400); setSaved(false); } else setSaved(true);
   }).catch(function () { saving = false; setSaved(false, T.saveFailed); saveTimer = setTimeout(flushSave, 3000); });

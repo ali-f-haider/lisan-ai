@@ -4656,7 +4656,7 @@ def longdub_retranslate(job_id: str, body: LongDubRetranslate, request: Request)
     ok, msg, arabic = longdub_service.retranslate_line(job, body.segment_id)
     if not ok:
         return JSONResponse({"error": msg}, status_code=409)
-    return {"ok": True, "arabic_text": arabic}
+    return {"ok": True, "arabic_text": arabic, "emotion": longdub_service.line_emotion(job, body.segment_id)}
 
 
 @app.delete("/api/longdub/{job_id}")
