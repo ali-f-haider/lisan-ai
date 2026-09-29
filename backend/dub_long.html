@@ -248,6 +248,7 @@ var T = {
         "The exact price is calculated from your edited Arabic text and shown to you before the dubbing starts — nothing more is charged without your confirmation.",
         "If you decline this estimate you only pay the estimate fee. If a step fails on our side, the credits of that step are refunded automatically.",
         "Timing is automatic for the Arabic lines.",
+        "If an Arabic line is still too long for its time after that, we automatically rephrase it shorter with the same meaning. When your file is ready you can see what was changed, and the credits saved by the shorter text are refunded.",
         "Tashkeel is added automatically, you do not have to add it.",
         ].concat(e.lipsync_wanted ? [
         "You chose LIP-SYNC. AI re-generates the mouth movements of the people who speak so they match the Arabic. Your video is cut into clips of at most 15 seconds, only where somebody speaks, and each clip is processed on its own. Because the AI generates the picture of those clips, small differences in look, colour or detail compared with your original can be visible, especially where a clip starts and ends.",
@@ -293,6 +294,8 @@ var T = {
     confirmDelLine: "Delete this line? Its English and Arabic text will be removed from this project.",
     doneCut: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " longer than the time available even after speeding up to our limit, so " + (n === 1 ? "its end was" : "their ends were") + " cut short (at " + at + "). Next time, shorten those Arabic lines or change their timing."; },
     doneFast: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " sped up by 20% or more to fit (at " + at + ")."; },
+    doneRephrased: function (n, at, back) { return n + " line" + (n === 1 ? " was" : "s were") + " too long for " + (n === 1 ? "its" : "their") + " time even after stretching, so " + (n === 1 ? "it was" : "they were") + " rephrased shorter with the same meaning (at " + at + ")." + (back ? " The credits saved by the shorter text (" + back + ") were refunded." : ""); },
+    showChanges: "Show what was changed", chBefore: "Before", chAfter: "After",
     linesCount: function (n, missing) { return n + " lines" + (missing ? " · " + missing + " without Arabic" : ""); },
     saving: "Saving…", saved: "All changes saved ✓", saveFailed: "Couldn't save — trying again…",
     retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "The translation service didn't answer. Please try again.",
@@ -388,6 +391,7 @@ var T = {
         "يُحسب السعر الدقيق من النص العربي بعد تعديلك ويُعرض عليك قبل بدء الدبلجة — ولا يُخصم أي مبلغ إضافي دون تأكيدك.",
         "إذا رفضت هذا التقدير فلا تدفع إلا رسم التقدير. وإذا فشلت أي خطوة من جانبنا تُعاد أرصدة تلك الخطوة تلقائياً.",
         "التوقيت تلقائي للأسطر العربية.",
+        "إذا بقي سطر عربي أطول من وقته بعد ذلك، نعيد صياغته تلقائياً بشكل أقصر وبالمعنى نفسه. وعندما يجهز ملفك يمكنك رؤية ما تغيّر، وتُرَدّ إليك الأرصدة التي وفّرها النص الأقصر.",
         "يُضاف التشكيل تلقائياً، ولا حاجة لأن تضيفه بنفسك.",
         ].concat(e.lipsync_wanted ? [
         "اخترت مزامنة الشفاه. يعيد الذكاء الاصطناعي توليد حركة أفواه المتحدثين لتطابق العربية. يُقسَّم الفيديو إلى مقاطع لا تزيد عن 15 ثانية، فقط حيث يتحدث أحد، ويُعالَج كل مقطع على حدة. ولأن الذكاء الاصطناعي يولّد صورة هذه المقاطع، قد تظهر فروق صغيرة في الشكل أو اللون أو التفاصيل مقارنة بالأصل، خصوصاً عند بداية المقطع ونهايته.",
@@ -433,6 +437,8 @@ var T = {
     confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الإنجليزي والعربي من هذا المشروع.",
     doneCut: function (n, at) { return "كان " + n + " سطر أطول من الوقت المتاح حتى بعد التسريع إلى حدّنا الأقصى، فقُطعت نهاياتها (عند " + at + "). في المرة القادمة اختصر هذه الأسطر العربية أو عدّل توقيتها."; },
     doneFast: function (n, at) { return "سُرّع " + n + " سطر بمقدار 20٪ أو أكثر ليتناسب مع الوقت (عند " + at + ")."; },
+    doneRephrased: function (n, at, back) { return "كان " + n + " سطر أطول من وقته حتى بعد التمديد، فأُعيدت صياغته بشكل أقصر وبالمعنى نفسه (عند " + at + ")." + (back ? " وأُعيدت إليك الأرصدة التي وفّرها النص الأقصر (" + back + ")." : ""); },
+    showChanges: "عرض ما تغيّر", chBefore: "قبل", chAfter: "بعد",
     linesCount: function (n, missing) { return n + " سطر" + (missing ? " · " + missing + " بلا ترجمة" : ""); },
     saving: "جارٍ الحفظ…", saved: "تم حفظ كل التعديلات ✓", saveFailed: "تعذّر الحفظ — نحاول مجدداً…",
     retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "لم تستجب خدمة الترجمة. حاول مرة أخرى.",
@@ -670,6 +676,15 @@ function renderJob() {
       h += "<p>" + esc(T.doneText(r.kind === "audio" ? T.kindAudio : T.kindVideo, fmtTime(r.duration))) + "</p>";
       if (r.failed_lines) h += "<div class='ld-warn'>" + esc(T.doneWarn(r.failed_lines)) + "</div>";
       var at = function (a) { return a.map(fmtTime).join("، "); };
+      if (r.rephrased && r.rephrased.length) {
+        h += "<div class='ld-warn'>" + esc(T.doneRephrased(r.n_rephrased || r.rephrased.length, at(r.rephrased.map(function (x) { return x.t; })), r.rephrase_refund || 0)) + "</div>";
+        h += "<details style='margin:6px 0 10px;'><summary style='cursor:pointer;font-size:13px;'>" + esc(T.showChanges) + "</summary>" +
+          r.rephrased.map(function (x) {
+            return "<div style='border-top:1px solid var(--border);padding:8px 0;font-size:13px;'><b>" + esc(fmtTime(x.t)) + "</b>" +
+              "<div style='color:var(--text-muted);'>" + esc(T.chBefore) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.before) + "</div>" +
+              "<div style='color:var(--text-muted);margin-top:4px;'>" + esc(T.chAfter) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.after) + "</div></div>";
+          }).join("") + "</details>";
+      }
       if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
       if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";
       if (r.lipsync) h += "<p class='note'>" + esc(T.doneLip(r.lipsync.synced, r.lipsync.clips)) + "</p>";

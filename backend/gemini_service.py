@@ -206,6 +206,48 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
     return out
 
 
+def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int, api_key: str):
+    """Rewrites ONE Arabic dubbing line shorter (same meaning, tone and register)
+    so the spoken line fits its time. `max_letters` counts Arabic letters only
+    (not tashkeel marks, not spaces). Returns the new text, or None when the AI
+    service did not answer or gave nothing usable. The caller checks that it
+    really is shorter."""
+    if not api_key or not (arabic or "").strip():
+        return None
+    prompt = (
+        "You are an Arabic dubbing script editor.\n"
+        "The Arabic line below is spoken in a dubbed video, but spoken aloud it is TOO LONG for the time it has.\n"
+        "Rewrite it SHORTER so that it can be spoken in less time.\n"
+        "STRICT RULES:\n"
+        f"- At most {int(max_letters)} Arabic letters in total (do not count tashkeel marks or spaces).\n"
+        "- Keep the same meaning, the same tone and the same dialect/register as the original. Natural spoken Arabic.\n"
+        "- Do NOT add any new information. Drop the least important words or use a shorter way to say the same thing.\n"
+        "- Keep full Arabic tashkeel (harakat) on every word, like the original.\n"
+        "- Keep names, numbers and the sentence type (question / statement) as they are.\n"
+        '- Return ONLY valid JSON: {"arabic_text": "..."}\n\n'
+        f"English original (for meaning only): {json.dumps(english or '', ensure_ascii=False)}\n"
+        f"Arabic line to shorten: {json.dumps(arabic, ensure_ascii=False)}\n"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1024, "responseMimeType": "application/json"},
+    }
+    data, err = call_gemini(api_key, payload, timeout=90)
+    record_gemini(job_id, data)
+    if data is None:
+        print(f"[gemini] shorten failed on all models: {err}")
+        return None
+    try:
+        obj = json.loads(_strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"]))
+    except Exception as ex:
+        print(f"[gemini] shorten answer was not valid JSON: {ex}")
+        return None
+    if isinstance(obj, list) and obj:
+        obj = obj[0]
+    text = obj.get("arabic_text") if isinstance(obj, dict) else None
+    return text.strip() if isinstance(text, str) and text.strip() else None
+
+
 def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments: list):
     """Background worker: listen to each segment and classify its emotion."""
     progress_key = f"emotions_{job_id}"

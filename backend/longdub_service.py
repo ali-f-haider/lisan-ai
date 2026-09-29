@@ -71,7 +71,7 @@ SAMPLE_RATE = 44100
 MAX_SPEAKERS = 8
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
-TERMS_VERSION = "2026-10-02"
+TERMS_VERSION = "2026-10-03"
 
 # Time estimates: how many seconds of work per second of video, until real
 # measurements from finished jobs replace these (see _record_speed).
@@ -2328,6 +2328,81 @@ def _plan_timeline(lines, total):
     return kept, chunks, dropped
 
 
+REPHRASE_ENABLED = True
+REPHRASE_TRIES = 2             # at most this many shorter versions are tried for one line
+REPHRASE_MIN_LETTERS = 8       # a line shorter than this is never rephrased
+
+
+def _ar_letters(text):
+    """Arabic letters of a text (no spaces, no tashkeel marks) -- a good measure of how long it takes to say."""
+    return len(re.sub(r"[\s\u064B-\u065F\u0670\u0640]", "", text or ""))
+
+
+def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
+    """A line that is still too long after using the silence after it and the
+    "good" stretch would have its end cut. Instead, ask for a SHORTER version of
+    the same sentence (same meaning), speak that, and use it if it is shorter.
+    Up to REPHRASE_TRIES tries. Returns (meta, new_text) -- new_text is None when
+    nothing better was found (the original line and meta stay)."""
+    import gemini_service
+    sid = r["segment_id"]
+    cur_text = r["arabic_text"].strip()
+    best_meta, best_text, best_out = meta, None, None
+    for attempt in range(1, REPHRASE_TRIES + 1):
+        letters = _ar_letters(cur_text)
+        actual = float(best_meta.get("raw") or 0)
+        if letters < REPHRASE_MIN_LETTERS or actual <= 0:
+            break
+        # speech time we are aiming for, so that at the "good" limit it fits the room with a little to spare
+        target_raw = room * TEMPO_MAX * (0.92 if attempt == 1 else 0.82)
+        ratio = target_raw / actual
+        if ratio >= 0.97:
+            break
+        max_letters = max(3, int(letters * ratio))
+        new = None
+        try:
+            new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY)
+        except Exception as ex:
+            print(f"[longdub] rephrase call failed for {sid}: {ex}")
+        if not new or _ar_letters(new) >= letters * 0.95:
+            _ev(job, "line_rephrase", "failed", f"{sid}: no usable shorter version (try {attempt})")
+            break
+        if needs_tashkeel(new):
+            try:
+                got = gemini_service.add_tashkeel_lines(job["id"], [{"segment_id": sid, "arabic_text": new}], GEMINI_API_KEY)
+                if got:
+                    new = merge_tashkeel(new, got.get(sid, ""))
+            except Exception as ex:
+                print(f"[longdub] tashkeel for a rephrased line failed: {ex}")
+        audio, err = _tts_with_retry(voice_id, f"{tag}{new}")
+        if audio is None:
+            _ev(job, "line_rephrase", "failed", f"{sid}: the voice service did not speak the shorter version: {err}")
+            break
+        raw2 = d / "lines" / f"{sid}_rp{attempt}.mp3"
+        raw2.write_bytes(audio)
+        out2 = d / "fit" / f"{sid}_rp{attempt}.wav"
+        m2 = _fit_line(raw2, out2, slot, room, loud_ref, float(r["start"]))
+        try:
+            raw2.unlink()
+        except Exception:
+            pass
+        if m2["dur"] < best_meta["dur"] - 0.05:
+            best_meta, best_text, best_out = m2, new, out2
+            cur_text = new
+            if m2["dur"] <= room + 0.02:
+                break
+        else:
+            break
+    if best_text is not None:
+        os.replace(best_out, d / "fit" / f"{sid}.wav")
+    for f in (d / "fit").glob(f"{sid}_rp*.wav"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+    return best_meta, best_text
+
+
 def _run_dubbing(job):
     """confirmed -> per-speaker temporary voice clones -> Arabic speech line by
     line -> fit to timing -> mix in stretches -> join with the background ->
@@ -2418,7 +2493,8 @@ def _run_dubbing(job):
             if sid in dub["lines"] or sid in dub["failed"]:
                 continue
             _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Generating the Arabic voice (line {i + 1} of {n})...")
-            text = f"{inworld_service.instruction_tag(r.get('emotion'))}{r['arabic_text'].strip()}"
+            tag = inworld_service.instruction_tag(r.get("emotion"))
+            text = f"{tag}{r['arabic_text'].strip()}"
             audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text)
             if audio is None:
                 dub["failed"].append(sid)
@@ -2431,7 +2507,18 @@ def _run_dubbing(job):
             nxt = float(rows[i + 1]["start"]) - 0.05 if i + 1 < n else total
             room = max(nxt - float(r["start"]), 0.05)
             meta = _fit_line(raw, d / "fit" / f"{sid}.wav", slot, room, loud_ref, float(r["start"]))
-            meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text)})
+            new_text = None
+            if REPHRASE_ENABLED and meta["dur"] > room + 0.02:
+                _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Shortening a line to fit (line {i + 1} of {n})...")
+                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d)
+            meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text) if new_text is None else len(f"{tag}{new_text}")})
+            if new_text is not None:
+                fits = meta["dur"] <= room + 0.02
+                dub.setdefault("rephrased", {})[sid] = {"t": round(float(r["start"]), 1), "before": r["arabic_text"].strip(),
+                                                        "after": new_text, "fits": fits}
+                _ev(job, "line_rephrased", "ok" if fits else "partial",
+                    f"{sid} at {r['start']:.1f}s: {_ar_letters(r['arabic_text'])} -> {_ar_letters(new_text)} letters, "
+                    f"length {meta['dur']:.2f}s for {room:.2f}s of room")
             dub["lines"][sid] = meta
             try:
                 raw.unlink()
@@ -2452,6 +2539,20 @@ def _run_dubbing(job):
         by_seg = {r["segment_id"]: r for r in rows}
         _ev(job, "speech_generation", "ok" if not failed else "partial",
             f"{len(dub['lines'])} of {n} lines generated, {len(failed)} failed")
+        reph = dub.get("rephrased") or {}
+        if reph and not dub.get("rephrase_refund"):
+            # The price was worked out on the longer text: give back the whole credits the shorter text saved.
+            saved = sum(max(0, len(v["before"]) - len(v["after"])) for v in reph.values())
+            rback = saved // max(1, int(plan["cpc"]))
+            if rback and job["paid"].get("dub", 0) >= rback:
+                try:
+                    Hooks.refund(uid, rback, job["id"])
+                    job["paid"]["dub"] -= rback
+                    dub["rephrase_refund"] = rback
+                    _ev(job, "rephrase_refund", "ok", f"{len(reph)} lines rephrased shorter, {saved} characters saved: {rback} credits back", rback)
+                except Exception as ex:
+                    _ev(job, "rephrase_refund", "failed", str(ex))
+            _save(job)
         if failed:
             # Pro-rata refund for the characters of lines that were not generated.
             fchars = sum(len(inworld_service.instruction_tag(by_seg[s].get("emotion"))) + len(by_seg[s]["arabic_text"].strip())
@@ -2565,6 +2666,11 @@ def _run_dubbing(job):
             job["result"]["lipsync"] = lip_summary
         if dub.get("timing") and (dub["timing"]["n_cut"] or dub["timing"]["n_fast"]):
             job["result"]["timing"] = dub["timing"]
+        if dub.get("rephrased"):
+            job["result"]["rephrased"] = sorted(dub["rephrased"].values(), key=lambda v: v["t"])[:40]
+            job["result"]["n_rephrased"] = len(dub["rephrased"])
+            if dub.get("rephrase_refund"):
+                job["result"]["rephrase_refund"] = dub["rephrase_refund"]
         job["status"] = "done"
         _mark(job, "done", 100, "Your dubbed file is ready.")
         _save(job)
@@ -2582,6 +2688,10 @@ def _run_dubbing(job):
         if failed or dropped:
             note = ("\n\nNote: some lines could not be dubbed and were left silent; the price of the lines that could not be "
                     "generated was refunded.")
+        if dub.get("rephrased"):
+            note += (f"\n\n{len(dub['rephrased'])} Arabic line(s) were too long for their time even after stretching, so they were "
+                     "rephrased shorter with the same meaning. You can see what changed on the download page."
+                     + (f" The credits saved on the shorter text ({dub['rephrase_refund']}) were refunded." if dub.get("rephrase_refund") else ""))
         if lip_summary is not None:
             note += (f"\n\nLip-sync: {lip_summary['synced']} of {lip_summary['clips']} clips were lip-synced."
                      + (f" The price of the clips that could not be lip-synced ({lip_summary['refunded']} credits) was refunded."
