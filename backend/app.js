@@ -1035,7 +1035,7 @@ async function confirmCloning() {
     const selected = [];
     document.querySelectorAll("#cloneAnalysisTable input[type=checkbox]").forEach(cb => { if (cb.checked) selected.push(cb.dataset.speaker); });
     if (!selected.length) { notify("error", "Select at least one speaker to clone."); return; }
-    notify("info", `Cloning ${selected.length} voice(s)... this may take a minute.`);
+    notify("info", `Cloning ${selected.length} voice(s)... this may take a few minutes.`);
     try {
         const res = await fetch("/api/clone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, elevenlabs_api_key: apiKey, segments: segmentsData, speakers_to_clone: selected }) });
         const data = await res.json();
@@ -1697,7 +1697,7 @@ async function confirmCloning() {
     const spinner = document.getElementById("cloneProgress");
     if (btn) btn.disabled = true;
     if (spinner) spinner.classList.remove("hidden");
-    notify("info", `Cloning ${selected.length} voice(s)... this may take a minute.`);
+    notify("info", `Cloning ${selected.length} voice(s)... this may take a few minutes.`);
     try {
         const res = await fetch("/api/clone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, speakers_to_clone: selected }) });
         const data = await res.json();
@@ -4906,7 +4906,7 @@ window.cleanOldClones = function () {
         [" ⚠️ stretched to the limit.", " ⚠️ تم التمديد إلى الحد الأقصى."],
         [" lines. The Step 6 player now uses it.", " أسطر. مشغّل الخطوة 6 يستخدمه الآن."],
         [" only...", " فقط..."],
-        [" voice(s)... this may take a minute.", " صوت... قد يستغرق هذا دقيقة."],
+        [" voice(s)... this may take a few minutes.", " صوت... قد يستغرق هذا بضع دقائق."],
         [") — redeploy main.py with the /api/cleanup_voices block.", ") — أعد نشر main.py مع كتلة /api/cleanup_voices."],
         ["s — the limit is 20 seconds.", " ثانية — الحد الأقصى 20 ثانية."],
         ["s - the limit is 20 seconds.", " ثانية - الحد الأقصى 20 ثانية."],

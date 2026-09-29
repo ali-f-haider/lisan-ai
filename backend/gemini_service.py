@@ -248,6 +248,49 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
     return text.strip() if isinstance(text, str) and text.strip() else None
 
 
+def pick_native_candidate(job_id: str, previews: list, api_key: str):
+    """previews = the WAV bytes of several localized candidates of ONE voice,
+    each speaking Arabic. Asks Gemini to listen to all of them and say which
+    one sounds most like a native Modern Standard Arabic speaker (no foreign
+    accent, natural rhythm and pronunciation). Returns (index, scores) with a
+    0-based index, or None when there is no usable answer."""
+    if not api_key or len(previews or []) < 2:
+        return None
+    parts = []
+    for i, wav in enumerate(previews):
+        parts.append({"text": f"Clip {i + 1}:"})
+        parts.append({"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(wav).decode("ascii")}})
+    n = len(previews)
+    parts.append({"text": (
+        f"You heard {n} short clips of the SAME voice speaking Arabic. Judge only HOW NATIVE each one sounds when speaking "
+        "Modern Standard Arabic: correct pronunciation of Arabic sounds, natural rhythm and stress, and NO foreign (for example English) accent. "
+        "Ignore recording quality and loudness. "
+        f'Return ONLY valid JSON: {{"scores": [a score from 0 to 10 for each clip, in order, {n} numbers], "best": the number of the clip that sounds most native (1 to {n})}}')})
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+    }
+    data, err = call_gemini(api_key, payload, timeout=120)
+    record_gemini(job_id, data)
+    if data is None:
+        print(f"[gemini] candidate listening failed on all models: {err}")
+        return None
+    try:
+        obj = json.loads(_strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"]))
+        if isinstance(obj, list) and obj:
+            obj = obj[0]
+        best = int(obj["best"]) - 1
+        scores = [float(x) for x in (obj.get("scores") or [])][:n]
+    except Exception as ex:
+        print(f"[gemini] candidate listening answer not usable: {ex}")
+        return None
+    if scores and len(scores) == n:
+        best = max(range(n), key=lambda i: scores[i]) if not (0 <= best < n) else best
+    if not (0 <= best < n):
+        return None
+    return best, scores
+
+
 def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments: list):
     """Background worker: listen to each segment and classify its emotion."""
     progress_key = f"emotions_{job_id}"

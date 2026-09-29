@@ -2568,20 +2568,16 @@ def _run_dubbing(job):
             todo = [s for s in sp_ids if s in dub["voices"] and s not in done_loc]
             if todo:
                 _mark(job, "clone", 10, "Giving the voices a native Arabic accent...")
-                from concurrent.futures import ThreadPoolExecutor
                 t0 = time.time()
-                with ThreadPoolExecutor(max_workers=len(todo)) as pool:
-                    futs = {s: pool.submit(inworld_service.localize_voice, dub["voices"][s], INWORLD_API_KEY) for s in todo}
-                    for spid, fut in futs.items():
-                        try:
-                            res = fut.result()
-                        except Exception as ex:
-                            res = {"ok": False, "error": str(ex)}
-                        done_loc[spid] = "ok" if res.get("ok") else "failed"
-                        _ev(job, "voice_localized", "ok" if res.get("ok") else "failed",
-                            (f"{names.get(spid)}: {res.get('candidates')} candidate(s), used {res.get('candidate')}, "
-                             f"{time.time() - t0:.0f}s, answer {res.get('answer')}") if res.get("ok")
-                            else f"{names.get(spid)}: {res.get('error')} (the plain copied voice is used)")
+                results = inworld_service.localize_many({s: dub["voices"][s] for s in todo}, INWORLD_API_KEY,
+                                                        inworld_service.gemini_chooser(job["id"]))
+                for spid in todo:
+                    res = results.get(spid) or {"ok": False, "error": "no answer"}
+                    done_loc[spid] = "ok" if res.get("ok") else "failed"
+                    _ev(job, "voice_localized", "ok" if res.get("ok") else "failed",
+                        (f"{names.get(spid)}: candidate {res.get('picked', 0) + 1} of {res.get('candidates')} approved "
+                         f"(listening scores {res.get('scores') or 'none'}) {res.get('note') or ''}, {time.time() - t0:.0f}s, answer {res.get('answer')}") if res.get("ok")
+                        else f"{names.get(spid)}: {res.get('error')} (the plain copied voice is used)")
                 _save(job)
         good = [s for s in sp_ids if s in dub["voices"]]
         if not good:

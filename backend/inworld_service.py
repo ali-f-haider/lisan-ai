@@ -94,13 +94,15 @@ CLONE_SAMPLE_LANGUAGE = (os.environ.get("INWORLD_CLONE_LANGUAGE") or "en").strip
 # OFF unless the Railway variable INWORLD_LOCALIZE is set to 1. Used by Dub
 # Long Video only, for now. The target language and the number of candidates
 # to ask for can be changed with INWORLD_LOCALIZE_LANGUAGE (default "ar") and
-# INWORLD_LOCALIZE_CANDIDATES (default 1).
+# INWORLD_LOCALIZE_CANDIDATES (default 3). When there are several candidates,
+# a "chooser" listens to their previews and picks the most native-sounding one
+# (see gemini_service.pick_native_candidate); without one, the first is used.
 LOCALIZE_ENABLED = (os.environ.get("INWORLD_LOCALIZE") or "").strip().lower() in ("1", "true", "yes", "on")
 LOCALIZE_LANGUAGE = (os.environ.get("INWORLD_LOCALIZE_LANGUAGE") or "ar").strip() or "ar"
 try:
-    LOCALIZE_CANDIDATES = max(1, min(5, int(os.environ.get("INWORLD_LOCALIZE_CANDIDATES") or 1)))
+    LOCALIZE_CANDIDATES = max(1, min(5, int(os.environ.get("INWORLD_LOCALIZE_CANDIDATES") or 3)))
 except ValueError:
-    LOCALIZE_CANDIDATES = 1
+    LOCALIZE_CANDIDATES = 3
 
 
 # Maps this app's canonical emotion/style vocabulary (config.
@@ -304,12 +306,35 @@ def _pick(d, *names):
     return None
 
 
-def localize_voice(voice_id: str, api_key: str, target_language: str = None, candidates: int = None) -> dict:
+def _preview_bytes(cand):
+    """The audio preview of one candidate (a base64 WAV in a text field), or None."""
+    if not isinstance(cand, dict):
+        return None
+    best = ""
+    for k, v in cand.items():
+        if isinstance(v, str) and len(v) > 2000 and len(v) > len(best):
+            best = v
+        elif isinstance(v, dict):                 # e.g. {"preview": {"audioContent": "..."}}
+            for v2 in v.values():
+                if isinstance(v2, str) and len(v2) > 2000 and len(v2) > len(best):
+                    best = v2
+    if not best:
+        return None
+    try:
+        return base64.b64decode(best)
+    except Exception:
+        return None
+
+
+def localize_voice(voice_id: str, api_key: str, target_language: str = None, candidates: int = None, chooser=None) -> dict:
     """Voice Localization in two calls: ask for localized candidates, then
-    approve one. There is no automatic scoring on Inworld's side, so the FIRST
-    candidate is approved here. Afterwards the SAME voiceId is spoken with
-    language=<target> and sounds like a native speaker. Deleting the voice
-    deletes its localization. Returns {"ok": True, "candidates": n, "candidate": id}
+    approve one. Inworld does no scoring itself (a person is meant to listen),
+    so when there are several candidates `chooser(list_of_wav_bytes)` is asked
+    which one sounds most native and must return (index, scores) or None; with
+    no chooser, or no answer, the FIRST candidate is approved. Afterwards the
+    SAME voiceId is spoken with language=<target> and sounds like a native
+    speaker. Deleting the voice deletes its localization.
+    Returns {"ok": True, "candidates": n, "candidate": id, "picked": i, "scores": [...]}
     or {"ok": False, "error": "..."} -- never raises."""
     if not _configured(api_key) or not voice_id:
         return {"ok": False, "error": "not configured or no voice_id"}
@@ -331,17 +356,58 @@ def localize_voice(voice_id: str, api_key: str, target_language: str = None, can
             dv = _pick(data, "draftVoice", "draft")
             draft = dv if isinstance(dv, str) else _pick(dv, "voiceId", "id")
         cands = _pick(data, "candidates", "localizedCandidates", "localizations") or []
-        cand = None
-        if isinstance(cands, list) and cands:
-            c0 = cands[0]
-            cand = c0 if isinstance(c0, str) else _pick(c0, "candidateId", "id", "name")
-        if not draft or not cand:
+        ids = []
+        for c in (cands if isinstance(cands, list) else []):
+            ids.append(c if isinstance(c, str) else _pick(c, "candidateId", "id", "name"))
+        if not draft or not ids or not ids[0]:
             return {"ok": False, "error": f"unexpected answer to localize: {json.dumps(_shape(data))[:600]}"}
+        picked, scores, why = 0, [], ""
+        if chooser and len(ids) > 1:
+            previews = [_preview_bytes(c) for c in cands]
+            if all(previews):
+                try:
+                    got = chooser(previews)
+                    if got and 0 <= int(got[0]) < len(ids):
+                        picked, scores = int(got[0]), list(got[1] or [])
+                    else:
+                        why = "the listener gave no answer, first candidate used"
+                except Exception as ex:
+                    why = f"the listener failed ({ex}), first candidate used"
+            else:
+                why = "no audio previews found in the answer, first candidate used"
+        cand = ids[picked]
         ans = _request("POST", f"/voices/v1/voices/{voice_id}:approveLocalization", api_key,
                        {"draftVoiceId": draft, "candidateId": cand}, timeout=120)
-        return {"ok": True, "candidates": len(cands), "candidate": str(cand), "answer": json.dumps(_shape(ans))[:300]}
+        return {"ok": True, "candidates": len(ids), "candidate": str(cand), "picked": picked, "scores": scores,
+                "note": why, "answer": json.dumps(_shape(ans))[:300]}
     except Exception as e:
         return {"ok": False, "error": _http_error_detail(e)[:600]}
+
+
+def localize_many(voices: dict, api_key: str, chooser=None) -> dict:
+    """{name: voice_id} -> {name: localize_voice result}. All voices are done at
+    the same time (each takes about two minutes on Inworld's side)."""
+    from concurrent.futures import ThreadPoolExecutor
+    out = {}
+    if not voices:
+        return out
+    with ThreadPoolExecutor(max_workers=len(voices)) as pool:
+        futs = {name: pool.submit(localize_voice, vid, api_key, None, None, chooser) for name, vid in voices.items()}
+        for name, fut in futs.items():
+            try:
+                out[name] = fut.result()
+            except Exception as ex:
+                out[name] = {"ok": False, "error": str(ex)}
+    return out
+
+
+def gemini_chooser(job_id):
+    """A chooser (see localize_voice) that lets Gemini listen to the previews."""
+    def choose(previews):
+        import gemini_service
+        from config import GEMINI_API_KEY
+        return gemini_service.pick_native_candidate(job_id, previews, GEMINI_API_KEY)
+    return choose
 
 
 def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_LANGUAGE, model_id: str = DEFAULT_MODEL_ID) -> bytes:
@@ -537,7 +603,20 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                     concat_file.unlink()
                 except Exception:
                     pass
-    warnings = []
+    # Optional (INWORLD_LOCALIZE=1): give every new voice a native Arabic accent.
+    # A voice that cannot be localized keeps working as the plain copy.
+    loc_warnings = []
+    if LOCALIZE_ENABLED:
+        fresh = {sp: v for sp, v in cloned_voices.items() if not str(v).startswith("ERROR")}
+        if fresh:
+            results = localize_many(fresh, api_key, gemini_chooser(job_id))
+            for sp, res in results.items():
+                if res.get("ok"):
+                    print(f"[inworld-localize] {job_id} {sp}: candidate {res.get('picked', 0) + 1} of {res.get('candidates')} approved, scores {res.get('scores')} {res.get('note') or ''}")
+                else:
+                    print(f"[inworld-localize] {job_id} {sp} failed: {res.get('error')}")
+                    loc_warnings.append(f"{sp}: the native Arabic accent could not be added, so the plain cloned voice is used.")
+    warnings = list(loc_warnings)
     for speaker in cloned_voices:
         if not str(cloned_voices[speaker]).startswith("ERROR"):
             speaker_segs = [s for s in segments if s.speaker == speaker]
