@@ -1169,6 +1169,15 @@ def _run_analysis(job):
             except Exception as ex:
                 print(f"[longdub] pause detection failed: {ex}")
         rows = rows_from_raw(raw_all, turns, label_map, silences)
+        try:     # what the detector said and what became of it (for the server log; short clips only)
+            if len(turns) <= 80:
+                print(f"[longdub] {job['id']} turn_map: " + " ".join(
+                    f"{t['start']:.1f}-{t['end']:.1f}={label_map.get(t['speaker'], t['speaker'])[-1:]}" for t in sorted(turns, key=lambda x: x['start'])))
+            if len(rows) <= 60:
+                print(f"[longdub] {job['id']} line_map: " + " ".join(
+                    f"{r['start']:.1f}-{r['end']:.1f}={str(r['speaker'])[-1:]}" for r in rows))
+        except Exception:
+            pass
         if not rows:
             _fail(job, "No speech was found in this video", "analysis")
             return
