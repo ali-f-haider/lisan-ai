@@ -2894,7 +2894,8 @@ def _run_dubbing(job):
                     continue
                 txt_ = (dub.get("rephrased") or {}).get(r["segment_id"], {}).get("after") or r["arabic_text"]
                 fm.append(f"{r['segment_id']}@{float(r['start']):.1f}:{_ar_letters(txt_)}L raw{m_.get('raw', 0):.1f}s "
-                          f"slot{m_.get('slot', 0):.1f}s room{m_.get('room', 0):.1f}s x{m_.get('tempo', 1):.2f}")
+                          f"slot{m_.get('slot', 0):.1f}s room{m_.get('room', 0):.1f}s x{m_.get('tempo', 1):.2f} "
+                          f"[{str(r.get('emotion') or 'neutral').replace(' ', '')}]")
             print(f"[longdub] {job['id']} fit_map (tempo limit x{TEMPO_MAX:.2f}): " + " | ".join(fm[:60]))
         except Exception:
             pass
@@ -3056,7 +3057,7 @@ def _run_dubbing(job):
             _bdk = bg_duck.duck_background(bg, wd / "vocals_mono.wav", wd / "background_ducked.wav")
             if _bdk["ducked"]:
                 bg_mix = wd / "background_ducked.wav"
-            _ev(job, "background_duck", "ok" if _bdk["ducked"] else "failed", _bdk["reason"])
+            _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
         if video_out and bg.exists():
             fc = ("[1:a]volume=1.0[d];"
                   "[2:a]highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"

@@ -37,6 +37,8 @@ def _env_float(name, default):
 DEPTH_DB = _env_float("BG_DUCK_DB", 12.0)
 LOW_KEEP_HZ = _env_float("BG_DUCK_KEEP_LOW_HZ", 250.0)   # below this the background is never lowered
 ENABLED = DEPTH_DB > 0.5
+QUIET_BG_DB = -50.0     # background this quiet while people speak (mean power): never lowered
+LOUD_BG_DB = -34.0      # ...and from this level up it is lowered by the full depth (in between: in proportion)
 
 FLOOR_DB = -50.0        # frames quieter than this are never speech
 REL_BELOW_PEAK_DB = 30.0   # ...and neither are frames this far under the typical speech level
@@ -79,14 +81,14 @@ def _voice_levels_db(vocals):
 
 def speech_gain_curve(levels_db, depth_db):
     """Gain (1.0 = untouched .. 10^(-depth/20)) per 10 ms from voice loudness.
-    Returns (gain, share_of_time_lowered)."""
+    Returns (gain, share_of_time_lowered, mask_of_lowered_frames)."""
     from scipy.ndimage import binary_closing
 
     if levels_db.size == 0:
-        return np.ones(0), 0.0
+        return np.ones(0), 0.0, np.zeros(0, dtype=bool)
     audible = levels_db[levels_db > -70.0]
     if audible.size < 50:
-        return np.ones(levels_db.size), 0.0
+        return np.ones(levels_db.size), 0.0, np.zeros(levels_db.size, dtype=bool)
     ref = float(np.percentile(audible, 95))
     thr = max(FLOOR_DB, ref - REL_BELOW_PEAK_DB)
     active = levels_db > thr
@@ -112,7 +114,7 @@ def speech_gain_curve(levels_db, depth_db):
         t = target[i]
         cur += (t - cur) * (a_att if t < cur else a_rel)
         g[i] = cur
-    return g, share
+    return g, share, grown
 
 
 def duck_background(bg_path, vocals_path, out_path, depth_db=None):
@@ -137,11 +139,28 @@ def duck_background(bg_path, vocals_path, out_path, depth_db=None):
             info["reason"] = "no separated voices file to follow"
             return info
         levels = _voice_levels_db(vocals_path)
-        gain, share = speech_gain_curve(levels, depth)
+        gain, share, mask = speech_gain_curve(levels, depth)
         info["share"] = round(share, 3)
         if gain.size == 0 or share < 0.005:
             info["reason"] = "no speech found in the original"
             return info
+        # The lowering hides the faint copy of the voices inside the background. When the
+        # background is itself very quiet while people speak, that copy is inaudible and
+        # the music/ambience is worth more: lower less, or not at all.
+        bgp = _frame_power_db(bg_path)
+        m = mask[:bgp.size]
+        if m.sum() >= 100:
+            lvl = _db(bgp[:m.size][m].mean())
+            info["bg_level_db"] = lvl
+            k = min(1.0, max(0.0, (lvl - QUIET_BG_DB) / (LOUD_BG_DB - QUIET_BG_DB)))
+            eff = depth * k
+            info["depth_db"] = round(eff, 1)
+            if eff < 1.0:
+                info["reason"] = f"background already very quiet while people speak ({lvl} dB): left as it is"
+                return info
+            if eff < depth - 0.05:
+                gain, share, mask = speech_gain_curve(levels, eff)
+                depth = eff
         from scipy.signal import butter, sosfilt
 
         sos = butter(4, LOW_KEEP_HZ / (RATE / 2.0), btype="low", output="sos")
