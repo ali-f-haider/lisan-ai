@@ -2559,6 +2559,30 @@ def _run_dubbing(job):
                 dub["fallback"][spid] = ""     # resolved below once the others are done
                 _save(job)
                 _ev(job, "voice_cloned", "failed", f"{names.get(spid)}: {err}")
+        # Optional (INWORLD_LOCALIZE=1): give each copied voice a native Arabic
+        # accent. All speakers are done at the same time; a voice that cannot be
+        # localized simply keeps sounding as it is. Checkpointed, so a restart
+        # never asks (and pays) twice.
+        if inworld_service.LOCALIZE_ENABLED and dub["voices"]:
+            done_loc = dub.setdefault("localized", {})
+            todo = [s for s in sp_ids if s in dub["voices"] and s not in done_loc]
+            if todo:
+                _mark(job, "clone", 10, "Giving the voices a native Arabic accent...")
+                from concurrent.futures import ThreadPoolExecutor
+                t0 = time.time()
+                with ThreadPoolExecutor(max_workers=len(todo)) as pool:
+                    futs = {s: pool.submit(inworld_service.localize_voice, dub["voices"][s], INWORLD_API_KEY) for s in todo}
+                    for spid, fut in futs.items():
+                        try:
+                            res = fut.result()
+                        except Exception as ex:
+                            res = {"ok": False, "error": str(ex)}
+                        done_loc[spid] = "ok" if res.get("ok") else "failed"
+                        _ev(job, "voice_localized", "ok" if res.get("ok") else "failed",
+                            (f"{names.get(spid)}: {res.get('candidates')} candidate(s), used {res.get('candidate')}, "
+                             f"{time.time() - t0:.0f}s, answer {res.get('answer')}") if res.get("ok")
+                            else f"{names.get(spid)}: {res.get('error')} (the plain copied voice is used)")
+                _save(job)
         good = [s for s in sp_ids if s in dub["voices"]]
         if not good:
             _fail(job, "The voices could not be copied from this video", "dub")

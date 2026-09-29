@@ -89,6 +89,19 @@ DEFAULT_LANGUAGE = "ar"
 # INWORLD_CLONE_LANGUAGE to en, ar or auto, then compare a short dub by ear.
 CLONE_SAMPLE_LANGUAGE = (os.environ.get("INWORLD_CLONE_LANGUAGE") or "en").strip() or "en"
 
+# Voice Localization (Inworld): makes a voice cloned from English speech speak
+# another language like a native speaker instead of with the English accent.
+# OFF unless the Railway variable INWORLD_LOCALIZE is set to 1. Used by Dub
+# Long Video only, for now. The target language and the number of candidates
+# to ask for can be changed with INWORLD_LOCALIZE_LANGUAGE (default "ar") and
+# INWORLD_LOCALIZE_CANDIDATES (default 1).
+LOCALIZE_ENABLED = (os.environ.get("INWORLD_LOCALIZE") or "").strip().lower() in ("1", "true", "yes", "on")
+LOCALIZE_LANGUAGE = (os.environ.get("INWORLD_LOCALIZE_LANGUAGE") or "ar").strip() or "ar"
+try:
+    LOCALIZE_CANDIDATES = max(1, min(5, int(os.environ.get("INWORLD_LOCALIZE_CANDIDATES") or 1)))
+except ValueError:
+    LOCALIZE_CANDIDATES = 1
+
 
 # Maps this app's canonical emotion/style vocabulary (config.
 # CANONICAL_EMOTIONS) onto Inworld's natural-language instruction-tag
@@ -267,6 +280,68 @@ def clone_voice_from_file(display_name: str, wav_path: Path, api_key: str, langu
     if not voice_id:
         raise Exception(f"No voiceId in Inworld response: {data}")
     return voice_id
+
+
+def _shape(obj, depth=0):
+    """A short description of a JSON answer (keys and sizes, never the audio
+    data itself) for the log when the answer is not what we expected."""
+    if isinstance(obj, dict):
+        return {k: (_shape(v, depth + 1) if depth < 3 else "...") for k, v in list(obj.items())[:20]}
+    if isinstance(obj, list):
+        return [f"{len(obj)} items"] + ([_shape(obj[0], depth + 1)] if obj and depth < 3 else [])
+    if isinstance(obj, str):
+        return f"text({len(obj)})"
+    return obj
+
+
+def _pick(d, *names):
+    """The first non-empty value under any of these keys."""
+    if isinstance(d, dict):
+        for n in names:
+            v = d.get(n)
+            if v:
+                return v
+    return None
+
+
+def localize_voice(voice_id: str, api_key: str, target_language: str = None, candidates: int = None) -> dict:
+    """Voice Localization in two calls: ask for localized candidates, then
+    approve one. There is no automatic scoring on Inworld's side, so the FIRST
+    candidate is approved here. Afterwards the SAME voiceId is spoken with
+    language=<target> and sounds like a native speaker. Deleting the voice
+    deletes its localization. Returns {"ok": True, "candidates": n, "candidate": id}
+    or {"ok": False, "error": "..."} -- never raises."""
+    if not _configured(api_key) or not voice_id:
+        return {"ok": False, "error": "not configured or no voice_id"}
+    lang = target_language or LOCALIZE_LANGUAGE
+    n = candidates or LOCALIZE_CANDIDATES
+    try:
+        data = None
+        for attempt, wait in enumerate((20, 40, None)):
+            try:
+                data = _request("POST", f"/voices/v1/voices/{voice_id}:localize", api_key,
+                                {"targetLanguage": lang, "candidateCount": n}, timeout=420)
+                break
+            except urllib.error.HTTPError as e:
+                if e.code != 429 or wait is None:
+                    raise
+                time.sleep(wait + random.uniform(0, 5))
+        draft = _pick(data, "draftVoiceId", "draft_voice_id")
+        if not draft:
+            dv = _pick(data, "draftVoice", "draft")
+            draft = dv if isinstance(dv, str) else _pick(dv, "voiceId", "id")
+        cands = _pick(data, "candidates", "localizedCandidates", "localizations") or []
+        cand = None
+        if isinstance(cands, list) and cands:
+            c0 = cands[0]
+            cand = c0 if isinstance(c0, str) else _pick(c0, "candidateId", "id", "name")
+        if not draft or not cand:
+            return {"ok": False, "error": f"unexpected answer to localize: {json.dumps(_shape(data))[:600]}"}
+        ans = _request("POST", f"/voices/v1/voices/{voice_id}:approveLocalization", api_key,
+                       {"draftVoiceId": draft, "candidateId": cand}, timeout=120)
+        return {"ok": True, "candidates": len(cands), "candidate": str(cand), "answer": json.dumps(_shape(ans))[:300]}
+    except Exception as e:
+        return {"ok": False, "error": _http_error_detail(e)[:600]}
 
 
 def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_LANGUAGE, model_id: str = DEFAULT_MODEL_ID) -> bytes:
