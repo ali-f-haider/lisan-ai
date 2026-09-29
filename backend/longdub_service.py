@@ -2650,7 +2650,12 @@ def _plan_timeline(lines, total):
 
 REPHRASE_ENABLED = True
 REPHRASE_TRIES = 2             # at most this many shorter versions are tried for one line
-REPHRASE_MIN_LETTERS = 8       # a line shorter than this is never rephrased
+try:      # a line with fewer Arabic letters than this is never rewritten shorter (env LONGDUB_REPHRASE_MIN_LETTERS, 8 - 40)
+    REPHRASE_MIN_LETTERS = min(40, max(8, int(float(os.environ.get("LONGDUB_REPHRASE_MIN_LETTERS") or 14))))
+except Exception:
+    REPHRASE_MIN_LETTERS = 14
+# Very short lines keep their emotion and their full meaning: their audio is played at the tempo limit at most
+# (a slightly cut end is better than a different sentence). Rewriting them halved their words (11 -> 5 letters).
 
 
 def _ar_letters(text):
@@ -2855,7 +2860,7 @@ def _run_dubbing(job):
             room = max(nxt - float(r["start"]), 0.05)
             meta = _fit_line(raw, d / "fit" / f"{sid}.wav", slot, room, loud_ref, float(r["start"]))
             new_text = None
-            if REPHRASE_ENABLED and meta["dur"] > room + 0.02:
+            if REPHRASE_ENABLED and meta["dur"] > room + 0.02 and _ar_letters(r["arabic_text"]) >= REPHRASE_MIN_LETTERS:
                 _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Shortening a line to fit (line {i + 1} of {n})...")
                 meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d)
             meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text) if new_text is None else len(f"{tag}{new_text}")})
