@@ -1,4 +1,5 @@
 from fastapi.staticfiles import StaticFiles
+import asyncio
 import json
 import os
 import secrets
@@ -3221,6 +3222,44 @@ NO_LIPSYNC_MAX_SEC = 30
 # around 50MB, so this isn't an arbitrary number, it's sized to match real
 # phone-video bitrates at the new duration cap.
 MAX_UPLOAD_MB = 50
+# Bigger ceiling that applies ONLY when the upload comes with a chosen
+# section (trim_start/trim_end -- the "choose the part to dub" box in
+# Step 1). The server cuts that 15/30-second section out with ffmpeg right
+# after the upload lands and deletes the original, so the memory-heavy
+# steps (Whisper, Demucs, cloning) still only ever see a short clip. The
+# 50MB cap above exists to bound THAT processing, not the disk write.
+# 300MB covers roughly a 5-minute phone video or a longer, lower-bitrate one.
+MAX_TRIM_UPLOAD_MB = 300
+# One section cut at a time: a re-encode of a 1080p/4K source can take a few
+# hundred MB of RAM, and this container also hosts Whisper/Demucs.
+_trim_lock = threading.Semaphore(1)
+
+
+def _cut_upload_section(src: Path, job_id: str, start: float, duration: float):
+    """Blocking (run it in a worker thread). Replaces the uploaded original
+    with just the chosen section, named {job_id}.mp4 (video) or
+    {job_id}.wav (audio-only) so everything downstream treats it like any
+    normal short upload. The original file is deleted. Returns the new
+    path; raises on failure after cleaning up the temp output."""
+    is_vid = src.suffix.lower() in VIDEO_EXTS
+    final_ext = ".mp4" if is_vid else ".wav"
+    tmp = UPLOAD_DIR / f"{job_id}_trimtmp{final_ext}"
+    final = UPLOAD_DIR / f"{job_id}{final_ext}"
+    try:
+        with _trim_lock:
+            ffmpeg_utils.trim_media(src, tmp, start, duration, is_vid)
+        if not tmp.exists() or tmp.stat().st_size < 1024:
+            raise Exception("ffmpeg produced no output")
+        try: src.unlink()
+        except Exception: pass
+        tmp.replace(final)
+        return final
+    except Exception:
+        try: tmp.unlink()
+        except Exception: pass
+        raise
+
+
 # Below this, cloning is still allowed (see the 4s floor above) but the
 # result may not sound convincing -- ElevenLabs' own guidance is that ~30s
 # of clean audio is where they've seen consistently good clones. This only
@@ -3229,7 +3268,7 @@ CLONE_QUALITY_WARN_SEC = 30
 
 
 @app.post("/api/transcribe")
-async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form(""), lipsync: str = Form("false")):
+async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form(""), lipsync: str = Form("false"), trim_start: float = Form(-1.0), trim_end: float = Form(-1.0)):
     if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     # The client already blocks the button until the voice-rights checkbox is
@@ -3254,12 +3293,47 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     # JavaScript and can't be trusted -- exactly like the duration check
     # below, anyone posting directly to this endpoint bypassed it entirely
     # until now. See MAX_UPLOAD_MB's own comment above for why 50MB.
+    trim_requested = trim_start >= 0 and trim_end > trim_start
+    size_cap_mb = MAX_TRIM_UPLOAD_MB if trim_requested else MAX_UPLOAD_MB
     size_mb = dest.stat().st_size / (1024 * 1024)
-    if size_mb > MAX_UPLOAD_MB:
+    if size_mb > size_cap_mb:
         try: dest.unlink()
         except Exception: pass
         _job_started.pop(job_id, None)
-        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB — please trim or compress it first."}, status_code=413)
+        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {size_cap_mb} MB — please compress it or cut it shorter first."}, status_code=413)
+    lipsync_wanted = lipsync.strip().lower() in ("true", "1", "yes", "on")
+    if trim_requested:
+        # The user picked a section of a longer (or larger) file. Cut it out
+        # now, in a worker thread so the event loop keeps serving everyone
+        # else, and let the normal duration checks below run on the SLICE.
+        _cut_max = LIPSYNC_MAX_SEC if lipsync_wanted else NO_LIPSYNC_MAX_SEC
+        _cut_len = trim_end - trim_start
+        if _cut_len > _cut_max + 0.05:
+            try: dest.unlink()
+            except Exception: pass
+            _job_started.pop(job_id, None)
+            return JSONResponse({"error": f"The chosen section is {round(_cut_len)} seconds long. The limit is {_cut_max} seconds."}, status_code=413)
+        try:
+            _src_dur = ffmpeg_utils.get_media_duration(dest)
+        except Exception:
+            _src_dur = None
+        if _src_dur is not None:
+            if trim_start >= _src_dur - 0.5:
+                try: dest.unlink()
+                except Exception: pass
+                _job_started.pop(job_id, None)
+                return JSONResponse({"error": "The chosen start time is past the end of this file. Please choose the section again."}, status_code=400)
+            _cut_len = min(_cut_len, _src_dur - trim_start)
+        try:
+            dest = await asyncio.to_thread(_cut_upload_section, dest, job_id, trim_start, _cut_len)
+        except Exception as _cut_ex:
+            print(f"[transcribe] section cut failed: {str(_cut_ex)[-400:]}")
+            for _p in UPLOAD_DIR.glob(f"{job_id}*"):
+                try: _p.unlink()
+                except Exception: pass
+            _job_started.pop(job_id, None)
+            return JSONResponse({"error": "Couldn't cut that section out of the file. Please try a different section, or convert the file to MP4 first."}, status_code=400)
+        ext = dest.suffix.lower()
     # Server-side duration cap. The client already blocks out-of-range
     # clips in its own UI, but that check runs in JavaScript and can't be
     # trusted -- anyone posting directly to this endpoint bypasses it
@@ -3269,7 +3343,6 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     # client-supplied flag alone, since a wrong duration here means either
     # blocking a valid upload or letting through one that will only fail
     # later, after the user has already waited through transcription.
-    lipsync_wanted = lipsync.strip().lower() in ("true", "1", "yes", "on")
     min_sec = LIPSYNC_MIN_SEC if lipsync_wanted else NO_LIPSYNC_MIN_SEC
     max_sec = LIPSYNC_MAX_SEC if lipsync_wanted else NO_LIPSYNC_MAX_SEC
     dur = None
@@ -3277,13 +3350,17 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
         dur = ffmpeg_utils.get_media_duration(dest)
     except Exception as _dur_ex:
         print(f"[transcribe] duration probe failed, allowing upload through: {_dur_ex}")
+    # A section we just cut can read a few hundredths of a second off its
+    # nominal length (AAC frame padding), so a section the user legitimately
+    # picked at exactly the limit must not bounce off it.
+    _tol = 0.5 if trim_requested else 0.0
     if dur is not None:
-        if dur < min_sec:
+        if dur < min_sec - _tol:
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
             return JSONResponse({"error": f"This clip is only {round(dur, 1)} seconds long. The minimum is {min_sec} seconds."}, status_code=413)
-        if dur > max_sec:
+        if dur > max_sec + _tol:
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)

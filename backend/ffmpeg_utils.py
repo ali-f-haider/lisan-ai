@@ -42,6 +42,46 @@ def get_media_duration(file_path: Path) -> float:
     return float(result)
 
 
+def trim_media(src_path, out_path, start: float, duration: float, is_video: bool):
+    """Cuts one section (start .. start+duration seconds) out of a longer
+    upload and writes it to out_path. Added so a user with a 5-10 minute
+    video can pick the 15/30-second part to dub instead of being turned
+    away at the upload limit -- everything downstream (Whisper, Demucs,
+    cloning, TTS) then only ever sees the short slice, exactly like a
+    normal short upload, so memory use is unchanged.
+
+    -ss BEFORE -i seeks to the nearest keyframe cheaply and, because the
+    section is re-encoded (not stream-copied), ffmpeg then decodes forward
+    to the exact requested frame -- a stream copy would snap to a keyframe
+    and could be off by several seconds. Video is bounded to a 1920x1920
+    box (1080p landscape AND portrait pass through untouched; 4K is scaled
+    down) with dimensions forced even, which libx264/yuv420p requires.
+    Audio-only sources come out as PCM wav (in AUDIO_EXTS, universally
+    readable downstream).
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        "-ss", f"{float(start):.3f}", "-i", str(src_path),
+        "-t", f"{float(duration):.3f}",
+    ]
+    if is_video:
+        cmd += [
+            "-map", "0:v:0?", "-map", "0:a:0?",
+            "-vf", "scale='min(iw,1920)':'min(ih,1920)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+        ]
+    else:
+        cmd += ["-vn", "-c:a", "pcm_s16le"]
+    cmd.append(str(out_path))
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
+    except subprocess.CalledProcessError as e:
+        error_message = e.stderr.decode(errors="ignore") if e.stderr else str(e)
+        raise Exception(error_message)
+
+
 def extract_audio_from_video(video_path: str, output_audio_path: str):
     cmd = [
         "ffmpeg", "-y", "-i", str(video_path),

@@ -1398,6 +1398,12 @@ async function confirmTimeline() {
 window.addEventListener('DOMContentLoaded', loadRealPricing);
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+// A file bigger than MAX_UPLOAD_BYTES (or longer than the duration limit) is
+// still accepted up to this size IF the user picks the section to dub in the
+// "Choose the part to dub" box (LisanDialog.trim, dialogs.js) -- the server
+// cuts that section out and throws the rest away. Must match
+// MAX_TRIM_UPLOAD_MB in main.py.
+const MAX_TRIM_UPLOAD_BYTES = 300 * 1024 * 1024;
 const MAX_DURATION_SEC = 30.5;
 const MIN_DURATION_SEC = 4;
 const LIPSYNC_MAX_DURATION_SEC = 15;
@@ -1420,16 +1426,16 @@ const CLONE_QUALITY_WARN_SEC = 30;
 // the element itself and re-rendered in the current language from here.
 const LIPSYNC_NOTE_TEXT = {
     default: {
-        en: 'Checked: clip must be <strong>4-15 seconds</strong>. Unchecked: clip must be <strong>4-30 seconds</strong>.',
-        ar: 'عند التفعيل: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>. بدون تفعيل: يجب أن تكون مدة المقطع <strong>4-30 ثانية</strong>.'
+        en: 'Checked: the dubbed part can be <strong>4-15 seconds</strong>. Unchecked: <strong>4-30 seconds</strong>. With a longer video you choose which part.',
+        ar: 'عند التفعيل: يمكن أن يكون الجزء المدبلج <strong>4-15 ثانية</strong>. بدون تفعيل: <strong>4-30 ثانية</strong>. مع فيديو أطول تختار الجزء المطلوب.'
     },
     checked: {
-        en: 'Lip-sync selected: clip must be <strong>4-15 seconds</strong>.',
-        ar: 'تم اختيار مزامنة الشفاه: يجب أن تكون مدة المقطع <strong>4-15 ثانية</strong>.'
+        en: 'Lip-sync selected: the dubbed part can be <strong>4-15 seconds</strong>. With a longer video you choose which part.',
+        ar: 'تم اختيار مزامنة الشفاه: يمكن أن يكون الجزء المدبلج <strong>4-15 ثانية</strong>. مع فيديو أطول تختار الجزء المطلوب.'
     },
     unchecked: {
-        en: 'Clip must be <strong>4-30 seconds</strong>.',
-        ar: 'يجب أن تكون مدة المقطع <strong>4-30 ثانية</strong>.'
+        en: 'The dubbed part can be <strong>4-30 seconds</strong>. With a longer video you choose which part.',
+        ar: 'يمكن أن يكون الجزء المدبلج <strong>4-30 ثانية</strong>. مع فيديو أطول تختار الجزء المطلوب.'
     }
 };
 function renderLipsyncChoiceNote() {
@@ -1940,29 +1946,40 @@ async function startTranscribe() {
         consentBox.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
-        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is 50 MB — please trim or compress it first.");
+    if (file.size > MAX_TRIM_UPLOAD_BYTES) {
+        notify("error", "File too large (" + (file.size / 1048576).toFixed(0) + " MB). The limit is " + (MAX_TRIM_UPLOAD_BYTES / 1048576) + " MB — please compress it or cut it shorter first.");
         return;
     }
     const lipsyncBox = document.getElementById("lipsyncWantedCheckbox");
     const lipsyncWanted = !!(lipsyncBox && lipsyncBox.checked);
-    const maxDur = lipsyncWanted ? LIPSYNC_MAX_DURATION_SEC : MAX_DURATION_SEC;
+    // Whole seconds, matching the server (LIPSYNC_MAX_SEC / NO_LIPSYNC_MAX_SEC).
+    const maxDur = lipsyncWanted ? LIPSYNC_MAX_DURATION_SEC : Math.floor(MAX_DURATION_SEC);
     const dur = await probeFileDuration(file);
     if (dur !== null && dur < MIN_DURATION_SEC) {
         notify("error", "This clip is only " + dur.toFixed(1) + " seconds long. The minimum is " + MIN_DURATION_SEC + " seconds.");
         return;
     }
-    if (dur !== null && dur > maxDur) {
-        const limitDesc = lipsyncWanted ? "For a lip-synced clip, the" : "The";
-        notify("error", "This clip is " + Math.round(dur) + " seconds long. " + limitDesc + " limit is " + maxDur + " seconds — please trim it first.");
-        return;
+    // Too long, or too big for a direct upload: instead of turning the user
+    // away, let them pick the section to dub (the server cuts it out).
+    let trimStart = -1, trimEnd = -1;
+    const tooLong = dur !== null && dur > maxDur;
+    const tooBig = file.size > MAX_UPLOAD_BYTES;
+    if (tooLong || tooBig) {
+        const pick = await LisanDialog.trim(file, {
+            duration: dur, maxSec: maxDur, minSec: MIN_DURATION_SEC,
+            reason: tooLong ? "long" : "size",
+            sizeMB: file.size / 1048576, capMB: MAX_UPLOAD_BYTES / 1048576
+        });
+        if (!pick) return;
+        trimStart = pick.start; trimEnd = pick.end;
     }
+    const effDur = trimStart >= 0 ? (trimEnd - trimStart) : dur;
     // Not a blocker -- cloning can still run on a shorter clip, it just may
     // not sound as convincing (ElevenLabs' own guidance: ~30s of clean
     // audio is where they've seen consistently good results). Worth
     // telling the user up front rather than only after they've spent
     // credits on a clone that doesn't sound like the speaker.
-    if (dur !== null && dur < CLONE_QUALITY_WARN_SEC) {
+    if (effDur !== null && effDur < CLONE_QUALITY_WARN_SEC) {
         notify("info", "Heads up: this clip is under " + CLONE_QUALITY_WARN_SEC + " seconds. Voice cloning can still run, but a longer clip usually sounds more convincing.");
     }
     // Blank field -> 0, which whisper_service.py already treats as "no
@@ -1978,6 +1995,10 @@ async function startTranscribe() {
     form.append("speaker_count", speakerCount);
     form.append("voice_consent", "true");
     form.append("lipsync", lipsyncWanted ? "true" : "false");
+    if (trimStart >= 0) {
+        form.append("trim_start", String(trimStart));
+        form.append("trim_end", String(trimEnd));
+    }
     const pf = document.getElementById("progressFill");
     const pt = document.getElementById("progressText");
     document.getElementById("progressSection").classList.remove("hidden");
@@ -2006,6 +2027,15 @@ async function startTranscribe() {
             xhr.onerror = function () { reject(new Error("Network error during upload")); };
             xhr.send(form);
         });
+        // The server refused the upload (too long / too big / can't cut the
+        // chosen section / out of credits ...): say why instead of polling a
+        // job that doesn't exist.
+        if (!data || !data.job_id) {
+            const why = data && (data.error || (typeof data.detail === "string" ? data.detail : ""));
+            notify("error", why || "The upload was not accepted. Please try again.");
+            document.getElementById("progressSection").classList.add("hidden");
+            return;
+        }
         currentJobId = data.job_id; originalSegments = [];
         speakerVoices = {}; speakerVoiceNames = {}; speakerChoices = {}; clonedBySpeaker = {};
         voicePools = { male: [], female: [] };
@@ -4586,8 +4616,8 @@ window.cleanOldClones = function () {
             // BANNERS entry was left on the old pre-checkbox wording until
             // now, so Arabic mode was showing a stale "60 seconds max"
             // translation that no longer matched the real limits.
-            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Limits: <strong>4-30 seconds</strong> duration (<strong>4-15 seconds</strong> if lip-sync is selected below), <strong>50 MB</strong> max file size.',
-            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>الحدود: مدة <strong>4-30 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه)، وحجم ملف أقصى <strong>50 ميجابايت</strong>.'
+            en: 'Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Each dub covers <strong>4-30 seconds</strong> (<strong>4-15 seconds</strong> if lip-sync is selected below). Longer video, or a file over 50 MB (up to <strong>300 MB</strong>)? You\'ll be asked to choose the part to dub.',
+            ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>تغطي كل دبلجة <strong>4-30 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه). فيديو أطول، أو ملف أكبر من 50 ميجابايت (حتى <strong>300 ميجابايت</strong>)؟ سيُطلب منك اختيار الجزء المراد دبلجته.'
         },
         step1CreditsNote: {
             en: '💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
