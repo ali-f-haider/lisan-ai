@@ -1088,9 +1088,12 @@ function fillEmotion(sel, value) {
   if (EMOTIONS.indexOf(v) < 0) {
     var o0 = document.createElement("option"); o0.value = v; o0.textContent = emoLabelMulti(v); sel.appendChild(o0);
   }
-  EMOTIONS.forEach(function (e) {
-    var o = document.createElement("option"); o.value = e; o.textContent = emoLabel(e); sel.appendChild(o);
-  });
+  // alphabetical by what the user reads (English or Arabic labels)
+  EMOTIONS.map(function (e) { return { e: e, l: emoLabel(e) }; })
+    .sort(function (a, b) { return a.l.localeCompare(b.l, LANG === "ar" ? "ar" : "en", { sensitivity: "base" }); })
+    .forEach(function (x) {
+      var o = document.createElement("option"); o.value = x.e; o.textContent = x.l; sel.appendChild(o);
+    });
   sel.value = v;
 }
 
