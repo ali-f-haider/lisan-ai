@@ -2539,13 +2539,16 @@ def _bg_levels_event(job, wd, bg):
         orig = wd / "audio.wav"
         if not orig.exists():
             return
-        rep = bg_duck.level_report(orig, bg, pauses)
+        voc = wd / "vocals.wav"
+        rep = bg_duck.level_report(orig, bg, pauses, voc if voc.exists() else None)
         if not rep:
             return
         msg = f"original {rep['orig_all']} dB, separated background {rep['bg_all']} dB overall"
         if "orig_pauses" in rep:
             msg += (f"; in the {rep['pause_sec']:g}s where nobody speaks: original {rep['orig_pauses']} dB, "
                     f"background {rep['bg_pauses']} dB")
+            if "voc_pauses" in rep:
+                msg += f"; separated voices track in those pauses {rep['voc_pauses']} dB"
         _ev(job, "background_levels", "info", msg)
     except Exception as ex:
         print(f"[longdub] level report skipped: {ex}")

@@ -259,7 +259,7 @@ def _db(x):
     return round(10.0 * float(np.log10(max(x, 1e-12))), 1)
 
 
-def level_report(original, background, pauses):
+def level_report(original, background, pauses, vocals=None):
     """How loud the original track and the separated background are, overall and
     only inside the pauses of the voices (there the original holds nothing but
     music/ambience, so the two should match). Returns a dict, {} on any problem."""
@@ -277,6 +277,10 @@ def level_report(original, background, pauses):
         rep = {"orig_all": _db(o.mean()), "bg_all": _db(b.mean()), "pause_sec": round(float(mask.sum()) * FRAME_SEC, 1)}
         if mask.sum() >= 100:
             rep["orig_pauses"], rep["bg_pauses"] = _db(o[mask].mean()), _db(b[mask].mean())
+            if vocals is not None:      # where did the sound of the pauses go? into the separated voices?
+                v = _frame_power_db(vocals)
+                if v.size >= mask.size:
+                    rep["voc_pauses"] = _db(v[:mask.size][mask].mean())
         return rep
     except Exception:
         return {}
