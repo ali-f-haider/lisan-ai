@@ -16,7 +16,7 @@ from typing import Dict, List
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
@@ -122,6 +122,36 @@ GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-late
 
 # ==================== ALL MODELS ====================
 
+# Security review (2026-09-30): job ids come from the browser and end up inside
+# file names and glob patterns ("{job_id}*"). A value like "*" or "a?" used to
+# match OTHER users' files. Real ids are uuid4 strings, so only plain
+# letters/digits/_/- are accepted anywhere an id is read from a request.
+import re as _re_sec
+_JOB_ID_RE = _re_sec.compile(r"[A-Za-z0-9_-]{20,100}")   # real ids are 36-char uuid4s; short values like "a" would prefix-match many files
+_SAFE_TOKEN_RE = _re_sec.compile(r"[A-Za-z0-9_-]{8,200}")
+
+
+def _bad_segment_id(v) -> bool:
+    v = str(v or "")
+    return (not v) or len(v) > 200 or any(c in v for c in ("/", "\\", "\x00")) or ".." in v
+
+
+class _JobIdModel(BaseModel):
+    @field_validator("job_id", check_fields=False)
+    @classmethod
+    def _job_id_ok(cls, v):
+        if v and not _JOB_ID_RE.fullmatch(str(v)):
+            raise ValueError("bad job id")
+        return v
+
+    @field_validator("segment_id", check_fields=False)
+    @classmethod
+    def _segment_id_ok(cls, v):
+        if _bad_segment_id(v):
+            raise ValueError("bad segment id")
+        return v
+
+
 class LoginRequest(BaseModel):
     password: str = ""
 
@@ -129,11 +159,11 @@ class AuthRequest(BaseModel):
     access_token: str = ""
     refresh_token: str = ""
 
-class AnalyzeRequest(BaseModel):
+class AnalyzeRequest(_JobIdModel):
     job_id: str
     segments: List[Segment]
 
-class CloneRequest(BaseModel):
+class CloneRequest(_JobIdModel):
     job_id: str
     segments: List[Segment]
     speakers_to_clone: List[str] = []
@@ -159,15 +189,15 @@ class VoiceLibraryAddRequest(BaseModel):
     voice_id: str
     new_name: str = "Voice"
 
-class TranslateRequest(BaseModel):
+class TranslateRequest(_JobIdModel):
     job_id: str = ""
     segments: List[Segment]
 
-class EmotionRequest(BaseModel):
+class EmotionRequest(_JobIdModel):
     job_id: str
     segments: List[Segment]
 
-class GenerateRequest(BaseModel):
+class GenerateRequest(_JobIdModel):
     job_id: str = ""
     segments: List[Segment]
     elevenlabs_api_key: str = ""
@@ -194,7 +224,7 @@ class GenerateRequest(BaseModel):
     cloned_voice_ids: List[str] = []
     enhance_background: bool = True
 
-class RegenerateLineRequest(BaseModel):
+class RegenerateLineRequest(_JobIdModel):
     job_id: str = ""
     segment: Segment
     segments: List[Segment] = []
@@ -212,7 +242,7 @@ class RegenerateLineRequest(BaseModel):
     dead_space_allowed: dict = {}
     total_duration: float = 0.0
 
-class RemixRequest(BaseModel):
+class RemixRequest(_JobIdModel):
     job_id: str = ""
     segments: List[Segment] = []
     offsets: Dict[str, float] = {}
@@ -222,17 +252,17 @@ class RemixRequest(BaseModel):
     overlap_allowed: dict = {}
     dead_space_allowed: dict = {}
 
-class MergeRequest(BaseModel):
+class MergeRequest(_JobIdModel):
     job_id: str
     enhance_background: bool = True
 
-class LipSyncRequest(BaseModel):
+class LipSyncRequest(_JobIdModel):
     job_id: str
     provider: str = "wan3"
     model: str = "lipsync-2"
     sync_key: str = ""
 
-class TashkeelItem(BaseModel):
+class TashkeelItem(_JobIdModel):
     segment_id: str
     arabic_text: str
 
@@ -335,6 +365,8 @@ def _persist_session(token, sb_access_token):
 
 def _restore_session_from_db(token) -> bool:
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
+        return False
+    if not _SAFE_TOKEN_RE.fullmatch(str(token)):
         return False
     try:
         url = f"{SUPABASE_URL}/rest/v1/app_sessions?token=eq.{token}&select=sb_access_token"
@@ -491,8 +523,54 @@ PUBLIC_PATHS = frozenset([
     "/api/account/delete"
 , "/help.html", "/admin"])
 
+# Security review (2026-09-30): upload endpoints used to accept a body of ANY
+# size -- FastAPI spools the whole multipart body to disk before the route
+# runs, so the size check inside the route came after the damage (a 4 GB
+# upload on a 5 GB Railway volume would fill it for everybody). The check
+# here uses the Content-Length header, which every browser sends for a
+# FormData upload, and refuses before a single byte is read.
+_UPLOAD_PATH_CAPS_MB = {
+    "/api/transcribe": 305,            # MAX_TRIM_UPLOAD_MB (300) + form fields
+    "/api/attach_media": 305,
+    "/api/upload_custom_voice": 12,    # route allows 10 MB
+    "/api/lipsync/reference-images": 70,
+}
+_SMALL_BODY_CAP_MB = 20                # every other non-upload API call
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Strict-Transport-Security": "max-age=31536000",
+}
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if request.method in ("POST", "PUT", "PATCH") and path.startswith("/api/") and path not in GATE_EXEMPT_PATHS:
+            cap_mb = _UPLOAD_PATH_CAPS_MB.get(path)
+            if cap_mb is None and "/chunk" not in path:
+                cap_mb = _SMALL_BODY_CAP_MB
+            if cap_mb is not None:
+                try:
+                    clen = int(request.headers.get("content-length") or -1)
+                except ValueError:
+                    clen = -1
+                if clen > cap_mb * 1024 * 1024:
+                    return JSONResponse({"error": "That file is too large."}, status_code=413)
+                if clen < 0 and path in _UPLOAD_PATH_CAPS_MB:
+                    return JSONResponse({"error": "Upload not accepted (missing size)."}, status_code=411)
+        resp = await self._dispatch_inner(request, call_next)
+        try:
+            for _k, _v in _SECURITY_HEADERS.items():
+                if _k == "Strict-Transport-Security" and request.headers.get("x-forwarded-proto", request.url.scheme) != "https":
+                    continue
+                resp.headers.setdefault(_k, _v)
+        except Exception:
+            pass
+        return resp
+
+    async def _dispatch_inner(self, request: Request, call_next):
         path = request.url.path
         # /gate and /api/site-gate must ALWAYS be reachable no matter what,
         # bypassing every check below -- not just the gate check itself.
@@ -517,7 +595,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
         if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
             return await call_next(request)
-        if path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".mp4", ".webm")):            return await call_next(request)
+        if not path.startswith("/api/") and path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".mp4", ".webm")):
+            return await call_next(request)
         if not _is_logged_in(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
@@ -680,11 +759,45 @@ def user_info(request: Request):
     except Exception:
         return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
 
+def _cookie_secure(request: Request) -> bool:
+    """Secure cookies only over https (Railway terminates TLS and tells us
+    via X-Forwarded-Proto); local http development keeps working."""
+    try:
+        return request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
+    except Exception:
+        return False
+
+
+def _forget_session(tok: str):
+    """Really ends a login: drops it from memory AND from the app_sessions
+    table, so a copied cookie stops working (before, logout only asked the
+    browser to delete its copy, and the server kept honouring the old one
+    for up to 7 days)."""
+    if not tok:
+        return
+    _sessions.discard(tok)
+    _valid_tokens.pop(tok, None)
+    _session_users.pop(tok, None)
+    if not (SUPABASE_URL and SUPABASE_SERVICE_KEY and _SAFE_TOKEN_RE.fullmatch(str(tok))):
+        return
+
+    def _run():
+        try:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/rest/v1/app_sessions?token=eq.{tok}",
+                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                         "Prefer": "return=minimal"},
+                method="DELETE")
+            urllib.request.urlopen(req, timeout=10).read()
+        except Exception as ex:
+            print(f"[session] could not delete session row: {ex}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 @app.post("/api/logout")
-def logout(response: Response):
-    cookie = response.headers.get("set-cookie", "")
-    tok = ""
-    # Clear session
+def logout(request: Request, response: Response):
+    _forget_session(request.cookies.get("session", ""))
     response.delete_cookie("session")
     return {"ok": True}
 
@@ -713,13 +826,13 @@ def debug_keys(request: Request):
 # ==================== AUTH ROUTES ====================
 
 @app.post("/api/auth/session")
-def auth_session(req: AuthRequest, response: Response):
+def auth_session(req: AuthRequest, response: Response, request: Request):
     if _verify_supabase_token(req.access_token):
         tok = secrets.token_hex(32)
         _sessions.add(tok)
         _valid_tokens[tok] = req.access_token
         _persist_session(tok, req.access_token)
-        response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
+        response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax", secure=_cookie_secure(request))
         return {"ok": True}
     return JSONResponse({"error": "Your session has expired. Please log in again."}, status_code=401)
 
@@ -739,7 +852,7 @@ def login_legacy(req: LoginRequest, response: Response, request: Request):
         tok = secrets.token_hex(32)
         _sessions.add(tok)
         _persist_session(tok, None)
-        response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
+        response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax", secure=_cookie_secure(request))
         return {"ok": True}
     _record_login_fail(request)
     return {"ok": False}
@@ -750,7 +863,7 @@ def site_gate_submit(req: LoginRequest, response: Response, request: Request):
     if _login_rate_limited(request):
         return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
     if SITE_GATE_PASSWORD and hmac.compare_digest(str(req.password), str(SITE_GATE_PASSWORD)):
-        response.set_cookie(SITE_GATE_COOKIE, _site_gate_token(), httponly=True, max_age=86400 * 30, samesite="lax")
+        response.set_cookie(SITE_GATE_COOKIE, _site_gate_token(), httponly=True, max_age=86400 * 30, samesite="lax", secure=_cookie_secure(request))
         return {"ok": True}
     _record_login_fail(request)
     return {"ok": False}
@@ -1001,6 +1114,48 @@ def _current_uid(request: Request):
         return uid
     except Exception:
         return None
+
+
+# ---- job ownership for the short (Steps 1-7) flow -------------------------------
+# Every short-flow job is a uuid4 that only its creator ever sees, but nothing
+# used to CHECK that the caller is that creator. _job_guard is the one check
+# every job-scoped route now runs: the id must look like a real id (no glob
+# characters), and if we know who owns it (in memory from the upload, else from
+# credit_spends) it must be the caller. A job nobody is recorded against yet
+# (e.g. very first seconds after a server restart) is let through -- the id is
+# a 122-bit random value, so it can't be guessed.
+_job_owner: Dict[str, str] = {}
+_job_owner_lookup: Dict[str, tuple] = {}
+
+
+def _register_job_owner(job_id: str, uid):
+    if job_id and uid:
+        _job_owner[job_id] = str(uid)
+
+
+def _job_guard(request: Request, job_id, allow_empty: bool = True):
+    """None when the caller may use this job; otherwise a ready 4xx response."""
+    if not job_id:
+        if allow_empty:
+            return None
+        return JSONResponse({"error": "not found"}, status_code=404)
+    if not _JOB_ID_RE.fullmatch(str(job_id)):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    uid = _current_uid(request)
+    owner = _job_owner.get(job_id)
+    if owner is None:
+        now = time.time()
+        cached = _job_owner_lookup.get(job_id)
+        if cached and now - cached[1] < 120:
+            owner = cached[0]
+        else:
+            owner = _uid_for_job(job_id)
+            if len(_job_owner_lookup) > 4000:
+                _job_owner_lookup.clear()
+            _job_owner_lookup[job_id] = (owner, now)
+    if owner and str(owner) != str(uid or ""):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return None
 
 
 def _sb_rpc(function: str, args: dict):
@@ -1959,6 +2114,9 @@ async def stripe_webhook(request: Request):
             else:
                 credits = int((session.get("metadata") or {}).get("credits", 0))
                 print("[stripe-webhook] uid=", uid, "credits=", credits)
+                if session.get("payment_status") == "unpaid":
+                    print("[stripe-webhook] session not paid yet, not granting credits:", session.get("id"))
+                    credits = 0
                 if uid and credits:
                     print("[stripe-webhook] SUPABASE_SERVICE_KEY present:", bool(SUPABASE_SERVICE_KEY))
                     res = _fulfill_order(uid, session.get("id", ""), credits)
@@ -3256,7 +3414,10 @@ def help_page():
     return FileResponse(BASE_DIR / "help.html", media_type="text/html")
 
 @app.get("/api/progress/enhance/{job_id}")
-def enhance_progress(job_id: str):
+def enhance_progress(job_id: str, request: Request):
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     return audio_enhance.get_progress(job_id)
 
 # ==================== API ROUTES ====================
@@ -3355,6 +3516,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
         return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use ➕ Buy to get a pack."}, status_code=402)
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
+    _register_job_owner(job_id, uid)
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
     dest = UPLOAD_DIR / f"{job_id}{ext}"
     with open(dest, "wb") as f:
@@ -3455,6 +3617,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
 
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
+    _register_job_owner(job_id, uid)
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
     dest = UPLOAD_DIR / f"{job_id}{ext}"
 
@@ -3519,12 +3682,15 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
 
 
 @app.post("/api/abandon/{job_id}")
-def abandon_job(job_id: str):
+def abandon_job(job_id: str, request: Request):
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
     _abandoned_jobs.add(job_id)
     jobs_progress.pop(job_id, None)
     try:
         for d in (UPLOAD_DIR, OUTPUT_DIR):
-            for p in d.glob(f"{job_id}*"):
+            for p in list(d.glob(f"{job_id}.*")) + list(d.glob(f"{job_id}_*")):
                 if p.is_file():
                     p.unlink()
     except Exception:
@@ -3538,15 +3704,24 @@ def abandon_job(job_id: str):
 # the wrong (nonexistent) "generate" key, returning not_found forever.
 # (This was the actual cause of the frozen Generate progress bar.)
 @app.get("/api/progress/generate")
-def generate_progress(job_id: str = ""):
+def generate_progress(request: Request, job_id: str = ""):
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     return _public_progress(jobs_progress.get(f"generate_{job_id}", {"status": "not_found"}))
 
 @app.get("/api/progress/{job_id}")
-def progress(job_id: str):
+def progress(job_id: str, request: Request):
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     return _public_progress(jobs_progress.get(job_id, {"status": "not_found"}))
 
 @app.get("/api/source/{job_id}")
-def source(job_id: str):
+def source(job_id: str, request: Request):
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
     p = resolve_job_audio(job_id)
     if p is None:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -3584,7 +3759,10 @@ def voice_library_add(req: VoiceLibraryAddRequest):
     return eleven_service.add_shared_voice(ELEVENLABS_API_KEY, req.public_owner_id, req.voice_id, req.new_name)
 
 @app.post("/api/analyze_speakers")
-def analyze_speakers(req: AnalyzeRequest):
+def analyze_speakers(req: AnalyzeRequest, request: Request):
+    _g = _job_guard(request, req.job_id, allow_empty=False)
+    if _g:
+        return _g
     if resolve_job_audio(req.job_id) is None:
         return {"error": "Audio file not found. Please transcribe again."}
     analysis = []
@@ -3600,6 +3778,9 @@ def analyze_speakers(req: AnalyzeRequest):
 def clone(req: CloneRequest, request: Request):
     if _rate_limited(request, "clone", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
+    if _g:
+        return _g
     uid = _current_uid(request)
     # Same speaker-resolution logic as eleven_service.clone_voices itself
     # (empty speakers_to_clone means "every distinct speaker with text") --
@@ -3693,6 +3874,8 @@ def update_my_voice(voice_row_id: str, req: VoiceUpdateRequest, request: Request
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
+    if not _SAFE_TOKEN_RE.fullmatch(str(voice_row_id)):
+        return JSONResponse({"error": "We couldn't find that voice."}, status_code=404)
     name = (req.name or "").strip()[:200] or "Untitled voice"
     description = (req.description or "").strip()[:2000]
     body = json.dumps({"name": name, "description": description}).encode("utf-8")
@@ -3725,6 +3908,8 @@ def delete_my_voice(voice_row_id: str, request: Request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
+    if not _SAFE_TOKEN_RE.fullmatch(str(voice_row_id)):
+        return JSONResponse({"error": "We couldn't find that voice."}, status_code=404)
     try:
         lookup = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id,voice_engine",
@@ -3774,12 +3959,18 @@ def delete_my_voice(voice_row_id: str, request: Request):
 def translate(req: TranslateRequest, request: Request):
     if _rate_limited(request, "translate", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, req.job_id)
+    if _g:
+        return _g
     return gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY)
 
 @app.post("/api/detect_emotions")
 def detect_emotions(req: EmotionRequest, request: Request):
     if _rate_limited(request, "detect_emotions", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
+    if _g:
+        return _g
     audio = resolve_job_audio(req.job_id)
     if audio is None:
         return {"error": "We couldn't find the audio for this project. Please upload it again."}
@@ -3790,7 +3981,10 @@ def detect_emotions(req: EmotionRequest, request: Request):
     return {"status": "started"}
 
 @app.get("/api/progress/emotions/{job_id}")
-def emotions_progress(job_id: str):
+def emotions_progress(job_id: str, request: Request):
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     return _public_progress(jobs_progress.get(f"emotions_{job_id}", {"status": "not_found"}))
 
 @app.post("/api/tashkeel")
@@ -3816,6 +4010,9 @@ def tashkeel(req: TashkeelRequest, request: Request):
 def generate(req: GenerateRequest, request: Request):
     if _rate_limited(request, "generate", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
+    if _g:
+        return _g
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     # minReserve (admin-configurable, "💰 Pricing Configuration") is a rough
@@ -3867,26 +4064,38 @@ def generate(req: GenerateRequest, request: Request):
 def regenerate_line(req: RegenerateLineRequest, request: Request):
     if _rate_limited(request, "regenerate_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, req.job_id)
+    if _g:
+        return _g
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.inworld_api_key = INWORLD_API_KEY
     req.voice_engine = _voice_engines_for_ids([req.voice_id]).get(req.voice_id, "elevenlabs") if req.voice_id else "elevenlabs"
     return eleven_service.regenerate_line(req)
 
 @app.post("/api/restretch_line")
-def restretch_line(req: RegenerateLineRequest):
+def restretch_line(req: RegenerateLineRequest, request: Request):
+    _g = _job_guard(request, req.job_id)
+    if _g:
+        return _g
     # Pure editing action for the Step 5.5 Time Stretch dropdown: re-warps the
     # line's already-generated audio to its current setting, no TTS call and
     # no ElevenLabs key needed.
     return eleven_service.restretch_line(req)
 
 @app.post("/api/remix_audio")
-def remix_audio(req: RemixRequest):
+def remix_audio(req: RemixRequest, request: Request):
+    _g = _job_guard(request, req.job_id)
+    if _g:
+        return _g
     return eleven_service.remix_with_offsets(req)
 
 @app.post("/api/merge_video")
 def merge_video(req: MergeRequest, request: Request):
     if _rate_limited(request, "merge_video", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
+    if _g:
+        return _g
     uid = _current_uid(request)
     bal = get_credits(uid) if uid else None
     merge_cost = int(_get_pricing_config().get("mergeCredits", 1))
@@ -3981,6 +4190,9 @@ async def lipsync_reference_images(request: Request, job_id: str = Form(...), fi
         return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
     if find_job_video(job_id) is None:
         return JSONResponse({"error": "We couldn't find that project."}, status_code=404)
 
@@ -4006,6 +4218,9 @@ async def lipsync_reference_images(request: Request, job_id: str = Form(...), fi
 
 @app.post("/api/lipsync")
 def lipsync(req: LipSyncRequest, request: Request):
+    _g = _job_guard(request, req.job_id, allow_empty=False)
+    if _g:
+        return _g
     if not LIPSYNC_ENABLED:
         # Backend gate, independent of the frontend hiding Step 7 -- so a
         # stale/cached page, or someone calling this endpoint directly,
@@ -4068,17 +4283,31 @@ def lipsync(req: LipSyncRequest, request: Request):
     return {"status": "started", "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
 
 @app.get("/api/progress/lipsync/{job_id}")
-def lipsync_progress(job_id: str):
+def lipsync_progress(job_id: str, request: Request):
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     return _public_progress(jobs_progress.get(f"lipsync_{job_id}", {"status": "not_found"}))
 
 @app.get("/api/usage/{job_id}")
-def usage(job_id: str):
+def usage(job_id: str, request: Request):
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     # Customers only ever see credits. The provider-side counters (tokens, characters, dollar cost) stay
     # inside usage_bucket() for the admin reports and are never sent to the browser.
     return dict(_job_charges.get(job_id, {}))
 
 @app.get("/api/download/{filename}")
-def download(filename: str):
+def download(filename: str, request: Request):
+    # Only finished outputs ("<job id>_final_....") are ever served here, and
+    # only to the user they belong to (was: any file name in OUTPUT_DIR, for
+    # anyone, even without a login when the name ended in .mp4).
+    if not _is_final_output(OUTPUT_DIR / filename):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    _g = _job_guard(request, _job_id_from_output_path(OUTPUT_DIR / filename), allow_empty=False)
+    if _g:
+        return _g
     # Basic path-traversal guard. This was harmless before (files only ever
     # lived a few hours and had one shared name), but final outputs now
     # persist for up to CLEANUP_FINAL_OUTPUT_DAYS days, so it's worth closing
@@ -4090,8 +4319,11 @@ def download(filename: str):
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p, filename=filename)
 @app.get("/api/segment_audio/{job_id}/{segment_id}")
-def segment_audio(job_id: str, segment_id: str):
-    if "/" in segment_id or ".." in segment_id: return JSONResponse({"error": "bad id"}, status_code=400)
+def segment_audio(job_id: str, segment_id: str, request: Request):
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
+    if _bad_segment_id(segment_id): return JSONResponse({"error": "bad id"}, status_code=400)
     for ext, mt2 in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
         p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
         if p.exists():
@@ -4099,7 +4331,12 @@ def segment_audio(job_id: str, segment_id: str):
     return JSONResponse({"error": "not found"}, status_code=404)
 
 @app.post("/api/cleanup_voices")
-def cleanup_voices(payload: dict = {}):
+def cleanup_voices(request: Request, payload: dict = {}):
+    if _rate_limited(request, "cleanup_voices", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    _g = _job_guard(request, payload.get("job_id") or "")
+    if _g:
+        return _g
     # Some flows (new project / reset) call this with keep: [] -- meaning
     # "wipe every Cloned_/Custom_ voice in the account". That must never be
     # allowed to sweep away a voice ANY user has saved to their library
@@ -4157,7 +4394,10 @@ def cleanup_voices(payload: dict = {}):
     return result
 
 @app.get("/api/download_voice_sample/{job_id}/{speaker}")
-def download_voice_sample(job_id: str, speaker: str):
+def download_voice_sample(job_id: str, speaker: str, request: Request):
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
     """Serves the isolated voice sample used to create a speaker's clone —
     NOT the ElevenLabs voice model itself (ElevenLabs does not allow exporting
     cloned voices at all). This is the reference recording assembled from the
@@ -4174,6 +4414,9 @@ def download_voice_sample(job_id: str, speaker: str):
 async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    _g = _job_guard(request, job_id)
+    if _g:
+        return _g
     # Which engine will actually create this voice -- resolved BEFORE the
     # authorize gate (used to be after) so the gate's ElevenLabs shared-quota
     # check only applies when ElevenLabs is actually the engine being used;
@@ -4991,7 +5234,8 @@ def _job_belongs_to_uid(uid: str, job_id: str) -> bool:
     if not uid or not job_id or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return False
     import urllib.request as _ur
-    url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&job_id=eq.{job_id}&select=job_id&limit=1"
+    import urllib.parse as _up
+    url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{_up.quote(str(uid), safe='')}&job_id=eq.{_up.quote(str(job_id), safe='')}&select=job_id&limit=1"
     hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
     try:
         req = _ur.Request(url, headers=hdrs)
@@ -5283,6 +5527,8 @@ def _persist_admin_session(token):
 
 
 def _restore_admin_session_from_db(token):
+    if not token or not _SAFE_TOKEN_RE.fullmatch(str(token)):
+        return None
     """Returns the session's created_at as epoch seconds if the token
     exists and is still within ADMIN_TOKEN_TTL, else None. The expiry
     check happens server-side in the query itself (created_at=gt.<cutoff>)
@@ -5608,6 +5854,9 @@ def _save_pricing_config(config):
         print(f"[admin] pricing_config save error: {detail}")
         return False, detail
 
+_admin_fail_all: List[float] = []
+
+
 class AdminLoginRequest(BaseModel):
     code: str = ""
     password: str = ""
@@ -5619,8 +5868,18 @@ def admin_login(req: AdminLoginRequest, request: Request):
     code = req.code or req.password
     if not code or not ADMIN_PASSWORD:
         return JSONResponse({"error": "admin access disabled"}, status_code=403)
+    # Global cap on top of the per-IP one: the per-IP key comes from the
+    # X-Forwarded-For header, which a client can forge to look like a new
+    # address on every try. Across ALL callers, no more than this many wrong
+    # admin codes per window.
+    _now = time.time()
+    _admin_fail_all[:] = [t for t in _admin_fail_all if _now - t < 600]
+    if len(_admin_fail_all) >= 30:
+        return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
     if not hmac.compare_digest(str(code), str(ADMIN_PASSWORD)):
         _record_login_fail(request)
+        _admin_fail_all.append(_now)
+        print(f"[security] wrong admin code from {_client_ip(request)}")
         return JSONResponse({"error": "invalid code"}, status_code=401)
     token = secrets.token_urlsafe(32)
     _ADMIN_TOKENS[token] = _time.time()
@@ -6066,7 +6325,63 @@ def admin_health(request: Request):
         "supabase": supabase, "elevenlabs": eleven, "gemini": gemini,
         "dashscope": dashscope, "stripe": stripe_status, "resend": resend_status,
         "r2": r2_status, "sentry": sentry_status,
+        "checks": _launch_checks(),
     }
+
+
+def _launch_checks():
+    """Plain-English go-live checklist shown on the admin Health tab. Every
+    item looks only at configuration this server can see for itself (never a
+    secret's value), so it is safe to show. status: ok / warn / bad."""
+    out = []
+
+    def add(label, status, detail):
+        out.append({"label": label, "status": status, "detail": detail})
+
+    sk = STRIPE_SECRET_KEY or ""
+    if not sk:
+        add("Stripe key", "bad", "STRIPE_SECRET_KEY is not set.")
+    elif sk.startswith(("sk_live_", "rk_live_")):
+        add("Stripe mode", "ok", "LIVE mode key -- real payments.")
+    else:
+        add("Stripe mode", "warn", "TEST mode key -- fine for testing, swap for the live key (and live webhook secret) before launch.")
+    add("Stripe webhook secret", "ok" if STRIPE_WEBHOOK_SECRET else "bad",
+        "Set." if STRIPE_WEBHOOK_SECRET else "STRIPE_WEBHOOK_SECRET is not set: paid credits would never arrive.")
+
+    if not ADMIN_PASSWORD:
+        add("Admin password", "bad", "No admin password set: the admin panel is locked out.")
+    elif APP_PASSWORD and ADMIN_PASSWORD == APP_PASSWORD:
+        add("Admin password", "bad", "Admin password is the same as APP_PASSWORD. Set a separate ADMIN_PASSWORD.")
+    elif len(ADMIN_PASSWORD) < 12:
+        add("Admin password", "warn", "Shorter than 12 characters -- use a longer one.")
+    else:
+        add("Admin password", "ok", "Separate and 12+ characters.")
+    add("Shared login (APP_PASSWORD)", "warn" if APP_PASSWORD else "ok",
+        "Still set: anyone who knows it gets a login without an account. Remove it from Railway before launch." if APP_PASSWORD
+        else "Not set (good).")
+    add("Site gate", "warn" if _site_gate_active() else "ok",
+        "ON -- the public cannot see the site yet." if _site_gate_active() else "OFF -- the site is open to everyone.")
+
+    try:
+        d_dev = os.stat(str(DATA_DIR)).st_dev
+        r_dev = os.stat("/").st_dev
+        if d_dev != r_dev or os.path.ismount(str(DATA_DIR)):
+            add("Data volume", "ok", f"{DATA_DIR} is on its own mounted volume (survives redeploys).")
+        else:
+            add("Data volume", "bad", f"{DATA_DIR} is NOT on a mounted volume: uploads, projects and outputs are erased on every redeploy.")
+    except Exception as ex:
+        add("Data volume", "warn", f"Could not check: {ex}")
+    try:
+        total, used, free = shutil.disk_usage(str(DATA_DIR))
+        pct = used * 100 / total if total else 0
+        add("Disk space", "bad" if pct >= 90 else ("warn" if pct >= 75 else "ok"),
+            f"{pct:.0f}% of the volume is used ({free / 1e9:.1f} GB free).")
+    except Exception:
+        pass
+    add("Off-site backup (R2)", "ok" if (r2_backup._enabled()) else "warn",
+        "Finished outputs are copied to Cloudflare R2." if r2_backup._enabled() else "R2 is not configured: no off-site copy of finished files.")
+    add("Database key", "ok" if SUPABASE_SERVICE_KEY else "bad", "Set." if SUPABASE_SERVICE_KEY else "SUPABASE_SERVICE_KEY is not set.")
+    return out
 
 @app.get("/api/admin/storage")
 def admin_storage(request: Request):

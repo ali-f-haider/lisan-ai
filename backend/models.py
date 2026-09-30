@@ -1,8 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import List, Dict
 
 class Segment(BaseModel):
     segment_id: str
+
+    # Security review (2026-09-30): segment ids become part of file names
+    # ("<segment_id>_stretched.mp3"), so slashes and ".." are refused.
+    @field_validator("segment_id")
+    @classmethod
+    def _segment_id_ok(cls, v):
+        v = str(v or "")
+        if not v or len(v) > 200 or "/" in v or "\\" in v or "\x00" in v or ".." in v:
+            raise ValueError("bad segment id")
+        return v
+
     start: float
     end: float
     speaker: str = "Speaker 1"

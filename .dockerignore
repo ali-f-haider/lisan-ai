@@ -1,0 +1,14 @@
+.git
+**/.env
+**/venv
+**/__pycache__
+**/uploads
+**/outputs
+backend_Backup
+backend_backup_*
+frontend
+Claude outputs
+*.mp4
+*.wav
+*.docx
+*.zip
