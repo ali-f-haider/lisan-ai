@@ -37,7 +37,7 @@ def _env_float(name, default):
 DEPTH_DB = _env_float("BG_DUCK_DB", 12.0)
 LOW_KEEP_HZ = _env_float("BG_DUCK_KEEP_LOW_HZ", 250.0)   # below this the background is never lowered
 ENABLED = DEPTH_DB > 0.5
-MAKEUP_MAX_DB = _env_float("BG_MAKEUP_MAX_DB", 15.0)   # most the separated background is raised to match the original (0 = off)
+MAKEUP_MAX_DB = _env_float("BG_MAKEUP_MAX_DB", 20.0)   # most the separated background is raised to match the original (0 = off)
 MAKEUP_MIN_DB = 3.0            # a smaller difference is left alone
 MAKEUP_MIN_PAUSE_SEC = 5.0     # needs at least this much silence between the voices to compare levels
 MAKEUP_FLOOR_DB = -80.0        # a background this silent in the pauses holds nothing to raise
@@ -320,7 +320,20 @@ def final_level_report(mixed_background, mix_filter, dub, pauses):
         return {}
 
 
-def makeup_gain(original, background, pauses, max_db=None):
+def _pause_mean_db(path, pauses, af=None):
+    """Mean power (dB) of a file inside the pauses of the voices (same frames as level_report), or None."""
+    p = _frame_power_db(path, af)
+    if p.size < 100:
+        return None
+    mask = np.zeros(p.size, dtype=bool)
+    for (a, z) in pauses or []:
+        i0, i1 = int((float(a) + 0.15) / FRAME_SEC), int((float(z) - 0.15) / FRAME_SEC)
+        if i1 > i0:
+            mask[max(0, i0):min(p.size, i1)] = True
+    return _db(p[mask].mean()) if mask.sum() >= 100 else None
+
+
+def makeup_gain(original, background, pauses, max_db=None, mix_filter=None):
     """How many dB the separated background must be raised so that, in the pauses of the voices
     (where the original holds only music and ambience), it is as loud as the original there.
     The separator often keeps far less of the room sound than the original had. Returns
@@ -337,11 +350,17 @@ def makeup_gain(original, background, pauses, max_db=None):
         o, b = rep["orig_pauses"], rep["bg_pauses"]
         if b < MAKEUP_FLOOR_DB:
             return 0.0, f"the separated background is silent in the pauses ({b} dB)"
-        diff = o - b
+        b_after = b
+        if mix_filter:      # what the background loses on its way into the final mix (volume, bass filter)
+            m = _pause_mean_db(background, pauses, mix_filter)
+            if m is not None:
+                b_after = m
+        diff = o - b_after
         if diff < MAKEUP_MIN_DB:
             return 0.0, f"already within {diff:.1f} dB of the original in the pauses"
         g = round(min(diff, mx), 1)
         return g, (f"raised {g:g} dB (in the pauses: original {o} dB, separated background {b} dB"
+                   + (f", {b_after} dB after the mix filter" if b_after != b else "")
                    + (f"; limited to {mx:g} dB" if diff > mx else "") + ")")
     except Exception as ex:
         return 0.0, f"skipped ({ex})"[:200]

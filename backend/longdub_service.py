@@ -3092,7 +3092,7 @@ def _run_dubbing(job):
                 pp_ = wd / "pauses.json"
                 if pp_.exists():
                     pauses_ = [tuple(x) for x in json.loads(pp_.read_text(encoding="utf-8"))]
-                gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_)
+                gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_, mix_filter=BG_MIX_FILTER)
                 if gain_ > 0 and bg_duck.lift_background(bg, wd / "background_lifted.wav", gain_):
                     bg_use = wd / "background_lifted.wav"
                     l_mean, l_max = _volume_stats(bg_use)
