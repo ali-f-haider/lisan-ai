@@ -92,9 +92,9 @@
         </div>
         <div class="credits-info-box">
             <div id="usageBox" class="hidden" style="font-size:13px;"></div>
-            <p class="note" id="step1CreditsNote" style="margin:0;border:none;background:none;padding:0;">💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
+            <p class="note" id="step1CreditsNote" style="margin:0;border:none;background:none;padding:0;">💡 Credits are how you pay on Lisan AI: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.</p>
             <p id="tempFileWarning" style="margin-top:10px;padding:10px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;font-size:12px;color:#92400e;line-height:1.5;">
-                ⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it's saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days — download it any time from there.
+                ⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and can be lost if you close this page or your session ends. Once you generate a result, it's saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise — download it any time from there.
             </p>
         </div>
     </div>
@@ -202,7 +202,7 @@
 
 <div id="generateSection" class="card hidden">
     <h3>Step 5: Generate Arabic Audio</h3>
-    <p class="note">💡 Voice generation supports emotions and cloned voices. Costs are charged by the character and shown in credits (100 credits = $1).</p>
+    <p class="note">💡 Voice generation supports emotions and cloned voices. Costs are shown in credits (100 credits = $1).</p>
     <div class="hidden">
         <select id="ttsProvider"><option value="elevenlabs" selected>Studio voices</option></select>
         <div id="geminiOptions"><select id="geminiVoice"><option value="Kore">Kore</option></select></div>
@@ -218,7 +218,7 @@
         <input type="checkbox" id="enhanceBackground" checked style="width:18px;height:18px;accent-color:#059669;">
         <span id="enhanceBgLabel">✨ Enhance Background Audio</span>
     </label>
-    <span style="font-size:12px;color:#6b7280;">Applies DSP filters: removes rumble + adds crispness with high-shelf boost. Instant processing, no ML artifacts.</span>
+    <span style="font-size:12px;color:#6b7280;">Removes low rumble and adds clarity to the voice. Instant, with no AI processing.</span>
 	</div>
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
     <div id="genProgress" class="hidden">
@@ -230,7 +230,7 @@
 <div id="resultSection" class="card hidden">
     <h3>Step 6: Final Result</h3>
     <div id="resultSavedBanner" style="padding:12px 16px;background:#fef3c7;border:1px solid #fbbf24;border-radius:10px;margin-bottom:16px;font-size:13px;color:#92400e;">
-        ✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page for 30 days. Your uploaded source file is still temporary — download or keep editing before you close this session.
+        ✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise. Your uploaded source file is still temporary — download or keep editing before you close this session.
     </div>
     <div id="audioResults"></div>
     <button class="blue" onclick="openTimeline()">🎚️ Fine-Tune Timeline</button>
@@ -254,7 +254,7 @@
 
 <div id="lipsyncSection" class="card hidden">
     <h3>Step 7: Lip-Sync (Premium)</h3>
-    <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using a premium third-party AI service. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video. <strong id="lipsyncTimeNote">This can take up to about 15 minutes -- please keep this tab open and be patient.</strong></p>
+    <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using advanced AI. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video. <strong id="lipsyncTimeNote">This can take up to about 15 minutes -- please keep this tab open and be patient.</strong></p>
     <div class="note" id="lipsyncRefImagesWrap" style="margin-bottom:10px;">
         <label for="lipsyncRefImages" style="font-weight:600;display:block;margin-bottom:4px;" id="lipsyncRefImagesLabel">Reference photos (optional):</label>
         <p class="note" style="margin:0 0 6px;" id="lipsyncRefImagesHint">Upload up to 5 clear photos of the speaker(s)' faces to help the AI keep their exact appearance. Not required.</p>

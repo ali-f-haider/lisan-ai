@@ -14,6 +14,7 @@ from config import (
 )
 from app_state import jobs_progress, usage_bucket, record_gemini
 from ffmpeg_utils import cut_audio_segment
+from user_errors import friendly_error
 
 
 def normalize_emotion(value):
@@ -102,12 +103,20 @@ def _strip_code_fences(text: str) -> str:
     return text.strip()
 
 
+def _public_errors(errors):
+    """One plain sentence instead of one raw provider message per failed line."""
+    n = len(errors or [])
+    if not n:
+        return []
+    return [f"We couldn't detect the emotion for {n} line{'s' if n != 1 else ''}, so {'they were' if n != 1 else 'it was'} set to Neutral. You can change {'them' if n != 1 else 'it'} manually."]
+
+
 def translate_segments(job_id: str, segments: list, api_key: str) -> dict:
     """Translate all segments to Arabic (MSA + Tashkeel) and detect emotions."""
     if not api_key:
-        return {"error": "Missing Translation AI key."}
+        return {"error": "Translation is temporarily unavailable. Please try again later."}
     if not segments:
-        return {"error": "No segments to translate."}
+        return {"error": "There are no lines to translate yet."}
 
     segments_for_prompt = []
     for seg in segments:
@@ -155,10 +164,14 @@ Segments:
     data, err = call_gemini(api_key, payload, timeout=120)
     record_gemini(job_id, data)
     if data is None:
-        return {"error": f"Translation AI failed on all models. Last error: {err}"}
+        return {"error": friendly_error(err, "translate")}
 
-    result_text = _strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"])
-    translated_segments = json.loads(result_text)
+    try:
+        result_text = _strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"])
+        translated_segments = json.loads(result_text)
+    except Exception as ex:
+        print(f"[translate] {job_id}: could not read the translation answer: {type(ex).__name__}: {ex}")
+        return {"error": "We couldn't translate this text. Please try again, or translate fewer lines at a time."}
 
     for item in translated_segments:
         if isinstance(item, dict):
@@ -347,9 +360,10 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
 
                 if data is None:
                     errors.append(f"{seg.segment_id}: {err}")
+                    print(f"[emotions] {job_id}: {seg.segment_id}: {str(err)[:300]}")
                     emotions_result[seg.segment_id] = "neutral"
                     jobs_progress[progress_key]["emotions"] = emotions_result.copy()
-                    jobs_progress[progress_key]["errors"] = errors
+                    jobs_progress[progress_key]["errors"] = _public_errors(errors)
                     continue
 
                 result_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -363,16 +377,17 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
 
             except Exception as e:
                 errors.append(f"{seg.segment_id}: {str(e)}")
+                print(f"[emotions] {job_id}: {seg.segment_id}: {str(e)[:300]}")
                 emotions_result[seg.segment_id] = "neutral"
                 jobs_progress[progress_key]["emotions"] = emotions_result.copy()
-                jobs_progress[progress_key]["errors"] = errors
+                jobs_progress[progress_key]["errors"] = _public_errors(errors)
 
         jobs_progress[progress_key]["status"] = "done"
         jobs_progress[progress_key]["percent"] = 100
         jobs_progress[progress_key]["emotions"] = emotions_result
-        jobs_progress[progress_key]["errors"] = errors
+        jobs_progress[progress_key]["errors"] = _public_errors(errors)
 
     except Exception as e:
         jobs_progress[progress_key] = {
-            "status": "error", "percent": 0, "error": str(e), "emotions": {}, "errors": [],
+            "status": "error", "percent": 0, "error": friendly_error(e, "emotions"), "emotions": {}, "errors": [],
         }

@@ -238,7 +238,7 @@ var T = {
     estTimes: function (t) {
       return "⏱ Estimated waiting time: analysis about " + t.analysis_min + "–" + t.analysis_max + " min, then dubbing about " + t.dub_min + "–" + t.dub_max + " min after you confirm" +
         (t.lipsync_max ? " and lip-sync about " + t.lipsync_min + "–" + t.lipsync_max + " min more" : "") +
-        " (about " + t.total_min + "–" + t.total_max + " min in total, not counting your review). It can take longer when many people are using the server.";
+        " (about " + t.total_min + "–" + t.total_max + " min in total, not counting your review). It can take longer when we are very busy.";
     },
     estBalance: function (b) { return "Your balance: " + b + " credits"; },
     estAlready: function (n) { return "You have already paid " + n + " credits for this estimate — it counts toward the total."; },
@@ -274,7 +274,7 @@ var T = {
     analyzingNote: "This takes several times the length of your video. You can close this page and come back later — your text will be waiting here for you to review.",
     dubbingHeading: "4. Dubbing in progress",
     dubbingNote: "We are dubbing your video. You can close this page — we will email you when the finished file is ready.",
-    queued: "Waiting for a free processing slot…",
+    queued: "Waiting for your turn…",
     stage: { extract: "Extracting the audio…", plan: "Finding natural pauses…", separate: "Separating voices from background sound…",
       speakers: "Detecting who is speaking…", transcribe: "Transcribing…", build: "Building the transcript…",
       translate: "Translating to Arabic…", review: "Ready for you to review.",
@@ -300,7 +300,7 @@ var T = {
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
     editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, split a line in two (if one line holds two people talking), insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. This project is kept for 7 days.",
-    colTime: "Time / speaker", colEn: "English", colAr: "Arabic", emotionLbl: "Emotion",
+    colTime: "Time / speaker", colEn: "English", colAr: "Arabic", emotionLbl: "Voice style",
     timeFrom: "From", timeTo: "To", timeBad: "Write the time like 1:23.5 or 83.5 (minutes:seconds).",
     insertLine: "+ Insert a line after", deleteLine: "Delete line",
     splitLine: "Split at cursor", splitting: "Splitting…",
@@ -308,11 +308,11 @@ var T = {
     confirmDelLine: "Delete this line? Its English and Arabic text will be removed from this project.",
     doneCut: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " longer than the time available even after speeding up to our limit, so " + (n === 1 ? "its end was" : "their ends were") + " cut short (at " + at + "). Next time, shorten those Arabic lines or change their timing."; },
     doneFast: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " sped up by 20% or more to fit (at " + at + ")."; },
-    doneRephrased: function (n, at, back) { return n + " line" + (n === 1 ? " was" : "s were") + " too long for " + (n === 1 ? "its" : "their") + " time even after stretching, so " + (n === 1 ? "it was" : "they were") + " rephrased shorter with the same meaning (at " + at + ")." + (back ? " The credits saved by the shorter text (" + back + ") were refunded." : ""); },
+    doneRephrased: function (n, at, back) { return n + " line" + (n === 1 ? " was" : "s were") + " too long for " + (n === 1 ? "its" : "their") + " time, so " + (n === 1 ? "it was" : "they were") + " rephrased shorter with the same meaning (at " + at + ")." + (back ? " The credits saved by the shorter text (" + back + ") were refunded." : ""); },
     showChanges: "Show what was changed", chBefore: "Before", chAfter: "After",
     linesCount: function (n, missing) { return n + " lines" + (missing ? " · " + missing + " without Arabic" : ""); },
     saving: "Saving…", saved: "All changes saved ✓", saveFailed: "Couldn't save — trying again…",
-    retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "The translation service didn't answer. Please try again.",
+    retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "We couldn't translate this just now. Please try again.",
     chars: function (n) { return n + " characters"; },
     spkHeading: "Speakers",
     spkSummary: function (stated, detected) { return "You told us " + stated + " speaker" + (stated === 1 ? "" : "s") + " · Lisan AI detected " + detected + ". Name each speaker, add or remove speakers, then assign every line below."; },
@@ -391,7 +391,7 @@ var T = {
     estTimes: function (t) {
       return "⏱ وقت الانتظار المقدَّر: التحليل نحو " + t.analysis_min + "–" + t.analysis_max + " دقيقة، ثم الدبلجة نحو " + t.dub_min + "–" + t.dub_max + " دقيقة بعد تأكيدك" +
         (t.lipsync_max ? " ثم مزامنة الشفاه نحو " + t.lipsync_min + "–" + t.lipsync_max + " دقيقة إضافية" : "") +
-        " (نحو " + t.total_min + "–" + t.total_max + " دقيقة إجمالاً، دون احتساب وقت مراجعتك). قد يطول عندما يكثر المستخدمون على الخادم.";
+        " (نحو " + t.total_min + "–" + t.total_max + " دقيقة إجمالاً، دون احتساب وقت مراجعتك). قد يطول عندما يكثر الطلب علينا.";
     },
     estBalance: function (b) { return "رصيدك: " + b + " رصيد"; },
     estAlready: function (n) { return "دفعت مسبقاً " + n + " رصيد لهذا التقدير — ويُحتسب من الإجمالي."; },
@@ -461,11 +461,11 @@ var T = {
     confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الإنجليزي والعربي من هذا المشروع.",
     doneCut: function (n, at) { return "كان " + n + " سطر أطول من الوقت المتاح حتى بعد التسريع إلى حدّنا الأقصى، فقُطعت نهاياتها (عند " + at + "). في المرة القادمة اختصر هذه الأسطر العربية أو عدّل توقيتها."; },
     doneFast: function (n, at) { return "سُرّع " + n + " سطر بمقدار 20٪ أو أكثر ليتناسب مع الوقت (عند " + at + ")."; },
-    doneRephrased: function (n, at, back) { return "كان " + n + " سطر أطول من وقته حتى بعد التمديد، فأُعيدت صياغته بشكل أقصر وبالمعنى نفسه (عند " + at + ")." + (back ? " وأُعيدت إليك الأرصدة التي وفّرها النص الأقصر (" + back + ")." : ""); },
+    doneRephrased: function (n, at, back) { return "كان " + n + " سطر أطول من وقته، فأُعيدت صياغته بشكل أقصر وبالمعنى نفسه (عند " + at + ")." + (back ? " وأُعيدت إليك الأرصدة التي وفّرها النص الأقصر (" + back + ")." : ""); },
     showChanges: "عرض ما تغيّر", chBefore: "قبل", chAfter: "بعد",
     linesCount: function (n, missing) { return n + " سطر" + (missing ? " · " + missing + " بلا ترجمة" : ""); },
     saving: "جارٍ الحفظ…", saved: "تم حفظ كل التعديلات ✓", saveFailed: "تعذّر الحفظ — نحاول مجدداً…",
-    retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "لم تستجب خدمة الترجمة. حاول مرة أخرى.",
+    retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "تعذّرت الترجمة الآن. حاول مرة أخرى.",
     chars: function (n) { return n + " حرفاً"; },
     spkHeading: "المتحدثون",
     spkSummary: function (stated, detected) { return "أخبرتنا بوجود " + stated + " متحدثين · واكتشف لسان AI " + detected + ". سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; },
@@ -515,6 +515,11 @@ var pricePreview = null; // result of /preview while confirming
 var tashNote = "";       // shown under the price when tashkeel was just added
 
 function $(id) { return document.getElementById(id); }
+function safeErr(m, fb) {
+  m = String(m == null ? "" : m).trim();
+  if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|\bnull\b|api[ _-]?key|elevenlabs|inworld|gemini|dashscope|demucs|whisper|supabase|stripe|railway|\bR2\b|ffmpeg|ffprobe|\.py\b|\/api\/|Server error|Internal Server/i.test(m)) return fb;
+  return m;
+}
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function fmtTime(sec) { sec = Math.max(0, Math.round(sec || 0)); var m = Math.floor(sec / 60), s = sec % 60; return m + ":" + (s < 10 ? "0" : "") + s; }
 function fmtMin(sec) { return (Math.round((sec || 0) / 6) / 10).toString(); }
@@ -696,7 +701,7 @@ function renderJob() {
     if (j.stage === "review") h += "<p class='note'>" + esc(T.readyNote) + "</p>";
     else h += "<p class='note'>" + esc(j.stage === "lipsync" ? T.lipNote : ((j.status === "confirmed" || j.status === "dubbing") ? T.dubbingNote : T.analyzingNote)) + "</p>";
   } else if (j.status === "failed") {
-    h += name + "<p class='ld-err'>" + esc(j.error || j.message || T.genericErr) + "</p>";
+    h += name + "<p class='ld-err'>" + esc(safeErr(j.error || j.message, T.genericErr)) + "</p>";
     h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + '</button><button class="btn-plain" id="btnDelete">' + esc(T.deleteBtn) + "</button></div>";
   } else if (j.status === "done") {
     var r = j.result || {};
@@ -819,7 +824,7 @@ function onFilePicked(file) {
   var wantLip = !!($("lipYes") && $("lipYes").checked && !$("lipYes").disabled);
   if (wantLip && /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(file.name)) { showUploadError(T.lipAudio); return; }
   api("POST", "/api/longdub/init", { filename: file.name, size: file.size, speakers: nsp, lipsync: wantLip }).then(function (r) {
-    if (!r.ok) { showUploadError(r.data.error || T.genericErr); return; }
+    if (!r.ok) { showUploadError(safeErr(r.data.error, T.genericErr)); return; }
     cur = r.data; jobs.unshift(cur);
     try { localStorage.setItem(LS_KEY, cur.id); } catch (e) {}
     render();
@@ -836,7 +841,7 @@ async function putChunk(job, index, blob) {
       if (r.status === 401) { location.href = "/login"; return { ok: false }; }
       if (r.ok) return { ok: true };
       var d = {}; try { d = await r.json(); } catch (e) {}
-      lastMsg = d.error || ("HTTP " + r.status);
+      lastMsg = safeErr(d.error, T.genericErr);
       if (r.status >= 400 && r.status < 500 && r.status !== 429 && r.status !== 408) return { ok: false, msg: lastMsg };
     } catch (e) { lastMsg = T.netErr; }
     await sleep(1200 * attempt);
@@ -849,7 +854,7 @@ async function continueUpload(job, file) {
   uploading = true; uploadAbort = false; lastErr = "";
   try {
     var st = await api("GET", "/api/longdub/" + job.id);
-    if (!st.ok) { lastErr = st.data.error || T.genericErr; return; }
+    if (!st.ok) { lastErr = safeErr(st.data.error, T.genericErr); return; }
     var have = {}; (st.data.received || []).forEach(function (i) { have[i] = true; });
     var total = job.total_chunks, cb = cfg.chunk_bytes;
     job.received_count = Object.keys(have).length;
@@ -876,7 +881,7 @@ function finishUpload(job) {
   $("jobBody").insertAdjacentHTML("beforeend", "<p class='note'>" + esc(T.finishing) + "</p>");
   return api("POST", "/api/longdub/" + job.id + "/finish").then(function (r) {
     if (!r.ok) {
-      lastErr = r.data.error || T.genericErr;
+      lastErr = safeErr(r.data.error, T.genericErr);
       // The server removes a file it can't use (too long, no audio...).
       return loadList().then(function () {
         var still = jobs.filter(function (x) { return x.id === job.id; })[0];
@@ -896,7 +901,7 @@ function onAccept() {
   var b = $("btnAccept"); if (b) b.disabled = true;
   lastErr = "";
   api("POST", "/api/longdub/" + cur.id + "/accept", { agree: !!($("agreeBox") && $("agreeBox").checked) }).then(function (r) {
-    if (!r.ok) { lastErr = r.data.error || T.genericErr; renderJob(); return; }
+    if (!r.ok) { lastErr = safeErr(r.data.error, T.genericErr); renderJob(); return; }
     setCredits(r.data.credits);
     cur = r.data;
     render(); startPoll();
@@ -913,7 +918,7 @@ function deleteJob(j) {
     if (!yes) return;
     if (uploading && cur && cur.id === j.id) uploadAbort = true;
     api("DELETE", "/api/longdub/" + j.id).then(function (r) {
-      if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+      if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
       jobs = jobs.filter(function (x) { return x.id !== j.id; });
       if (cur && cur.id === j.id) selectJob(null); else renderList();
     });
@@ -927,7 +932,7 @@ function loadSegments() {
   $("editorBody").innerHTML = "<p class='note'>" + esc(T.loading) + "</p>";
   api("GET", "/api/longdub/" + id + "/segments").then(function (r) {
     if (!cur || cur.id !== id) return;
-    if (!r.ok) { $("editorBody").innerHTML = "<p class='ld-err'>" + esc(r.data.error || T.genericErr) + "</p>"; return; }
+    if (!r.ok) { $("editorBody").innerHTML = "<p class='ld-err'>" + esc(safeErr(r.data.error, T.genericErr)) + "</p>"; return; }
     segs = r.data.segments || [];
     spk = (r.data.speaker_list || []).map(function (s) { return { id: s.id, name: s.name }; });
     cur.warnings = r.data.warnings || [];
@@ -1011,7 +1016,7 @@ function saveSpeakers(rerender) {
   var err = $("spkErr");
   return api("PUT", "/api/longdub/" + cur.id + "/speakers", { speakers: sent }).then(function (r) {
     if (!r.ok) {
-      if (err) { err.textContent = r.data.error || T.genericErr; err.classList.remove("hidden"); }
+      if (err) { err.textContent = safeErr(r.data.error, T.genericErr); err.classList.remove("hidden"); }
       setSaved(false, T.saveFailed);
       if (rerender) return loadSegments();
       return;
@@ -1136,7 +1141,7 @@ function buildRow(s) {
     if (ns === s.start && ne === s.end) return;
     lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/time", { segment_id: s.segment_id, start: ns, end: ne }); },
       function (r) {
-        if (!r.ok) { terr.textContent = r.data.error || T.genericErr; terr.classList.remove("hidden"); back(); return; }
+        if (!r.ok) { terr.textContent = safeErr(r.data.error, T.genericErr); terr.classList.remove("hidden"); back(); return; }
         applyRows(r.data.segments, s.segment_id);
       });
   }
@@ -1145,7 +1150,7 @@ function buildRow(s) {
   bIns.addEventListener("click", function () {
     lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/insert", { segment_id: s.segment_id }); },
       function (r) {
-        if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+        if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
         applyRows(r.data.segments, r.data.new_id);
       });
   });
@@ -1159,7 +1164,7 @@ function buildRow(s) {
     lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/split", { segment_id: s.segment_id, position: pos }); },
       function (r) {
         restore();
-        if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+        if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
         delete dirty[s.segment_id];
         applyRows(r.data.segments, r.data.new_id);
       }).then(restore);
@@ -1171,7 +1176,7 @@ function buildRow(s) {
       delete dirty[s.segment_id];
       lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/delete", { segment_id: s.segment_id }); },
         function (r) {
-          if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+          if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
           applyRows(r.data.segments, null);
         });
     });
@@ -1192,7 +1197,7 @@ function buildRow(s) {
     btn.disabled = true; btn.textContent = T.retranslating;
     flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/retranslate", { segment_id: s.segment_id }); }).then(function (r) {
       btn.disabled = false; btn.textContent = T.retranslate;
-      if (!r.ok) { alertMsg(r.data.error || T.retranslateFail); return; }
+      if (!r.ok) { alertMsg(safeErr(r.data.error, T.retranslateFail)); return; }
       s.arabic_text = r.data.arabic_text || ""; ar.value = s.arabic_text; autosize(ar); pricePreview = null;
       if (r.data.emotion) { s.emotion = r.data.emotion; fillEmotion(emoSel, s.emotion); }
       ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
@@ -1283,7 +1288,7 @@ function loadPrice() {
   return flushSave().then(function () { return saveSpeakersIfPending(); }).then(function () {
     return api("GET", "/api/longdub/" + cur.id + "/preview");
   }).then(function (r) {
-    if (!r.ok) { alertMsg(r.data.error || T.genericErr); renderConfirm(); return; }
+    if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); renderConfirm(); return; }
     pricePreview = r.data; setCredits(r.data.credits);
     if (r.data.tashkeel_added) {
       tashNote = T.priceTashkeel(r.data.tashkeel_added);
@@ -1308,7 +1313,7 @@ function doConfirm() {
     var b = $("btnConfirm"); if (b) b.disabled = true;
     flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due }); }).then(function (r) {
       if (!r.ok) {
-        lastErr = r.data.error || T.genericErr;
+        lastErr = safeErr(r.data.error, T.genericErr);
         if (r.status === 409 && r.data.price) {
           pricePreview = Object.assign({ credits: p.credits }, r.data.price); lastErr = T.priceChanged;
           var cid = cur.id;   // the Arabic text may have changed (tashkeel added at confirm): show it
@@ -1339,7 +1344,7 @@ function doConfirm() {
   fi.onchange = function () { onFilePicked(fi.files && fi.files[0]); };
 
   api("GET", "/api/longdub/config").then(function (r) {
-    if (!r.ok) { showUploadError(r.data.error || T.genericErr); return; }
+    if (!r.ok) { showUploadError(safeErr(r.data.error, T.genericErr)); return; }
     cfg = r.data; setCredits(cfg.credits);
     applyConfigText();
     return loadList().then(function () { selectJob(pickInitial()); });

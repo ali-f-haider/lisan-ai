@@ -74,6 +74,7 @@ import urllib.parse
 from pathlib import Path
 
 from config import OUTPUT_DIR
+from user_errors import friendly_error as _friendly_error, UserError
 from ffmpeg_utils import get_media_duration, run_ffmpeg
 from media_paths import resolve_job_audio
 
@@ -248,6 +249,13 @@ def _http_error_detail(e) -> str:
     return str(e)
 
 
+def _cust(e, where="") -> str:
+    """The customer-safe sentence for an error (the raw text goes to the log)."""
+    if isinstance(e, UserError):
+        return str(e)
+    return _friendly_error(_http_error_detail(e), where)
+
+
 def clone_voice_from_file(display_name: str, wav_path: Path, api_key: str, language_code: str = DEFAULT_LANGUAGE) -> str:
     """Uploads one reference clip (base64-encoded, per Inworld's clone API)
     and returns the new voiceId. Raises on failure."""
@@ -280,7 +288,8 @@ def clone_voice_from_file(display_name: str, wav_path: Path, api_key: str, langu
             time.sleep(wait)
     voice_id = (data.get("voice") or {}).get("voiceId")
     if not voice_id:
-        raise Exception(f"No voiceId in Inworld response: {data}")
+        print(f"[inworld-clone] no voiceId in the answer: {json.dumps(_shape(data))[:300]}")
+        raise UserError("We couldn't create a voice from this audio. Please use a clear recording of one person speaking, or choose a studio voice in Step 4.")
     return voice_id
 
 
@@ -417,7 +426,7 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
     (generate_worker / regenerate_line) don't need any special-case error
     handling for this branch; their existing try/except already covers it."""
     if not _configured(api_key):
-        raise Exception("Missing Inworld API key.")
+        raise UserError("Voice generation is temporarily unavailable. Please try again later.")
     body = {
         "text": text,
         "voiceId": voice_id,
@@ -428,7 +437,8 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
     data = _request("POST", "/tts/v1/voice", api_key, body, timeout=60)
     audio_b64 = data.get("audioContent")
     if not audio_b64:
-        raise Exception(f"No audioContent in Inworld response: {data}")
+        print(f"[inworld-tts] no audio in the answer: {json.dumps(_shape(data))[:300]}")
+        raise UserError("We couldn't generate this line. Please try again.")
     return base64.b64decode(audio_b64)
 
 
@@ -447,13 +457,14 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
     the two engines fully independent, so nothing here can ever change
     ElevenLabs' behavior, and vice versa."""
     if not _configured(api_key):
-        return {"error": "Inworld API key is not configured (set INWORLD_API_KEY in Railway)."}
+        return {"error": "Voice cloning is temporarily unavailable. Please try again later, or choose a studio voice in Step 4."}
     audio_path = resolve_job_audio(job_id)
     if audio_path is None:
-        return {"error": "Audio file not found."}
+        return {"error": "We couldn't find the audio of this video. Please upload it again."}
     source_duration = get_media_duration(audio_path)
     if source_duration <= 0:
-        return {"error": f"Could not read source audio duration: {audio_path}"}
+        print(f"[inworld-clone] could not read the source audio duration: {audio_path}")
+        return {"error": "We couldn't read the audio of this video. Please upload it again."}
     cloned_voices = {}
     speakers = list(set(s.speaker for s in segments if (s.text or "").strip()))
     if speakers_to_clone:
@@ -468,7 +479,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 if s.speaker == speaker and (s.text or "").strip() and (s.end - s.start) > 0.05
             ]
             if not speaker_segs:
-                cloned_voices[speaker] = f"ERROR: No usable timed segments found for {speaker}."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             speaker_segs.sort(key=lambda s: s.end - s.start, reverse=True)
             total_valid_duration = 0.0
@@ -534,7 +545,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 except Exception as fallback_err:
                     print(f"Warning: fallback Inworld clone cut failed for {speaker}: {fallback_err}")
             if total_valid_duration < 1.0 or not cut_files:
-                cloned_voices[speaker] = f"ERROR: Not enough valid audio for {speaker} ({total_valid_duration:.2f}s)."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 for cf in cut_files:
                     if cf.exists():
                         cf.unlink()
@@ -550,7 +561,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 filter_complex = "".join(labels) + f"concat=n={len(cut_files)}:v=0:a=1[out]"
                 run_ffmpeg(["ffmpeg", "-y", *inputs, "-filter_complex", filter_complex, "-map", "[out]", "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(concat_file)])
             if not concat_file.exists() or concat_file.stat().st_size < 2000:
-                cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is empty."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             final_duration = get_media_duration(concat_file)
             if final_duration < 1.0:
@@ -562,7 +573,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 concat_file = padded_file
                 final_duration = get_media_duration(concat_file)
             if final_duration < 1.0:
-                cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is still too short ({final_duration:.2f}s)."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             try:
                 voice_id = clone_voice_from_file(f"Cloned_{speaker}", concat_file, api_key, language_code=CLONE_SAMPLE_LANGUAGE)
@@ -588,9 +599,9 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                     # show up in Railway's logs instead of vanishing silently.
                     print(f"[inworld-clone] WARNING: could not save downloadable reference sample for {speaker} (job {job_id}): {_sample_err}")
             except Exception as e:
-                cloned_voices[speaker] = f"ERROR: {_http_error_detail(e)}"
+                cloned_voices[speaker] = "ERROR: " + _cust(e, "clone")
         except Exception as e:
-            cloned_voices[speaker] = f"ERROR: {_http_error_detail(e)}"
+            cloned_voices[speaker] = "ERROR: " + _cust(e, "clone")
         finally:
             for cf in cut_files:
                 if cf.exists():
@@ -615,7 +626,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                     print(f"[inworld-localize] {job_id} {sp}: candidate {res.get('picked', 0) + 1} of {res.get('candidates')} approved, scores {res.get('scores')} {res.get('note') or ''}")
                 else:
                     print(f"[inworld-localize] {job_id} {sp} failed: {res.get('error')}")
-                    loc_warnings.append(f"{sp}: the native Arabic accent could not be added, so the plain cloned voice is used.")
+                    loc_warnings.append(f"{sp}: the natural Arabic accent could not be added, so the standard cloned voice is used.")
     warnings = list(loc_warnings)
     for speaker in cloned_voices:
         if not str(cloned_voices[speaker]).startswith("ERROR"):
@@ -634,7 +645,7 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
     matching the existing convention main.py's /api/upload_custom_voice
     already handles."""
     if not _configured(api_key):
-        return "ERROR: Inworld API key is not configured (set INWORLD_API_KEY in Railway)."
+        return "ERROR: Voice cloning is temporarily unavailable. Please try again later."
     safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"
     wav = OUTPUT_DIR / f"iwcustom_{job_id}_{safe}.wav"
     run_ffmpeg(["ffmpeg", "-y", "-i", str(src_path), "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(wav)])
@@ -644,7 +655,7 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
             wav.unlink()
         except Exception:
             pass
-        return f"ERROR: Clip is {dur:.1f}s — the limit is 20 seconds."
+        return f"ERROR: This clip is {dur:.1f} seconds long. The maximum is 20 seconds. Please use a shorter recording."
     if dur < 1.0:
         pad = OUTPUT_DIR / f"iwcustom_{job_id}_{safe}_pad.wav"
         run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-af", f"apad=pad_dur={max(0.2, 1.15 - dur)}", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(pad)])
@@ -657,7 +668,7 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
         voice_id = clone_voice_from_file(f"Custom_{speaker}", wav, api_key)
         return voice_id
     except Exception as e:
-        return f"ERROR: {_http_error_detail(e)}"
+        return "ERROR: " + _cust(e, "custom voice")
     finally:
         try:
             wav.unlink()
@@ -669,12 +680,12 @@ def delete_voice(voice_id: str, api_key: str) -> dict:
     """Deletes exactly ONE voice by id -- same shape as
     eleven_service.delete_voice."""
     if not _configured(api_key) or not voice_id:
-        return {"ok": False, "error": "not configured or no voice_id"}
+        return {"ok": False, "error": "This voice could not be removed."}
     try:
         _request("DELETE", f"/voices/v1/voices/{voice_id}", api_key, timeout=30)
         return {"ok": True}
     except Exception as e:
-        return {"ok": False, "error": _http_error_detail(e)}
+        return {"ok": False, "error": _cust(e, "delete voice")}
 
 
 def get_voice_slot_usage(api_key: str) -> dict:

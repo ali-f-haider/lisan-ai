@@ -17,6 +17,7 @@ from ffmpeg_utils import (
     measure_loudness_db,
 )
 from media_paths import resolve_job_audio
+from user_errors import friendly_error as _friendly_error, UserError
 
 eleven_client = None
 # ElevenLabs TTS model used for every real generation call below (Arabic
@@ -36,7 +37,8 @@ OVERLAP_FLAGS = {}  # segment_id -> True: this line may be talked over (intruder
 DEAD_SPACE_FLAGS = {}  # segment_id -> True: this line may stretch into the silent gap before the next line's original start (or, for the last line, to the end of the audio) instead of fading at its own original end
 
 def friendly_error(e):
-    return str(e)
+    # Shown to the customer: the real error goes to the server log, the customer gets a plain sentence.
+    return _friendly_error(e, "voice")
 
 def _emotion_tags(emotion) -> str:
     """Turn a (possibly multi-tag) 'happy, softly' emotion string into stacked
@@ -91,9 +93,11 @@ def fetch_voices(api_key: str) -> dict:
             error_body = e.read().decode(errors="ignore")
         except Exception:
             error_body = str(e)
-        return {"error": f"Voice engine error {e.code}: {error_body}"}
+        print(f"[voices] list failed: HTTP {e.code}: {str(error_body)[:300]}")
+        return {"error": "We couldn't load the voice list. Please try again in a moment."}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[voices] list failed: {e}")
+        return {"error": "We couldn't load the voice list. Please try again in a moment."}
 
 
 def get_subscription_usage(api_key: str) -> dict:
@@ -210,9 +214,11 @@ def search_voice_library(api_key: str, language=None, accent=None, gender=None, 
             error_body = e.read().decode(errors="ignore")
         except Exception:
             error_body = str(e)
-        return {"error": f"Voice engine error {e.code}: {error_body}"}
+        print(f"[voices] list failed: HTTP {e.code}: {str(error_body)[:300]}")
+        return {"error": "We couldn't load the voice list. Please try again in a moment."}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[voices] list failed: {e}")
+        return {"error": "We couldn't load the voice list. Please try again in a moment."}
 
 
 def add_shared_voice(api_key: str, public_owner_id: str, voice_id: str, new_name: str) -> dict:
@@ -227,7 +233,7 @@ def add_shared_voice(api_key: str, public_owner_id: str, voice_id: str, new_name
     after your first real add here to confirm."""
     try:
         if not public_owner_id or not voice_id:
-            return {"error": "This voice is missing an owner id and can't be added automatically — try adding it from the voice engine's own website instead."}
+            return {"error": "This voice can't be added right now. Please choose a different one."}
         url = f"https://api.elevenlabs.io/v1/voices/add/{public_owner_id}/{voice_id}"
         body = json.dumps({"new_name": new_name or "Voice"}).encode("utf-8")
         request = urllib.request.Request(url, data=body, method="POST",
@@ -240,9 +246,11 @@ def add_shared_voice(api_key: str, public_owner_id: str, voice_id: str, new_name
             error_body = e.read().decode(errors="ignore")
         except Exception:
             error_body = str(e)
-        return {"error": f"Voice engine error {e.code}: {error_body}"}
+        print(f"[voices] list failed: HTTP {e.code}: {str(error_body)[:300]}")
+        return {"error": "We couldn't load the voice list. Please try again in a moment."}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[voices] list failed: {e}")
+        return {"error": "We couldn't load the voice list. Please try again in a moment."}
 
 
 def record_gemini(job_id, data):
@@ -257,10 +265,11 @@ def record_gemini(job_id, data):
 def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None) -> dict:
     audio_path = resolve_job_audio(job_id)
     if audio_path is None:
-        return {"error": "Audio file not found."}
+        return {"error": "We can't find this project's audio any more (projects are kept for a limited time). Please upload your video again."}
     source_duration = get_media_duration(audio_path)
     if source_duration <= 0:
-        return {"error": f"Could not read source audio duration: {audio_path}"}
+        print(f"[voice-clone] could not read the duration of {audio_path}")
+        return {"error": "We couldn't read the audio of this project. Please upload your video again."}
     cloned_voices = {}
     speakers = list(set(s.speaker for s in segments if (s.text or "").strip()))
     if speakers_to_clone:
@@ -275,7 +284,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 if s.speaker == speaker and (s.text or "").strip() and (s.end - s.start) > 0.05
             ]
             if not speaker_segs:
-                cloned_voices[speaker] = f"ERROR: No usable timed segments found for {speaker}."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             speaker_segs.sort(key=lambda s: s.end - s.start, reverse=True)
             total_valid_duration = 0.0
@@ -341,7 +350,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 except Exception as fallback_err:
                     print(f"Warning: fallback clone cut failed for {speaker}: {fallback_err}")
             if total_valid_duration < 1.0 or not cut_files:
-                cloned_voices[speaker] = f"ERROR: Not enough valid audio for {speaker} ({total_valid_duration:.2f}s)."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 for cf in cut_files:
                     if cf.exists():
                         cf.unlink()
@@ -357,7 +366,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 filter_complex = "".join(labels) + f"concat=n={len(cut_files)}:v=0:a=1[out]"
                 run_ffmpeg(["ffmpeg", "-y", *inputs, "-filter_complex", filter_complex, "-map", "[out]", "-vn", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(concat_file)])
             if not concat_file.exists() or concat_file.stat().st_size < 2000:
-                cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is empty."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             final_duration = get_media_duration(concat_file)
             if final_duration < 1.0:
@@ -369,7 +378,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 concat_file = padded_file
                 final_duration = get_media_duration(concat_file)
             if final_duration < 1.0:
-                cloned_voices[speaker] = f"ERROR: Final clone sample for {speaker} is still too short ({final_duration:.2f}s)."
+                cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             with open(concat_file, "rb") as f:
                 file_data = f.read()
@@ -412,7 +421,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
             else:
                 raise Exception(f"API error {response.status}: {response.data.decode(errors='ignore')}")
         except Exception as e:
-            cloned_voices[speaker] = f"ERROR: {str(e)}"
+            cloned_voices[speaker] = f"ERROR: {friendly_error(e)}"
         finally:
             for cf in cut_files:
                 if cf.exists():
@@ -461,7 +470,7 @@ def generate_worker(req):
         jobs_progress[_pk] = {"status": "processing", "percent": 0, "result": None, "error": None}
         total_segments = len(req.segments)
         if total_segments == 0:
-            raise Exception("No segments found.")
+            raise UserError("There are no lines to dub yet. Upload and transcribe a video first.")
         bucket = usage_bucket(req.job_id)
         sorted_segments = sorted(req.segments, key=lambda s: s.start)
         generated_files = []
@@ -485,7 +494,7 @@ def generate_worker(req):
             tts_text = seg.arabic_text
             if req.tts_provider == "gemini":
                 if not req.gemini_api_key:
-                    raise Exception("Missing Gemini API key.")
+                    raise UserError("Voice generation is temporarily unavailable. Please try again later.")
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={req.gemini_api_key}"
                 payload = {"contents": [{"parts": [{"text": tts_text}]}],
                            "generationConfig": {"responseModalities": ["AUDIO"],
@@ -499,7 +508,7 @@ def generate_worker(req):
             else:
                 voice_id = req.speaker_voices.get(seg.speaker, "").strip() or req.default_voice_id.strip()
                 if not voice_id:
-                    raise Exception(f"No voice assigned for speaker: {seg.speaker}")
+                    raise UserError(f"No voice is selected for {seg.speaker}. Pick one in Step 4 and try again.")
                 # Which engine actually created THIS speaker's voice_id --
                 # resolved by main.py per-speaker BEFORE this thread started
                 # (see req.speaker_voice_engines / req.default_voice_engine),
@@ -514,7 +523,7 @@ def generate_worker(req):
                 if engine == "inworld":
                     api_key = req.inworld_api_key.strip()
                     if not api_key:
-                        raise Exception("Missing Inworld API key.")
+                        raise UserError("Voice generation is temporarily unavailable. Please try again later.")
                     tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
                     # Own counter, separate from eleven_chars -- so
                     # main.py's _watch_and_deduct() can charge this engine's
@@ -526,7 +535,7 @@ def generate_worker(req):
                 else:
                     api_key = req.elevenlabs_api_key.strip()
                     if not api_key:
-                        raise Exception("Missing ElevenLabs API key.")
+                        raise UserError("Voice generation is temporarily unavailable. Please try again later.")
                     if eleven_client is None:
                         eleven_client = ElevenLabs(api_key=api_key)
                     tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
@@ -598,7 +607,7 @@ def generate_worker(req):
                                     "tempo_warning": needs_warning})
             jobs_progress[_pk]["percent"] = int(((i + 1) / total_segments) * 90)
         if not generated_files:
-            raise Exception("No Arabic text found.")
+            raise UserError("None of your lines has Arabic text yet. Translate them (or type the Arabic) first.")
         USER_GAINS[req.job_id] = {lm["segment_id"]: float(lm["auto_gain_db"]) for lm in lines_meta}
         jobs_progress[_pk]["percent"] = 92
         generated_files.sort(key=lambda item: item["start"])
@@ -633,7 +642,7 @@ def generate_worker(req):
             item["allowed_duration"] = min(item["duration"], allowed_duration)
             adjusted_files.append(item)
         if not adjusted_files:
-            raise Exception("No generated segments fit.")
+            raise UserError("The dubbed lines don't fit inside the video's timeline. Try a higher Speed adjustment or allow overlap, then generate again.")
         # Carry the tempo/trim warnings back onto lines_meta (the per-line
         # data the Step 5.5 table actually renders) so the UI can flag which
         # rows need attention -- these were only known on generated_files,
@@ -671,7 +680,7 @@ def generate_worker(req):
                   "eleven_credits_used": bucket["eleven_chars"] + bucket["inworld_chars"], "lines": lines_meta}
         jobs_progress[_pk].update({"status": "done", "percent": 100, "result": result, "error": None})
     except Exception as e:
-        jobs_progress[_pk] = {"status": "error", "percent": 0, "error": str(e), "result": None}
+        jobs_progress[_pk] = {"status": "error", "percent": 0, "error": friendly_error(e), "result": None}
 
 def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None, dead_space_flags=None):
     global OVERLAP_FLAGS
@@ -723,7 +732,7 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
         item["allowed_duration"] = min(item["duration"], allowed)
         adjusted.append(item)
     if not adjusted:
-        raise Exception("No lines fit the timeline.")
+        raise UserError("The dubbed lines don't fit inside the video's timeline. Try a higher Speed adjustment or allow overlap, then generate again.")
     # Same "who's still cut/trimmed after this rebuild" list as
     # remix_with_offsets, for the Step 5.5 table's needs-attention marks.
     trimmed_segment_ids = [it["sid"] for it in items if it.get("trimmed")]
@@ -765,14 +774,14 @@ def regenerate_line(req):
         if engine == "inworld":
             api_key = req.inworld_api_key.strip()
             if not api_key:
-                return {"error": "Missing Inworld API key."}
+                return {"error": "Voice generation is temporarily unavailable. Please try again later."}
             tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
             bucket["inworld_chars"] += len(tts_text)
             audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
         else:
             api_key = req.elevenlabs_api_key.strip()
             if not api_key:
-                return {"error": "Missing ElevenLabs API key."}
+                return {"error": "Voice generation is temporarily unavailable. Please try again later."}
             if eleven_client is None:
                 eleven_client = ElevenLabs(api_key=api_key)
             tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
@@ -902,7 +911,7 @@ def remix_with_offsets(req):
             items.append({"file": sp.name, "sid": s.segment_id, "start": max(0.0, s.start + off),
                           "end": s.end + off, "duration": get_media_duration(sp)})
         if not items:
-            return {"error": "No generated line audio found. Run Generate once first."}
+            return {"error": "Generate the Arabic audio first, then try again."}
         max_segment_end = max(i["end"] for i in items)
         max_played_end = max(i["start"] + i["duration"] for i in items)
         if req.duration_mode == "extend":
@@ -934,7 +943,7 @@ def remix_with_offsets(req):
             item["allowed_duration"] = min(item["duration"], allowed)
             adjusted.append(item)
         if not adjusted:
-            return {"error": "No lines fit the timeline."}
+            return {"error": "The dubbed lines don't fit inside the video's timeline. Try a higher Speed adjustment or allow overlap, then generate again."}
         # Which lines are still cut/trimmed after this rebuild -- lets the
         # Step 5.5 table clear a line's "needs attention" mark the moment
         # the user's offset/overlap/dead-space change actually fixes it.
@@ -995,7 +1004,8 @@ def delete_voice(voice_id: str, api_key: str) -> dict:
             r.read()
         return {"ok": True}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        print(f"[voices] delete failed: {e}")
+        return {"ok": False, "error": "We couldn't delete that voice. Please try again."}
 
 
 def generate_sample(voice_id: str, text: str, api_key: str) -> bytes:
@@ -1023,7 +1033,7 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
             wav.unlink()
         except Exception:
             pass
-        return f"ERROR: Clip is {dur:.1f}s — the limit is 20 seconds."
+        return f"ERROR: This clip is {dur:.1f} seconds long. The maximum is 20 seconds. Please use a shorter recording."
     if dur < 1.0:
         pad = OUTPUT_DIR / f"custom_{job_id}_{safe}_pad.wav"
         run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-af", f"apad=pad_dur={max(0.2, 1.15 - dur)}", "-ac", "1", "-ar", "44100", "-acodec", "pcm_s16le", str(pad)])
@@ -1044,4 +1054,5 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
         pass
     if resp.status == 200:
         return json.loads(resp.data.decode()).get("voice_id", "ERROR: no voice_id returned")
-    return f"ERROR: Voice engine rejected the clip (status {resp.status})."
+    print(f"[custom-voice] the voice engine rejected the clip (status {resp.status})")
+    return "ERROR: We couldn't create a voice from this clip. Please use a clear recording of one person speaking (1-20 seconds) without music."

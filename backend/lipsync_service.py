@@ -15,6 +15,7 @@ import urllib3
 import r2_backup
 from config import OUTPUT_DIR, LIPSYNC_TEST_MODE, APP_VERSION
 from app_state import jobs_progress
+from user_errors import friendly_error as _friendly_error, UserError, GENERIC as _GENERIC
 from ffmpeg_utils import (
     compress_video_for_upload,
     get_video_resolution,
@@ -126,7 +127,7 @@ def _elevenlabs_lipsync(upload_path: Path, audio_path: Path, eleven_key: str, ra
             raise Exception(f"Failed: {json.dumps(st)[:400]}")
     if video_url is None:
         raise Exception("Timed out (~20 min).")
-    progress["message"] = "Downloading result..."
+    progress["message"] = "Getting your video ready..."
     cmd = ["curl", "-s", "-S", "-L", "-o", str(raw_video), video_url]
     subprocess.run(cmd, check=True, timeout=600)
 
@@ -203,7 +204,7 @@ def _synclabs_lipsync(upload_path: Path, audio_path: Path, sync_key: str, model:
             raise Exception(f"Job {status}: {st.get('error') or st.get('errorCode')}")
     if not output_url:
         raise Exception("Timed out. Recover later with ID: " + gen_id)
-    progress["message"] = "Downloading result..."
+    progress["message"] = "Getting your video ready..."
     with urllib.request.urlopen(output_url, timeout=600) as resp:
         raw_video.write_bytes(resp.read())
 
@@ -228,7 +229,7 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
     audio_url = client.upload_file(str(audio_path))
     progress["percent"] = 15
 
-    progress["message"] = "Submitting to lip-sync engine..."
+    progress["message"] = "Starting lip-sync..."
     handle = client.submit(
         FAL_VEED_LIPSYNC_MODEL,
         arguments={"video_url": video_url, "audio_url": audio_url},
@@ -253,7 +254,7 @@ def _veed_lipsync(upload_path: Path, audio_path: Path, fal_key: str, raw_video: 
     if completed is None:
         raise Exception(f"Timed out (~20 min). Request ID: {handle.request_id}")
 
-    progress["message"] = "Downloading result..."
+    progress["message"] = "Getting your video ready..."
     result = handle.get()
     video_obj = result.get("video") if isinstance(result, dict) else None
     video_url_out = video_obj.get("url") if isinstance(video_obj, dict) else None
@@ -377,7 +378,7 @@ def _update_lipsync_run(task_id, status, error=None):
 
 def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None):
     if not workspace_id:
-        raise Exception("Missing DASHSCOPE_WORKSPACE_ID (required for the Wan 3.0 lip-sync call).")
+        raise UserError(_LS_DOWN)
     base_url = f"https://{workspace_id}.{region}.maas.aliyuncs.com"
 
     # Wan 3.0 needs public HTTP(S) URLs for both references (no raw file
@@ -387,7 +388,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
     video_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_video.mp4"
     audio_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_audio.mp3"
 
-    progress["message"] = "Staging files for lip-sync..."
+    progress["message"] = "Preparing your files for lip-sync..."
     # Reverted 2026-09-28 (Ali): the 2026-09-27 change staged a MUTED copy of
     # the reference video here, on the theory that its original-language
     # audio track was leaking into the output alongside the Arabic dub.
@@ -401,11 +402,13 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
     # unused here now.
     video_url = r2_backup.upload_temp_and_get_url(upload_path, video_key)
     if not video_url:
-        raise Exception("Could not stage the video for the lip-sync provider (R2 storage not configured, or the upload failed).")
+        print("[lipsync] could not stage the video in R2 (storage not configured, or the upload failed)")
+        raise UserError(_LS_DOWN)
     audio_url = r2_backup.upload_temp_and_get_url(audio_path, audio_key)
     if not audio_url:
         r2_backup.delete_temp_object(video_key)
-        raise Exception("Could not stage the audio for the lip-sync provider (R2 storage not configured, or the upload failed).")
+        print("[lipsync] could not stage the audio in R2 (storage not configured, or the upload failed)")
+        raise UserError(_LS_DOWN)
 
     # Optional reference photos (Step 7's "reference photos" upload, see
     # /api/lipsync/reference-images in main.py) -- fed in as reference_image
@@ -424,7 +427,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
 
     try:
         progress["percent"] = 15
-        progress["message"] = "Submitting to lip-sync engine..."
+        progress["message"] = "Starting lip-sync..."
         # Range documented by Alibaba: -1 or [0, 2147483647]. We always send
         # an explicit one (rather than -1/omitted) so it can be recorded.
         wan_seed = random.randint(0, 2147483647)
@@ -501,9 +504,9 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
             if status == "RUNNING":
                 # Ali tested this himself: RUNNING alone can sit for ~15 minutes
                 # depending on model load, and with no extra text it looks frozen.
-                progress["message"] = "Lip-sync: RUNNING -- this can take up to 15 minutes depending on model load. Do not close or refresh the page."
+                progress["message"] = "Lip-sync is in progress. This can take up to 15 minutes, so please keep this page open."
             else:
-                progress["message"] = f"Lip-sync: {status}"
+                progress["message"] = "Lip-sync is waiting to start..." if status == "PENDING" else "Lip-sync is in progress..."
             if status == "SUCCEEDED":
                 video_url_out = output.get("video_url")
                 _update_lipsync_run(task_id, "succeeded")
@@ -515,7 +518,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
             _update_lipsync_run(task_id, "timed_out", "No result after ~20 minutes")
             raise Exception(f"Timed out (~20 min). Task ID: {task_id}")
 
-        progress["message"] = "Downloading result..."
+        progress["message"] = "Getting your video ready..."
         with urllib.request.urlopen(video_url_out, timeout=600) as resp:
             raw_video.write_bytes(resp.read())
     finally:
@@ -531,14 +534,25 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
 # instead of ~15 minutes and with no real API call or charge. Copies the
 # original video through unchanged as the "result" so the results
 # player/download UI can be checked too -- just not real lip-sync output.
+_LS_DOWN = "Lip-sync is temporarily unavailable. Please try again later."
+
+
+def _ls_friendly(e) -> str:
+    """Customer-safe lip-sync failure text. The raw error and a short reference go to the log."""
+    msg = _friendly_error(e, "lipsync")
+    if msg.startswith(_GENERIC):
+        return msg.replace(_GENERIC, "We couldn't finish the lip-sync this time. Please try again in a moment.", 1)
+    return msg
+
+
 def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
     steps = [
-        (15, "Staging files for lip-sync...", 2),
-        (20, "Submitting to lip-sync engine...", 2),
-        (35, "Lip-sync: PENDING", 2),
-        (55, "Lip-sync: RUNNING -- this can take up to 15 minutes depending on model load. Do not close or refresh the page.", 3),
-        (75, "Lip-sync: RUNNING -- this can take up to 15 minutes depending on model load. Do not close or refresh the page.", 3),
-        (90, "Downloading result...", 2),
+        (15, "Preparing your files for lip-sync...", 2),
+        (20, "Starting lip-sync...", 2),
+        (35, "Lip-sync is waiting to start...", 2),
+        (55, "Lip-sync is in progress. This can take up to 15 minutes, so please keep this page open.", 3),
+        (75, "Lip-sync is in progress. This can take up to 15 minutes, so please keep this page open.", 3),
+        (90, "Getting your video ready...", 2),
     ]
     for percent, message, delay in steps:
         progress["percent"] = percent
@@ -555,10 +569,10 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                               "error": None, "result": None, "generation_id": None}
         video_path = find_job_video(job_id)
         if video_path is None:
-            raise Exception("Original video not found.")
+            raise UserError("We couldn't find your original video. Please upload it again.")
         dubbed_audio = OUTPUT_DIR / f"{job_id}_final_dubbed.mp3"
         if not dubbed_audio.exists():
-            raise Exception("Dubbed audio not found.")
+            raise UserError("We couldn't find your dubbed audio. Please generate the dubbing again.")
 
         is_recover = provider == "synclabs" and model.startswith("recover:")
         raw_video = OUTPUT_DIR / f"lipsync_raw_{job_id}.mp4"
@@ -566,29 +580,29 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
         if LIPSYNC_TEST_MODE:
             _simulate_lipsync(video_path, raw_video, jobs_progress[key])
         elif not is_recover:
-            jobs_progress[key]["message"] = "Compressing video for upload..."
+            jobs_progress[key]["message"] = "Preparing your video..."
             upload_path = OUTPUT_DIR / f"lipsync_upload_{job_id}.mp4"
             compress_video_for_upload(video_path, upload_path)
             if provider == "synclabs":
-                if not sync_key: raise Exception("Missing lip-sync engine key.")
+                if not sync_key: raise UserError(_LS_DOWN)
                 _synclabs_lipsync(upload_path, dubbed_audio, sync_key, model, raw_video, jobs_progress[key], job_id)
             elif provider == "veed":
-                if not fal_key: raise Exception("Missing lip-sync engine key.")
+                if not fal_key: raise UserError(_LS_DOWN)
                 _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
             elif provider == "wan3":
-                if not dashscope_key: raise Exception("Missing lip-sync engine key.")
+                if not dashscope_key: raise UserError(_LS_DOWN)
                 ref_images = job_reference_images(job_id)
                 _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id, ref_images)
             else:
-                if not eleven_key: raise Exception("Missing lip-sync engine key.")
+                if not eleven_key: raise UserError(_LS_DOWN)
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])
         else:
-            if not sync_key: raise Exception("Missing lip-sync engine key.")
-            jobs_progress[key]["message"] = "Recovering existing generation..."
+            if not sync_key: raise UserError(_LS_DOWN)
+            jobs_progress[key]["message"] = "Retrieving your lip-sync video..."
             _synclabs_lipsync(None, dubbed_audio, sync_key, model, raw_video, jobs_progress[key], job_id)
 
         jobs_progress[key]["percent"] = 92
-        jobs_progress[key]["message"] = "Mixing background audio back in..."
+        jobs_progress[key]["message"] = "Adding the background sound back..."
         background = job_background_audio(job_id)
         final_video = OUTPUT_DIR / f"{job_id}_final_lipsync.mp4"
         if background is not None:
@@ -621,7 +635,8 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                                    "message": "Lip-sync complete.",
                                    "result": {"video": f"{job_id}_final_lipsync.mp4", "provider": provider}})
     except Exception as e:
-        jobs_progress[key] = {"status": "error", "percent": 0, "message": str(e), "error": str(e),
+        _msg = _ls_friendly(e)
+        jobs_progress[key] = {"status": "error", "percent": 0, "message": _msg, "error": _msg,
                               "result": None, "generation_id": jobs_progress.get(key, {}).get("generation_id")}
     finally:
         if upload_path is not None:

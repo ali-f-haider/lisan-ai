@@ -388,7 +388,7 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False):
         free = None
     # Need room for the upload itself plus working files (audio copies, stems).
     if free is not None and free < size * 2 + 1024 * 1024 * 1024:
-        return None, ("The server is short on storage right now. Please try again later.", 503)
+        return None, ("We can't accept new uploads right now. Please try again in a little while.", 503)
     job_id = str(uuid.uuid4())
     d = job_dir(job_id)
     d.mkdir(parents=True, exist_ok=True)
@@ -416,13 +416,13 @@ def write_chunk(job, index, data):
     try:
         index = int(index)
     except Exception:
-        return False, "Bad chunk index."
+        return False, "The upload was interrupted. Please try again."
     total = job["total_chunks"]
     if index < 0 or index >= total:
-        return False, "Chunk index out of range."
+        return False, "The upload was interrupted. Please try again."
     expected = CHUNK_BYTES if index < total - 1 else job["size"] - CHUNK_BYTES * (total - 1)
     if len(data) != expected:
-        return False, f"Chunk {index} has {len(data)} bytes, expected {expected}."
+        return False, "The upload was interrupted. Please try again."
     part = job_dir(job["id"]) / "src.part"
     with _lock_for(job["id"]):
         mode = "r+b" if part.exists() else "w+b"
@@ -447,7 +447,7 @@ def finish_upload(job, uid):
     if job.get("status") != "uploading":
         return False, ("This upload is already finished.", 409)
     if len(set(job["received"])) != job["total_chunks"]:
-        return False, (f"Upload incomplete ({len(job['received'])} of {job['total_chunks']} parts received).", 409)
+        return False, ("The upload didn't finish. Please try again.", 409)
     d = job_dir(job["id"])
     part = d / "src.part"
     if not part.exists() or part.stat().st_size != job["size"]:
@@ -559,7 +559,7 @@ def accept(job, uid, agreed=False):
         job["status"] = "accepted"
         job["stage"] = "queued"
         job["percent"] = 0
-        job["message"] = "Waiting for a free processing slot..."
+        job["message"] = "Waiting for your turn..."
     _save(job)
     start_worker(job["id"])
     return True, None
@@ -714,7 +714,7 @@ def _fail(job, message, refund_kind=None):
     try:
         extra = f" We refunded {refunded} credits." if refunded else ""
         Hooks.send_email(uid, "Your Lisan AI long video could not be finished",
-                         f"Hi,\n\nSorry, your long video \"{job['filename']}\" could not be finished: {message}.{extra}\n\n"
+                         f"Hi,\n\nSorry, your long video \"{job['filename']}\" could not be finished: {message.rstrip('. ')}.{extra}\n\n"
                          "You can start again from https://lisanai.org/dub-long\n\n-- Lisan AI")
     except Exception:
         pass
@@ -737,11 +737,11 @@ class _Slot:
 
     def _on_update(self, ahead):
         if ahead <= 0:
-            msg = "Waiting for a free processing slot..."
+            msg = "Waiting for your turn..."
         elif ahead == 1:
-            msg = "Waiting in queue - 1 job ahead of this one..."
+            msg = "Waiting in line - 1 video ahead of yours..."
         else:
-            msg = f"Waiting in queue - {ahead} jobs ahead of this one..."
+            msg = f"Waiting in line - {ahead} videos ahead of yours..."
         self.job["message"] = msg
 
     def take(self):
@@ -1053,7 +1053,7 @@ def _run_analysis(job):
                     if i not in an.setdefault("bg_failed", []):
                         an["bg_failed"].append(i)
                     job.setdefault("warnings", []).append(
-                        f"Background music could not be separated for part {i + 1}; that part will have no background sound.")
+                        f"We couldn't separate the background sound for part {i + 1} of {n} of your video, so that part will have no background sound.")
                     _ev(job, "separation", "failed", f"piece {i + 1}/{n}: separation failed twice; used the original sound and silent background")
             else:
                 shutil.copy(piece, vocals_dst)
@@ -1092,7 +1092,7 @@ def _run_analysis(job):
                         turns = whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0)
                 except Exception as ex:
                     print(f"[longdub] speaker detection failed: {ex}")
-                    job.setdefault("warnings", []).append("Speaker detection failed; every line was assigned to Speaker 1.")
+                    job.setdefault("warnings", []).append("We couldn't tell the speakers apart, so every line was assigned to Speaker 1.")
                     turns = []
                 finally:
                     try:
@@ -1191,7 +1191,7 @@ def _run_analysis(job):
             _fail(job, "No speech was found in this video", "analysis")
             return
         if len(rows) > MAX_SEGMENTS:
-            _fail(job, f"This video has too many separate lines ({len(rows)}); the limit is {MAX_SEGMENTS}", "analysis")
+            _fail(job, "This video has too much speech to dub in one go. Please split it into shorter videos.", "analysis")
             return
         _init_speakers(job, rows)
         _write_segments(job, rows)
@@ -1254,7 +1254,7 @@ def _run_analysis(job):
         import traceback
         print(f"[longdub] analysis failed for {job['id']}: {ex}\n{traceback.format_exc()}")
         _ev(job, "analysis_failed", "failed", f"{type(ex).__name__}: {ex}"[:600])
-        _fail(job, "Something went wrong while analysing this video", "analysis")
+        _fail(job, "We couldn't finish preparing this video. Please try again, or try another file", "analysis")
 
 
 # ------------------------------------------------------------- segments
@@ -1403,7 +1403,7 @@ def ensure_tashkeel(job):
             time.sleep(2)
         if got is None:
             _ev(job, "tashkeel", "failed", f"the AI service did not answer for {len(batch)} lines")
-            return 0, "The tashkeel service did not answer. Nothing was charged. Please try again in a moment."
+            return 0, "We couldn't add the diacritics just now. Nothing was charged. Please try again in a moment."
         for r in batch:
             new = merge_tashkeel(r["arabic_text"], got.get(r["segment_id"], ""))
             if new != r["arabic_text"]:
@@ -2195,7 +2195,7 @@ def _run_lipsync(job, dub_full, kept, total, d):
         raise Exception(f"joined picture is {got:.2f}s long, expected {want:.2f}s")
     if n_failed or n_skip:
         job.setdefault("warnings", []).append(
-            f"{n_failed + n_skip} of {n_clips} lip-sync clip(s) could not be lip-synced and keep the original mouth movement; "
+            f"{n_failed + n_skip} of {n_clips} parts of the video could not be lip-synced and keep the original mouth movement; "
             "their price was refunded.")
     _ev(job, "lipsync", "ok" if not n_failed else "partial",
         f"{n_done} of {n_clips} clips lip-synced, {n_failed} failed, {n_skip} without speech, {time.time() - started:.0f}s")
@@ -2288,12 +2288,12 @@ def confirm(job, uid, expected_due):
         return False, ("There is no Arabic text to dub yet.", 400)
     if not INWORLD_API_KEY:
         _ev(job, "dub_confirmed", "failed", "voice service (Inworld) is not configured")
-        return False, ("The voice service is not available right now. Nothing was charged. Please try again later.", 503)
+        return False, ("Voice generation is temporarily unavailable. Nothing was charged. Please try again later.", 503)
     try:
         if int(expected_due) != price["due"]:
             return False, ("The price changed because the text was edited. Please check the new price and confirm again.", 409)
     except (TypeError, ValueError):
-        return False, ("Missing price confirmation.", 400)
+        return False, ("Please review the price and confirm again.", 400)
     lip_plan = None
     if (job.get("lipsync") or {}).get("wanted"):
         if not lipsync_available():
@@ -2320,7 +2320,7 @@ def confirm(job, uid, expected_due):
         job["status"] = "confirmed"
         job["stage"] = "queued"
         job["percent"] = 0
-        job["message"] = "Waiting for a free processing slot..."
+        job["message"] = "Waiting for your turn..."
     _save(job)
     _ev(job, "dub_confirmed", "ok",
         f"due={price['due']} (voice {price['voice']}, clones {price['clones']}, merge {price['merge']}"
@@ -2812,7 +2812,7 @@ def _run_dubbing(job):
         _ev(job, "dubbing_started", "info", "resumed from checkpoint" if resumed else "first run")
         plan = job["dub_plan"]
         if not INWORLD_API_KEY:
-            _fail(job, "The voice service is not available right now", "dub")
+            _fail(job, "Voice generation is temporarily unavailable. Please try again later", "dub")
             return
         d = wd / "dub"
         for sub in ("", "lines", "fit", "mix"):
@@ -2868,7 +2868,7 @@ def _run_dubbing(job):
                 _save(job)
         good = [s for s in sp_ids if s in dub["voices"]]
         if not good:
-            _fail(job, "The voices could not be copied from this video", "dub")
+            _fail(job, "We couldn't copy the speakers' voices from this video", "dub")
             return
         # A speaker whose voice couldn't be copied borrows the voice of the
         # speaker with the most lines, and its clone charge is refunded.
@@ -2938,10 +2938,10 @@ def _run_dubbing(job):
         failed = list(dub["failed"])
         if n and len(failed) / float(n) > MAX_FAILED_LINE_SHARE:
             _ev(job, "speech_generation", "failed", f"{len(failed)} of {n} lines failed")
-            _fail(job, "Too many lines could not be generated by the voice service", "dub")
+            _fail(job, "Too many lines could not be generated. Please try again", "dub")
             return
         if not dub["lines"]:
-            _fail(job, "No line could be generated", "dub")
+            _fail(job, "We couldn't generate any of the lines. Please try again", "dub")
             return
         by_seg = {r["segment_id"]: r for r in rows}
         _ev(job, "speech_generation", "ok" if not failed else "partial",
@@ -3000,7 +3000,7 @@ def _run_dubbing(job):
             _ev(job, "timeline", "partial", f"{len(dropped)} lines had no room and were left out")
             job.setdefault("warnings", []).append(f"{len(dropped)} line(s) had no room before the next line and were left out.")
         if not chunks:
-            _fail(job, "No generated line fits the timeline", "dub")
+            _fail(job, "The dubbed lines don't fit inside the video's timeline. Try shortening the Arabic text", "dub")
             return
         mix_dir = d / "mix"
         mixed = []
@@ -3223,10 +3223,11 @@ def _run_dubbing(job):
             _record_speed("dubbing", total, max(elapsed - lip_secs - DUB_BASE_SEC, 0.1 * total))
         note = ""
         if failed or dropped:
-            note = ("\n\nNote: some lines could not be dubbed and were left silent; the price of the lines that could not be "
-                    "generated was refunded.")
+            note = "\n\nNote: some lines could not be dubbed and were left out of the video."
+            if failed:
+                note += " The price of the lines that could not be generated was refunded."
         if dub.get("rephrased"):
-            note += (f"\n\n{len(dub['rephrased'])} Arabic line(s) were too long for their time even after stretching, so they were "
+            note += (f"\n\n{len(dub['rephrased'])} Arabic line(s) were too long for their time, so they were "
                      "rephrased shorter with the same meaning. You can see what changed on the download page."
                      + (f" The credits saved on the shorter text ({dub['rephrase_refund']}) were refunded." if dub.get("rephrase_refund") else ""))
         if bg_info and bg_info["state"] != "mixed":
@@ -3235,8 +3236,8 @@ def _run_dubbing(job):
                         f"for {bg_info['failed_parts']} of {bg_info['parts']} parts of the video")
                      + ", so it is missing from the dubbed file there.")
         if lip_summary is not None:
-            note += (f"\n\nLip-sync: {lip_summary['synced']} of {lip_summary['clips']} clips were lip-synced."
-                     + (f" The price of the clips that could not be lip-synced ({lip_summary['refunded']} credits) was refunded."
+            note += (f"\n\nLip-sync: {lip_summary['synced']} of {lip_summary['clips']} parts of the video were lip-synced."
+                     + (f" The price of the parts that could not be lip-synced ({lip_summary['refunded']} credits) was refunded."
                         if lip_summary["refunded"] else ""))
         ok = Hooks.send_email(uid, "Your dubbed video is ready",
                               f"Hi,\n\nYour dubbed {'video' if video_out else 'audio'} \"{job['filename']}\" is ready.\n"
@@ -3248,7 +3249,7 @@ def _run_dubbing(job):
         import traceback
         print(f"[longdub] dubbing failed for {job['id']}: {ex}\n{traceback.format_exc()}")
         _ev(job, "dubbing_failed", "failed", f"{type(ex).__name__}: {ex}"[:600])
-        _fail(job, "Something went wrong while dubbing this video", "dub")
+        _fail(job, "We couldn't finish dubbing this video. Please try again", "dub")
 
 
 # ------------------------------------------------------ housekeeping

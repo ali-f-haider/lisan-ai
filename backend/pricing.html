@@ -142,11 +142,18 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
   <div class="legal">
     <a href="/terms">Terms of Service<span class="ar2" style="display:inline;font-size:11px;">· شروط الخدمة</span></a> · <a href="/privacy">Privacy Policy<span class="ar2" style="display:inline;font-size:11px;">· سياسة الخصوصية</span></a>
   </div>
-  <div class="copy">© 2025 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div>
+  <div class="copy">© 2026 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div>
 </footer>
 
 <script src="/dialogs.js"></script>
 <script>
+function safeMsg(m) {
+  var t = String(m || "");
+  if (!t || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|null|stripe|supabase|api[ _-]?key|\/api\/|Server error|fetch/i.test(t)) {
+    return pageIsArabic() ? "حدث خطأ. يُرجى المحاولة بعد قليل." : "Something went wrong. Please try again in a moment.";
+  }
+  return t;
+}
 // Arabic labels keyed by each plan/pack's own key -- anything not in these
 // maps (a new tier/pack an admin creates later with a different key) just
 // falls back to its own English name, same fallback approach already used
@@ -177,7 +184,7 @@ function pageIsArabic() { try { return localStorage.getItem("lisan_lang") === "a
 function renderSubs(plans) {
   var box = document.getElementById("subCards");
   if (!plans || !plans.length) {
-    box.innerHTML = '<p class="loading-note">No subscription plans are configured yet.<span class="ar2">لا توجد خطط اشتراك مُعدّة بعد.</span></p>';
+    box.innerHTML = '<p class="loading-note">Subscription plans aren\'t available right now. Please check back soon.<span class="ar2">خطط الاشتراك غير متاحة حاليًا. يُرجى المراجعة لاحقًا.</span></p>';
     return;
   }
   var html = "";
@@ -246,7 +253,7 @@ function renderPacks(packs) {
   var box = document.getElementById("packCards");
   var keys = Object.keys(packs || {});
   if (!keys.length) {
-    box.innerHTML = '<p class="loading-note">No credit packs are configured yet.<span class="ar2">لا توجد باقات رصيد مُعدّة بعد.</span></p>';
+    box.innerHTML = '<p class="loading-note">Credit packs aren\'t available right now. Please check back soon.<span class="ar2">باقات الرصيد غير متاحة حاليًا. يُرجى المراجعة لاحقًا.</span></p>';
     return;
   }
   var html = "";
@@ -301,14 +308,14 @@ function changePlan(key, state, btn) {
     fetch("/api/billing/change_plan?plan_key=" + encodeURIComponent(key), { method: "POST" })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.error) { btn.disabled = false; btn.style.opacity = "1"; LisanDialog.alert(d.error, { type: "error" }); return; }
+        if (d.error) { btn.disabled = false; btn.style.opacity = "1"; LisanDialog.alert(safeMsg(d.error), { type: "error" }); return; }
         var done;
         if (d.mode === "upgraded") done = ar ? "تمت الترقية إلى باقة " + (d.plan || name) + ". تم تحديث رصيدك." : "You're now on " + (d.plan || name) + ". Your credits have been updated.";
         else if (d.mode === "scheduled") { var w = fmtDay(d.effective); done = ar ? "تم. ستتحول إلى باقة " + (d.plan || name) + " عند التجديد القادم" + (w ? " (" + w + ")" : "") + "." : "Done. You'll switch to " + (d.plan || name) + " at your next renewal" + (w ? " (" + w + ")" : "") + "."; }
         else done = ar ? "تم. ستبقى على باقتك الحالية." : "Done. You'll stay on your current plan.";
         LisanDialog.alert(done, { type: "success" }).then(function () { window.location.reload(); });
       })
-      .catch(function (e) { btn.disabled = false; btn.style.opacity = "1"; LisanDialog.alert(e.message, { type: "error" }); });
+      .catch(function (e) { btn.disabled = false; btn.style.opacity = "1"; LisanDialog.alert(safeMsg(""), { type: "error" }); });
   });
 }
 
@@ -319,10 +326,10 @@ function chooseSub(key, btn) {
   fetch("/api/billing/subscribe?plan_key=" + encodeURIComponent(key), { method: "POST" })
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      if (d.error) { LisanDialog.alert(d.error, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; return; }
+      if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; return; }
       window.location.href = d.url;
     })
-    .catch(function (e) { LisanDialog.alert(e.message, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; });
+    .catch(function (e) { LisanDialog.alert(safeMsg(""), { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
 function choosePack(key, btn) {
@@ -334,10 +341,10 @@ function choosePack(key, btn) {
   })
     .then(function (r) { return r.json(); })
     .then(function (d) {
-      if (d.error) { LisanDialog.alert(d.error, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; return; }
+      if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; return; }
       window.location.href = d.url;
     })
-    .catch(function (e) { LisanDialog.alert(e.message, { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; });
+    .catch(function (e) { LisanDialog.alert(safeMsg(""), { type: "error" }); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
 Promise.all([

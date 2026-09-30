@@ -17,6 +17,7 @@ from ffmpeg_utils import (
     detect_silence_gaps,
 )
 from vad_utils import run_vad_timing_checks
+from user_errors import friendly_error
 
 # Match the container's 4 vCPUs — prevents thread oversubscription
 # (the "calm CPU but 3-4x slower" bug).
@@ -478,7 +479,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
     # by "Starting..." before anyone ever polls it.
     jobs_progress[job_id] = {
         "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
-        "status_text": "Waiting for a free processing slot (server is busy with another job)...",
+        "status_text": "Waiting for your turn — another video is being processed...",
         "warning": None, "detected_speakers": 0, "is_video": False,
         "has_background": False, "lipsync_wanted": lipsync_wanted,
     }
@@ -491,11 +492,11 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         if job is None:
             return
         if ahead <= 0:
-            job["status_text"] = "Waiting for a free processing slot (server is busy with another job)..."
+            job["status_text"] = "Waiting for your turn — another video is being processed..."
         elif ahead == 1:
-            job["status_text"] = "Waiting in queue -- 1 job ahead of you..."
+            job["status_text"] = "Waiting in line: 1 video ahead of you..."
         else:
-            job["status_text"] = f"Waiting in queue -- {ahead} jobs ahead of you..."
+            job["status_text"] = f"Waiting in line: {ahead} videos ahead of you..."
 
     _transcribe_queue.acquire(job_id, on_update=_on_queue_update)
     try:
@@ -528,7 +529,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 extract_audio_from_video(input_path, str(extracted_audio))
                 audio_path = str(extracted_audio)
 
-                jobs_progress[job_id]["status_text"] = "Separating vocals from background (this takes a while)..."
+                jobs_progress[job_id]["status_text"] = "Separating the voices from the background sound (this can take a few minutes)..."
                 jobs_progress[job_id]["percent"] = 8
                 try:
                     vocals_path, background_path = separate_vocals(audio_path, str(UPLOAD_DIR / f"{job_id}_separated"))
@@ -536,7 +537,8 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                     jobs_progress[job_id]["has_background"] = True
                     jobs_progress[job_id]["background_path"] = background_path
                 except Exception as e:
-                    jobs_progress[job_id]["warning"] = f"Vocal separation failed: {str(e)}. Using full audio instead."
+                    print(f"[transcribe] {job_id}: vocal separation failed: {str(e)[:1500]}")
+                    jobs_progress[job_id]["warning"] = "We couldn't separate the voices from the background sound, so the finished video won't include the original background music or ambience."
                     jobs_progress[job_id]["has_background"] = False
 
             turns = []
@@ -586,10 +588,11 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 try:
                     if diar_thread.is_alive():
                         warning = (warning + " | " if warning else "") + \
-                            "Speaker detection timed out; all lines assigned to Speaker 1."
+                            "Speaker detection took too long, so all lines are labelled Speaker 1. You can change the speaker of each line."
                     elif diar_result["error"]:
+                        print(f"[transcribe] {job_id}: speaker detection failed: {str(diar_result['error'])[:1500]}")
                         warning = (warning + " | " if warning else "") + \
-                            f"Speaker detection failed: {diar_result['error']}. All lines assigned to Speaker 1."
+                            "We couldn't tell the speakers apart, so all lines are labelled Speaker 1. You can change the speaker of each line."
 
                     turns = diar_result["turns"]
                     for turn in sorted(turns, key=lambda x: x["start"]):
@@ -599,7 +602,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                     jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
                     if speaker_count and len(speaker_label_map) < int(speaker_count):
                         warning = (warning + " | " if warning else "") + \
-                            f"Requested {speaker_count} speakers, but only {len(speaker_label_map)} were detected."
+                            f"You selected {speaker_count} speakers, but we found {len(speaker_label_map)}."
                 finally:
                     # Free the diarization pipeline's RAM now that speaker
                     # detection is done for this job -- it isn't needed again
@@ -648,7 +651,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 # point in this job are both large models in memory together.
                 _release_model()
 
-            jobs_progress[job_id]["status_text"] = "Building segments (splitting at speaker changes)..."
+            jobs_progress[job_id]["status_text"] = "Preparing your lines..."
             jobs_progress[job_id]["percent"] = 90
             result = []
             seg_index = 0
@@ -802,11 +805,11 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
         except Exception as e:
             jobs_progress[job_id] = {
-                "status": "error", "percent": 0, "error": str(e), "segments": [],
+                "status": "error", "percent": 0, "error": friendly_error(e, "transcribe"), "segments": [],
                 "full_duration": 0.0, "status_text": "Error", "warning": None,
                 "detected_speakers": 0, "is_video": False, "has_background": False,
-                "error_trace": traceback.format_exc(),
             }
+            print(f"[transcribe] {job_id}: failed:\n{traceback.format_exc()}")
     finally:
         # Always give up this job's slot -- on success, on a caught error
         # above, or on some unexpected exception the except clause itself

@@ -104,7 +104,7 @@
   <div class="card">
     <h3 id="balanceHeading">💰 Current balance</h3>
     <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
-    <p id="balanceNote" class="note">100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.</p>
+    <p id="balanceNote" class="note">100 credits = $1.00. Credits never expire.</p>
   </div>
   <div class="card" id="dangerZoneCard" style="border:1px solid #fecaca;">
     <h3 id="dangerZoneHeading" style="color:#dc2626;">⚠️ Danger Zone</h3>
@@ -146,7 +146,7 @@
 <div class="acct-panel" id="panel-purchases">
   <div class="card">
     <h3 id="purchasesHeading">🛒 Credit purchases</h3>
-    <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPType">Type</th><th id="thPCredits">Credits</th><th id="thPSession">Stripe session</th></tr></thead><tbody></tbody></table>
+    <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPType">Type</th><th id="thPCredits">Credits</th><th id="thPSession">Payment reference</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
@@ -202,7 +202,7 @@ var T = {
     tabBalance: "💰 Balance", tabSubscription: "🔁 Subscription", tabVoices: "🎙️ Voices", tabFiles: "🎬 Files",
     tabPurchases: "🛒 Purchases", tabUsage: "📉 Usage",
     balanceHeading: "💰 Current balance",
-    balanceNote: "100 credits = $1.00 · Transcribe 3 · Generate ≈ characters/60 · Merge 1. Credits never expire.",
+    balanceNote: "100 credits = $1.00. Credits never expire.",
     subHeading: "🔁 Subscription",
     subActive: function () { return "You're subscribed — your monthly credits keep arriving and your finished videos are kept for 30 days."; },
     subNone: 'You\'re not subscribed. One-time credit purchases keep finished videos for only 48 hours — subscribe from the <a href="/app">app\'s Buy menu</a> for 30-day storage plus monthly credits.',
@@ -262,14 +262,16 @@ var T = {
     delModalWarning: "This permanently deletes your account, credit balance, purchase history, and all finished files, and cancels any active subscription immediately. This cannot be undone.",
     delModalCancel: "Cancel",
     delModalConfirm: "Yes, delete permanently",
-    deleteAccountFailed: "Couldn't delete your account. Please try again or contact support."
+    deleteAccountFailed: "Couldn't delete your account. Please try again or contact support.",
+    genericFail: "Something went wrong. Please try again in a moment.",
+    actions: { transcribe: "Transcription", generate: "Voice generation", merge: "Video merge", clone: "Voice cloning", lipsync: "Lip-sync", translate: "Translation", emotions: "Emotion detection", tashkeel: "Diacritics", long_dub_refund: "Refund", admin_adjustment: "Adjustment", long_dub: "Long video dubbing" }
   },
   ar: {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
     tabBalance: "💰 الرصيد", tabSubscription: "🔁 الاشتراك", tabVoices: "🎙️ الأصوات", tabFiles: "🎬 الملفات",
     tabPurchases: "🛒 المشتريات", tabUsage: "📉 الاستهلاك",
     balanceHeading: "💰 الرصيد الحالي",
-    balanceNote: "100 ائتمان = 1.00 دولار · التفريغ 3 · التوليد ≈ الأحرف/60 · الدمج 1. الائتمانات لا تنتهي صلاحيتها.",
+    balanceNote: "100 ائتمان = 1.00 دولار. الائتمانات لا تنتهي صلاحيتها.",
     subHeading: "🔁 الاشتراك",
     subActive: function () { return "أنت مشترك — يصلك ائتمانك الشهري تلقائيًا، وتُحفظ فيديوهاتك الجاهزة لمدة 30 يومًا."; },
     subNone: 'أنت غير مشترك. شراء الرصيد لمرة واحدة يحفظ الفيديوهات الجاهزة لمدة 48 ساعة فقط — اشترك من <a href="/app">قائمة الشراء في التطبيق</a> للحصول على تخزين 30 يومًا وائتمان شهري.',
@@ -310,7 +312,7 @@ var T = {
     filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     loading: "جارٍ التحميل…",
-    purchasesHeading: "🛒 مشتريات الائتمان وائتمان الاشتراك", thPDate: "التاريخ", thPType: "النوع", thPCredits: "الائتمانات", thPSession: "مرجع Stripe",
+    purchasesHeading: "🛒 مشتريات الائتمان وائتمان الاشتراك", thPDate: "التاريخ", thPType: "النوع", thPCredits: "الائتمانات", thPSession: "مرجع الدفع",
     typePack: "باقة رصيد", typeSub: "رصيد الاشتراك الشهري",
     spendsHeading: "📉 استهلاك الائتمان", thSDate: "التاريخ", thSAction: "الإجراء", thSJob: "المهمة", thSCredits: "الائتمانات",
     noPurchases: "لا توجد مشتريات بعد.", noSpends: "لم يُسجَّل أي استهلاك بعد.",
@@ -329,9 +331,23 @@ var T = {
     delModalWarning: "سيؤدي هذا إلى حذف حسابك ورصيدك وسجل مشترياتك وجميع ملفاتك الجاهزة نهائيًا، وإلغاء أي اشتراك فعّال فورًا. لا يمكن التراجع عن هذا الإجراء.",
     delModalCancel: "إلغاء",
     delModalConfirm: "نعم، احذف نهائيًا",
-    deleteAccountFailed: "تعذّر حذف حسابك. حاول مرة أخرى أو تواصل مع الدعم."
+    deleteAccountFailed: "تعذّر حذف حسابك. حاول مرة أخرى أو تواصل مع الدعم.",
+    genericFail: "حدث خطأ. يُرجى المحاولة بعد قليل.",
+    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", admin_adjustment: "تعديل الرصيد", long_dub: "دبلجة فيديو طويل" }
   }
 }[LANG];
+
+function actionLabel(a) {
+  a = String(a || "");
+  if (T.actions[a]) return T.actions[a];
+  if (a.indexOf("long_dub") === 0) return T.actions.long_dub;
+  return T.deduction;
+}
+function safeMsg(m) {
+  m = String(m || "");
+  if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|null|stripe|supabase|api[ _-]?key|\/api\/|Server error|fetch/i.test(m)) return T.genericFail;
+  return m;
+}
 
 (function applyStaticText() {
   document.documentElement.lang = (LANG === "ar") ? "ar" : "en";
@@ -458,9 +474,9 @@ function manageSubscription() {
   btn.disabled = true;
   fetch("/api/billing/portal", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
     btn.disabled = false;
-    if (d.error) { LisanDialog.alert(d.error, { type: "error" }); return; }
+    if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); return; }
     window.location.href = d.url;
-  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(e.message, { type: "error" }); });
+  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(T.genericFail, { type: "error" }); });
 }
 
 function cancelSubscription() {
@@ -477,7 +493,7 @@ function cancelSubscription() {
         refreshSubscriptionThenLoad();
         return;
       }
-      if (d.error) { LisanDialog.alert(d.error, { type: "error" }); refreshSubscriptionThenLoad(); return; }
+      if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); refreshSubscriptionThenLoad(); return; }
       window.location.href = d.url;
     }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.cancelSubFailed, { type: "error" }); });
   });
@@ -488,7 +504,7 @@ function resumeSubscription() {
   btn.disabled = true;
   fetch("/api/billing/resume", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
     btn.disabled = false;
-    if (d.error) { LisanDialog.alert(d.error, { type: "error" }); refreshSubscriptionThenLoad(); return; }
+    if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); refreshSubscriptionThenLoad(); return; }
     refreshSubscriptionThenLoad().then(function () {
       var end = window._subInfo && window._subInfo.subscription_current_period_end;
       LisanDialog.alert(T.subRenewed(fmtDay(end)), { type: "success" });
@@ -503,7 +519,7 @@ function confirmDeleteAccount() {
   var btn = document.getElementById("delModalConfirmBtn");
   btn.disabled = true;
   fetch("/api/account/delete", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
-    if (d.error) { btn.disabled = false; LisanDialog.alert(d.error, { type: "error" }); return; }
+    if (d.error) { btn.disabled = false; LisanDialog.alert(safeMsg(d.error), { type: "error" }); return; }
     window.location.href = "/login";
   }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.deleteAccountFailed, { type: "error" }); });
 }
@@ -512,14 +528,14 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
   (d.purchases || []).forEach(function(p){
     var tr = document.createElement("tr");
     var isSub = p.kind === "subscription";
-    tr.innerHTML = "<td>" + (p.created_at ? fmtStamp(p.created_at) : "—") + "</td><td>" + (isSub ? "🔁 " + T.typeSub : "🛒 " + T.typePack) + "</td><td style='color:#059669;font-weight:700;'>+" + p.credits + "</td><td style='font-size:11px;color:#6b7280;'>" + (p.session_id||"").slice(0,24) + "…</td>";
+    tr.innerHTML = "<td>" + (p.created_at ? fmtStamp(p.created_at) : "—") + "</td><td>" + (isSub ? "🔁 " + T.typeSub : "🛒 " + T.typePack) + "</td><td style='color:#059669;font-weight:700;'>+" + p.credits + "</td><td style='font-size:11px;color:#6b7280;'>" + "#" + (p.session_id||"").slice(-8) + "</td>";
     pt.appendChild(tr);
   });
   if (!(d.purchases || []).length) pt.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">' + T.noPurchases + '</td></tr>';
   var st = document.querySelector("#spendsTable tbody");
   (d.spends || []).forEach(function(s){
     var tr = document.createElement("tr");
-    tr.innerHTML = "<td>" + fmtStamp(s.created_at) + "</td><td>" + (s.action||T.deduction) + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id||"") + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
+    tr.innerHTML = "<td>" + fmtStamp(s.created_at) + "</td><td>" + actionLabel(s.action) + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id ? "#" + String(s.job_id).slice(0,8) : "") + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
     st.appendChild(tr);
   });
   if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">' + T.noSpends + '</td></tr>';

@@ -50,18 +50,33 @@ function allowedWindowFor(seg) {
 
 
 
+var FRIENDLY_GENERIC = "Something went wrong on our side. Please try again in a moment. If it keeps happening, please contact support.";
 function friendly(msg) {
-    msg = String(msg || "");
+    msg = String(msg || "").replace(/^\s*ERROR:\s*/i, "").trim();
+    if (!msg) return FRIENDLY_GENERIC;
     if (/voice_add_edit_limit_reached|monthly limit of voice add\/edit/i.test(msg)) {
-        return "🎙️ Voice cloning limit reached: your voice engine account has hit its monthly cap for creating/editing voices. This resets automatically next month, or you can upgrade your voice engine plan to raise the limit. Meanwhile you can skip cloning and pick a numbered studio voice for this speaker in Step 4.";
+        return "Voice cloning is temporarily unavailable. Please try again later, or choose a studio voice for this speaker in Step 4.";
     }
-    if (/voice_not_found|was not found/i.test(msg)) {
-        return "🎙️ The voice assigned to this speaker no longer exists in your connected voice account (old cloned voices were removed). Re-clone it in Step 3.5 or pick a numbered library voice in Step 4, then try again.";
+    if (/voice_not_found|voice was not found/i.test(msg)) {
+        return "The voice for this speaker is no longer available. Please clone it again in Step 3.5 or choose a studio voice in Step 4.";
     }
-    if (/gaierror|name resolution|URLError|ConnectionError|Connection aborted|Max retries exceeded|EOF occurred|SSLError|SSL|Network is unreachable|Connection refused|WinError 100|fetch failed|Load failed|Response ended prematurely/i.test(msg)) {
-        return "🌐 Connection problem: no internet or the service is unreachable. Check your connection and try again.";
+    if (/gaierror|name resolution|URLError|ConnectionError|Connection aborted|Max retries exceeded|EOF occurred|SSLError|SSL|Network is unreachable|Connection refused|WinError 100|fetch failed|Failed to fetch|NetworkError|Load failed|Response ended prematurely/i.test(msg)) {
+        return "Connection problem. Please check your internet connection and try again.";
+    }
+    // Safety net: anything that still looks technical is never shown as it is.
+    if (/HTTP\s*\d{3}|\b[45]\d\d\s*[:)]|Traceback|Exception|TypeError|ReferenceError|SyntaxError|Unexpected token|JSON|\bundefined\b|\bnull\b|api[ _-]?key|\btokens?\b|elevenlabs|inworld|gemini|dashscope|\bwan ?3|demucs|whisper|supabase|stripe|railway|cloudflare|\bR2\b|ffmpeg|ffprobe|stderr|\.py\b|\/api\/|[A-Za-z]:\\|\/tmp\/|Server error|Internal Server|Cannot (GET|POST)/i.test(msg)) {
+        return FRIENDLY_GENERIC;
     }
     return msg;
+}
+// What we show after a dubbing run: only things a customer cares about.
+function resultSummaryHtml(r) {
+    r = r || {};
+    var s = '<p>Lines dubbed: <strong>' + (r.segments_generated || 0) + '</strong> | Final length: <strong>' + (r.final_duration || 0) + 's</strong></p>';
+    if ((r.tempo_warnings || 0) + (r.duration_cuts || 0) > 0) {
+        s += '<p style="font-size:13px;color:#666;">Some lines were sped up or trimmed slightly to fit their time.</p>';
+    }
+    return s;
 }
 function notify(type, msg) {
     const panel = document.getElementById("notifyPanel");
@@ -183,13 +198,10 @@ async function fetchUsage() {
         const res = await fetch(`/api/usage/${currentJobId}`);
         if (!res.ok) throw new Error("na");
         const u = await res.json();
-        const voiceUsd = (u.eleven_credits || 0) / 1000 * VOICE_USD_PER_1K_CHARS;
-        const gemUsd = u.gemini_cost_usd || 0;
-        const totalUsd = voiceUsd + gemUsd;
+        const used = Number(u.credits_charged);
+        if (!isFinite(used) || used <= 0) { box.classList.add("hidden"); return; }
         box.classList.remove("hidden");
-        box.innerHTML = `<strong>Actual usage this job:</strong> ≈ <strong>${usdToCredits(totalUsd)} credits</strong> (= $${totalUsd.toFixed(4)}; 1 credit = $0.01).<br>` +
-            `Translation & analysis: ${(u.gemini_in_tokens || 0).toLocaleString()} in / ${(u.gemini_out_billable || 0).toLocaleString()} out tokens.<br>` +
-            `Voice generation: ${(u.eleven_credits || 0).toLocaleString()} characters.`;
+        box.innerHTML = `Credits used for this dubbing: <strong>${used.toLocaleString()}</strong>`;
     } catch (e) { box.classList.add("hidden"); }
 }
 
@@ -224,7 +236,7 @@ function stripFences(t) {
 }
 async function addTashkeel() {
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
-    if (!geminiKey) { notify("error", "Enter the Translation AI key in Step 2 first."); return; }
+    if (!geminiKey) { notify("error", "Translation is temporarily unavailable. Please try again later."); return; }
     const targets = segmentsData.filter(s => (s.arabic_text || "").trim().length > 0 && !s.locked);
     if (!targets.length) { notify("error", "No unlocked Arabic text found. Locked lines are skipped."); return; }
     notify("info", "Adding tashkeel to " + targets.length + " unlocked line(s)...");
@@ -370,7 +382,7 @@ async function validateClonedVoicesAfterLoad() {
         if (invalidSpeakers.length) {
             if (typeof renderSpeakerVoices === "function") renderSpeakerVoices();
             if (typeof updateBadges === "function") updateBadges();
-            notify("error", "🎙️ The cloned voice(s) for " + invalidSpeakers.join(", ") + " no longer exist in your voice account (old cloned voices are removed automatically). Re-clone in Step 3.5 or pick a voice in Step 4 before generating.");
+            notify("error", "🎙️ The cloned voice(s) for " + invalidSpeakers.join(", ") + " are no longer available. Re-clone in Step 3.5 or pick a voice in Step 4 before generating.");
         }
     } catch (e) { /* offline or API hiccup — leave assignments as-is rather than block the user */ }
 }
@@ -396,7 +408,7 @@ async function attachMedia(input) {
         return;
     }
     if (attachDur !== null && attachDur > MAX_DURATION_SEC) {
-        notify("error", "This clip is " + Math.round(attachDur) + " seconds long. This build accepts up to 30 seconds — please trim it first.");
+        notify("error", "This clip is " + Math.round(attachDur) + " seconds long. The maximum is 30 seconds — please trim it first.");
         input.value = "";
         return;
     }
@@ -824,7 +836,7 @@ async function ensureVoicePools() {
 async function loadVoiceOptions() {
     const ok = await ensureVoicePools();
     if (ok) notify("success", "Voice options loaded. Pick a voice per speaker below.");
-    else notify("error", "Could not load voices. Enter the Voice Engine API key in Step 3 first.");
+    else notify("error", "Could not load voices. Please try again in a moment.");
     renderSpeakerVoices();
 }
 function applyChoice(name) {
@@ -874,7 +886,7 @@ async function renderSpeakerVoices() {
         addGroup("male", "🎲 Male voice");
         addGroup("female", "🎲 Female voice");
         if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
-            const o = document.createElement("option"); o.value = ""; o.textContent = "— Enter Voice Engine key in Step 3, then Load Voice Options —"; sel.appendChild(o);
+            const o = document.createElement("option"); o.value = ""; o.textContent = "— No voices available yet —"; sel.appendChild(o);
         }
         sel.value = speakerChoices[name] || "";
         sel.onchange = () => { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
@@ -887,7 +899,7 @@ async function renderSpeakerVoices() {
 }
 async function autoAssignVoices() {
     const ok = await ensureVoicePools();
-    if (!ok) { notify("error", "Enter the Voice Engine API key in Step 3 first, then try again."); return; }
+    if (!ok) { notify("error", "Voice generation is temporarily unavailable. Please try again later."); return; }
     const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
     names.forEach(name => {
         if (speakerChoices[name]) { applyChoice(name); return; }
@@ -1030,7 +1042,7 @@ async function analyzeSpeakers() {
 }
 async function confirmCloning() {
     const apiKey = document.getElementById("apiKey").value.trim();
-    if (!apiKey) { notify("error", "Enter the Voice Engine API key in Step 3."); return; }
+    if (!apiKey) { notify("error", "Voice generation is temporarily unavailable. Please try again later."); return; }
     if (!currentJobId) { notify("error", "Transcribe first."); return; }
     const selected = [];
     document.querySelectorAll("#cloneAnalysisTable input[type=checkbox]").forEach(cb => { if (cb.checked) selected.push(cb.dataset.speaker); });
@@ -1061,7 +1073,7 @@ async function confirmCloning() {
 
 async function autoTranslate() {
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
-    if (!geminiKey) { notify("error", "Enter the Translation AI key in Step 2 first."); return; }
+    if (!geminiKey) { notify("error", "Translation is temporarily unavailable. Please try again later."); return; }
     const unlocked = segmentsData.filter(s => !s.locked);
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
@@ -1081,7 +1093,7 @@ async function autoTranslate() {
 }
 async function detectEmotions() {
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
-    if (!geminiKey) { notify("error", "Enter the Translation AI key in Step 2 first."); return; }
+    if (!geminiKey) { notify("error", "Translation is temporarily unavailable. Please try again later."); return; }
     if (!currentJobId) { notify("error", "Transcribe first."); return; }
     if (!segmentsData.length) { notify("error", "No segments found."); return; }
     document.getElementById("emotionProgress").classList.remove("hidden");
@@ -1120,7 +1132,7 @@ async function generateAudio() {
     const provider = document.getElementById("ttsProvider").value;
     const voiceKey = document.getElementById("apiKey").value.trim();
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
-    if (!voiceKey) { notify("error", "Enter the Voice Engine API key in Step 3."); return; }
+    if (!voiceKey) { notify("error", "Voice generation is temporarily unavailable. Please try again later."); return; }
     const speakersWithText = [...new Set(segmentsData.filter(s => s.arabic_text.trim()).map(s => s.speaker))];
     const missing = speakersWithText.filter(sp => !speakerVoices[sp]);
     if (missing.length) { notify("error", "No voice for: " + missing.join(", ") + ". Pick voices in Step 4 (or Auto-Assign) first."); return; }
@@ -1163,8 +1175,7 @@ async function checkGenerateProgress() {
         notify("success", "Arabic audio generated and merged.");
         document.getElementById("resultSection").classList.remove("hidden");
         document.getElementById("audioResults").innerHTML = `
-            <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
-            <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
+            ${resultSummaryHtml(r)}
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
         // Step 7 (lip-sync) stays hidden -- disabled in config.py
@@ -1177,7 +1188,7 @@ async function checkGenerateProgress() {
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
 }
 async function mergeVideo() {
-    if (!currentJobId) { notify("error", "No job found."); return; }
+    if (!currentJobId) { notify("error", "Please upload your video first."); return; }
     document.getElementById("mergeButton").disabled = true;
     notify("info", "Merging dubbed audio with video and background music...");
     try {
@@ -1204,7 +1215,7 @@ async function mergeVideo() {
 async function onLipsyncRefImagesSelected(input) {
     var listEl = document.getElementById("lipsyncRefImagesList");
     if (!input.files || !input.files.length) { if (listEl) listEl.textContent = ""; return; }
-    if (!currentJobId) { notify("error", "No job found."); input.value = ""; return; }
+    if (!currentJobId) { notify("error", "Please upload your video first."); input.value = ""; return; }
     var files = Array.prototype.slice.call(input.files, 0, 5);
     if (input.files.length > 5) notify("info", "Only the first 5 photos will be used.");
     if (listEl) listEl.textContent = "Uploading " + files.length + " photo(s)...";
@@ -1216,7 +1227,7 @@ async function onLipsyncRefImagesSelected(input) {
         var data = null;
         try { data = await res.json(); } catch (e) { data = null; }
         if (!res.ok || !data || data.status !== "ok") {
-            notify("error", "Reference photo upload failed: " + ((data && data.error) || ("Server error " + res.status)));
+            notify("error", "Reference photo upload failed: " + ((data && data.error) || "Something went wrong on our side. Please try again in a moment."));
             if (listEl) listEl.textContent = "";
             return;
         }
@@ -1229,7 +1240,7 @@ async function onLipsyncRefImagesSelected(input) {
 }
 
 async function runLipsync() {
-    if (!currentJobId) { notify("error", "No job found."); return; }
+    if (!currentJobId) { notify("error", "Please upload your video first."); return; }
     const btn = document.getElementById("lipsyncButton");
     if (btn) btn.disabled = true;
     const resultsEl = document.getElementById("lipsyncResults");
@@ -1250,7 +1261,7 @@ async function runLipsync() {
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
         if (!res.ok || !data || data.status !== "started") {
-            const msg = (data && data.error) || ("Server error " + res.status);
+            const msg = (data && data.error) || "Something went wrong on our side. Please try again in a moment.";
             notify("error", "Lip-sync failed to start: " + msg);
             if (progEl) progEl.classList.add("hidden");
             if (btn) btn.disabled = false;
@@ -1323,7 +1334,7 @@ async function regenerateLine(i, btn) {
     const seg = segmentsData[i];
     if (!(seg.arabic_text || "").trim()) { notify("error", "This line has no Arabic text yet."); return; }
     const voiceKey = document.getElementById("apiKey").value.trim();
-    if (!voiceKey) { notify("error", "Enter the Voice Engine API key in Step 3."); return; }
+    if (!voiceKey) { notify("error", "Voice generation is temporarily unavailable. Please try again later."); return; }
     const voice_id = speakerVoices[seg.speaker] || "";
     if (!voice_id) { notify("error", "No voice for " + seg.speaker + ". Pick one in Step 4 first."); return; }
     btn.disabled = true; btn.textContent = "⏳";
@@ -1346,13 +1357,13 @@ async function regenerateLine(i, btn) {
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
         if (!res.ok || !data || data.status !== "success") {
-            const msg = (data && (data.error || data.detail)) || ("Server error " + res.status);
+            const msg = (data && (data.error || data.detail)) || "Something went wrong on our side. Please try again in a moment.";
             notify("error", "Regenerate failed: " + msg);
             return;
         }
         const usd = lineCostUsd(seg.arabic_text, seg.emotion);
         const cr = Math.max(1, usdToCredits(usd));
-        notify("success", `Line ${i + 1} re-spoken: ${data.stretched_duration}s into a ${data.target}s window. Cost ≈ ${cr} credits ($${usd.toFixed(4)}). Final mix rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
+        notify("success", `Line ${i + 1} re-spoken. Cost ≈ ${cr} credits. The final audio was rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ This line was sped up as much as allowed." : ""));
         const au = document.querySelector("#audioResults audio");
         if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         fetchUsage();
@@ -1386,7 +1397,7 @@ async function confirmTimeline() {
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
         if (!res.ok || !data || data.status !== "success") {
-            notify("error", "Remix failed: " + ((data && (data.error || data.detail)) || res.status));
+            notify("error", "Remix failed: " + ((data && (data.error || data.detail)) || "Please try again in a moment."));
             return;
         }
         notify("success", "New mix built with " + data.segments_generated + " lines. The Step 6 player now uses it.");
@@ -1474,7 +1485,7 @@ async function startTranscribe() {
     }
     const dur = await probeFileDuration(file);
     if (dur !== null && dur > MAX_DURATION_SEC) {
-        notify("error", "This clip is " + Math.round(dur) + " seconds long. This build accepts up to 30 seconds — please trim it first.");
+        notify("error", "This clip is " + Math.round(dur) + " seconds long. The maximum is 30 seconds — please trim it first.");
         return;
     }
     const form = new FormData();
@@ -1550,7 +1561,7 @@ async function checkEmotionProgress() {
 
 async function autoTranslate() {
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
-    if (!geminiKey) { notify("error", "Enter the Translation AI key in Step 2 first."); return; }
+    if (!geminiKey) { notify("error", "Translation is temporarily unavailable. Please try again later."); return; }
     const unlocked = segmentsData.filter(s => !s.locked);
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
@@ -1611,7 +1622,7 @@ async function checkEmotionProgress() {
 
 async function autoTranslate() {
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
-    if (!geminiKey) { notify("error", "Enter the Translation AI key in Step 2 first."); return; }
+    if (!geminiKey) { notify("error", "Translation is temporarily unavailable. Please try again later."); return; }
     const unlocked = segmentsData.filter(s => !s.locked);
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
@@ -1649,12 +1660,12 @@ async function ensureVoicePools() {
 async function loadVoiceOptions() {
     const ok = await ensureVoicePools();
     if (ok) notify("success", "Voice options loaded. Pick a voice per speaker below.");
-    else notify("error", "Could not load the voice library. Check the server configuration.");
+    else notify("error", "Could not load the voice library. Please try again in a moment.");
     renderSpeakerVoices();
 }
 async function autoAssignVoices() {
     const ok = await ensureVoicePools();
-    if (!ok) { notify("error", "Voice library unavailable. Check the server configuration."); return; }
+    if (!ok) { notify("error", "Voice library unavailable. Please try again in a moment."); return; }
     const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
     names.forEach(name => {
         if (speakerChoices[name]) { applyChoice(name); return; }
@@ -1841,12 +1852,12 @@ async function regenerateLine(i, btn) {
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
         if (!res.ok || !data || data.status !== "success") {
-            notify("error", "Regenerate failed: " + ((data && (data.error || data.detail)) || res.status));
+            notify("error", "Regenerate failed: " + ((data && (data.error || data.detail)) || "Please try again in a moment."));
             return;
         }
         const usd = lineCostUsd(seg.arabic_text, seg.emotion);
         const cr = Math.max(1, usdToCredits(usd));
-        notify("success", `Line ${i + 1} re-spoken: ${data.stretched_duration}s into a ${data.target}s window. Cost ≈ ${cr} credits ($${usd.toFixed(4)}). Final mix rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
+        notify("success", `Line ${i + 1} re-spoken. Cost ≈ ${cr} credits. The final audio was rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ This line was sped up as much as allowed." : ""));
         // Keep the timeline's Arabic-audio-duration overlay in sync: a bulk
         // Generate refreshes window._lineDurations via checkGenerateProgress,
         // but re-speaking a single line here never did, so the overlay kept
@@ -1904,7 +1915,7 @@ async function restretchLine(seg) {
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
         if (!data || data.status !== "success") {
-            if (data && data.error && data.error !== "not_generated") notify("error", "Time Stretch update failed: " + data.error);
+            if (data && data.error && data.error !== "not_generated") notify("error", "Speed adjustment failed: " + data.error);
             return;
         }
         if (data.stretched_duration) {
@@ -1930,7 +1941,7 @@ async function restretchLine(seg) {
         const au = document.querySelector("#audioResults audio");
         if (au) { au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
         const idx = segmentsData.indexOf(seg);
-        notify("success", `Line ${idx + 1} re-stretched: ${data.stretched_duration}s into a ${data.target}s window.` + (data.tempo_warning ? " ⚠️ stretched to the limit." : ""));
+        notify("success", `Line ${idx + 1} speed adjusted.` + (data.tempo_warning ? " ⚠️ This line was sped up as much as allowed." : ""));
     } catch (e) {
         // Quiet auto-apply on a dropdown change — don't nag on a network hiccup.
     }
@@ -2097,8 +2108,7 @@ checkGenerateProgress = async function() {
         notify("success", "Arabic audio generated and merged.");
         document.getElementById("resultSection").classList.remove("hidden");
         document.getElementById("audioResults").innerHTML = `
-            <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
-            <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
+            ${resultSummaryHtml(r)}
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
         // Step 7 (lip-sync) stays hidden -- disabled in config.py
@@ -2189,8 +2199,7 @@ checkGenerateProgress = async function() {
         notify("success", "Arabic audio generated and merged.");
         document.getElementById("resultSection").classList.remove("hidden");
         document.getElementById("audioResults").innerHTML = `
-            <p>Segments generated: <strong>${r.segments_generated || 0}</strong> | Timing warnings: <strong>${r.tempo_warnings || 0}</strong> | Trimmed: <strong>${r.duration_cuts || 0}</strong></p>
-            <p>Final duration: <strong>${r.final_duration || 0}s</strong> | Voice characters used: <strong>${(r.eleven_credits_used || 0).toLocaleString()}</strong></p>
+            ${resultSummaryHtml(r)}
             <audio controls src="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}"></audio>
             <div class="download-buttons"><a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download MP3</a></div>`;
         // Step 7 (lip-sync) stays hidden -- disabled in config.py
@@ -2277,7 +2286,7 @@ async function renderSpeakerVoices() {
         addGroup("female", "🎲 Female voice");
         // Fallback if no pools loaded
         if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
-            const o = document.createElement("option"); o.value = ""; o.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(o);
+            const o = document.createElement("option"); o.value = ""; o.textContent = "— Loading voices… —"; sel.appendChild(o);
         }
         sel.value = speakerChoices[name] || "";
         sel.onchange = () => { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
@@ -2308,12 +2317,12 @@ async function ensureVoicePools() {
 async function loadVoiceOptions() {
     const ok = await ensureVoicePools();
     if (ok) { notify("success", "Voice options loaded. Pick a voice per speaker below."); renderSpeakerVoices(); }
-    else notify("error", "Could not load the voice library. Check the server configuration.");
+    else notify("error", "Could not load the voice library. Please try again in a moment.");
 }
 
 async function autoAssignVoices() {
     const ok = await ensureVoicePools();
-    if (!ok) { notify("error", "Voice library unavailable. Check the server configuration."); return; }
+    if (!ok) { notify("error", "Voice library unavailable. Please try again in a moment."); return; }
     const names = [...new Set(segmentsData.map(s => s.speaker || "Speaker 1"))];
     names.forEach(name => {
         if (speakerChoices[name]) { applyChoice(name); return; }
@@ -2495,7 +2504,7 @@ function createRow(seg, i) {
     var eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.style.flex = "1"; eI.style.minWidth = "80px";
     eI.onchange = function() {
         var clean = sanitizeStyle(eI.value) || "neutral";
-        if (clean !== eI.value.trim()) notify("info", "Words not in the official list were removed. Style: '" + clean + "'.");
+        if (clean !== eI.value.trim()) notify("info", "Only the supported style words were kept. Style: '" + clean + "'.");
         eI.value = clean; seg.emotion = clean; updateBadges();
     };
     eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
@@ -2595,7 +2604,7 @@ async function renderSpeakerVoices() {
         addGroup("male", "🎲 Male voice");
         addGroup("female", "🎲 Female voice");
         if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
-            var o = document.createElement("option"); o.value = ""; o.textContent = "— Click 'Load Voice Options' first —"; sel.appendChild(o);
+            var o = document.createElement("option"); o.value = ""; o.textContent = "— Loading voices… —"; sel.appendChild(o);
         }
         sel.value = speakerChoices[name] || "";
         sel.onchange = function() { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
@@ -2869,7 +2878,7 @@ var friendlyWaitMessages = [
     "If the percentage is moving, everything is fine.",
     "High-quality processing takes longer, but gives better results.",
     "Please do not refresh the page while processing.",
-    "The server is still alive. Waiting for the next processing update.",
+    "Still working — waiting for the next processing update.",
     "Some steps may stay at one percentage for a while, especially speaker detection.",
     "Thank you for your patience — processing is continuing."
 ];
@@ -3061,8 +3070,7 @@ checkGenerateProgress = async function () {
 
             document.getElementById("resultSection").classList.remove("hidden");
             document.getElementById("audioResults").innerHTML =
-                '<p>Segments generated: <strong>' + (r.segments_generated || 0) + '</strong> | Timing warnings: <strong>' + (r.tempo_warnings || 0) + '</strong> | Trimmed: <strong>' + (r.duration_cuts || 0) + '</strong></p>' +
-                '<p>Final duration: <strong>' + (r.final_duration || 0) + 's</strong> | Voice characters used: <strong>' + ((r.eleven_credits_used || 0).toLocaleString()) + '</strong></p>' +
+                resultSummaryHtml(r) +
                 '<audio controls src="/api/download/' + encodeURIComponent(currentJobId || "") + '_final_dubbed.mp3?cache=' + Date.now() + '"></audio>' +
                 '<div class="download-buttons"><a href="/api/download/' + encodeURIComponent(currentJobId || "") + '_final_dubbed.mp3?cache=' + Date.now() + '" download="final_dubbed.mp3">⬇️ Download MP3</a></div>';
 
@@ -3271,7 +3279,7 @@ function resetFileLabel() {
 // confirm(), which was synchronous) -- callers must wait for it.
 async function confirmResetSafe() {
     if (resultsExist && !resultsDownloaded) {
-        if (!(await LisanDialog.confirm("⚠️ You generated audio/video for this project.\n\nIt's saved to your Account page for 30 days, but this editing session (segments, translations, voice choices) will be lost if you continue.\n\nDid you download or note everything you need from this session?", { okText: "Continue", type: "warning" }))) return false;
+        if (!(await LisanDialog.confirm("⚠️ You generated audio/video for this project.\n\nIt's saved to your Account page (30 days with a subscription, 48 hours otherwise), but this editing session (segments, translations, voice choices) will be lost if you continue.\n\nDid you download or note everything you need from this session?", { okText: "Continue", type: "warning" }))) return false;
     }
     if (segmentsData.length) {
         if (!(await LisanDialog.confirm("This clears the current project (segments, translations, voices).\nTip: use 💾 Save Project first if you want to keep it.\n\nContinue?", { okText: "Continue" }))) return false;
@@ -3778,14 +3786,14 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
     window.syncCreditsNow = function () {
         fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
             console.log("[sync]", d);
-            if (d && d.error) { notify("error", "Credit sync failed: " + d.error); return; }
+            if (d && d.error) { notify("error", "We couldn't update your credits: " + d.error); return; }
             if (d && d.added_sessions_credits) {
                 notify("success", "💰 " + d.added_sessions_credits + " credits added from your purchase(s).");
             } else if (d && d.sessions_seen === 0) {
-                notify("info", "Sync found no paid Stripe sessions for this account.");
+                notify("info", "We couldn't find any new payments on your account.");
             }
             refreshCredits();
-        }).catch(function (e) { notify("error", "Credit sync error: " + e.message); });
+        }).catch(function (e) { notify("error", "We couldn't update your credits: " + e.message); });
     };
     if (window.location.hash.indexOf("credits-purchased") > -1) {
         setTimeout(window.syncCreditsNow, 1200);
@@ -3811,7 +3819,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
                 notify("success", "💰 " + d.added + " credits added from your purchase.");
                 refreshCredits();
             } else if (d && d.error) {
-                notify("error", "Credit fulfillment: " + d.error);
+                notify("error", "We couldn't update your credits: " + d.error);
             }
         }).catch(function (e) { console.error("[fulfill]", e); });
     }
@@ -3820,14 +3828,14 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
     window.syncCreditsNow = function () {
         fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
             console.log("[sync]", d);
-            if (d && d.error) { notify("error", "Credit sync failed: " + d.error); return; }
+            if (d && d.error) { notify("error", "We couldn't update your credits: " + d.error); return; }
             if (d && d.added_sessions_credits) {
                 notify("success", "💰 " + d.added_sessions_credits + " credits added from your purchase.");
             } else if (d && d.sessions_seen === 0) {
-                notify("info", "Sync found no paid Stripe sessions for this account.");
+                notify("info", "We couldn't find any new payments on your account.");
             }
             refreshCredits();
-        }).catch(function (e) { notify("error", "Credit sync error: " + e.message); });
+        }).catch(function (e) { notify("error", "We couldn't update your credits: " + e.message); });
     };
     var _ob = window.openBuyModal;
     if (typeof _ob === "function") {
@@ -3946,7 +3954,7 @@ var volOrigAudio = null;
     card.className = "card hidden";
     card.id = "volumeSection";
     card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3>' +
-        '<p class="note" id="volumeMatchNote">Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.</p>' +
+        '<p class="note" id="volumeMatchNote">Every Arabic line was automatically matched to the volume of the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Generating again resets these adjustments to automatic.</p>' +
         '<div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style="min-width:130px">Volume</th><th></th></tr></thead><tbody></tbody></table></div>' +
         '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3<span class="badge" id="badgeApplyVolumes"></span></button> ' +
         '<button id="resetVolumesBtn" class="blue">↺ Reset All Sliders</button>';
@@ -4040,7 +4048,7 @@ function showVolumeSection(lines) {
 }
 
 async function applyVolumes() {
-    if (!currentJobId) { notify("error", "No job."); return; }
+    if (!currentJobId) { notify("error", "Please upload your video first."); return; }
     var btn = document.getElementById("applyVolumesBtn");
     btn.disabled = true; btn.textContent = "⏳ Rebuilding...";
     var offs = {};
@@ -4056,7 +4064,7 @@ async function applyVolumes() {
         });
         var data = await res.json();
         if (!res.ok || !data || data.status !== "success") {
-            notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || res.status));
+            notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "Please try again in a moment."));
             return;
         }
         notify("success", "Volumes applied — final MP3 rebuilt with your per-line trim.");
@@ -4149,7 +4157,7 @@ async function applyVolumes() {
         notify("info", "Sliders reset to the auto-matched volumes.");
     };
     window.applyVolumesV2 = function () {
-        if (!currentJobId) { notify("error", "No job."); return; }
+        if (!currentJobId) { notify("error", "Please upload your video first."); return; }
         var btn = document.getElementById("applyVolumesBtn");
         var m = window.masterTrimValue();
         var gains = {};
@@ -4226,7 +4234,7 @@ async function applyVolumes() {
         box.id = "customVoiceBox";
         box.className = "note";
         box.style.marginTop = "12px";
-        box.innerHTML = '<span id="customVoiceNote"><strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.</span><br>' +
+        box.innerHTML = '<span id="customVoiceNote"><strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the dominant voice in it is copied, so music or other voices in it will reduce quality.</span><br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
             '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Choose File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice<span class="badge" id="badgeCvUpload"></span></button>' +
@@ -4425,7 +4433,7 @@ async function applyVolumes() {
     };
 
     window.applyVolumesV2 = function () {
-        if (!currentJobId) { notify("error", "No job."); return; }
+        if (!currentJobId) { notify("error", "Please upload your video first."); return; }
         var btn = document.getElementById("applyVolumesBtn");
         var gains = {};
         Object.keys(window._volumeGains || {}).forEach(function (sid) { gains[sid] = clampG(window._volumeGains[sid] || 0); });
@@ -4503,7 +4511,7 @@ window.uploadCustomVoice = function () {
                     if (!out.ok || !out.d || out.d.error || !out.d.voice_id) {
                         if (fallback) { tryUrl(fallback, null); return; }
                         if (st) st.textContent = "";
-                        notify("error", (out.d && (out.d.error || out.d.detail)) || "Server error — is the server redeployed?");
+                        notify("error", (out.d && (out.d.error || out.d.detail)) || "Something went wrong on our side. Please try again in a moment.");
                         return;
                     }
                     if (st) st.textContent = "";
@@ -4525,7 +4533,7 @@ window.uploadCustomVoice = function () {
 };
 
 window.cleanOldClones = function () {
-    LisanDialog.confirm("Delete ALL old cloned/custom voices from your voice account, except the ones this project is using right now?", { okText: "Delete", danger: true }).then(function (ok) {
+    LisanDialog.confirm("Delete all your old cloned voices, except the ones this project is using right now?", { okText: "Delete", danger: true }).then(function (ok) {
         if (!ok) return;
         var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
         fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep, job_id: currentJobId }) })
@@ -4633,8 +4641,8 @@ window.cleanOldClones = function () {
             // just say "30 days" for everyone anymore. Worded to be accurate
             // either way without needing to know the viewer's subscription
             // status at text-set time.
-            en: '⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and are lost when the session ends or the server restarts. Once you generate a result, it\'s saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise — download it any time from there.',
-            ar: '⚠️ <strong>مهم:</strong> ملفك المصدر المرفوع وأي تحرير جارٍ مؤقتان ويُفقدان عند انتهاء الجلسة أو إعادة تشغيل الخادم. بعد توليد النتيجة، تُحفظ في صفحة <a href="/account" style="color:#92400e;">حسابك</a> — 30 يومًا مع <a href="/account#subscription" style="color:#92400e;">اشتراك</a> فعّال، أو 48 ساعة بخلاف ذلك — نزّلها في أي وقت من هناك.'
+            en: '⚠️ <strong>Important:</strong> Your uploaded source file and any in-progress editing are temporary and can be lost if you close this page or your session ends. Once you generate a result, it\'s saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise — download it any time from there.',
+            ar: '⚠️ <strong>مهم:</strong> ملفك المصدر المرفوع وأي تحرير جارٍ مؤقتان وقد يُفقدان عند إغلاق هذه الصفحة أو انتهاء الجلسة. بعد توليد النتيجة، تُحفظ في صفحة <a href="/account" style="color:#92400e;">حسابك</a> — 30 يومًا مع <a href="/account#subscription" style="color:#92400e;">اشتراك</a> فعّال، أو 48 ساعة بخلاف ذلك — نزّلها في أي وقت من هناك.'
         },
         resultSavedBanner: {
             en: '✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise. Your uploaded source file is still temporary — download or keep editing before you close this session.',
@@ -4649,15 +4657,15 @@ window.cleanOldClones = function () {
             ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>تغطي كل دبلجة <strong>4-30 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه). فيديو أطول، أو ملف أكبر من 50 ميجابايت (حتى <strong>300 ميجابايت</strong>)؟ سيُطلب منك اختيار الجزء المراد دبلجته.'
         },
         step1CreditsNote: {
-            en: '💡 Credits are our internal unit: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
-            ar: '💡 الائتمانات وحدتنا الداخلية: <strong>100 ائتمان = 1.00 دولار</strong> (الائتمان الواحد = 0.01 دولار).<br>الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط.'
+            en: '💡 Credits are how you pay on Lisan AI: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
+            ar: '💡 الائتمانات هي وسيلة الدفع في Lisan AI: <strong>100 ائتمان = 1.00 دولار</strong> (الائتمان الواحد = 0.01 دولار).<br>الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط.'
         },
         attachMediaNote: {
             en: '📼 <strong>Project loaded.</strong> Upload the matching original audio/video file to enable preview, re-speak, emotion detection, auto-fix, and video merge.',
             ar: '📼 <strong>تم تحميل المشروع.</strong> ارفع ملف الصوت أو الفيديو الأصلي المطابق لتفعيل المعاينة، وإعادة النطق، وكشف المشاعر، والإصلاح التلقائي، ودمج الفيديو.'
         },
         volumeMatchNote: {
-            en: 'Every Arabic line was automatically loudness-matched to the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Re-running Generate resets trims to auto.',
+            en: 'Every Arabic line was automatically matched to the volume of the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Generating again resets these adjustments to automatic.',
             ar: 'تمت مطابقة مستوى كل سطر عربي تلقائيًا مع صوت المتحدث الأصلي (انظر عمود <strong>Auto</strong>). شغّل 🔊 السطر المدبلج، واضبطه بالمنزلق (−6...+6 ديسيبل مع معاينة مباشرة)، ثم طبّق لإعادة بناء ملف MP3 النهائي. تكرار توليد الصوت يعيد الإزاحات إلى القيم التلقائية.'
         },
         customVoiceNote: {
@@ -4668,8 +4676,8 @@ window.cleanOldClones = function () {
             // button's click handler on every language toggle, so only this
             // wrapped span is swapped -- the interactive controls next to it
             // are never touched.
-            en: '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.',
-            ar: '<strong>📤 استخدم مقطع صوتك الخاص:</strong> اختر متحدثًا وارفع مقطع MP3/WAV (بحد أقصى 20 ثانية) يتحدث فيه ذلك الشخص معظم الوقت. المقطع لا يُحلَّل — محرك الصوت يستخرج منه الصوت الغالب، لذا فإن وجود موسيقى أو أصوات أخرى فيه سيقلل الجودة.'
+            en: '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the dominant voice in it is copied, so music or other voices in it will reduce quality.',
+            ar: '<strong>📤 استخدم مقطع صوتك الخاص:</strong> اختر متحدثًا وارفع مقطع MP3/WAV (بحد أقصى 20 ثانية) يتحدث فيه ذلك الشخص معظم الوقت. المقطع لا يُحلَّل — يُنسخ الصوت الغالب فيه، لذا فإن وجود موسيقى أو أصوات أخرى فيه سيقلل الجودة.'
         },
         lipsyncNote: {
             // Contains an inline <strong id="lipsyncRateNote"> that
@@ -4678,8 +4686,8 @@ window.cleanOldClones = function () {
             // R-array (which only ever touches a leading text node) so the
             // embedded tag survives the swap; both language variants keep
             // the exact same id inside so getElementById keeps finding it.
-            en: 'Matches the mouth movements in your video to the new Arabic audio, using a premium third-party AI service. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video.',
-            ar: 'تُطابق حركة الشفاه في فيديوك مع الصوت العربي الجديد، باستخدام خدمة ذكاء اصطناعي مدفوعة من جهة خارجية. تُعيد هذه الخطوة معالجة فيديوك المدبلج النهائي بالكامل وتكلّف <strong id="lipsyncRateNote">10</strong> رصيد لكل ثانية من الفيديو.'
+            en: 'Matches the mouth movements in your video to the new Arabic audio, using advanced AI. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video.',
+            ar: 'تُطابق حركة الشفاه في فيديوك مع الصوت العربي الجديد، باستخدام ذكاء اصطناعي متقدم. تُعيد هذه الخطوة معالجة فيديوك المدبلج النهائي بالكامل وتكلّف <strong id="lipsyncRateNote">10</strong> رصيد لكل ثانية من الفيديو.'
         }
     };
     // Plain textContent swaps for elements tagAll() never reaches: table
@@ -4729,11 +4737,11 @@ window.cleanOldClones = function () {
         ["Pick a voice for each speaker. Cloned voices come from your video; numbered voices are high-quality studio library voices. Two speakers never share the same numbered voice.", "اختر صوتًا لكل متحدث. الأصوات المستنسخة من الفيديو؛ والأصوات المرقمة من مكتبة الاستوديو. لا يشترك متحدثان في نفس الصوت المرقّم."],
         ["Listen to ready-made Arabic voices below. To use one, select it from the dropdown in the table.", "استمع إلى أصوات عربية جاهزة أدناه. لاستخدام أحدها، اخترْه من القائمة المنسدلة في الجدول."],
         ["👉 Select a voice for each speaker from the dropdown below.", "👉 اختر صوتًا لكل متحدث من القائمة المنسدلة أدناه."],
-        ["💡 Voice generation supports emotions and cloned voices. Costs are charged by the character and shown in credits (100 credits = $1).", "💡 يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُحتسب التكلفة بالأحرف وتُعرض بالائتمانات (100 ائتمان = 1 دولار)."],
+        ["💡 Voice generation supports emotions and cloned voices. Costs are shown in credits (100 credits = $1).", "💡 يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُعرض التكلفة بالائتمانات (100 ائتمان = 1 دولار)."],
         ["Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.", "اسحب كل كتلة يسارًا/يمينًا لمطابقة حركة الشفاه. تتوقف الكتل عند المقاطع المجاورة لمنع التداخل، ثم أكّد لإعادة بناء MP3."],
         ["Combines the dubbed Arabic audio with the original background music and video.", "يدمج الصوت العربي المدبلج مع موسيقى الخلفية الأصلية والفيديو."],
         ["Questions, feedback, or need help? Send us a message and we'll get back to you by email.", "أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنرد عليك بالبريد الإلكتروني."],
-        ["Applies DSP filters: removes rumble + adds crispness with high-shelf boost. Instant processing, no ML artifacts.", "يطبّق مرشحات معالجة رقمية: يزيل الضجيج المنخفض ويضيف وضوحًا بتعزيز الترددات العالية. معالجة فورية دون تشويش ناتج عن الذكاء الاصطناعي."],
+        ["Removes low rumble and adds clarity to the voice. Instant, with no AI processing.", "يزيل الضجيج المنخفض ويضيف وضوحًا للصوت. فوري ودون معالجة بالذكاء الاصطناعي."],
         ["✨ Enhance Background Audio", "✨ تحسين جودة الصوت الخلفي"],
         ["Show Arabic audio length overlay", "إظهار طبقة مدة الصوت العربي"],
         // "Upload Media" is a <span>, which tagAll() always matches against R
@@ -4797,10 +4805,10 @@ window.cleanOldClones = function () {
         ["Tashkeel failed: ", "فشل التشكيل: "],
         ["Preview failed: ", "فشلت المعاينة: "],
         ["Remix failed: ", "فشل إعادة المزج: "],
-        ["Time Stretch update failed: ", "فشل تحديث تمديد الوقت: "],
+        ["Speed adjustment failed: ", "فشل ضبط السرعة: "],
         ["Transcribe failed: ", "فشل التفريغ: "],
         ["Regenerate failed: ", "فشلت إعادة التوليد: "],
-        ["Credit sync failed: ", "فشلت مزامنة الرصيد: "],
+        ["We couldn't update your credits: ", "تعذّر تحديث رصيدك: "],
         ["Lip-sync failed to start: ", "فشل بدء مزامنة الشفاه: "],
         ["Lip-sync failed: ", "فشلت مزامنة الشفاه: "],
         ["failed:", "فشل:"],
@@ -4814,11 +4822,11 @@ window.cleanOldClones = function () {
         // Long-before-short pairs come first where one key is a substring
         // of another (otherwise the short one would partially consume the
         // long one's match before the long entry gets its turn).
-        ["Could not load the voice library. Check the server configuration.", "تعذّر تحميل مكتبة الأصوات. تحقق من إعدادات الخادم."],
+        ["Could not load the voice library. Please try again in a moment.", "تعذّر تحميل مكتبة الأصوات. يُرجى المحاولة بعد قليل."],
         ["Could not load the voice library.", "تعذّر تحميل مكتبة الأصوات."],
-        ["Voice library unavailable. Check the server configuration.", "مكتبة الأصوات غير متاحة. تحقق من إعدادات الخادم."],
+        ["Voice library unavailable. Please try again in a moment.", "مكتبة الأصوات غير متاحة. يُرجى المحاولة بعد قليل."],
         ["Voice library unavailable.", "مكتبة الأصوات غير متاحة."],
-        ["Enter the Translation AI key in Step 2 first.", "أدخل مفتاح الذكاء الاصطناعي للترجمة في الخطوة 2 أولاً."],
+        ["Translation is temporarily unavailable. Please try again later.", "الترجمة غير متاحة مؤقتًا. يُرجى المحاولة لاحقًا."],
         ["No unlocked Arabic text found. Locked lines are skipped.", "لم يُعثر على نص عربي غير مقفل. الأسطر المقفلة تُستثنى."],
         ["Transcribe or load a project first.", "فرّغ الملف صوتيًا أو حمّل مشروعًا أولاً."],
         ["Preview unavailable: source audio not found.", "المعاينة غير متاحة: الصوت المصدر غير موجود."],
@@ -4830,9 +4838,8 @@ window.cleanOldClones = function () {
         ["Line locked: Auto-Fix, Translate and Tashkeel will skip it.", "السطر مقفل: سيتخطاه الإصلاح التلقائي والترجمة والتشكيل."],
         ["Line unlocked.", "السطر غير مقفل."],
         ["Manual line inserted. Use ✨ Auto-Fix to sync its time.", "أُدرج سطر يدوي. استخدم ✨ الإصلاح التلقائي لمزامنة توقيته."],
-        ["Could not load voices. Enter the Voice Engine API key in Step 3 first.", "تعذّر تحميل الأصوات. أدخل مفتاح محرك الصوت في الخطوة 3 أولاً."],
-        ["Enter the Voice Engine API key in Step 3 first, then try again.", "أدخل مفتاح محرك الصوت في الخطوة 3 أولاً، ثم أعد المحاولة."],
-        ["Enter the Voice Engine API key in Step 3.", "أدخل مفتاح محرك الصوت في الخطوة 3."],
+        ["Could not load voices. Please try again in a moment.", "تعذّر تحميل الأصوات. يُرجى المحاولة بعد قليل."],
+        ["Voice generation is temporarily unavailable. Please try again later.", "خدمة توليد الصوت غير متاحة مؤقتًا. يُرجى المحاولة لاحقًا."],
         ["No segments to fix.", "لا توجد مقاطع لإصلاحها."],
         ["No original transcription available.", "لا يوجد تفريغ أصلي متاح."],
         ["Original transcription has no words to match.", "التفريغ الأصلي لا يحتوي كلمات للمطابقة."],
@@ -4845,8 +4852,7 @@ window.cleanOldClones = function () {
         ["Starting emotion detection...", "جارٍ بدء كشف المشاعر..."],
         ["Fill at least one Arabic translation.", "املأ ترجمة عربية واحدة على الأقل."],
         ["Starting Arabic audio generation...", "جارٍ بدء توليد الصوت العربي..."],
-        ["No job found.", "لم يُعثر على مهمة."],
-        ["No job.", "لا توجد مهمة."],
+        ["Please upload your video first.", "يرجى رفع الفيديو أولاً."],
         ["Merging dubbed audio with video and background music...", "جارٍ دمج الصوت المدبلج مع الفيديو وموسيقى الخلفية..."],
         ["Starting lip-sync — this re-processes the full video and can take a few minutes...", "جارٍ بدء مزامنة الشفاه — تُعاد معالجة الفيديو الكامل وقد يستغرق ذلك بضع دقائق..."],
         ["Lip-sync complete.", "اكتملت مزامنة الشفاه."],
@@ -4859,19 +4865,20 @@ window.cleanOldClones = function () {
         ["Could not read that audio file.", "تعذّر قراءة ملف الصوت هذا."],
         ["Custom voice box not ready — refresh the page.", "صندوق الصوت المخصص غير جاهز — أعد تحميل الصفحة."],
         ["Custom voice box not ready - refresh the page.", "صندوق الصوت المخصص غير جاهز - أعد تحميل الصفحة."],
-        ["Server error — is the server redeployed?", "خطأ في الخادم — هل أُعيد نشر الخادم؟"],
-        ["Server error.", "خطأ في الخادم."],
+        ["Something went wrong on our side. Please try again in a moment.", "حدث خطأ من جانبنا. يُرجى المحاولة مرة أخرى بعد قليل."],
+        [" If it keeps happening, please contact support.", " إذا استمرت المشكلة، يُرجى التواصل مع الدعم."],
+        [" If it keeps happening, contact support and mention reference ", " إذا استمرت المشكلة، تواصل مع الدعم واذكر الرقم المرجعي "],
         ["Custom voice created. The cloned voice stays in the dropdown.", "أُنشئ الصوت المخصص. يبقى الصوت المستنسخ في القائمة المنسدلة."],
         ["All lines unlocked.", "جميع الأسطر غير مقفلة."],
         ["All lines locked.", "جميع الأسطر مقفلة."],
         ["Restored your session. Reconnecting to your last job on the server...", "استُعيدت جلستك. جارٍ إعادة الاتصال بآخر مهمة على الخادم..."],
         ["Restored your previous session from this browser. Re-upload the original file to enable preview/clone/merge.", "استُعيدت جلستك السابقة من هذا المتصفح. أعد رفع الملف الأصلي لتفعيل المعاينة/الاستنساخ/الدمج."],
-        ["Your last media is no longer on the server (it expires after ~6 hours or a restart). Re-upload the original file to continue.", "وسائطك الأخيرة لم تعد موجودة على الخادم (تنتهي صلاحيتها بعد ~6 ساعات أو عند إعادة التشغيل). أعد رفع الملف الأصلي للمتابعة."],
+        ["Your last media is no longer on the server (it is kept for about 6 hours). Re-upload the original file to continue.", "وسائطك الأخيرة لم تعد موجودة على الخادم (تُحفظ لنحو 6 ساعات). أعد رفع الملف الأصلي للمتابعة."],
         ["📼 Loaded projects have no media on the server. Preview, re-speak, emotions, auto-fix and merge need a fresh upload. Editing, translate, tashkeel, SRT export and Generate still work.", "📼 المشاريع المحمّلة لا تحتوي وسائط على الخادم. المعاينة وإعادة النطق وكشف المشاعر والإصلاح التلقائي والدمج تحتاج رفعًا جديدًا. التحرير والترجمة والتشكيل وتصدير SRT والتوليد تعمل كالمعتاد."],
         ["🎉 Payment complete! Your credits have been added.", "🎉 اكتمل الدفع! أُضيف رصيدك."],
         ["📼 Voice cloning needs the original audio on the server, and loaded projects have none. Either re-upload the same video in Step 1, or skip cloning and pick studio library voices in Step 4.", "📼 يحتاج استنساخ الصوت إلى الصوت الأصلي على الخادم، والمشاريع المحمّلة لا تحتوي عليه. إمّا أعد رفع نفس الفيديو في الخطوة 1، أو تخطَّ الاستنساخ واختر أصواتًا من مكتبة الاستوديو في الخطوة 4."],
         ["⏳ Audio generation is still running. Wait for it to finish before starting a new video — switching now could mix the two audios.", "⏳ توليد الصوت لا يزال قيد التشغيل. انتظر حتى ينتهي قبل بدء فيديو جديد — التبديل الآن قد يخلط الصوتين."],
-        ["Sync found no paid Stripe sessions for this account.", "لم يُعثر على جلسات Stripe مدفوعة لهذا الحساب."],
+        ["We couldn't find any new payments on your account.", "لم نعثر على أي مدفوعات جديدة في حسابك."],
         ["Transcription failed.", "فشل التفريغ."],
         ["Audio generation failed.", "فشل توليد الصوت."],
         ["Preview playback failed: ", "فشل تشغيل المعاينة: "],
@@ -4890,12 +4897,10 @@ window.cleanOldClones = function () {
         ["No voice for ", "لا يوجد صوت لـ "],
         ["This clip is ", "مدة هذا المقطع تبلغ "],
         ["File too large (", "الملف كبير جدًا ("],
-        ["Words not in the official list were removed. Style: '", "أُزيلت كلمات غير موجودة في القائمة الرسمية. النمط: '"],
+        ["Only the supported style words were kept. Style: '", "أُبقيت كلمات النمط المدعومة فقط. النمط: '"],
         ["Clip is ", "مدة المقطع تبلغ "],
         ["Final MP3 rebuilt", "أُعيد بناء MP3 النهائي"],
-        ["Cleanup endpoint not found (status ", "نقطة تنظيف الصوت غير موجودة (الحالة "],
-        ["Credit sync error: ", "خطأ في مزامنة الرصيد: "],
-        ["Credit fulfillment: ", "تنفيذ الرصيد: "],
+        ["Voice cleanup isn't available right now. Please try again later.", "تنظيف الأصوات غير متاح حاليًا. يُرجى المحاولة لاحقًا."],
         ["Preview plays matched audio ", "تعرض المعاينة الصوت المطابق "],
         ["(row shows ", "(الصف يعرض "],
         [" (balance: ", " (الرصيد: "],
@@ -4921,7 +4926,7 @@ window.cleanOldClones = function () {
         [" unlocked line(s) to Arabic (locked lines skipped)...", " سطرًا غير مقفل إلى العربية (الأسطر المقفلة مستثناة)..."],
         [". Pick voices in Step 4 (or Auto-Assign) first.", ". اختر أصواتًا في الخطوة 4 (أو التعيين التلقائي) أولاً."],
         [". Pick one in Step 4 first.", ". اختر صوتًا في الخطوة 4 أولاً."],
-        [" seconds long. This build accepts up to 30 seconds — please trim it first.", " ثانية. يقبل هذا الإصدار حتى 30 ثانية — يرجى تقليمه أولاً."],
+        [" seconds long. The maximum is 30 seconds — please trim it first.", " ثانية. الحد الأقصى 30 ثانية — يرجى تقليمه أولاً."],
         ["This clip is only ", "مدة هذا المقطع فقط "],
         [" seconds long. The minimum is ", " ثانية. الحد الأدنى "],
         ["For a lip-synced clip, the limit is ", "بالنسبة لمقطع بمزامنة الشفاه، الحد الأقصى هو "],
@@ -4932,11 +4937,10 @@ window.cleanOldClones = function () {
         ["Lip-sync selected: clip must be ", "تم اختيار مزامنة الشفاه: يجب أن تكون مدة المقطع "],
         ["Clip must be ", "يجب أن تكون مدة المقطع "],
         [" MB). The limit is 50 MB — please trim or compress it first.", " ميجابايت). الحد الأقصى 50 ميجابايت — يرجى تقليمه أو ضغطه أولاً."],
-        [" ⚠️ stretched to the limit.", " ⚠️ تم التمديد إلى الحد الأقصى."],
+        [" ⚠️ This line was sped up as much as allowed.", " ⚠️ سُرِّع هذا السطر إلى أقصى حد مسموح."],
         [" lines. The Step 6 player now uses it.", " أسطر. مشغّل الخطوة 6 يستخدمه الآن."],
         [" only...", " فقط..."],
         [" voice(s)... this may take a few minutes.", " صوت... قد يستغرق هذا بضع دقائق."],
-        [") — redeploy main.py with the /api/cleanup_voices block.", ") — أعد نشر main.py مع كتلة /api/cleanup_voices."],
         ["s — the limit is 20 seconds.", " ثانية — الحد الأقصى 20 ثانية."],
         ["s - the limit is 20 seconds.", " ثانية - الحد الأقصى 20 ثانية."],
         [" — no lines were trimmed.", " — لم يُقلَّم أي سطر."],
@@ -4950,9 +4954,11 @@ window.cleanOldClones = function () {
         [". Run ✨ Auto-Fix to correct the row.", ". استخدم ✨ الإصلاح التلقائي لتصحيح هذا السطر."],
         ["Use ➕ Buy to get a pack.", "استخدم ➕ شراء للحصول على باقة."],
         ["Use ➕ Buy.", "استخدم ➕ شراء."],
-        [" no longer exist in your voice account (old cloned voices are removed automatically). Re-clone in Step 3.5 or pick a voice in Step 4 before generating.", " لم تعد موجودة في حساب صوتك (تُحذف الأصوات المستنسخة القديمة تلقائيًا). أعد الاستنساخ في الخطوة 3.5 أو اختر صوتًا في الخطوة 4 قبل التوليد."],
-        ["re-spoken: ", "أُعيد نطقه: "],
-        ["re-stretched: ", "أُعيد تمديده: "],
+        [" are no longer available. Re-clone in Step 3.5 or pick a voice in Step 4 before generating.", " لم تعد متاحة. أعد الاستنساخ في الخطوة 3.5 أو اختر صوتًا في الخطوة 4 قبل التوليد."],
+        ["re-spoken. Cost ≈ ", "أُعيد نطقه. التكلفة ≈ "],
+        [" credits. The final audio was rebuilt — play Step 6 at ", " رصيد. أُعيد بناء الصوت النهائي — شغّل الخطوة 6 عند "],
+        ["s to hear it.", " ث للاستماع إليه."],
+        ["speed adjusted.", "تم ضبط السرعة."],
         ["Line ", "السطر "],
     ];
 
@@ -5082,7 +5088,7 @@ window.cleanOldClones = function () {
     function repairCvBox() {
         var box = document.getElementById("customVoiceBox");
         if (!box || document.getElementById("cvSpeaker")) return;
-        box.innerHTML = '<span id="customVoiceNote"><strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the voice engine extracts the dominant voice, so music or other voices in it will reduce quality.</span><br>' +
+        box.innerHTML = '<span id="customVoiceNote"><strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the dominant voice in it is copied, so music or other voices in it will reduce quality.</span><br>' +
             '<select id="cvSpeaker" style="width:auto;min-width:140px;margin:8px 6px 0 0;"></select>' +
             '<input type="file" id="cvFile" accept=".mp3,.wav,audio/mpeg,audio/wav" style="display:none;"><label for="cvFile" id="cvFileLabel" class="file-upload-area" style="margin-top:8px;margin-right:14px;cursor:pointer;">Choose File</label>' +
             '<button class="purple" id="cvUpload" style="margin-top:8px;">Upload as this speaker\'s voice<span class="badge" id="badgeCvUpload"></span></button> ' +
@@ -5100,7 +5106,7 @@ window.cleanOldClones = function () {
 
     // 🧹 now removes ALL app-created clones (they must be ephemeral)
     window.cleanOldClones = function () {
-        LisanDialog.confirm("Delete ALL cloned/custom voices from your voice account (including this project's)? Cloning again will re-create only what you need.", { okText: "Delete", danger: true }).then(function (ok) {
+        LisanDialog.confirm("Delete all your cloned voices (including this project's)? Cloning again will re-create only what you need.", { okText: "Delete", danger: true }).then(function (ok) {
             if (!ok) return;
             // wipe_samples: true -- this is an explicit, user-confirmed "delete
             // everything" action (unlike the silent after-every-clone sweep in
@@ -5109,7 +5115,7 @@ window.cleanOldClones = function () {
             fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId, wipe_samples: true }) })
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, st: r.status, d: d }; }); })
                 .then(function (out) {
-                    if (!out.ok) { notify("error", "Cleanup endpoint not found (status " + out.st + ") — redeploy main.py with the /api/cleanup_voices block."); return; }
+                    if (!out.ok) { notify("error", "Voice cleanup isn't available right now. Please try again later."); return; }
                     notify("success", "🧹 Removed " + (out.d.deleted || 0) + " cloned voice(s) from your account.");
                 })
                 .catch(function (e) { notify("error", e.message); });
@@ -5344,7 +5350,7 @@ window.cleanOldClones = function () {
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
                 .then(function (out) {
                     if (st) st.textContent = "";
-                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) { notify("error", (out.d && (out.d.error || out.d.detail)) || "Server error."); return; }
+                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) { notify("error", (out.d && (out.d.error || out.d.detail)) || "Something went wrong on our side. Please try again in a moment."); return; }
                     window._customVoiceNames[sp] = "📤 Custom voice (" + sp + ")";
                     clonedBySpeaker[sp] = out.d.voice_id;
                     speakerChoices[sp] = "clone";
@@ -5517,7 +5523,7 @@ window.cleanOldClones = function () {
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
                 .then(function (out) {
                     if (st) st.textContent = "";
-                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) { notify("error", (out.d && (out.d.error || out.d.detail)) || "Server error."); return; }
+                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) { notify("error", (out.d && (out.d.error || out.d.detail)) || "Something went wrong on our side. Please try again in a moment."); return; }
                     window.customBySpeaker[sp] = out.d.voice_id;
                     window.clonedVoiceIds = window.clonedVoiceIds || [];
                     window.clonedVoiceIds.push(out.d.voice_id);
@@ -5610,7 +5616,7 @@ window.cleanOldClones = function () {
         var thead = document.querySelector("#volumeTable thead");
         if (thead && !thead.dataset.v7) {
             thead.dataset.v7 = "1";
-            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th title='How much this line may be sped up or slowed down to fit its slot'>Time Stretch</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th></tr>";
+            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Use silent gap</th><th title='How much this line may be sped up or slowed down to fit its slot'>Speed adjustment</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th></tr>";
         }
         var tbody = document.querySelector("#volumeTable tbody");
         if (!tbody) return;
@@ -5624,8 +5630,8 @@ window.cleanOldClones = function () {
             // ln.tempo_warning are both no longer true -- no separate clear step.
             var needsAttention = !!(ln.trimmed || ln.tempo_warning);
             var warnMsg = ln.trimmed
-                ? "This line's Arabic audio is cut short in the final mix \u2014 it doesn't fit its slot even after stretching. Try a looser Time Stretch, allow overlap/dead space for it, or shorten the line."
-                : "This line needed the maximum Time Stretch setting to fit its slot.";
+                ? "This line's Arabic audio is cut short in the final mix \u2014 it doesn't fit its slot even at the fastest speed. Try a higher Speed adjustment, allow overlap or use the silent gap for it, or shorten the line."
+                : "This line needed the maximum Speed adjustment to fit its slot.";
             if (needsAttention) { tr.style.background = "rgba(245,158,11,0.14)"; tr.title = warnMsg; }
             function td(html) { var c = document.createElement("td"); c.innerHTML = html; tr.appendChild(c); return c; }
             td((needsAttention ? '<span title="' + warnMsg.replace(/"/g, "'") + '" style="margin-right:4px;">\u26A0\uFE0F</span>' : "") + String(i + 1));
@@ -5812,7 +5818,7 @@ window.cleanOldClones = function () {
     }
     function fixVolume() {
         var thr = document.querySelector("#volumeTable thead tr");
-        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Dead space</th><th title='How much this line may be sped up or slowed down to fit its slot'>Time Stretch</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th>"; }
+        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Use silent gap</th><th title='How much this line may be sped up or slowed down to fit its slot'>Speed adjustment</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th>"; }
         document.querySelectorAll("#volumeSection strong, #volumeSection span").forEach(function (el) { if (/Master trim/i.test(el.textContent || "")) el.textContent = (el.textContent || "").replace(/Master trim[^\(:]*/i, "Master volume"); });
     }
     function fixStep6() {
@@ -6182,7 +6188,7 @@ window.cleanOldClones = function () {
         if (!window.currentJobId) return;
         function banner() {
             if (typeof window._markNoMedia === "function") window._markNoMedia();
-            notify("info", "Your last media is no longer on the server (it expires after ~6 hours or a restart). Re-upload the original file to continue.");
+            notify("info", "Your last media is no longer on the server (it is kept for about 6 hours). Re-upload the original file to continue.");
         }
         fetch("/api/progress/generate?t=" + Date.now(), { credentials: "same-origin" })
             .then(function (r) { return r.ok ? r.json() : null; })

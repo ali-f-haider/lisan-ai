@@ -68,6 +68,14 @@ button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radi
 var sb = null;
 function client(){ if(!sb && window.__SUPABASE_URL) sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || ""); return sb; }
 function msg(t, kind){ var m = document.getElementById("formMsg"); if(!m) return; m.textContent = t || ""; m.className = "msg " + (kind || ""); m.style.display = t ? "block" : "none"; }
+function authMsg(m){
+  m = String(m || "");
+  if(/rate limit|too many|security purposes/i.test(m)) return "Too many attempts. Please wait a few minutes and try again.";
+  if(/password should|weak password|at least \d+ char/i.test(m)) return m;
+  if(/not allowed|disabled/i.test(m)) return "This login option isn't available right now. Please try another way.";
+  if(!m || /fetch|json|status|apikey|api key|jwt|token|exception|network|unexpected|undefined|null|AuthApiError|supabase/i.test(m)) return "We couldn't complete this right now. Please try again in a moment.";
+  return m;
+}
 function cleanUrl(){ try{ history.replaceState({}, document.title, location.pathname); }catch(e){} }
 
 var _loginAttempted = false;
@@ -75,16 +83,16 @@ async function finishLogin(session){
   if (_loginAttempted) return;
   _loginAttempted = true;
   var token = session && session.access_token;
-  if(!token){ msg("No access token found.", "err"); return false; }
+  if(!token){ msg("We couldn't complete the login. Please try again.", "err"); return false; }
   try{
     var r = await fetch("/api/auth/session", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ access_token: token }), credentials: 'include' });
-    if(!r.ok){ var et = await r.text(); msg("Server error (" + r.status + "): " + et, "err"); try{ await client().auth.signOut(); }catch(e){} return false; }
+    if(!r.ok){ msg(r.status === 429 ? "Too many attempts. Please wait a few minutes and try again." : "We couldn't log you in just now. Please try again in a moment.", "err"); try{ await client().auth.signOut(); }catch(e){} return false; }
     var d = await r.json();
-    if(d.error || d.ok === false){ msg("Login failed: " + d.error, "err"); try{ await client().auth.signOut(); }catch(e){} return false; }
+    if(d.error || d.ok === false){ msg(authMsg(d.error) || "We couldn't log you in. Please try again.", "err"); try{ await client().auth.signOut(); }catch(e){} return false; }
     try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf("lisan_workspace")===0) localStorage.removeItem(k); }); }catch(e){}
     location.replace("/app");
     return true;
-  }catch(e){ msg("Network error: " + e.message, "err"); return false; }
+  }catch(e){ msg("We couldn't reach our service. Please check your connection and try again.", "err"); return false; }
 }
 
 function isOAuthReturn(){ return /[?&]code=/.test(location.search) || /access_token=/.test(location.hash); }
@@ -92,7 +100,7 @@ function isOAuthReturn(){ return /[?&]code=/.test(location.search) || /access_to
 // CALM START: do nothing on a normal visit. Only react to a real Google/OAuth callback.
 window.addEventListener("DOMContentLoaded", async function(){
   if(!isOAuthReturn()) return;
-  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   var s = await c.auth.getSession();
   for(var i=0; i<6 && !(s.data && s.data.session); i++){ await new Promise(function(r){ setTimeout(r,400); }); s = await c.auth.getSession(); }
   cleanUrl();
@@ -103,13 +111,13 @@ window.addEventListener("DOMContentLoaded", async function(){
 async function doLogin(){ /* _adminShortcut */
   var _em = document.getElementById("email").value.trim();
   var _pw = document.getElementById("password").value;
-  if(!_em && !_pw){ msg("Enter your email — or put the admin access code in the password field.", "err"); return; }
-  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  if(!_em && !_pw){ msg("Please enter your email and password.", "err"); return; }
+  var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   var res = await c.auth.signInWithPassword({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
   if(res.error){
     if(/confirm/i.test(res.error.message)){ msg("Your email is not confirmed yet. Check your inbox for the confirmation link, then log in.", "err"); }
     else if(/invalid login credentials/i.test(res.error.message)){ msg("Wrong password — or this account's email was never confirmed. Use “Forgot password?” to reset.", "err"); }
-    else msg(res.error.message, "err");
+    else msg(authMsg(res.error.message), "err");
     return;
   }
   _loginAttempted = false;
@@ -117,22 +125,22 @@ async function doLogin(){ /* _adminShortcut */
 }
 async function doSignup(){
   if(!document.getElementById("agreeTerms").checked){ msg("Please agree to the Terms of Service and Privacy Policy to create an account.", "err"); return; }
-  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   var res = await c.auth.signUp({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
   if(res.error){
     if(/already registered|already exists/i.test(res.error.message)){ msg("This email is already registered. Please log in instead.", "err"); return; }
-    msg(res.error.message, "err"); return;
+    msg(authMsg(res.error.message), "err"); return;
   }
   if(res.data.user && (!res.data.user.identities || res.data.user.identities.length === 0)){ msg("This email is already registered. Please log in instead.", "err"); return; }
   if(res.data.session){ _loginAttempted = false; await finishLogin(res.data.session); return; }
   msg("Account created! Check your email to confirm, then log in.", "ok");
 }
 async function doForgot(){
-  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   var email = document.getElementById("email").value.trim();
   if(!email){ msg("Type your email in the email field first.", "err"); return; }
   var res = await c.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/login" });
-  if(res.error) msg(res.error.message, "err");
+  if(res.error) msg(authMsg(res.error.message), "err");
   else msg("Password-reset email sent. Open it, set a new password, then log in.", "ok");
 }
 async function doRecovery(){
@@ -140,7 +148,7 @@ async function doRecovery(){
   var s0 = await c.auth.getSession();
   if(!(s0.data && s0.data.session)){ msg("Recovery session missing or expired — open the link in your reset email again.", "err"); return; }
   var res = await c.auth.updateUser({ password: document.getElementById("newPass").value });
-  if(res.error){ msg(res.error.message, "err"); return; }
+  if(res.error){ msg(authMsg(res.error.message), "err"); return; }
   msg("Password updated. Logging you in…", "ok");
   _loginAttempted = false;
   await finishLogin(res.data.session);
@@ -153,7 +161,7 @@ function socialLogin(p){
   // this asks every time; one click is a small cost next to silently
   // creating accounts with no recorded consent.
   if(!document.getElementById("agreeTerms").checked){ msg("Please agree to the Terms of Service and Privacy Policy to continue.", "err"); return; }
-  var c = client(); if(!c){ msg("Login system unavailable.", "err"); return; }
+  var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   c.auth.signInWithOAuth({ provider: p, options: { redirectTo: location.origin + "/login" } });
 }
 </script>

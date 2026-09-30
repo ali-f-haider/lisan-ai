@@ -76,6 +76,16 @@ except Exception as _sentry_ex:
 
 app = FastAPI()
 
+
+@app.exception_handler(Exception)
+async def _unhandled_error(request, exc):
+    """Anything nobody caught: the detail goes to the server log, the customer gets a plain sentence
+    (instead of a bare "Internal Server Error" page that the app cannot read)."""
+    import traceback as _tb
+    print(f"[error] unhandled in {request.method} {request.url.path}: {type(exc).__name__}: {exc}\n{_tb.format_exc()}")
+    return JSONResponse({"error": "Something went wrong on our side. Please try again in a moment."}, status_code=500)
+
+
 @app.get("/help")
 def public_help():
     from fastapi.responses import FileResponse
@@ -260,6 +270,28 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 # so the rest of that process's requests for this cookie stay fast again.
 # Requires SUPABASE_SERVICE_KEY (same one already used for credits/consent);
 # silently a no-op without it, same as _record_voice_consent below.
+def _stripe_fail(ex, where=""):
+    """Stripe failed: the real reason goes to the log, the customer gets a plain sentence (Stripe's own
+    customer-safe text, e.g. "Your card was declined.", is kept when it has one)."""
+    print(f"[stripe] {where} failed: {type(ex).__name__}: {ex}")
+    msg = getattr(ex, "user_message", None)
+    return JSONResponse({"error": msg or "We couldn't complete that with our payment provider. Please try again, or contact support if it keeps happening."}, status_code=502)
+
+
+_PRIVATE_PROGRESS_KEYS = ("error_trace", "background_path", "generation_id")
+
+
+def _public_progress(d):
+    """A job's progress as the browser may see it: no server paths, tracebacks or provider task ids."""
+    if not isinstance(d, dict):
+        return d
+    out = {k: v for k, v in d.items() if k not in _PRIVATE_PROGRESS_KEYS}
+    r = out.get("result")
+    if isinstance(r, dict) and ("output_folder" in r or "final_file" in r):
+        out["result"] = {k: v for k, v in r.items() if k not in ("output_folder", "final_file")}
+    return out
+
+
 def _http_err_detail(ex):
     """str(ex), plus the response body when it's an HTTPError -- Supabase's
     JSON body says WHY a 403/400 happened (e.g. "permission denied for table
@@ -479,7 +511,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # while the gate is active (see _site_gate_active above).
         if not _site_gate_ok(request):
             if path.startswith("/api/"):
-                return JSONResponse({"error": "Site is in private testing"}, status_code=401)
+                return JSONResponse({"error": "Lisan AI isn't open to the public yet. Please enter your access code."}, status_code=401)
             import urllib.parse
             next_q = urllib.parse.quote(path, safe="")
             return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
@@ -689,7 +721,7 @@ def auth_session(req: AuthRequest, response: Response):
         _persist_session(tok, req.access_token)
         response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax")
         return {"ok": True}
-    return JSONResponse({"error": "Invalid session"}, status_code=401)
+    return JSONResponse({"error": "Your session has expired. Please log in again."}, status_code=401)
 
 
 @app.get("/api/auth/check")
@@ -1215,7 +1247,7 @@ def _public_origin(request: Request) -> str:
 @app.post("/api/billing/checkout")
 def billing_checkout(payload: dict, request: Request):
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required to buy credits."}, status_code=401)
@@ -1242,7 +1274,7 @@ def billing_checkout(payload: dict, request: Request):
             cancel_url=origin + "/app",
         )
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
     return {"url": session.url}
 
 
@@ -1323,7 +1355,7 @@ def billing_subscribe(request: Request, plan_key: str = ""):
     stripe_subscription_id / subscription_plan_key we store on profiles
     once checkout.session.completed fires below."""
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required to subscribe."}, status_code=401)
@@ -1357,7 +1389,7 @@ def billing_subscribe(request: Request, plan_key: str = ""):
             cancel_url=origin + "/app",
         )
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
     return {"url": session.url}
 
 
@@ -1370,12 +1402,12 @@ def billing_portal(request: Request):
     We never build our own cancel/payment-method UI; Stripe's portal handles
     that entirely off our servers."""
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return JSONResponse({"error": "Not configured."}, status_code=503)
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
     try:
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_customer_id",
@@ -1395,7 +1427,7 @@ def billing_portal(request: Request):
             return_url=origin + "/account",
         )
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
     return {"url": portal.url}
 
 
@@ -1410,12 +1442,12 @@ def billing_cancel(request: Request):
     logic ourselves, same reasoning as /api/billing/portal (EU
     distance-selling rules want an easy, unambiguous cancel path)."""
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return JSONResponse({"error": "Not configured."}, status_code=503)
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
     try:
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_customer_id,stripe_subscription_id",
@@ -1444,7 +1476,7 @@ def billing_cancel(request: Request):
         if synced["cancel_at_period_end"]:
             return {"already_canceling": True, "ends_at": synced["period_end"] or sub.get("cancel_at")}
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
     try:
         portal = stripe.billing_portal.Session.create(
             customer=customer_id,
@@ -1459,7 +1491,7 @@ def billing_cancel(request: Request):
             },
         )
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
     return {"url": portal.url}
 
 
@@ -1486,7 +1518,7 @@ def billing_resume(request: Request):
     scheduled end. Only works while the subscription is still active (before
     the period end); afterwards the user subscribes again from the Buy box."""
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required."}, status_code=401)
@@ -1507,7 +1539,7 @@ def billing_resume(request: Request):
             return JSONResponse({"error": "Please use Manage Subscription to renew this subscription."}, status_code=409)
         synced = _sync_subscription_to_profile(uid, sub)
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
     return {"ok": True, "status": synced["status"], "cancel_at_period_end": synced["cancel_at_period_end"]}
 
 
@@ -1578,7 +1610,7 @@ def billing_change_plan(request: Request, plan_key: str = ""):
     downgrade is already scheduled (undo it first) -- one change at a time
     keeps the proration maths unambiguous."""
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "Payments are not configured yet."}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required."}, status_code=401)
@@ -1662,7 +1694,7 @@ def billing_change_plan(request: Request, plan_key: str = ""):
         # not migrated): otherwise Stripe would bill the lower price at
         # renewal while the profile kept granting the higher tier's credits.
         if not _set_subscription_pending_plan(uid, target["key"]):
-            return JSONResponse({"error": "Scheduling a plan change isn't available yet. Please try again later."}, status_code=503)
+            return JSONResponse({"error": "We can't schedule a plan change right now. Please try again later."}, status_code=503)
         try:
             stripe.Subscription.modify(
                 subscription_id,
@@ -1676,7 +1708,7 @@ def billing_change_plan(request: Request, plan_key: str = ""):
         return {"ok": True, "mode": "scheduled", "plan": target["name"],
                 "effective": prof.get("subscription_current_period_end") or None}
     except Exception as e:
-        return JSONResponse({"error": f"Stripe error: {e}"}, status_code=502)
+        return _stripe_fail(e, "billing")
 
 
 @app.post("/api/account/delete")
@@ -1706,7 +1738,7 @@ def delete_account(request: Request, response: Response):
     if not uid:
         return JSONResponse({"error": "Login required."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return JSONResponse({"error": "Not configured."}, status_code=503)
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
     sb_hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
 
     # 1) Cancel any active Stripe subscription immediately.
@@ -1776,10 +1808,10 @@ def delete_account(request: Request, response: Response):
 @app.get("/api/billing/sync")
 def billing_sync(request: Request):
     if not stripe or not STRIPE_SECRET_KEY:
-        return JSONResponse({"error": "not configured"}, status_code=503)
+        return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     stripe.api_key = STRIPE_SECRET_KEY
     added = 0
     try:
@@ -1801,7 +1833,8 @@ def billing_sync(request: Request):
                 if isinstance(res, int):
                     added += credits
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=502)
+        print(f"[billing-sync] failed: {e}")
+        return JSONResponse({"error": "We couldn't check your payments right now. Please try again shortly."}, status_code=502)
     return {"added_sessions_credits": added}
 
 def _as_id(v):
@@ -1860,7 +1893,7 @@ async def stripe_webhook(request: Request):
         print("[stripe-webhook] received request")
         if not stripe or not STRIPE_WEBHOOK_SECRET:
             print("[stripe-webhook] NOT CONFIGURED: stripe=", bool(stripe), "secret=", bool(STRIPE_WEBHOOK_SECRET))
-            return JSONResponse({"error": "not configured"}, status_code=503)
+            return JSONResponse({"error": "Payments are temporarily unavailable. Please try again later."}, status_code=503)
         raw = await request.body()
         sig = request.headers.get("stripe-signature", "")
         if not sig:
@@ -1995,7 +2028,7 @@ async def stripe_webhook(request: Request):
         print("[stripe-webhook] UNEXPECTED ERROR:", str(e))
         import traceback
         traceback.print_exc()
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return JSONResponse({"error": "error"}, status_code=500)
 
 # ---------- Auto-cleanup of old job files ----------
 # Two retention tiers now, not one:
@@ -2646,7 +2679,7 @@ def _authorize_new_clones(uid, num_new, engine="elevenlabs"):
             limit_ops = eleven.get("clone_ops_limit")
             if used_ops is not None and limit_ops:
                 if (limit_ops - used_ops) < num_new:
-                    return False, "We've hit our voice-cloning provider's shared monthly limit across all users. Please try again after the reset, or contact support."
+                    return False, "Voice cloning is temporarily unavailable due to high demand. Please try again later, or choose a studio voice for this speaker in Step 4."
     return True, plan
 
 
@@ -3383,7 +3416,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
     """Upload media file for an existing project without transcribing."""
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
 
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
@@ -3471,11 +3504,11 @@ def abandon_job(job_id: str):
 # (This was the actual cause of the frozen Generate progress bar.)
 @app.get("/api/progress/generate")
 def generate_progress(job_id: str = ""):
-    return jobs_progress.get(f"generate_{job_id}", {"status": "not_found"})
+    return _public_progress(jobs_progress.get(f"generate_{job_id}", {"status": "not_found"}))
 
 @app.get("/api/progress/{job_id}")
 def progress(job_id: str):
-    return jobs_progress.get(job_id, {"status": "not_found"})
+    return _public_progress(jobs_progress.get(job_id, {"status": "not_found"}))
 
 @app.get("/api/source/{job_id}")
 def source(job_id: str):
@@ -3589,7 +3622,7 @@ def my_voices(request: Request):
     flow's voice picker so a saved voice can be reused across projects."""
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     plan = _get_subscription_plan(_get_profile_plan_key(uid))
     voices = []
     if SUPABASE_URL and SUPABASE_SERVICE_KEY:
@@ -3622,9 +3655,9 @@ def update_my_voice(voice_row_id: str, req: VoiceUpdateRequest, request: Request
     touch ElevenLabs or the slot count at all."""
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return JSONResponse({"error": "Not configured."}, status_code=503)
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
     name = (req.name or "").strip()[:200] or "Untitled voice"
     description = (req.description or "").strip()[:2000]
     body = json.dumps({"name": name, "description": description}).encode("utf-8")
@@ -3640,7 +3673,8 @@ def update_my_voice(voice_row_id: str, req: VoiceUpdateRequest, request: Request
         with urllib.request.urlopen(r, timeout=10) as resp:
             ok = resp.status in (200, 204)
     except Exception as ex:
-        return JSONResponse({"error": str(ex)}, status_code=502)
+        print(f"[voice-library] rename failed: {ex}")
+        return JSONResponse({"error": "We couldn't rename that voice. Please try again."}, status_code=502)
     return {"ok": ok, "name": name, "description": description}
 
 @app.delete("/api/my_voices/{voice_row_id}")
@@ -3653,9 +3687,9 @@ def delete_my_voice(voice_row_id: str, request: Request):
     next /api/cleanup_voices pass instead."""
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return JSONResponse({"error": "Not configured."}, status_code=503)
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
     try:
         lookup = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id,voice_engine",
@@ -3675,9 +3709,10 @@ def delete_my_voice(voice_row_id: str, request: Request):
             with urllib.request.urlopen(lookup, timeout=10) as r:
                 rows = json.load(r)
         except Exception as ex:
-            return JSONResponse({"error": str(ex)}, status_code=502)
+            print(f"[voice-library] delete lookup failed: {ex}")
+            return JSONResponse({"error": "We couldn't delete that voice. Please try again."}, status_code=502)
     if not rows:
-        return JSONResponse({"error": "Voice not found."}, status_code=404)
+        return JSONResponse({"error": "We couldn't find that voice."}, status_code=404)
     eleven_voice_id = rows[0].get("elevenlabs_voice_id")
     voice_engine = rows[0].get("voice_engine") or "elevenlabs"
     try:
@@ -3688,7 +3723,8 @@ def delete_my_voice(voice_row_id: str, request: Request):
         with urllib.request.urlopen(delreq, timeout=10) as r:
             r.read()
     except Exception as ex:
-        return JSONResponse({"error": f"Couldn't delete: {ex}"}, status_code=502)
+        print(f"[voice-library] delete failed: {ex}")
+        return JSONResponse({"error": "We couldn't delete that voice. Please try again."}, status_code=502)
     if eleven_voice_id:
         try:
             if voice_engine == "inworld":
@@ -3711,7 +3747,7 @@ def detect_emotions(req: EmotionRequest, request: Request):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     audio = resolve_job_audio(req.job_id)
     if audio is None:
-        return {"error": "Audio not found."}
+        return {"error": "We couldn't find the audio for this project. Please upload it again."}
     jobs_progress[f"emotions_{req.job_id}"] = {"status": "processing", "percent": 0,
                                                "current": 0, "total": len(req.segments)}
     threading.Thread(target=gemini_service.detect_emotions_worker,
@@ -3720,7 +3756,7 @@ def detect_emotions(req: EmotionRequest, request: Request):
 
 @app.get("/api/progress/emotions/{job_id}")
 def emotions_progress(job_id: str):
-    return jobs_progress.get(f"emotions_{job_id}", {"status": "not_found"})
+    return _public_progress(jobs_progress.get(f"emotions_{job_id}", {"status": "not_found"}))
 
 @app.post("/api/tashkeel")
 def tashkeel(req: TashkeelRequest, request: Request):
@@ -3762,7 +3798,7 @@ def generate(req: GenerateRequest, request: Request):
         # report (and was reported as exactly that -- Sept 2026). The real
         # reason is this reserve floor, a deliberate safety margin so a job
         # can't finish with a negative balance -- so say that instead.
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Your balance needs to be at least {min_reserve} credits to start Generate Audio -- this is a safety reserve in case the job costs more than expected, not the actual price (you're only charged for what's used). Use ➕ Buy to top up."}, status_code=402)
+        return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). You're only charged for what's actually used. Use ➕ Buy to top up."}, status_code=402)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
     req.inworld_api_key = INWORLD_API_KEY
@@ -3831,7 +3867,7 @@ def merge_video(req: MergeRequest, request: Request):
     # overwrite each other's file) and why it now includes the job_id.
     dub = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
     if video is None or not dub.exists():
-        return {"error": "Missing video or dubbed audio. Run Generate first."}
+        return {"error": "We couldn't find your video or dubbed audio. Please generate the dub first, then merge."}
 
     bg = job_background_audio(req.job_id)
     final = OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4"
@@ -3895,11 +3931,11 @@ LIPSYNC_REF_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 @app.post("/api/lipsync/reference-images")
 async def lipsync_reference_images(request: Request, job_id: str = Form(...), files: List[UploadFile] = File(...)):
     if not LIPSYNC_ENABLED:
-        return JSONResponse({"error": "Lip-sync is temporarily unavailable while we evaluate providers with better quality."}, status_code=503)
+        return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     if find_job_video(job_id) is None:
-        return JSONResponse({"error": "Job not found."}, status_code=404)
+        return JSONResponse({"error": "We couldn't find that project."}, status_code=404)
 
     # Replace, not append -- re-picking files in the UI shouldn't keep
     # piling old photos onto the new set.
@@ -3928,14 +3964,14 @@ def lipsync(req: LipSyncRequest, request: Request):
         # stale/cached page, or someone calling this endpoint directly,
         # still can't start (or get charged for) a lip-sync job while it's
         # disabled. See the LIPSYNC_ENABLED comment in config.py.
-        return JSONResponse({"error": "Lip-sync is temporarily unavailable while we evaluate providers with better quality."}, status_code=503)
+        return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     uid = _current_uid(request)
 
     video_path = find_job_video(req.job_id)
     if video_path is None:
-        return JSONResponse({"error": "Original video not found."}, status_code=404)
+        return JSONResponse({"error": "We couldn't find your original video. Please upload it again."}, status_code=404)
 
     # Lip-sync (VEED Lip Sync 2.0 via fal.ai) is billed per second of video,
     # not a flat fee, so the charge has to be computed from the real video
@@ -3983,25 +4019,13 @@ def lipsync(req: LipSyncRequest, request: Request):
 
 @app.get("/api/progress/lipsync/{job_id}")
 def lipsync_progress(job_id: str):
-    return jobs_progress.get(f"lipsync_{job_id}", {"status": "not_found"})
+    return _public_progress(jobs_progress.get(f"lipsync_{job_id}", {"status": "not_found"}))
 
 @app.get("/api/usage/{job_id}")
 def usage(job_id: str):
-    b = usage_bucket(job_id)
-    in_tok = int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258)
-    out_tok = int(b.get("gemini_out", 0))
-    cost = in_tok / 1e6 * 0.30 + out_tok / 1e6 * 2.50
-    # "eleven_credits" is a legacy display name (predates Inworld) for total
-    # voice-generation characters used this job -- now the sum of both
-    # engines' buckets, so the "Actual usage this job" panel still shows one
-    # honest combined character count even for a job that mixed engines.
-    # Exact per-engine credit cost is computed separately in
-    # _watch_and_deduct() using each engine's own rate.
-    out = {"eleven_credits": int(b.get("eleven_chars", 0)) + int(b.get("inworld_chars", 0)),
-           "gemini_in_tokens": in_tok, "gemini_out_billable": out_tok,
-           "gemini_cost_usd": round(cost, 6)}
-    out.update(_job_charges.get(job_id, {}))
-    return out
+    # Customers only ever see credits. The provider-side counters (tokens, characters, dollar cost) stay
+    # inside usage_bucket() for the admin reports and are never sent to the browser.
+    return dict(_job_charges.get(job_id, {}))
 
 @app.get("/api/download/{filename}")
 def download(filename: str):
@@ -4099,7 +4123,7 @@ def download_voice_sample(job_id: str, speaker: str):
 @app.post("/api/upload_custom_voice")
 async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
     uid = _current_uid(request)
-    if not uid: return JSONResponse({"error": "login required"}, status_code=401)
+    if not uid: return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     # Which engine will actually create this voice -- resolved BEFORE the
     # authorize gate (used to be after) so the gate's ElevenLabs shared-quota
     # check only applies when ElevenLabs is actually the engine being used;
@@ -4135,7 +4159,9 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
             res = inworld_service.add_custom_voice(job_id or "custom", speaker, tmp, INWORLD_API_KEY)
         else:
             res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
-    except Exception as e: res = f"ERROR: {e}"
+    except Exception as e:
+        from user_errors import friendly_error as _fe
+        res = "ERROR: " + _fe(e, "custom voice")
     finally:
         try: tmp.unlink()
         except Exception: pass
@@ -4149,7 +4175,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
 
 def account_summary(request: Request):
     uid = _current_uid(request)
-    if not uid: return JSONResponse({"error": "login required"}, status_code=401)
+    if not uid: return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     credits = get_credits(uid)
     if credits is None:
         credits = int(_get_pricing_config().get("freeCredits", 100))
@@ -4405,10 +4431,10 @@ def _ld_job(request: Request, job_id: str):
     other users are never confirmed to exist)."""
     uid = _current_uid(request)
     if not uid:
-        return None, None, JSONResponse({"error": "login required"}, status_code=401)
+        return None, None, JSONResponse({"error": "Please log in to continue."}, status_code=401)
     job = longdub_service.load_job(job_id)
     if not job or job.get("uid") != uid:
-        return uid, None, JSONResponse({"error": "Job not found."}, status_code=404)
+        return uid, None, JSONResponse({"error": "We couldn't find that project."}, status_code=404)
     return uid, job, None
 
 
@@ -4424,7 +4450,7 @@ def dub_long_page():
 def longdub_config(request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     p = _ld_pricing()
     return {
         "max_min": p["max_min"], "min_sec": longdub_service.MIN_SEC,
@@ -4442,7 +4468,7 @@ def longdub_config(request: Request):
 def longdub_list(request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     return {"jobs": [longdub_service.public_view(j) for j in longdub_service.list_jobs_for_uid(uid)],
             "credits": get_credits(uid)}
 
@@ -4458,7 +4484,7 @@ class LongDubInit(BaseModel):
 def longdub_init(body: LongDubInit, request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
@@ -4478,7 +4504,7 @@ async def longdub_chunk(job_id: str, index: int, request: Request):
     except ValueError:
         clen = 0
     if clen > longdub_service.CHUNK_BYTES + 4096:
-        return JSONResponse({"error": "Chunk too large."}, status_code=413)
+        return JSONResponse({"error": "The upload was interrupted. Please try again."}, status_code=413)
     data = await request.body()
     ok, msg = await asyncio.to_thread(longdub_service.write_chunk, job, index, data)
     if not ok:
@@ -4734,7 +4760,7 @@ _ld_timer.start()
 def account_summary(request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
         
     import urllib.request as _ur
     
@@ -4815,7 +4841,7 @@ def my_jobs(request: Request):
     one, or past the 30-day window) is simply left out."""
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return {"jobs": []}
     import urllib.request as _ur
@@ -4863,7 +4889,7 @@ def my_jobs(request: Request):
 def my_job_file(job_id: str, kind: str, request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     suffix = _MY_JOB_FILE_SUFFIXES.get(kind)
     if not suffix or "/" in job_id or "\\" in job_id or ".." in job_id:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -4880,7 +4906,7 @@ def my_job_file(job_id: str, kind: str, request: Request):
 def delete_my_job(job_id: str, request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if "/" in job_id or "\\" in job_id or ".." in job_id:
         return JSONResponse({"error": "not found"}, status_code=404)
     if not _job_belongs_to_uid(uid, job_id):
@@ -4900,7 +4926,7 @@ def delete_my_job(job_id: str, request: Request):
 def account_summary_diag(request: Request):
     uid = _current_uid(request)
     if not uid:
-        return JSONResponse({"error": "login required"}, status_code=401)
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
         
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?select=*&order=created_at.desc&limit=5"
@@ -6133,7 +6159,7 @@ def contact_form(req: ContactRequest, request: Request):
 
     if not RESEND_API_KEY:
         print("[contact] RESEND_API_KEY not set -- cannot send contact email")
-        return JSONResponse({"ok": False, "error": "Contact form is not set up yet. Please email us directly."}, status_code=503)
+        return JSONResponse({"ok": False, "error": "We can't take messages through this form right now. Please email us at contact@lisanai.org."}, status_code=503)
 
     attempts.append(now)
     _contact_attempts[ip] = attempts
