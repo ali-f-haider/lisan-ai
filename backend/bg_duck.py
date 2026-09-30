@@ -587,6 +587,186 @@ def add_ambience_bed(plan, sep_path, out_path, seed=0):
             pass
 
 
+# ---------------------------------------------------------------- reactions: laughter, applause, cheers
+#
+# The voice separator files every human sound that is not a word (an audience laughing, applauding, cheering,
+# gasping) under "voices", so none of it reaches the background track and the dubbed video ends up with dead
+# silence exactly where the original had its loudest moments. The recogniser knows where WORDS are. Everything
+# the separator called "voice" outside those words is a human sound without speech: it is cut out of the
+# separated voices track (never the English words) and laid back under the dub, at its original place and
+# level, as a layer of its own. While the dubbed voice speaks, the layer is lowered.
+# Nothing is done when no such stretches exist; on any problem the caller keeps the video as it was.
+
+REACT_ENABLED = _env_float("BG_REACTIONS", 1.0) > 0.5
+REACT_GAIN_DB = _env_float("BG_REACTIONS_DB", 0.0)          # level of the layer relative to the original
+REACT_DUCK_DB = _env_float("BG_REACTIONS_DUCK_DB", 9.0)     # lowered by this much while the dubbed voice speaks
+REACT_PRE_SEC = 0.12          # kept away from the start of a spoken word
+REACT_POST_SEC = 0.18         # ...and from its end
+REACT_MIN_SEC = 0.35          # shorter sounds are left out
+REACT_BRIDGE_SEC = 0.25       # gaps this short inside one reaction (between two bursts of laughter) are kept
+REACT_REL_DB = 30.0           # quieter than this far under the speech level = not a reaction
+REACT_MIN_TOTAL_SEC = 0.8     # less than this in total: not worth adding
+REACT_MAX_SHARE = 0.6         # more than this share of the video would not be audience sound (singing, a wrong speech map)
+REACT_RISE_TAU = 0.02         # fade in (s): about 60 ms
+REACT_FALL_TAU = 0.04         # fade out (s): about 120 ms
+
+
+def merge_spans(spans, gap=0.35):
+    """[(start, end)] sorted and joined when closer than `gap` seconds."""
+    out = []
+    for a, z in sorted((float(a), float(z)) for a, z in spans if z is not None and a is not None and float(z) >= float(a)):
+        if out and a - out[-1][1] <= gap:
+            out[-1][1] = max(out[-1][1], z)
+        else:
+            out.append([a, z])
+    return [(a, z) for a, z in out]
+
+
+def reaction_frames(levels_db, spans, min_level_db=None):
+    """Which 10 ms frames of the separated voices are human sound WITHOUT words.
+    Returns (mask, speech_mask, info)."""
+    from scipy.ndimage import binary_closing
+
+    n = levels_db.size
+    speech = np.zeros(n, dtype=bool)
+    for a, z in spans:
+        i0, i1 = int((float(a) - REACT_PRE_SEC) / FRAME_SEC), int((float(z) + REACT_POST_SEC) / FRAME_SEC) + 1
+        if i1 > 0 and i0 < n:
+            speech[max(0, i0):min(n, i1)] = True
+    audible = levels_db[levels_db > -70.0]
+    if audible.size < 50:
+        return np.zeros(n, dtype=bool), speech, {"reason": "no sound in the separated voices"}
+    ref_pool = levels_db[speech & (levels_db > -70.0)]
+    ref = float(np.percentile(ref_pool if ref_pool.size >= 50 else audible, 95))
+    thr = max(FLOOR_DB, ref - REACT_REL_DB)
+    if min_level_db is not None:
+        thr = max(thr, float(min_level_db))
+    cand = (levels_db > thr) & ~speech
+    b = max(1, int(round(REACT_BRIDGE_SEC / FRAME_SEC)))
+    cand = binary_closing(np.pad(cand, b), structure=np.ones(b, dtype=bool))[b:-b] & ~speech
+    # drop the short ones
+    min_len = int(round(REACT_MIN_SEC / FRAME_SEC))
+    idx = np.flatnonzero(np.diff(np.concatenate([[0], cand.astype(np.int8), [0]])))
+    for i0, i1 in zip(idx[0::2], idx[1::2]):
+        if i1 - i0 < min_len:
+            cand[i0:i1] = False
+    return cand, speech, {"ref_db": round(ref, 1), "thr_db": round(thr, 1)}
+
+
+def _smooth_gain(target, rise_tau, fall_tau):
+    """One-pole smoothing of a 0..1 curve (10 ms steps): rises with rise_tau, falls with fall_tau."""
+    a_up = 1.0 - np.exp(-FRAME_SEC / rise_tau)
+    a_dn = 1.0 - np.exp(-FRAME_SEC / fall_tau)
+    g = np.empty_like(target, dtype=np.float64)
+    cur = 0.0
+    for i in range(target.size):
+        t = target[i]
+        cur += (t - cur) * (a_up if t > cur else a_dn)
+        g[i] = cur
+    return g
+
+
+def build_reaction_layer(vocals_path, spans, dub_path, out_path, gain_db=None, min_level_db=None):
+    """Writes `out_path` (16-bit stereo WAV, 44.1 kHz): the human sounds without words that the
+    separator put in the voices (laughter, applause, cheers), at their original place and level,
+    lowered while the dubbed voice speaks. spans = [(start, end)] of every recognised spoken word
+    (seconds). min_level_db: only sounds louder than this are taken (used when a steady ambience bed already
+    carries the quiet room sound). Returns {"ok", "reason", "regions", "seconds", "share", "level_db"}; never raises."""
+    info = {"ok": False, "reason": "", "regions": 0, "seconds": 0.0, "share": 0.0, "level_db": None}
+    out_path = Path(out_path)
+    part = out_path.with_name(out_path.name + ".part.wav")
+    dec = enc = None
+    try:
+        if not REACT_ENABLED:
+            info["reason"] = "switched off"
+            return info
+        vocals_path = Path(vocals_path)
+        if not vocals_path.exists() or vocals_path.stat().st_size < 1000:
+            info["reason"] = "no separated voices file"
+            return info
+        if not spans:
+            info["reason"] = "no speech map (nothing to tell words from other human sounds)"
+            return info
+        spans = merge_spans(spans)
+        levels = _voice_levels_db(vocals_path)
+        if levels.size < 300:
+            info["reason"] = "the separated voices track is too short"
+            return info
+        mask, speech, det = reaction_frames(levels, spans, min_level_db)
+        secs = float(mask.sum()) * FRAME_SEC
+        share = float(mask.mean())
+        edges = np.flatnonzero(np.diff(np.concatenate([[0], mask.astype(np.int8), [0]])))
+        info.update({"regions": int(len(edges) // 2), "seconds": round(secs, 1), "share": round(share, 3)})
+        if secs < REACT_MIN_TOTAL_SEC:
+            info["reason"] = "no laughter, applause or cheering found outside the words"
+            return info
+        if share > REACT_MAX_SHARE:
+            info["reason"] = (f"{share * 100:.0f}% of the video would be affected, more than audience sound "
+                              f"could be: not used")
+            return info
+        info["level_db"] = _db(float(np.mean(10.0 ** (levels[mask] / 10.0))))
+        g = _smooth_gain(mask.astype(np.float64), REACT_RISE_TAU, REACT_FALL_TAU)
+        # lowered while the dubbed voice speaks
+        duck_note = "no ducking"
+        if dub_path is not None and Path(dub_path).exists() and REACT_DUCK_DB > 0.5:
+            dlev = _voice_levels_db(dub_path)
+            gd, dshare, _m = speech_gain_curve(dlev, REACT_DUCK_DB)
+            if gd.size:
+                m = min(g.size, gd.size)
+                g[:m] *= gd[:m]
+                duck_note = f"lowered {REACT_DUCK_DB:g} dB while the dubbed voice speaks ({dshare * 100:.0f}% of the time)"
+        gain_lin = 10.0 ** ((REACT_GAIN_DB if gain_db is None else float(gain_db)) / 20.0)
+        centers = (np.arange(g.size) + 0.5) * (HOP * RATE / ANALYSIS_RATE)
+        dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(vocals_path), "-vn", "-ac", "1", "-ar", str(RATE),
+                                "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", str(CH), "-i", "-",
+                                "-c:a", "pcm_s16le", str(part)], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        pos, left = 0, b""
+        while True:
+            buf = dec.stdout.read(CHUNK * 4)
+            if not buf:
+                break
+            buf = left + buf
+            n = (len(buf) // 4) * 4
+            left = buf[n:]
+            if not n:
+                continue
+            x = np.frombuffer(buf[:n], dtype="<f4").astype(np.float64)
+            gg = np.interp(np.arange(pos, pos + x.size), centers, g) * gain_lin
+            y = np.clip(x * gg, -1.0, 1.0).astype("<f4")
+            enc.stdin.write(np.repeat(y[:, None], CH, axis=1).tobytes())
+            pos += x.size
+        dec.stdout.close()
+        dec.wait()
+        enc.stdin.close()
+        enc.wait()
+        if dec.returncode not in (0, None) or enc.returncode != 0 or pos == 0 or not part.exists() or part.stat().st_size < 1000:
+            info["reason"] = "ffmpeg failed while building the reaction layer"
+            return info
+        os.replace(part, out_path)
+        info["ok"] = True
+        info["reason"] = (f"{info['regions']} stretches, {info['seconds']:g}s ({share * 100:.0f}% of the video) of human sound "
+                          f"without words put back, level {info['level_db']} dB; {duck_note}; "
+                          f"speech level {det.get('ref_db')} dB, threshold {det.get('thr_db')} dB")
+        return info
+    except Exception as ex:
+        info["ok"] = False
+        info["reason"] = f"skipped ({ex})"[:200]
+        return info
+    finally:
+        for pr in (dec, enc):
+            try:
+                if pr is not None and pr.poll() is None:
+                    pr.kill()
+            except Exception:
+                pass
+        try:
+            if part.exists():
+                part.unlink()
+        except Exception:
+            pass
+
+
 # ---------------------------------------------------------------- short dubbing: one call for the whole background
 
 SHORT_MIX_FILTER = "volume=0.8"      # what ffmpeg_utils.mix_two_audio does to the background

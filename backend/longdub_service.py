@@ -1160,6 +1160,14 @@ def _run_analysis(job):
         for i, (b0, b1) in enumerate(pieces):
             raw = json.loads((wd / "asr" / f"p{i:03d}.json").read_text(encoding="utf-8"))
             raw_all.extend(_shift_segments(raw, b0))
+        try:     # where words are spoken: lets the final mix tell laughter/applause from speech
+            _sp = []
+            for _s in raw_all:
+                _ws = [(_w.start, _w.end) for _w in (_s.words or []) if _w.start is not None and _w.end is not None]
+                _sp.extend(_ws if _ws else [(_s.start, _s.end)])
+            (wd / "speech_spans.json").write_text(json.dumps([[round(float(a), 3), round(float(z), 3)] for a, z in _sp]), encoding="utf-8")
+        except Exception as ex:
+            print(f"[longdub] could not keep the speech map: {ex}")
         label_map = {}
         for t in sorted(turns, key=lambda x: x["start"]):
             if t["speaker"] not in label_map:
@@ -3112,6 +3120,7 @@ def _run_dubbing(job):
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
         bg_use = bg
         bed_done = False
+        bed_level_ = None
         if video_out and bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
             try:
                 pauses_ = []
@@ -3144,6 +3153,7 @@ def _run_dubbing(job):
                         if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
                             bg_info["state"] = "mixed"
                         bed_done = True
+                        bed_level_ = plan_["target"]
                         _ev(job, "background_bed", "ok", f"{binfo_['reason']}; level correction {g2_:g} dB; "
                                                           f"the track averages {l_mean} dB, peak {l_max} dB")
                     else:
@@ -3172,12 +3182,46 @@ def _run_dubbing(job):
             if _bdk["ducked"]:
                 bg_mix = wd / "background_ducked.wav"
             _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
+        # Laughter, applause and cheers: the separator files them under "voices", so the separated background
+        # has none. They are cut out of the separated voices outside the spoken words and laid back as their own layer.
+        react = None
+        if video_out:
+            try:
+                sp_file = wd / "speech_spans.json"
+                if not bg_duck.REACT_ENABLED:
+                    pass
+                elif not sp_file.exists():
+                    _ev(job, "reactions", "info", "not used: no speech map for this job")
+                else:
+                    spans_ = [tuple(x) for x in json.loads(sp_file.read_text(encoding="utf-8"))]
+                    rinfo_ = bg_duck.build_reaction_layer(wd / "vocals_mono.wav", spans_, dub_full, wd / "reactions.wav",
+                                                      min_level_db=(bed_level_ + 8.0) if bed_level_ is not None else None)
+                    if rinfo_["ok"]:
+                        react = wd / "reactions.wav"
+                    _ev(job, "reactions", "ok" if rinfo_["ok"] else "info", rinfo_["reason"])
+            except Exception as ex:
+                print(f"[longdub] reaction layer skipped: {ex}")
+                react = None
         if video_out and bg.exists():
             _bg_final_event(job, wd, bg_mix, dub_full)
-            fc = ("[1:a]volume=1.0[d];"
-                  f"[2:a]{BG_MIX_FILTER}[b];"
-                  "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg_mix),
+            if react is not None:
+                fc = ("[1:a]volume=1.0[d];"
+                      f"[2:a]{BG_MIX_FILTER}[b];"
+                      "[3:a]volume=1.0[r];"
+                      "[d][b][r]amix=inputs=3:duration=first:normalize=0[out]")
+                extra_in = ["-i", str(react)]
+            else:
+                fc = ("[1:a]volume=1.0[d];"
+                      f"[2:a]{BG_MIX_FILTER}[b];"
+                      "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
+                extra_in = []
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg_mix)] + extra_in +
+                                    ["-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
+                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
+        elif video_out and react is not None:
+            fc = ("[1:a]volume=1.0[d];[2:a]volume=1.0[r];"
+                  "[d][r]amix=inputs=2:duration=first:normalize=0[out]")
+            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(react),
                                      "-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
                                      "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
         elif video_out:
@@ -3213,7 +3257,7 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", f"src{job['ext']}", "turns.json"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", "reactions.wav", "speech_spans.json", f"src{job['ext']}", "turns.json"):
             try:
                 (wd / f).unlink()
             except Exception:
