@@ -1,122 +1,353 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr" data-lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#06080d">
 <title>Lisan AI — English to Arabic AI Dubbing</title>
-<meta name="description" content="Lisan AI — English to Arabic video dubbing with voice cloning, emotion styles and manual fine-tuning. Pay-as-you-go credit packs or a monthly plan.">
+<meta name="description" content="Lisan AI dubs English video into native-quality Modern Standard Arabic. Voice cloning, 30+ speaking styles, full tashkeel, a visual timeline for fine-tuning, and long-video dubbing. Pay as you go or subscribe monthly.">
 <link rel="icon" type="image/png" href="/logo.png">
 <!-- Open Graph / social share preview (Facebook, LinkedIn, WhatsApp, Slack, etc.) -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://lisanai.org/">
 <meta property="og:title" content="Lisan AI — English to Arabic AI Dubbing">
-<meta property="og:description" content="AI-powered English to Arabic video dubbing with voice cloning, emotion styles and manual fine-tuning. Pay-as-you-go credit packs or a monthly plan.">
+<meta property="og:description" content="Dub your video into native-quality Modern Standard Arabic, with voice cloning, emotion styles and a timeline for fine-tuning.">
 <meta property="og:image" content="https://lisanai.org/logo.png">
 <!-- Twitter/X card -->
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="Lisan AI — English to Arabic AI Dubbing">
-<meta name="twitter:description" content="AI-powered English to Arabic video dubbing with voice cloning, emotion styles and manual fine-tuning.">
+<meta name="twitter:description" content="Dub your video into native-quality Modern Standard Arabic, with voice cloning, emotion styles and a timeline for fine-tuning.">
 <meta name="twitter:image" content="https://lisanai.org/logo.png">
+<script>
+// Language is chosen before first paint, so the page never flashes the wrong one.
+(function () {
+  var l = "en";
+  try { l = localStorage.getItem("lisan_lang") === "ar" ? "ar" : "en"; } catch (e) {}
+  var d = document.documentElement;
+  d.setAttribute("data-lang", l); d.lang = l; d.dir = l === "ar" ? "rtl" : "ltr";
+  d.className += " js";
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root{--indigo:#1a237e;--green:#059669;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--bg:#f9fafb}
-*{box-sizing:border-box;margin:0;padding:0}
-.hidden{display:none!important}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:#fff;line-height:1.6}
-a{color:var(--indigo);text-decoration:none}
-a:hover{text-decoration:underline}
-.bar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:12px 22px;z-index:10}
-.bar img{height:32px}
-.bar .brand{font-weight:800;color:var(--indigo);font-size:18px}
-.bar nav{margin-left:auto;display:flex;gap:18px;font-size:14px;font-weight:600}
-.bar nav a{color:var(--ink)}
-.wrap{max-width:1000px;margin:0 auto;padding:0 22px}
-.hero{text-align:center;padding:64px 22px 40px;background:linear-gradient(180deg,#eef2ff 0%,#fff 100%)}
-.hero h1{color:var(--indigo);font-size:38px;line-height:1.2;margin-bottom:14px}
-.hero p{max-width:640px;margin:0 auto 10px;color:var(--muted);font-size:17px}
-.hero .ar{direction:rtl;font-size:18px;color:#334155;margin-bottom:26px}
-.cta{display:inline-block;text-align:center;background:var(--green);color:#fff;font-weight:800;font-size:17px;padding:14px 34px;border-radius:12px;border:none;cursor:pointer}
-.cta:hover{filter:brightness(1.06);text-decoration:none}
-section{padding:44px 0}
-h2{color:var(--indigo);font-size:26px;margin-bottom:18px;text-align:center}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
-.card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.card h3{color:var(--indigo);font-size:16px;margin-bottom:8px}
-.card p{font-size:14px;color:var(--muted)}
-.card .ico{font-size:26px;margin-bottom:8px}
-.stepnum{display:inline-flex;width:30px;height:30px;border-radius:50%;background:var(--indigo);color:#fff;font-weight:800;align-items:center;justify-content:center;margin-bottom:10px}
-.videos{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.videos.videos-single{grid-template-columns:1fr;max-width:760px;margin:0 auto}
-.videos .slot{background:#0f172a;border-radius:16px;min-height:220px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:14px;overflow:hidden;text-align:center;padding:10px}
-.videos video{width:100%;border-radius:16px}
-.pricing{background:var(--bg);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.packs{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin:18px 0}
-.pack{border:2px solid var(--line);border-radius:14px;padding:14px 20px;min-width:160px;background:#fff;text-align:center}
-.pack .k{font-weight:800;color:var(--indigo);text-transform:capitalize}
-.pack .p{font-size:20px;font-weight:800;color:var(--green)}
-.pack .c{font-size:13px;color:#334155}
-.pack .n{font-size:11px;color:var(--muted)}
-ul.points{max-width:640px;margin:14px auto 0;list-style:none;font-size:14px;color:#334155}
-ul.points li{margin:6px 0;padding-left:22px;position:relative}
-ul.points li:before{content:"✓";position:absolute;left:0;color:var(--green);font-weight:800}
-.trust{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted);padding:18px 0 8px}
-.contact-icon-btn{position:fixed;bottom:24px;right:24px;z-index:40;width:46px;height:46px;background:transparent;color:var(--indigo);border:none;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;filter:drop-shadow(0 2px 6px rgba(0,0,0,.18));transition:transform .15s,color .15s}
-.contact-icon-btn:hover{transform:scale(1.1);color:#243192}
-.contact-icon-btn svg{width:28px;height:28px}
-.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px}
-.modal-box{background:#fff;border-radius:16px;padding:28px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;position:relative;box-shadow:0 10px 40px rgba(0,0,0,.25)}
-.modal-close{position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;line-height:1;color:var(--muted);cursor:pointer;padding:4px 8px;border-radius:6px}
-.modal-close:hover{background:#f1f5f9;color:var(--ink)}
-.contact-box{max-width:520px;margin:0 auto}
-.contact-box label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin:12px 0 6px}
-.contact-box label:first-child{margin-top:0}
-.contact-box input,.contact-box textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink)}
-.contact-box input:focus,.contact-box textarea:focus{outline:none;border-color:var(--indigo)}
-.contact-box textarea{resize:vertical;min-height:100px}
-.contact-box .hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
-.contact-box button{margin-top:16px}
-#contactStatus{margin-top:12px;font-size:13px;text-align:center;min-height:16px}
-#contactStatus.ok{color:var(--green)}
-#contactStatus.err{color:#dc2626}
-footer{border-top:1px solid var(--line);padding:30px 22px;background:#fff}
-.fwrap{max-width:1000px;margin:0 auto;display:flex;flex-wrap:wrap;gap:18px;align-items:center}
-footer img{height:28px}
-footer .brand{font-weight:800;color:var(--indigo)}
-footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600;flex-wrap:wrap}
-.legal{max-width:1000px;margin:14px auto 0;font-size:12px;color:var(--muted)}
-.legal a{color:var(--muted);text-decoration:underline}
-.copy{max-width:1000px;margin:10px auto 0;font-size:12px;color:var(--muted)}
-@media(max-width:720px){.videos{grid-template-columns:1fr}.hero h1{font-size:30px}}
-/* Arabic translation lines stacked under the English text throughout the
-   page (no language toggle -- both languages are always visible). */
-.ar2{display:block;direction:rtl;unicode-bidi:isolate;font-weight:500;color:#5b6b85;margin-top:4px;line-height:1.5;font-size:.85em}
-.hero h1 .ar2{color:#3949ab;font-weight:800;font-size:1em;margin-top:10px}
-.hero p .ar2{color:#94a3b8;font-size:15px;font-weight:400}
-h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
-h3 .ar2{color:#64748b;font-weight:700;margin-top:3px}
-.card p .ar2{color:#9ca3af}
-.cta .ar2{color:#eafff3;font-size:13px;margin-top:3px;font-weight:700}
-.bar nav a .ar2, footer nav a .ar2{font-size:11px;margin-top:2px;font-weight:600}
-ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
-.trust span .ar2{font-size:11px;margin-top:3px}
-.legal a .ar2{font-size:11px}
-.videos .slot .ar2{color:#cbd5e1;font-size:12px;margin-top:4px}
-.contact-box label .ar2{font-size:11px;margin-top:2px;color:#94a3b8;font-weight:500}
-.pack .k .ar2, .pack .c .ar2, .pack .n .ar2, .pack .p .ar2{font-size:.75em;margin-top:2px;color:inherit;font-weight:600}
-#contactStatus .ar2{margin-top:4px}
+:root{
+  --bg:#06080d; --bg2:#0a0e16; --card:#0e131d; --card2:#131a29;
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.16);
+  --text:#eef2f8; --muted:#a0abbd; --dim:#6f7b8f;
+  --gold:#e6b85c; --gold2:#f6dc98; --cyan:#62c7ff;
+  --radius:18px;
+  --sans:"Inter","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+html[data-lang="ar"]{--sans:"IBM Plex Sans Arabic","Inter",system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+html[data-lang="ar"] body{line-height:1.9}
+img{max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:6px}
+
+/* Language switching: every bilingual piece is a pair of .en / .ar elements */
+html[data-lang="ar"] .en{display:none!important}
+html[data-lang="en"] .ar{display:none!important}
+html[dir="rtl"] .flip{transform:scaleX(-1)}
+
+.wrap{width:100%;max-width:1180px;margin:0 auto;padding-inline:24px}
+section{position:relative;padding:104px 0;scroll-margin-top:64px}
+.shead{text-align:center;max-width:760px;margin:0 auto 52px}
+.eyebrow{display:inline-block;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);font-weight:600;margin-bottom:14px}
+html[data-lang="ar"] .eyebrow{letter-spacing:.02em;font-size:14px}
+h1,h2,h3{margin:0;font-weight:700;letter-spacing:-.02em;line-height:1.12}
+html[data-lang="ar"] h1,html[data-lang="ar"] h2,html[data-lang="ar"] h3{letter-spacing:0;line-height:1.35}
+h2{font-size:clamp(28px,4vw,44px)}
+.shead p{margin:16px 0 0;color:var(--muted);font-size:17.5px}
+.hl{background:linear-gradient(100deg,var(--gold2),var(--gold) 55%,#d9973a);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:14px 26px;border-radius:12px;font-weight:600;font-size:15.5px;border:1px solid transparent;cursor:pointer;transition:transform .18s,box-shadow .18s,background .18s,border-color .18s;white-space:nowrap}
+.btn-gold{background:linear-gradient(180deg,#f2cd7d,#dca443);color:#1a1205;box-shadow:0 8px 28px -8px rgba(230,184,92,.55)}
+.btn-gold:hover{transform:translateY(-1px);box-shadow:0 12px 34px -8px rgba(230,184,92,.7)}
+.btn-ghost{background:rgba(255,255,255,.03);border-color:var(--line2);color:var(--text)}
+.btn-ghost:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.28)}
+.btn svg{width:18px;height:18px}
+.btn[disabled]{opacity:.6;cursor:default;transform:none}
+
+/* Navigation */
+.nav{position:fixed;inset:0 0 auto 0;z-index:50;height:64px;transition:background .25s,border-color .25s,backdrop-filter .25s;border-bottom:1px solid transparent}
+.nav.scrolled,.nav.open{background:rgba(6,8,13,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom-color:var(--line)}
+.nav .wrap{height:64px;display:flex;align-items:center;gap:22px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.01em}
+.brand img{width:30px;height:30px;border-radius:8px;display:block}
+.links{display:flex;gap:26px;margin-inline-start:22px}
+.links a{font-size:14.5px;color:var(--muted);transition:color .15s}
+.links a:hover{color:var(--text)}
+.nav-right{margin-inline-start:auto;display:flex;align-items:center;gap:12px}
+.lang{display:inline-flex;border:1px solid var(--line2);border-radius:10px;padding:3px;background:rgba(255,255,255,.03)}
+.lang button{border:0;background:transparent;color:var(--muted);font-size:13px;font-weight:600;padding:6px 12px;border-radius:7px;cursor:pointer;line-height:1.3}
+.lang button[aria-pressed="true"]{background:rgba(255,255,255,.12);color:var(--text)}
+.nav .login{font-size:14.5px;color:var(--muted);padding:8px 6px}
+.nav .login:hover{color:var(--text)}
+.nav .btn{padding:9px 18px;font-size:14.5px;border-radius:10px}
+.burger{display:none;width:40px;height:40px;border:1px solid var(--line2);background:rgba(255,255,255,.03);border-radius:10px;cursor:pointer;align-items:center;justify-content:center}
+.burger svg{width:20px;height:20px}
+.only-m{display:none}
+
+/* Hero */
+.hero{position:relative;padding:150px 0 72px;overflow:hidden;background:
+  radial-gradient(900px 520px at 78% -10%,rgba(230,184,92,.16),transparent 60%),
+  radial-gradient(800px 520px at 12% 0%,rgba(98,199,255,.13),transparent 60%),
+  var(--bg)}
+.hero::before{content:"";position:absolute;inset:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='.5'/></svg>");opacity:.05;pointer-events:none;mix-blend-mode:overlay}
+.hero::after{content:"";position:absolute;inset:auto 0 0 0;height:1px;background:linear-gradient(90deg,transparent,var(--line2),transparent)}
+.hero .wrap{position:relative;text-align:center}
+.pill{display:inline-flex;align-items:center;gap:10px;padding:7px 16px;border:1px solid var(--line2);border-radius:999px;background:rgba(255,255,255,.03);font-size:13.5px;color:var(--muted)}
+.pill i{width:7px;height:7px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 4px rgba(230,184,92,.18)}
+.hero h1{font-size:clamp(38px,6.4vw,76px);max-width:16ch;margin:26px auto 0;font-weight:800;letter-spacing:-.035em;line-height:1.06}
+html[data-lang="ar"] .hero h1{max-width:17ch;line-height:1.3;font-size:clamp(36px,6vw,68px)}
+.hero .sub{max-width:660px;margin:26px auto 0;font-size:clamp(16.5px,2vw,19.5px);color:var(--muted)}
+.cta-row{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:36px}
+
+.stage{position:relative;margin:64px auto 0;max-width:1040px;border:1px solid var(--line2);border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));box-shadow:0 40px 120px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06);padding:22px 22px 20px;overflow:hidden;direction:ltr}
+.stage::before{content:"";position:absolute;inset:0;background:radial-gradient(60% 90% at 50% 45%,rgba(230,184,92,.07),transparent 70%);pointer-events:none}
+.stage-top{display:flex;justify-content:space-between;align-items:center;position:relative;font-size:12px;letter-spacing:.12em;font-weight:600;color:var(--dim)}
+.tag{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:rgba(0,0,0,.25)}
+.tag b{width:7px;height:7px;border-radius:50%;display:inline-block}
+.tag.e b{background:var(--cyan)} .tag.a b{background:var(--gold)}
+.tag.e{color:#b9e4fb} .tag.a{color:var(--gold2);letter-spacing:.02em;font-size:13px}
+#wave{display:block;width:100%;height:190px;margin:10px 0 6px;position:relative}
+.caps{display:grid;grid-template-columns:1fr 1fr;gap:14px;position:relative}
+.cap{padding:12px 16px;border-radius:12px;background:rgba(0,0,0,.28);border:1px solid var(--line);font-size:15px;color:var(--muted);min-height:50px;display:flex;align-items:center;transition:opacity .4s}
+.cap.a{color:var(--gold2);font-family:"IBM Plex Sans Arabic","Inter",system-ui,sans-serif;font-size:17px;justify-content:flex-start;text-align:right}
+.cap.fade{opacity:0}
+
+.proof{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin:64px auto 0;max-width:1040px;text-align:start}
+.proof>div{background:var(--bg2);padding:24px 26px}
+.proof strong{display:block;font-size:26px;font-weight:700;letter-spacing:-.02em;color:var(--text)}
+.proof>div>span{display:block;margin-top:4px;font-size:14px;color:var(--muted);line-height:1.5}
+.proof strong span{font-size:inherit;color:inherit;line-height:inherit;margin:0}
+
+/* How it works */
+.how{background:var(--bg2);border-block:1px solid var(--line)}
+.how-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:48px;align-items:center}
+.vframe{position:relative;aspect-ratio:16/9;background:#04060a;border:1px solid var(--line2);border-radius:16px;overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.85)}
+.vframe video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;display:block}
+.vframe .ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:20px;color:var(--muted);font-size:14.5px;background:radial-gradient(60% 80% at 50% 40%,rgba(230,184,92,.09),transparent 70%),#05070c}
+.vframe.has-video .ph{display:none}
+.vframe.loading .ph{animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.55}}
+.play-ic{width:64px;height:64px;border-radius:50%;border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.05)}
+.play-ic svg{width:24px;height:24px;margin-inline-start:3px;color:var(--gold)}
+.steps{list-style:none;margin:0;padding:0;counter-reset:s;position:relative}
+.steps li{position:relative;padding-inline-start:64px;padding-bottom:34px;counter-increment:s}
+.steps li:last-child{padding-bottom:0}
+.steps li::before{content:counter(s);position:absolute;inset-inline-start:0;top:0;width:44px;height:44px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gold);z-index:1}
+.steps li::after{content:"";position:absolute;inset-inline-start:21.5px;top:48px;bottom:4px;width:1px;background:linear-gradient(var(--line2),transparent)}
+.steps li:last-child::after{display:none}
+.steps h3{font-size:20px;margin-bottom:6px}
+.steps p{margin:0;color:var(--muted);font-size:15.5px}
+
+/* Demos */
+.tabs{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin:0 auto 26px}
+.tabs[hidden]{display:none}
+.tab{border:1px solid var(--line2);background:rgba(255,255,255,.03);color:var(--muted);padding:10px 20px;border-radius:999px;font-size:14.5px;font-weight:600;cursor:pointer;transition:all .18s}
+.tab:hover{color:var(--text);border-color:rgba(255,255,255,.3)}
+.tab[aria-selected="true"]{background:var(--text);color:#0a0d14;border-color:var(--text)}
+.demo-note{text-align:center;color:var(--muted);font-size:15.5px;max-width:640px;margin:0 auto 30px;min-height:26px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:1040px;margin:0 auto}
+.pcol .lab{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+html[data-lang="ar"] .pcol .lab{letter-spacing:0;font-size:14.5px}
+.pcol .lab b{width:8px;height:8px;border-radius:50%}
+.pcol.o .lab b{background:var(--cyan)} .pcol.d .lab b{background:var(--gold)}
+.pcol.d .lab{color:var(--gold2)}
+.pcol.d .vframe{border-color:rgba(230,184,92,.35);box-shadow:0 30px 80px -30px rgba(230,184,92,.25)}
+
+/* Long video */
+.long{background:linear-gradient(180deg,var(--bg),var(--bg2) 40%,var(--bg))}
+.long-grid{display:grid;grid-template-columns:1fr 1.1fr;gap:56px;align-items:start}
+.badge{display:inline-flex;align-items:center;gap:8px;padding:5px 13px;border-radius:999px;background:rgba(230,184,92,.12);border:1px solid rgba(230,184,92,.35);color:var(--gold2);font-size:12.5px;font-weight:600;margin-bottom:18px}
+.long .lead{color:var(--muted);font-size:17.5px;margin:18px 0 26px}
+.feats{list-style:none;margin:0 0 30px;padding:0;display:grid;gap:18px}
+.feats li{display:flex;gap:14px}
+.feats svg{flex:none;width:22px;height:22px;margin-top:3px;color:var(--gold)}
+.feats h3{font-size:17px;margin-bottom:3px;letter-spacing:-.01em}
+.feats p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 28px;padding:0;list-style:none}
+.flow li{font-size:13px;font-weight:600;padding:6px 13px;border-radius:999px;border:1px solid var(--line2);background:rgba(255,255,255,.03);color:var(--muted)}
+.flow li.sep{border:0;background:none;padding:0;color:var(--dim)}
+html[dir="rtl"] .flow li.sep{transform:scaleX(-1)}
+.long-vid{position:sticky;top:96px}
+.long-vid .cap-note{margin-top:14px;font-size:14px;color:var(--dim);text-align:center}
+.mock{position:absolute;inset:0;width:100%;height:100%}
+.ph.long-ph{background:#05070c}
+.ph.long-ph::before{content:"";position:absolute;inset:0;background:radial-gradient(45% 55% at 50% 50%,rgba(5,7,12,.92),rgba(5,7,12,.55) 70%,transparent)}
+.ph.long-ph .txt{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:10px}
+.soon{display:inline-block;padding:4px 12px;border-radius:999px;border:1px solid rgba(230,184,92,.4);color:var(--gold2);font-size:12px;letter-spacing:.06em;font-weight:600;text-transform:uppercase;background:rgba(6,8,13,.7)}
+html[data-lang="ar"] .soon{letter-spacing:0;font-size:13px}
+.ph.long-ph .ttl{font-weight:600;color:var(--text);font-size:16px;background:rgba(6,8,13,.7);padding:2px 10px;border-radius:8px}
+
+/* Capabilities */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.card{padding:26px 24px;border-radius:var(--radius);background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);transition:transform .2s,border-color .2s}
+.card:hover{transform:translateY(-3px);border-color:rgba(230,184,92,.35)}
+.card .ic{width:44px;height:44px;border-radius:12px;background:rgba(230,184,92,.1);border:1px solid rgba(230,184,92,.25);display:flex;align-items:center;justify-content:center;margin-bottom:18px;color:var(--gold)}
+.card .ic svg{width:22px;height:22px}
+.card h3{font-size:17.5px;margin-bottom:8px;letter-spacing:-.01em}
+.card p{margin:0;color:var(--muted);font-size:15px;line-height:1.6}
+
+/* Pricing */
+.pricing{background:var(--bg2);border-block:1px solid var(--line)}
+.ptabs{display:flex;justify-content:center;margin-bottom:34px}
+.ptabs[hidden]{display:none}
+.ptabs .seg{display:inline-flex;padding:4px;border:1px solid var(--line2);border-radius:12px;background:rgba(255,255,255,.03)}
+.ptabs button{border:0;background:transparent;color:var(--muted);font-weight:600;font-size:14.5px;padding:10px 22px;border-radius:9px;cursor:pointer}
+.ptabs button[aria-selected="true"]{background:var(--text);color:#0a0d14}
+.pgrid{display:grid;gap:20px;max-width:1040px;margin:0 auto;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.pcard{position:relative;display:flex;flex-direction:column;padding:30px 26px;border-radius:20px;background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line)}
+.pcard.pop{border-color:rgba(230,184,92,.55);box-shadow:0 30px 90px -40px rgba(230,184,92,.45)}
+.pcard .pb{position:absolute;top:-13px;inset-inline-start:26px;background:linear-gradient(180deg,#f2cd7d,#dca443);color:#1a1205;font-size:12px;font-weight:700;padding:4px 12px;border-radius:999px}
+.pcard .pn{font-size:17px;font-weight:600;color:var(--muted)}
+.pcard .pp{margin:10px 0 4px;font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1.1}
+.pcard .pp small{font-size:15px;font-weight:500;color:var(--dim);letter-spacing:0;margin-inline-start:4px}
+.pcard ul{list-style:none;margin:20px 0 26px;padding:0;display:grid;gap:11px;font-size:15px;color:var(--muted);flex:1;align-content:start}
+.pcard li{display:flex;gap:10px;align-items:flex-start}
+.pcard li svg{flex:none;width:18px;height:18px;margin-top:3px;color:var(--gold)}
+.pcard .btn{width:100%}
+.pnote{max-width:760px;margin:30px auto 0;text-align:center;color:var(--dim);font-size:14.5px}
+.pskel{height:330px;border-radius:20px;background:linear-gradient(100deg,var(--card) 30%,var(--card2) 50%,var(--card) 70%);background-size:200% 100%;animation:sk 1.4s linear infinite;border:1px solid var(--line)}
+@keyframes sk{to{background-position:-200% 0}}
+.pfall{text-align:center;color:var(--muted);padding:30px 0}
+.pfall .btn{margin-top:18px}
+.trust{display:flex;flex-wrap:wrap;justify-content:center;gap:12px 30px;margin-top:38px;color:var(--muted);font-size:14.5px}
+.trust>span{display:inline-flex;align-items:center;gap:9px}
+.trust svg{width:18px;height:18px;color:var(--gold)}
+
+/* FAQ */
+.faq{max-width:820px;margin:0 auto}
+.faq details{border-bottom:1px solid var(--line)}
+.faq details:first-child{border-top:1px solid var(--line)}
+.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:20px;padding:22px 4px;font-size:18px;font-weight:600;letter-spacing:-.01em}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"";flex:none;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);background:
+  linear-gradient(var(--gold),var(--gold)) center/10px 1.5px no-repeat,
+  linear-gradient(var(--gold),var(--gold)) center/1.5px 10px no-repeat;transition:transform .2s}
+.faq details[open] summary::after{transform:rotate(45deg)}
+.faq .ans{padding:0 4px 24px;color:var(--muted);font-size:16px;max-width:720px}
+.faq .ans p{margin:0}
+.faq-more{text-align:center;margin-top:30px}
+.faq-more a{color:var(--gold2);font-weight:600;border-bottom:1px solid rgba(230,184,92,.4)}
+
+/* Final CTA */
+.final{padding:110px 0;text-align:center;background:
+  radial-gradient(700px 360px at 50% 100%,rgba(230,184,92,.17),transparent 70%),var(--bg)}
+.final h2{font-size:clamp(32px,5vw,56px);max-width:16ch;margin:0 auto;letter-spacing:-.03em}
+.final p{color:var(--muted);font-size:18px;margin:20px auto 0;max-width:520px}
+
+/* Footer */
+footer{border-top:1px solid var(--line);padding:44px 0 36px;background:var(--bg)}
+.frow{display:flex;flex-wrap:wrap;gap:22px 40px;align-items:center;justify-content:space-between}
+footer nav{display:flex;flex-wrap:wrap;gap:10px 28px;font-size:14.5px;color:var(--muted)}
+footer nav a{color:var(--muted)}
+footer nav a:hover{color:var(--text)}
+.flegal{margin-top:28px;padding-top:24px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;color:var(--dim);font-size:13.5px}
+.flegal a{color:var(--muted)} .flegal a:hover{color:var(--text)}
+
+/* Contact */
+.contact-icon-btn{position:fixed;inset-block-end:22px;inset-inline-end:22px;z-index:40;width:52px;height:52px;border-radius:50%;border:1px solid var(--line2);background:rgba(14,19,29,.92);backdrop-filter:blur(10px);color:var(--gold);display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 12px 34px -8px rgba(0,0,0,.7);transition:transform .18s,border-color .18s}
+.contact-icon-btn:hover{transform:translateY(-2px);border-color:rgba(230,184,92,.6)}
+.contact-icon-btn svg{width:22px;height:22px}
+.modal-overlay{position:fixed;inset:0;z-index:100;background:rgba(2,4,8,.72);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.hidden{display:none}
+.modal-box{position:relative;width:100%;max-width:480px;max-height:92vh;overflow:auto;background:var(--card);border:1px solid var(--line2);border-radius:20px;padding:34px 30px 30px;box-shadow:0 40px 120px -20px #000}
+.modal-close{position:absolute;top:14px;inset-inline-end:14px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:rgba(255,255,255,.04);cursor:pointer;color:var(--muted);font-size:16px}
+.modal-close:hover{color:var(--text)}
+.modal-box h2{font-size:26px;margin-bottom:8px}
+.modal-box .mp{color:var(--muted);font-size:15px;margin:0 0 22px}
+.contact-box label{display:block;font-size:13.5px;font-weight:600;color:var(--muted);margin:14px 0 6px}
+.contact-box input,.contact-box textarea{width:100%;background:#080b12;border:1px solid var(--line2);border-radius:10px;padding:12px 14px;color:var(--text);font-family:inherit;font-size:15px}
+.contact-box input:focus,.contact-box textarea:focus{outline:none;border-color:var(--gold)}
+.contact-box textarea{min-height:120px;resize:vertical}
+.contact-box .hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+.contact-box .sendrow{margin-top:20px;text-align:center}
+#contactStatus{margin-top:14px;font-size:14.5px;text-align:center}
+#contactStatus.ok{color:#7be0a6} #contactStatus.err{color:#ff9c9c}
+
+/* Reveal on scroll (only when JS is running) */
+html.js .rv{opacity:0;transform:translateY(20px);transition:opacity .7s ease,transform .7s ease}
+html.js .rv.in{opacity:1;transform:none}
+
+@media (max-width:1020px){
+  .cards{grid-template-columns:repeat(2,1fr)}
+  .how-grid,.long-grid{grid-template-columns:1fr;gap:38px}
+  .long-vid{position:static}
+  .links{display:none;position:absolute;top:64px;inset-inline:0;flex-direction:column;gap:0;margin:0;background:rgba(6,8,13,.97);border-bottom:1px solid var(--line);padding:8px 24px 16px}
+  .nav.open .links{display:flex}
+  .links a{padding:13px 0;font-size:16px;border-bottom:1px solid var(--line)}
+  .links a:last-child{border-bottom:0}
+  .burger{display:inline-flex}
+  .only-m{display:block}
+}
+@media (max-width:720px){
+  section{padding:70px 0}
+  .wrap{padding-inline:16px}
+  .shead{margin-bottom:36px}
+  .hero{padding:118px 0 48px}
+  .stage{margin-top:44px;padding:14px;border-radius:18px}
+  #wave{height:140px}
+  .caps{grid-template-columns:1fr}
+  .proof{grid-template-columns:1fr 1fr;margin-top:44px}
+  .proof>div{padding:18px 16px}
+  .proof strong{font-size:22px}
+  .pair{grid-template-columns:1fr;gap:26px}
+  .cards{grid-template-columns:1fr}
+  .nav .login{display:none}
+  .nav .wrap{gap:10px}
+  .nav-right{gap:8px}
+  .nav .btn{padding:8px 13px;font-size:13.5px}
+  .lang button{padding:6px 9px}
+  .brand span{display:none}
+  .final{padding:80px 0}
+  .btn{padding:13px 22px}
+  .modal-box{padding:28px 20px 22px}
+  .contact-icon-btn{inset-block-end:16px;inset-inline-end:16px}
+  footer .brand span{display:inline}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  html.js .rv{opacity:1;transform:none;transition:none}
+  *{animation:none!important}
+}
 </style>
 </head>
 <body>
 
-<div class="bar">
-  <img src="/logo.png" alt="Lisan AI logo">
-  <span class="brand">Lisan AI</span>
-  <nav>
-    <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
-    <a href="/pricing">Pricing<span class="ar2">الأسعار</span></a>
-    <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
-    <a href="/login">Start free<span class="ar2">ابدأ مجانًا</span></a>
-  </nav>
-</div>
+<header class="nav" id="nav">
+  <div class="wrap">
+    <a class="brand" href="/" aria-label="Lisan AI"><img src="/logo.png" alt=""><span>Lisan AI</span></a>
+    <nav class="links" id="navLinks" aria-label="Sections">
+      <a href="#how"><span class="en">How it works</span><span class="ar">كيف يعمل</span></a>
+      <a href="#demos" id="navDemos"><span class="en">Demos</span><span class="ar">نماذج</span></a>
+      <a href="#long"><span class="en">Long videos</span><span class="ar">الفيديو الطويل</span></a>
+      <a href="#pricing"><span class="en">Pricing</span><span class="ar">الأسعار</span></a>
+      <a href="#faq"><span class="en">FAQ</span><span class="ar">الأسئلة</span></a>
+      <a href="/login" class="only-m"><span class="en">Log in</span><span class="ar">تسجيل الدخول</span></a>
+    </nav>
+    <div class="nav-right">
+      <div class="lang" role="group" aria-label="Language / اللغة">
+        <button type="button" data-set-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-set-lang="ar" aria-pressed="false" lang="ar">العربية</button>
+      </div>
+      <a class="login" href="/login"><span class="en">Log in</span><span class="ar">تسجيل الدخول</span></a>
+      <a class="btn btn-gold" href="/login"><span class="en">Start free</span><span class="ar">ابدأ مجانًا</span></a>
+      <button type="button" class="burger" id="menuBtn" aria-label="Menu" aria-expanded="false" aria-controls="navLinks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
 
 <button type="button" class="contact-icon-btn" id="contactIconBtn" title="Contact Us · تواصل معنا" aria-label="Contact Us · تواصل معنا">
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -124,211 +355,666 @@ ul.points li .ar2{font-size:12px;margin-top:2px;color:#64748b}
   </svg>
 </button>
 
+<main>
+<!-- ========== HERO ========== -->
 <div class="hero">
-  <h1>Dub any video into MSA Arabic — automatically<span class="ar2">دبلج أي فيديو إلى العربية الفصحى — تلقائيًا</span></h1>
-  <p>AI transcription, translation, speaker detection and voice cloning in one flow. Your speakers, their voices, perfect timing.</p>
-  <p class="ar">نسخ صوتي وترجمة وتمييز للمتحدثين واستنساخ للصوت بالذكاء الاصطناعي في تدفق واحد. أصوات متحدثيك، بتوقيت مثالي.</p>
-  <div style="display:flex;justify-content:center;margin:8px 0 4px;">
-    <a class="cta" href="/login">🚀 Start Dubbing Free<span class="ar2">🚀 ابدأ الدبلجة مجانًا</span></a>
+  <div class="wrap">
+    <div class="pill"><i></i>
+      <span class="en">AI dubbing · English to Modern Standard Arabic</span>
+      <span class="ar">دبلجة بالذكاء الاصطناعي · من الإنجليزية إلى العربية الفصحى</span>
+    </div>
+    <h1>
+      <span class="en">Dub your video into <span class="hl">native-quality Arabic.</span></span>
+      <span class="ar">دبلج فيديو <span class="hl">بعربية فصحى أصيلة.</span></span>
+    </h1>
+    <p class="sub">
+      <span class="en">Lisan AI transcribes, translates and voices your video in Modern Standard Arabic. With voice cloning, every speaker keeps their own voice, and you stay in control of every line.</span>
+      <span class="ar">يفرّغ Lisan AI كلام الفيديو ويترجمه وينطقه بالعربية الفصحى. ومع استنساخ الصوت يحتفظ كل متحدث بصوته، وتبقى أنت المتحكم في كل سطر.</span>
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-gold" href="/login">
+        <span class="en">Start dubbing free</span><span class="ar">ابدأ الدبلجة مجانًا</span>
+        <svg class="flip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </a>
+      <a class="btn btn-ghost" href="#how">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+        <span class="en">See how it works</span><span class="ar">شاهد كيف يعمل</span>
+      </a>
+    </div>
+
+    <div class="stage" aria-hidden="true">
+      <div class="stage-top">
+        <span class="tag e"><b></b>ENGLISH</span>
+        <span class="tag a"><b></b>العربية</span>
+      </div>
+      <canvas id="wave"></canvas>
+      <div class="caps">
+        <div class="cap e" id="capE" dir="ltr" lang="en">Good evening, and welcome to the program.</div>
+        <div class="cap a" id="capA" dir="rtl" lang="ar">مساء الخير، وأهلًا بكم في البرنامج.</div>
+      </div>
+    </div>
+
+    <div class="proof">
+      <div><strong><span class="en">MSA</span><span class="ar">الفصحى</span></strong><span><span class="en">Modern Standard Arabic, understood across the Arab world</span><span class="ar">عربية فصحى مفهومة في كل البلدان العربية</span></span></div>
+      <div><strong><span class="en">30+</span><span class="ar">أكثر من 30</span></strong><span><span class="en">speaking styles, set for each line</span><span class="ar">أسلوب كلام، يُحدَّد لكل سطر</span></span></div>
+      <div><strong><span dir="ltr">1–8</span></strong><span><span class="en">speakers in a long video, each with their own voice</span><span class="ar">متحدثين في الفيديو الطويل، لكل منهم صوته</span></span></div>
+      <div><strong><span class="en">Original</span><span class="ar">الأصلية</span></strong><span><span class="en">video quality, never re-encoded</span><span class="ar">جودة الفيديو كما هي، دون إعادة ترميز</span></span></div>
+    </div>
   </div>
 </div>
 
-<section class="wrap">
-  <h2>How Lisan AI Works?<span class="ar2">كيف يعمل Lisan AI؟</span></h2>
-  <div class="videos videos-single">
-    <div class="slot" id="howItWorksSlot">How Lisan AI works<span class="ar2">كيف يعمل Lisan AI</span></div>
-  </div>
-</section>
-
-<section class="wrap">
-  <h2>Our Videos — Before / After<span class="ar2">فيديوهاتنا — قبل / بعد</span></h2>
-
-  <h3 style="text-align:center; color:#475569; margin-bottom:12px; font-size:18px;">Dubbing with Cloned Voices — No Lip-Sync<span class="ar2">دبلجة بأصوات مستنسخة — بدون مزامنة الشفاه</span></h3>
-  <div class="videos">
-    <div class="slot" id="slot1Before">Before — original English<span class="ar2">قبل — الأصل بالإنجليزية</span></div>
-    <div class="slot" id="slot1After">After — Arabic dub (cloned voice)<span class="ar2">بعد — الدبلجة العربية (صوت مستنسخ)</span></div>
-  </div>
-
-  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Dubbing with Custom Voices, Lip-Sync &amp; Quality Enhancement<span class="ar2">دبلجة بأصوات مخصصة مع مزامنة الشفاه وتحسين الجودة</span></h3>
-  <div class="videos">
-    <div class="slot" id="slot2Before">Before — original English<span class="ar2">قبل — الأصل بالإنجليزية</span></div>
-    <div class="slot" id="slot2After">After — Arabic dub (lip-synced + enhanced)<span class="ar2">بعد — الدبلجة العربية (مع مزامنة الشفاه والتحسين)</span></div>
-  </div>
-
-  <h3 style="text-align:center; color:#475569; margin-top:32px; margin-bottom:12px; font-size:18px;">Dubbing with Custom Voices — No Lip-Sync<span class="ar2">دبلجة بأصوات مخصصة — بدون مزامنة الشفاه</span></h3>
-  <div class="videos">
-    <div class="slot" id="slot3Before">Before — original English<span class="ar2">قبل — الأصل بالإنجليزية</span></div>
-    <div class="slot" id="slot3After">After — Arabic dub (custom voice)<span class="ar2">بعد — الدبلجة العربية (صوت مخصص)</span></div>
-  </div>
-</section>
-
-<section class="wrap">
-  <h2>How it works<span class="ar2">كيف يعمل</span></h2>
-  <div class="grid">
-    <div class="card"><span class="stepnum">1</span><h3>Upload<span class="ar2">ارفع الملف</span></h3><p>Drop a video or audio clip (up to 30 s; longer videos: see Dub Long Video below). We transcribe it and detect who speaks when.<span class="ar2">ارفع مقطع فيديو أو صوت (حتى 30 ثانية؛ للفيديوهات الأطول انظر «دبلجة فيديو طويل» أدناه). سنفرّغه نصيًا ونحدد من يتحدث ومتى.</span></p></div>
-    <div class="card"><span class="stepnum">2</span><h3>Edit &amp; choose voices<span class="ar2">حرّر واختر الأصوات</span></h3><p>Fix text, translate to Arabic, add tashkeel and emotions. Clone each speaker's own voice or pick studio voices.<span class="ar2">صحّح النص، ترجمه إلى العربية، وأضف التشكيل والمشاعر. استنسخ صوت كل متحدث أو اختر أصواتًا جاهزة.</span></p></div>
-    <div class="card"><span class="stepnum">3</span><h3>Generate &amp; download<span class="ar2">ولّد الملف وحمّله</span></h3><p>Lip-timed Arabic audio mixed with the original background, merged back into your video. Download instantly.<span class="ar2">صوت عربي متزامن مع الشفاه ومدمج مع الخلفية الأصلية، ثم مدمج مجددًا في فيديوك. حمّله فورًا.</span></p></div>
-  </div>
-</section>
-
-<section class="wrap" id="dubLong">
-  <h2>Dub Long Video — videos of several minutes<span class="ar2">دبلجة فيديو طويل — فيديوهات تمتد لعدة دقائق</span></h2>
-  <p style="text-align:center;color:var(--muted);max-width:700px;margin:0 auto 18px;">Have a talk, interview or lesson that is longer than 30 seconds? With the Studio plan you can dub the whole video in one go. We work on it in the background — you can close the page, and we email you when your dubbed file is ready.<span class="ar2" style="max-width:700px;margin:4px auto 0;">لديك محاضرة أو مقابلة أو درس أطول من 30 ثانية؟ مع باقة Studio يمكنك دبلجة الفيديو كاملًا دفعة واحدة. نعمل عليه في الخلفية — يمكنك إغلاق الصفحة، وسنراسلك عندما يجهز الملف المدبلج.</span></p>
-  <div class="grid">
-    <div class="card"><div class="ico">💰</div><h3>Price and time first<span class="ar2">السعر والمدة أولًا</span></h3><p>Upload the video, tell us how many people speak, and get an estimate of the price and the time. Nothing is dubbed until you have seen and approved the exact price.<span class="ar2">ارفع الفيديو وأخبرنا كم شخصًا يتحدث، وستحصل على تقدير للسعر والمدة. لا تبدأ الدبلجة قبل أن ترى السعر الدقيق وتوافق عليه.</span></p></div>
-    <div class="card"><div class="ico">✍️</div><h3>You stay in control<span class="ar2">أنت من يتحكم</span></h3><p>Review the text, name the speakers, fix the English or the Arabic, adjust the timing of any line, add or remove lines, and pick the emotion of each line.<span class="ar2">راجع النص، وسمِّ المتحدثين، وصحّح الإنجليزية أو العربية، واضبط توقيت أي سطر، وأضف أسطرًا أو احذفها، واختر مشاعر كل سطر.</span></p></div>
-    <div class="card"><div class="ico">🎙️</div><h3>Every speaker's own voice<span class="ar2">صوت كل متحدث</span></h3><p>Each speaker's voice is copied from the video for this job only. The copied voices are not saved. Optional lip-sync is available for video.<span class="ar2">يُنسخ صوت كل متحدث من الفيديو لهذه المهمة فقط، ولا تُحفظ الأصوات المنسوخة. وتتوفر مزامنة الشفاه اختياريًا للفيديو.</span></p></div>
-    <div class="card"><div class="ico">📦</div><h3>One file at the end<span class="ar2">ملف واحد في النهاية</span></h3><p>You receive one dubbed file, with the original background music and sounds mixed back in and the Arabic timed to the speech.<span class="ar2">تستلم ملفًا مدبلجًا واحدًا، مع إعادة مزج الموسيقى والأصوات الخلفية الأصلية، والعربية متزامنة مع الكلام.</span></p></div>
-  </div>
-  <div style="text-align:center;margin-top:22px;"><a class="cta" href="/dub-long">🎞️ Try Dub Long Video<span class="ar2">🎞️ جرّب دبلجة فيديو طويل</span></a></div>
-</section>
-
-<section class="wrap">
-  <h2>What you get<span class="ar2">ماذا ستحصل عليه</span></h2>
-  <div class="grid">
-    <div class="card"><div class="ico">🎭</div><h3>Speaker detection<span class="ar2">تمييز المتحدثين</span></h3><p>Knows who talks when — each line gets the right speaker automatically.<span class="ar2">يعرف من يتحدث ومتى — يحصل كل سطر على المتحدث الصحيح تلقائيًا.</span></p></div>
-    <div class="card"><div class="ico">🎙️</div><h3>Voice cloning<span class="ar2">استنساخ الصوت</span></h3><p>Clone each speaker's own voice from the video, with honest quality guidance.<span class="ar2">استنسخ صوت كل متحدث من الفيديو، مع إرشادات واضحة حول الجودة.</span></p></div>
-    <div class="card"><div class="ico">💫</div><h3>Emotions &amp; styles<span class="ar2">المشاعر والأساليب</span></h3><p>30+ speaking styles, detected from the original voice or set by you per line.<span class="ar2">أكثر من 30 أسلوب كلام، يُكتشف من الصوت الأصلي أو تحدده أنت لكل سطر.</span></p></div>
-    <div class="card"><div class="ico">🔤</div><h3>Tashkeel<span class="ar2">التشكيل</span></h3><p>Full Arabic diacritics for natural, correct pronunciation — one click.<span class="ar2">تشكيل عربي كامل لنطق طبيعي وصحيح — بنقرة واحدة.</span></p></div>
-    <div class="card"><div class="ico">🎚️</div><h3>Timeline fine-tune<span class="ar2">ضبط الخط الزمني</span></h3><p>Drag lines on a visual timeline to align audio with lip movement.<span class="ar2">اسحب الأسطر على خط زمني مرئي لمزامنة الصوت مع حركة الشفاه.</span></p></div>
-    <div class="card"><div class="ico">🎧</div><h3>Background kept<span class="ar2">الحفاظ على الخلفية الصوتية</span></h3><p>Original music &amp; sounds separated, optionally enhanced, and mixed back in.<span class="ar2">تُفصل الموسيقى والأصوات الأصلية، ويمكن تحسينها، ثم تُمزج مجددًا.</span></p></div>
-  </div>
-</section>
-
-<section class="pricing">
+<!-- ========== HOW IT WORKS ========== -->
+<section class="how" id="how">
   <div class="wrap">
-    <h2>Simple credits — or a monthly plan<span class="ar2">رصيد بسيط — أو خطة شهرية</span></h2>
-    <p style="text-align:center;color:var(--muted);max-width:640px;margin:0 auto;">Buy a one-time credit pack whenever you want — credits never expire. Or subscribe monthly for recurring credits, saved voice-cloning slots and longer file storage.<span class="ar2" style="max-width:640px;margin:4px auto 0;">اشترِ باقة رصيد لمرة واحدة متى شئت — الرصيد لا تنتهي صلاحيته. أو اشترك شهريًا للحصول على رصيد متجدد وأماكن صوت مستنسخ محفوظة وتخزين أطول للملفات.</span></p>
-    <div style="text-align:center;margin-top:22px;"><a class="cta" href="/pricing">See full pricing<span class="ar2">شاهد كل الأسعار</span></a></div>
-    <div class="trust"><span>🔒 Login-protected projects<span class="ar2">🔒 مشاريع محمية بتسجيل الدخول</span></span><span>⏳ Finished files: 48h (one-time) or 30 days (monthly)<span class="ar2">⏳ الملفات الجاهزة: 48 ساعة (لمرة واحدة) أو 30 يومًا (شهري)</span></span><span>💳 Secure payments by Stripe<span class="ar2">💳 مدفوعات آمنة عبر Stripe</span></span></div>
+    <div class="shead rv">
+      <span class="eyebrow"><span class="en">How it works</span><span class="ar">كيف يعمل</span></span>
+      <h2><span class="en">From English to Arabic in three steps</span><span class="ar">من الإنجليزية إلى العربية في ثلاث خطوات</span></h2>
+      <p><span class="en">Watch the full walkthrough, or follow the steps.</span><span class="ar">شاهد الشرح الكامل، أو تابع الخطوات.</span></p>
+    </div>
+    <div class="how-grid">
+      <div class="rv">
+        <div class="vframe" id="howItWorksSlot" data-src="/static/HowItWorks.mp4">
+          <div class="ph"><div class="play-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></div>
+            <span><span class="en">How Lisan AI works</span><span class="ar">كيف يعمل Lisan AI</span></span></div>
+        </div>
+      </div>
+      <ol class="steps rv">
+        <li>
+          <h3><span class="en">Upload your video</span><span class="ar">ارفع الفيديو</span></h3>
+          <p><span class="en">Drop in a video or audio file. We transcribe the English and tell your speakers apart automatically.</span><span class="ar">ارفع ملف فيديو أو صوت. نفرّغ الكلام الإنجليزي ونميّز بين المتحدثين تلقائيًا.</span></p>
+        </li>
+        <li>
+          <h3><span class="en">Shape the script and voices</span><span class="ar">اضبط النص والأصوات</span></h3>
+          <p><span class="en">Translate into Arabic, add full diacritics, and give every line a voice and a speaking style. Clone each speaker's voice, or pick a studio voice.</span><span class="ar">ترجم إلى العربية، وأضف التشكيل الكامل، وامنح كل سطر صوتًا وأسلوب كلام. انسخ صوت كل متحدث أو اختر صوتًا من المكتبة.</span></p>
+        </li>
+        <li>
+          <h3><span class="en">Generate and finish</span><span class="ar">أنشئ الدبلجة وأنهِ العمل</span></h3>
+          <p><span class="en">Generate the Arabic, fine-tune the timing on a visual timeline, then export the video with the original music and sounds mixed back in.</span><span class="ar">أنشئ الصوت العربي، واضبط التوقيت على خط زمني مرئي، ثم صدّر الفيديو مع إعادة مزج الموسيقى والأصوات الأصلية.</span></p>
+        </li>
+      </ol>
+    </div>
   </div>
 </section>
 
-<div class="modal-overlay hidden" id="contactModal">
+<!-- ========== DEMOS ========== -->
+<section id="demos">
+  <div class="wrap">
+    <div class="shead rv">
+      <span class="eyebrow"><span class="en">Listen</span><span class="ar">استمع</span></span>
+      <h2><span class="en">Hear the difference</span><span class="ar">اسمع الفرق</span></h2>
+      <p><span class="en">Compare the original English with the Arabic dub. Press play with the sound on.</span><span class="ar">قارن بين الأصل بالإنجليزية والدبلجة العربية. شغّل الفيديو مع تفعيل الصوت.</span></p>
+    </div>
+    <div class="tabs" id="demoTabs" role="tablist" hidden></div>
+    <div class="demo-note" id="demoNote"></div>
+    <div class="pair rv">
+      <div class="pcol o">
+        <div class="lab"><b></b><span class="en">Original · English</span><span class="ar">الأصل · بالإنجليزية</span></div>
+        <div class="vframe loading" id="demoBefore"><div class="ph"><span class="en">Loading…</span><span class="ar">جارٍ التحميل…</span></div></div>
+      </div>
+      <div class="pcol d">
+        <div class="lab"><b></b><span class="en">Arabic dub</span><span class="ar">الدبلجة العربية</span></div>
+        <div class="vframe loading" id="demoAfter"><div class="ph"><span class="en">Loading…</span><span class="ar">جارٍ التحميل…</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== LONG VIDEO ========== -->
+<section class="long" id="long">
+  <div class="wrap">
+    <div class="long-grid">
+      <div class="rv">
+        <span class="badge"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></svg><span class="en">Included in the Studio plan</span><span class="ar">ضمن باقة Studio</span></span>
+        <h2><span class="en">Dub a whole talk, interview or lesson</span><span class="ar">دبلج محاضرة أو مقابلة أو درسًا كاملًا</span></h2>
+        <p class="lead"><span class="en">A standard dub covers clips of up to 30 seconds. Dub Long Video handles videos of several minutes in one go, in the background, while you get on with your day. Close the page and we email you when the file is ready.</span><span class="ar">الدبلجة العادية تغطي مقاطع حتى 30 ثانية. أما «دبلجة فيديو طويل» فتتعامل مع فيديوهات تمتد لعدة دقائق دفعة واحدة، في الخلفية، بينما تتابع عملك. أغلق الصفحة وسنراسلك عندما يجهز الملف.</span></p>
+        <ol class="flow" aria-label="Steps">
+          <li><span class="en">Upload</span><span class="ar">رفع</span></li><li class="sep" aria-hidden="true">›</li>
+          <li><span class="en">Estimate</span><span class="ar">تقدير</span></li><li class="sep" aria-hidden="true">›</li>
+          <li><span class="en">Analysis</span><span class="ar">تحليل</span></li><li class="sep" aria-hidden="true">›</li>
+          <li><span class="en">Review</span><span class="ar">مراجعة</span></li><li class="sep" aria-hidden="true">›</li>
+          <li><span class="en">Dub</span><span class="ar">دبلجة</span></li>
+        </ol>
+        <ul class="feats">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            <div><h3><span class="en">Price and time first</span><span class="ar">السعر والمدة أولًا</span></h3><p><span class="en">Tell us how many people speak and see the price and the time before anything is dubbed. You confirm the exact price before it is charged.</span><span class="ar">أخبرنا كم شخصًا يتحدث لترى السعر والمدة قبل أي دبلجة. وتؤكد السعر الدقيق قبل خصمه.</span></p></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+            <div><h3><span class="en">Review every line</span><span class="ar">راجع كل سطر</span></h3><p><span class="en">Name the speakers, fix the English or the Arabic, adjust timing, add or remove lines and choose an emotion for each one.</span><span class="ar">سمِّ المتحدثين، وصحّح الإنجليزية أو العربية، واضبط التوقيت، وأضف أسطرًا أو احذفها، واختر المشاعر لكل سطر.</span></p></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+            <div><h3><span class="en">Every speaker's own voice</span><span class="ar">صوت كل متحدث</span></h3><p><span class="en">Each voice is copied from the video for this job only and deleted when it ends. Lip-sync is optional for video.</span><span class="ar">يُنسخ كل صوت من الفيديو لهذه المهمة فقط ويُحذف عند انتهائها. ومزامنة الشفاه اختيارية للفيديو.</span></p></div></li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
+            <div><h3><span class="en">One finished file</span><span class="ar">ملف واحد جاهز</span></h3><p><span class="en">You receive one dubbed file, with the original music and background sounds mixed back in and the Arabic timed to the speech.</span><span class="ar">تستلم ملفًا مدبلجًا واحدًا، مع إعادة مزج الموسيقى والأصوات الخلفية الأصلية، والعربية متزامنة مع الكلام.</span></p></div></li>
+        </ul>
+        <div class="cta-row" style="justify-content:flex-start">
+          <a class="btn btn-gold" href="/dub-long"><span class="en">Try Dub Long Video</span><span class="ar">جرّب دبلجة فيديو طويل</span><svg class="flip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+          <a class="btn btn-ghost" href="#pricing"><span class="en">See the Studio plan</span><span class="ar">اطلع على باقة Studio</span></a>
+        </div>
+      </div>
+
+      <!-- Reserved place for the Dub Long Video walkthrough.
+           Upload the file as /static/HowItWorksLong.mp4 and it appears here by itself. -->
+      <div class="long-vid rv">
+        <div class="vframe" id="longVideoSlot" data-src="/static/HowItWorksLong.mp4">
+          <div class="ph long-ph">
+            <svg class="mock" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+              <rect width="320" height="180" fill="#05070c"/>
+              <g>
+                <rect x="18" y="34" width="70" height="16" rx="4" fill="#62c7ff" opacity=".32"/><rect x="104" y="34" width="46" height="16" rx="4" fill="#62c7ff" opacity=".32"/><rect x="176" y="34" width="88" height="16" rx="4" fill="#62c7ff" opacity=".32"/>
+                <rect x="40" y="62" width="58" height="16" rx="4" fill="#e6b85c" opacity=".36"/><rect x="128" y="62" width="74" height="16" rx="4" fill="#e6b85c" opacity=".36"/><rect x="226" y="62" width="60" height="16" rx="4" fill="#e6b85c" opacity=".36"/>
+                <rect x="18" y="90" width="42" height="16" rx="4" fill="#62c7ff" opacity=".22"/><rect x="86" y="90" width="92" height="16" rx="4" fill="#62c7ff" opacity=".22"/><rect x="200" y="90" width="72" height="16" rx="4" fill="#62c7ff" opacity=".22"/>
+                <rect x="60" y="118" width="80" height="16" rx="4" fill="#e6b85c" opacity=".25"/><rect x="164" y="118" width="46" height="16" rx="4" fill="#e6b85c" opacity=".25"/><rect x="232" y="118" width="54" height="16" rx="4" fill="#e6b85c" opacity=".25"/>
+              </g>
+              <rect x="0" y="20" width="320" height="1" fill="#ffffff" opacity=".08"/><rect x="0" y="146" width="320" height="1" fill="#ffffff" opacity=".08"/>
+              <rect x="152" y="16" width="1.6" height="134" fill="#f6dc98" opacity=".8"/>
+            </svg>
+            <div class="txt">
+              <div class="play-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></div>
+              <span class="ttl"><span class="en">Dub Long Video walkthrough</span><span class="ar">شرح دبلجة الفيديو الطويل</span></span>
+              <span class="soon"><span class="en">Coming soon</span><span class="ar">قريبًا</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="cap-note"><span class="en">A full walkthrough of the long-video flow, from upload to the finished file.</span><span class="ar">شرح كامل لمسار الفيديو الطويل، من الرفع حتى الملف النهائي.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== CAPABILITIES ========== -->
+<section id="features" style="padding-top:40px">
+  <div class="wrap">
+    <div class="shead rv">
+      <span class="eyebrow"><span class="en">Capabilities</span><span class="ar">الإمكانات</span></span>
+      <h2><span class="en">Built for serious dubbing work</span><span class="ar">مصمم لعمل دبلجة جاد</span></h2>
+      <p><span class="en">Everything you need to take raw footage to a finished Arabic version.</span><span class="ar">كل ما تحتاجه للانتقال من اللقطات الأصلية إلى نسخة عربية جاهزة.</span></p>
+    </div>
+    <div class="cards">
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15.5 14.2c2.9.2 5.5 2.4 5.5 5.8"/></svg></div>
+        <h3><span class="en">Speaker detection</span><span class="ar">تمييز المتحدثين</span></h3>
+        <p><span class="en">Knows who speaks and when. Every line goes to the right speaker automatically.</span><span class="ar">يعرف من يتحدث ومتى، ويُسنِد كل سطر إلى المتحدث الصحيح تلقائيًا.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+        <h3><span class="en">Voice cloning</span><span class="ar">استنساخ الصوت</span></h3>
+        <p><span class="en">Copy each speaker's own voice from the video, with clear quality guidance before you commit.</span><span class="ar">انسخ صوت كل متحدث من الفيديو، مع إرشادات واضحة حول الجودة قبل أن تلتزم.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5c1 1.4 2.2 2 3.5 2s2.5-.6 3.5-2M9 9.5h.01M15 9.5h.01"/></svg></div>
+        <h3><span class="en">Emotions and styles</span><span class="ar">المشاعر والأساليب</span></h3>
+        <p><span class="en">30+ speaking styles, detected from the original voice or chosen by you for each line.</span><span class="ar">أكثر من 30 أسلوب كلام، يُكتشف من الصوت الأصلي أو تختاره لكل سطر.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17c2.5 0 3-4 5.5-4s2.5 2 4.5 2 2.5-3 4-3"/><path d="M8 7.5h.01M12 6h.01M16 7.5h.01"/></svg></div>
+        <h3><span class="en">Full tashkeel</span><span class="ar">تشكيل كامل</span></h3>
+        <p><span class="en">Complete Arabic diacritics for natural, correct pronunciation, added in one click.</span><span class="ar">تشكيل عربي كامل لنطق طبيعي وصحيح، بنقرة واحدة.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h18"/><rect x="5" y="4" width="6" height="4" rx="1" fill="currentColor" stroke="none" opacity=".5"/><rect x="11" y="10" width="8" height="4" rx="1" fill="currentColor" stroke="none" opacity=".5"/><rect x="7" y="16" width="5" height="4" rx="1" fill="currentColor" stroke="none" opacity=".5"/></svg></div>
+        <h3><span class="en">Visual timeline</span><span class="ar">خط زمني مرئي</span></h3>
+        <p><span class="en">Drag each line on a timeline to line the Arabic up with the picture, down to the millisecond.</span><span class="ar">اسحب كل سطر على الخط الزمني لمحاذاة العربية مع الصورة، بدقة أجزاء الثانية.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></div>
+        <h3><span class="en">Original sound kept</span><span class="ar">الصوت الأصلي محفوظ</span></h3>
+        <p><span class="en">Music and background sounds are separated, then mixed back in beneath the Arabic voice.</span><span class="ar">تُفصل الموسيقى والأصوات الخلفية، ثم تُمزج مجددًا تحت الصوت العربي.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 10c.9-.9 2.4-1 3.5 0M6.5 10c.9-.9 2.4-1 3.5 0"/><path d="M8 15c1 1.2 2.3 1.8 4 1.8s3-.6 4-1.8"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg></div>
+        <h3><span class="en">Optional lip-sync</span><span class="ar">مزامنة شفاه اختيارية</span></h3>
+        <p><span class="en">Re-render the mouth movements to match the Arabic audio. Billed per second, with the cost shown first.</span><span class="ar">أعد رسم حركة الشفاه لتطابق الصوت العربي. تُحتسب بالثانية، وتظهر التكلفة قبل التنفيذ.</span></p></div>
+      <div class="card rv"><div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></svg></div>
+        <h3><span class="en">Save and resume</span><span class="ar">احفظ واستأنف</span></h3>
+        <p><span class="en">Save your project at any point and pick it up later without transcribing again.</span><span class="ar">احفظ مشروعك في أي لحظة وتابعه لاحقًا دون إعادة التفريغ.</span></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== PRICING ========== -->
+<section class="pricing" id="pricing">
+  <div class="wrap">
+    <div class="shead rv">
+      <span class="eyebrow"><span class="en">Pricing</span><span class="ar">الأسعار</span></span>
+      <h2><span class="en">Pay for what you use</span><span class="ar">ادفع مقابل ما تستخدمه</span></h2>
+      <p><span class="en">Credits pay for every action, and each button shows its cost before you click it. 1 credit = $0.01.</span><span class="ar">يغطي الرصيد كل إجراء، ويعرض كل زر تكلفته قبل أن تضغط عليه. 1 رصيد = 0.01 دولار.</span></p>
+    </div>
+    <div class="ptabs" id="pTabs" hidden>
+      <div class="seg" role="tablist">
+        <button type="button" role="tab" id="tabPlans" aria-selected="true"><span class="en">Monthly plans</span><span class="ar">باقات شهرية</span></button>
+        <button type="button" role="tab" id="tabPacks" aria-selected="false"><span class="en">One-time packs</span><span class="ar">باقات لمرة واحدة</span></button>
+      </div>
+    </div>
+    <div id="pricingBody"><div class="pgrid"><div class="pskel"></div><div class="pskel"></div><div class="pskel"></div></div></div>
+    <div class="pnote" id="pNote"></div>
+    <div class="trust">
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg><span class="en">Projects are login-protected</span><span class="ar">المشاريع محمية بتسجيل الدخول</span></span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg><span class="en">Secure payments by Stripe</span><span class="ar">مدفوعات آمنة عبر Stripe</span></span>
+      <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg><span class="en">Cancel a monthly plan any time</span><span class="ar">ألغِ الباقة الشهرية في أي وقت</span></span>
+    </div>
+  </div>
+</section>
+
+<!-- ========== FAQ ========== -->
+<section id="faq">
+  <div class="wrap">
+    <div class="shead rv">
+      <span class="eyebrow"><span class="en">FAQ</span><span class="ar">الأسئلة الشائعة</span></span>
+      <h2><span class="en">Questions, answered</span><span class="ar">أسئلة وأجوبة</span></h2>
+    </div>
+    <div class="faq rv">
+      <details><summary><span class="q"><span class="en">Which Arabic does the dub use?</span><span class="ar">أي عربية تستخدمها الدبلجة؟</span></span></summary>
+        <div class="ans"><p><span class="en">Modern Standard Arabic (الفصحى), the formal register of news, documentaries and official media, understood in every Arabic-speaking country. Regional dialects are not offered at the moment.</span><span class="ar">العربية الفصحى، وهي اللغة الرسمية للأخبار والوثائقيات والإعلام الرسمي، ومفهومة في كل البلدان الناطقة بالعربية. اللهجات المحلية غير متاحة حاليًا.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">How long can my video be?</span><span class="ar">ما أقصى طول للفيديو؟</span></span></summary>
+        <div class="ans"><p><span class="en">A standard dub covers up to 30 seconds (15 seconds with lip-sync). For a longer file you choose the part to dub, or you use Dub Long Video in the Studio plan to dub the whole video. Supported files: MP3, WAV, FLAC, AAC, OGG, MP4, AVI, MKV, MOV and WEBM, up to 300 MB.</span><span class="ar">تغطي الدبلجة العادية حتى 30 ثانية (15 ثانية مع مزامنة الشفاه). وللملف الأطول تختار الجزء المراد دبلجته، أو تستخدم «دبلجة فيديو طويل» في باقة Studio لدبلجة الفيديو كاملًا. الصيغ المدعومة: MP3 وWAV وFLAC وAAC وOGG وMP4 وAVI وMKV وMOV وWEBM، بحجم حتى 300 ميغابايت.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">How does voice cloning work?</span><span class="ar">كيف يعمل استنساخ الصوت؟</span></span></summary>
+        <div class="ans"><p><span class="en">We copy each speaker's voice from your video and use it to speak the Arabic. At least 1 second of clear speech is needed, and 10 seconds or more gives the best result. Voice cloning is included with monthly plans; any speaker can also use a studio voice.</span><span class="ar">ننسخ صوت كل متحدث من الفيديو ونستخدمه لنطق العربية. يلزم ثانية واحدة على الأقل من الكلام الواضح، و10 ثوانٍ أو أكثر تعطي أفضل نتيجة. استنساخ الصوت مشمول في الباقات الشهرية، ويمكن لأي متحدث أيضًا استخدام صوت من المكتبة.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">Will my video quality change?</span><span class="ar">هل تتأثر جودة الفيديو؟</span></span></summary>
+        <div class="ans"><p><span class="en">No. The original video stream is copied unchanged. Only the audio track is replaced with the Arabic dub, mixed with the original background sound.</span><span class="ar">لا. يُنسخ مسار الفيديو الأصلي كما هو دون تغيير، ويُستبدل المسار الصوتي فقط بالدبلجة العربية ممزوجة بالصوت الخلفي الأصلي.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">Can I edit the result?</span><span class="ar">هل يمكنني تعديل النتيجة؟</span></span></summary>
+        <div class="ans"><p><span class="en">Yes. Edit the text, translation, timing, emotion and voice of any line, re-speak a single line without redoing the clip, and fine-tune the timeline before you export.</span><span class="ar">نعم. عدّل النص والترجمة والتوقيت والمشاعر والصوت لأي سطر، وأعد نطق سطر واحد دون إعادة المقطع كله، وضبط الخط الزمني قبل التصدير.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">How do credits and plans work?</span><span class="ar">كيف يعمل الرصيد والباقات؟</span></span></summary>
+        <div class="ans"><p><span class="en">1 credit = $0.01, and the cost depends on how much text and audio you process. Every button shows its estimated cost first. Buy one-time packs that never expire, or subscribe monthly for credits that renew each month, saved voices and 30-day file storage.</span><span class="ar">1 رصيد = 0.01 دولار، وتعتمد التكلفة على كمية النص والصوت. يعرض كل زر تكلفته التقديرية أولًا. اشترِ باقات لمرة واحدة لا تنتهي صلاحيتها، أو اشترك شهريًا لرصيد يتجدد كل شهر وأصوات محفوظة وتخزين للملفات 30 يومًا.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">Are my files kept?</span><span class="ar">هل تُحفظ ملفاتي؟</span></span></summary>
+        <div class="ans"><p><span class="en">Your uploaded file and unfinished work are temporary and deleted after about 6 hours. Finished files stay available for 48 hours with one-time credits, or 30 days with a monthly plan. In Dub Long Video, copied voices are deleted when the job ends.</span><span class="ar">الملف المرفوع والعمل غير المكتمل مؤقتان ويُحذفان بعد نحو 6 ساعات. أما الملفات الجاهزة فتبقى متاحة 48 ساعة مع الرصيد لمرة واحدة، أو 30 يومًا مع الباقة الشهرية. وفي «دبلجة فيديو طويل» تُحذف الأصوات المنسوخة عند انتهاء المهمة.</span></p></div></details>
+      <details><summary><span class="q"><span class="en">Is lip-sync available?</span><span class="ar">هل مزامنة الشفاه متاحة؟</span></span></summary>
+        <div class="ans"><p><span class="en">Yes, as an option. It re-renders the final video so mouth movements match the Arabic audio. It is billed per second of video, and the cost is shown before you confirm.</span><span class="ar">نعم، كخيار إضافي. تعيد رسم الفيديو النهائي لتتطابق حركة الشفاه مع الصوت العربي. وتُحتسب بالثانية، وتظهر التكلفة قبل التأكيد.</span></p></div></details>
+    </div>
+    <div class="faq-more"><a href="/help"><span class="en">More answers in Help &amp; FAQ</span><span class="ar">مزيد من الإجابات في المساعدة والأسئلة الشائعة</span></a></div>
+  </div>
+</section>
+
+<!-- ========== FINAL CTA ========== -->
+<div class="final">
+  <div class="wrap">
+    <h2 class="rv"><span class="en">Hear your video in Arabic.</span><span class="ar">استمع إلى فيديوك بالعربية.</span></h2>
+    <p class="rv"><span class="en">Create a free account and try your first dub.</span><span class="ar">أنشئ حسابًا مجانيًا وجرّب أول دبلجة.</span></p>
+    <div class="cta-row rv">
+      <a class="btn btn-gold" href="/login"><span class="en">Start dubbing free</span><span class="ar">ابدأ الدبلجة مجانًا</span><svg class="flip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      <button type="button" class="btn btn-ghost" id="finalContact"><span class="en">Talk to us</span><span class="ar">تواصل معنا</span></button>
+    </div>
+  </div>
+</div>
+</main>
+
+<!-- ========== CONTACT MODAL ========== -->
+<div class="modal-overlay hidden" id="contactModal" role="dialog" aria-modal="true" aria-labelledby="contactTitle">
   <div class="modal-box">
     <button type="button" class="modal-close" id="contactModalClose" aria-label="Close">✕</button>
-    <h2 style="margin-bottom:8px;">Contact Us<span class="ar2">تواصل معنا</span></h2>
-    <p style="text-align:center;color:var(--muted);margin:0 auto 18px;">Questions, feedback, or need help? Send us a message and we'll get back to you by email.<span class="ar2" style="margin:4px auto 0;">أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنعاود التواصل معك عبر البريد الإلكتروني.</span></p>
+    <h2 id="contactTitle"><span class="en">Contact us</span><span class="ar">تواصل معنا</span></h2>
+    <p class="mp"><span class="en">Questions, feedback, or need help? Send us a message and we'll reply by email.</span><span class="ar">أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنرد عبر البريد الإلكتروني.</span></p>
     <form class="contact-box" id="contactForm">
-      <label for="cName">Name (optional)<span class="ar2">الاسم (اختياري)</span></label>
+      <label for="cName"><span class="en">Name (optional)</span><span class="ar">الاسم (اختياري)</span></label>
       <input type="text" id="cName" name="name" maxlength="100">
-      <label for="cEmail">Email<span class="ar2">البريد الإلكتروني</span></label>
+      <label for="cEmail"><span class="en">Email</span><span class="ar">البريد الإلكتروني</span></label>
       <input type="email" id="cEmail" name="email" required maxlength="200">
-      <label for="cMessage">Message<span class="ar2">الرسالة</span></label>
+      <label for="cMessage"><span class="en">Message</span><span class="ar">الرسالة</span></label>
       <textarea id="cMessage" name="message" required maxlength="5000"></textarea>
       <input class="hp" type="text" id="cHp" name="hp" tabindex="-1" autocomplete="off">
-      <div style="text-align:center;">
-        <button type="submit" class="cta" id="contactSubmit"><span>Send Message</span><span class="ar2">إرسال الرسالة</span></button>
+      <div class="sendrow">
+        <button type="submit" class="btn btn-gold" id="contactSubmit"><span class="en">Send message</span><span class="ar">إرسال الرسالة</span></button>
       </div>
-      <div id="contactStatus"></div>
+      <div id="contactStatus" role="status"></div>
     </form>
   </div>
 </div>
 
 <footer>
-  <div class="fwrap">
-    <img src="/logo.png" alt="">
-    <span class="brand">Lisan AI</span>
-    <nav>
-      <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
-      <a href="/pricing">Pricing<span class="ar2">الأسعار</span></a>
-      <a href="mailto:contact@lisanai.org">Contact<span class="ar2">تواصل</span></a>
-      <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
-    </nav>
+  <div class="wrap">
+    <div class="frow">
+      <a class="brand" href="/"><img src="/logo.png" alt=""><span>Lisan AI</span></a>
+      <nav aria-label="Footer">
+        <a href="/help"><span class="en">Help &amp; FAQ</span><span class="ar">المساعدة والأسئلة الشائعة</span></a>
+        <a href="/pricing"><span class="en">Pricing</span><span class="ar">الأسعار</span></a>
+        <a href="mailto:contact@lisanai.org" id="footContact"><span class="en">Contact</span><span class="ar">تواصل</span></a>
+        <a href="/login"><span class="en">Log in</span><span class="ar">تسجيل الدخول</span></a>
+      </nav>
+    </div>
+    <div class="flegal">
+      <span>© 2026 Lisan AI · <span class="en">English to Arabic AI dubbing</span><span class="ar">دبلجة بالذكاء الاصطناعي من الإنجليزية إلى العربية</span></span>
+      <span><a href="/terms"><span class="en">Terms of Service</span><span class="ar">شروط الخدمة</span></a> · <a href="/privacy"><span class="en">Privacy Policy</span><span class="ar">سياسة الخصوصية</span></a></span>
+    </div>
   </div>
-  <div class="legal">
-    <a href="/terms">Terms of Service<span class="ar2" style="display:inline;font-size:11px;">· شروط الخدمة</span></a> · <a href="/privacy">Privacy Policy<span class="ar2" style="display:inline;font-size:11px;">· سياسة الخصوصية</span></a>
-  </div>
-  <div class="copy">© 2026 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div>
 </footer>
 
 <script>
-// Google Analytics 4: now injected server-side (see the landing() route in
-// main.py) directly into <head>, only when a Measurement ID is set in the
-// admin panel -- not loaded from here anymore. Doing it server-side, as a
-// literal <script> tag present in the page's raw HTML, is what makes it
-// reliably detectable by Google's own "tag not detected" checker (a tag
-// that only appears after a follow-up client-side fetch can look
-// uninstalled to automated checks even though it works for real visitors).
-// Pack/subscription pricing now lives on the dedicated /pricing page (this
-// section is just a teaser + link), so the pricing-fetch script that used
-// to populate #packCards here has been removed along with that markup.
-// Demo clips: show placeholders until real files exist at /static/demo_*.mp4
-[
-  ["howItWorksSlot", "/static/HowItWorks.mp4"],
-  ["slot1Before", "/static/pair1_before.mp4"],
-  ["slot1After", "/static/pair1_after.mp4"],
-  ["slot2Before", "/static/pair2_before.mp4"],
-  ["slot2After", "/static/pair2_after.mp4"],
-  ["slot3Before", "/static/pair3_before.mp4"],
-  ["slot3After", "/static/pair3_after.mp4"]
-].forEach(function (pair) {
-  var slot = document.getElementById(pair[0]);
-  if (!slot) return;
-  var v = document.createElement("video");
-  v.controls = true; v.muted = true; v.src = pair[1];
-  v.onerror = function () { v.remove(); }; // Keeps text placeholder if video is missing
-  v.onloadeddata = function () { slot.innerHTML = ""; slot.appendChild(v); };
-});
-// Contact icon opens/closes the popup
+// Google Analytics 4 is injected server-side into the top of this page (see the landing() route
+// in main.py), only when a Measurement ID is set in the admin panel. Nothing to do here.
 (function () {
-  var icon = document.getElementById("contactIconBtn");
-  var modal = document.getElementById("contactModal");
-  var closeBtn = document.getElementById("contactModalClose");
-  if (!icon || !modal) return;
-  function open() { modal.classList.remove("hidden"); }
-  function close() { modal.classList.add("hidden"); }
-  icon.addEventListener("click", open);
-  if (closeBtn) closeBtn.addEventListener("click", close);
-  modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
-})();
-// Contact form submit handler
-(function () {
-  var form = document.getElementById("contactForm");
-  if (!form) return;
-  var statusEl = document.getElementById("contactStatus");
-  var btn = document.getElementById("contactSubmit");
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    statusEl.className = "";
-    statusEl.textContent = "";
-    var payload = {
-      name: document.getElementById("cName").value,
-      email: document.getElementById("cEmail").value,
-      message: document.getElementById("cMessage").value,
-      hp: document.getElementById("cHp").value
-    };
-    btn.disabled = true;
-    var prevHTML = btn.innerHTML;
-    btn.innerHTML = '<span>Sending…</span><span class="ar2">جارٍ الإرسال…</span>';
-    fetch("/api/contact", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
-      .then(function (res) {
-        if (res.ok && res.body && res.body.ok) {
-          statusEl.className = "ok";
-          statusEl.innerHTML = "Message sent — we'll get back to you by email.<span class=\"ar2\">تم إرسال الرسالة — سنعاود التواصل معك عبر البريد الإلكتروني.</span>";
-          form.reset();
-        } else if (res.body && res.body.error) {
-          statusEl.className = "err";
-          statusEl.textContent = res.body.error;
-        } else {
-          statusEl.className = "err";
-          statusEl.innerHTML = "Something went wrong. Please email contact@lisanai.org directly.<span class=\"ar2\">حدث خطأ ما. يرجى مراسلتنا مباشرة على contact@lisanai.org.</span>";
-        }
-      })
-      .catch(function () {
-        statusEl.className = "err";
-        statusEl.innerHTML = "Network error. Please email contact@lisanai.org directly.<span class=\"ar2\">خطأ في الشبكة. يرجى مراسلتنا مباشرة على contact@lisanai.org.</span>";
-      })
-      .finally(function () {
-        btn.disabled = false;
-        btn.innerHTML = prevHTML;
-      });
+  "use strict";
+  var doc = document, root = doc.documentElement;
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function $(id) { return doc.getElementById(id); }
+  function lang() { return root.getAttribute("data-lang") === "ar" ? "ar" : "en"; }
+  function pick(en, ar) { return lang() === "ar" ? ar : en; }
+  function el(tag, cls, text) { var e = doc.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function bi(en, ar) { // a bilingual pair: two spans, CSS shows the right one
+    var f = doc.createDocumentFragment();
+    f.appendChild(el("span", "en", en)); f.appendChild(el("span", "ar", ar));
+    return f;
+  }
+
+  /* ---------- Language ---------- */
+  var TITLES = { en: "Lisan AI — English to Arabic AI Dubbing", ar: "Lisan AI — دبلجة الفيديو من الإنجليزية إلى العربية" };
+  function setLang(l) {
+    l = l === "ar" ? "ar" : "en";
+    root.setAttribute("data-lang", l); root.lang = l; root.dir = l === "ar" ? "rtl" : "ltr";
+    try { localStorage.setItem("lisan_lang", l); } catch (e) {}
+    doc.title = TITLES[l];
+    Array.prototype.forEach.call(doc.querySelectorAll("[data-set-lang]"), function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-set-lang") === l ? "true" : "false");
+    });
+  }
+  Array.prototype.forEach.call(doc.querySelectorAll("[data-set-lang]"), function (b) {
+    b.addEventListener("click", function () { setLang(b.getAttribute("data-set-lang")); });
   });
+  (function () { // reflect the language chosen before paint without writing storage on a first visit
+    var l = lang();
+    doc.title = TITLES[l];
+    Array.prototype.forEach.call(doc.querySelectorAll("[data-set-lang]"), function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-set-lang") === l ? "true" : "false");
+    });
+  })();
+
+  /* ---------- Navigation ---------- */
+  var nav = $("nav"), menuBtn = $("menuBtn");
+  function onScroll() { nav.classList.toggle("scrolled", window.scrollY > 12); }
+  window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  menuBtn.addEventListener("click", function () {
+    var open = nav.classList.toggle("open");
+    menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  Array.prototype.forEach.call(doc.querySelectorAll("#navLinks a"), function (a) {
+    a.addEventListener("click", function () { nav.classList.remove("open"); menuBtn.setAttribute("aria-expanded", "false"); });
+  });
+
+  /* ---------- Reveal on scroll ---------- */
+  var rvs = doc.querySelectorAll(".rv");
+  if (!("IntersectionObserver" in window) || reduce) {
+    Array.prototype.forEach.call(rvs, function (n) { n.classList.add("in"); });
+  } else {
+    var rio = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); rio.unobserve(e.target); } });
+    }, { threshold: 0.08, rootMargin: "0px 0px -40px 0px" });
+    Array.prototype.forEach.call(rvs, function (n) { rio.observe(n); });
+  }
+
+  /* ---------- Hero waveform: English speech becomes Arabic as the playhead sweeps across ---------- */
+  (function () {
+    var cv = $("wave"); if (!cv || !cv.getContext) return;
+    var ctx = cv.getContext("2d");
+    var capE = $("capE"), capA = $("capA");
+    var PHRASES = [
+      ["Good evening, and welcome to the program.", "مساء الخير، وأهلًا بكم في البرنامج."],
+      ["Today we look at how the region is changing.", "نتناول اليوم كيف تتغير المنطقة."],
+      ["Thank you for watching.", "شكرًا لمتابعتكم."]
+    ];
+    var W = 0, H = 0, step = 10, bars = 0, running = false, visible = true, raf = 0, idx = 0, lastLoop = -1;
+    var PERIOD = 8;
+    function size() {
+      var r = cv.getBoundingClientRect(); if (!r.width) return;
+      var dpr = Math.min(window.devicePixelRatio || 1, 2);
+      W = r.width; H = r.height;
+      cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      step = W < 520 ? 7 : 10; bars = Math.floor(W / step);
+    }
+    function env(x, t, seed) {
+      var a = Math.sin(x * 11 + seed + t * 1.3) * .5 + .5;
+      var b = Math.sin(x * 27 + seed * 2.1 - t * 2.1) * .5 + .5;
+      var c = Math.sin(x * 3.5 + seed * .7 + t * .6) * .5 + .5;
+      return .1 + .9 * (Math.pow(c, 1.4) * .62 + a * .38) * (.5 + .5 * b);
+    }
+    function smooth(a, b, x) { var t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+    function draw(t, p) {
+      if (!W) return;
+      ctx.clearRect(0, 0, W, H);
+      var mid = H / 2, bw = Math.max(2, step * .52), off = (W - bars * step) / 2;
+      ctx.fillStyle = "rgba(255,255,255,.06)"; ctx.fillRect(0, mid, W, 1);
+      for (var i = 0; i < bars; i++) {
+        var x = (i + .5) / bars;
+        var taper = .22 + .78 * Math.sin(Math.PI * x);
+        var eng = env(x, t, 0) * taper, ara = env(x, t, 3.7) * taper * .92;
+        var m = smooth(p - .05, p + .05, x); // 0 = dubbed (before the playhead), 1 = original
+        var amp = ara * (1 - m) + eng * m;
+        var h = Math.max(3, amp * (H * .86));
+        var r = Math.round(230 * (1 - m) + 98 * m), g = Math.round(184 * (1 - m) + 199 * m), b = Math.round(92 * (1 - m) + 255 * m);
+        ctx.fillStyle = "rgba(" + r + "," + g + "," + b + "," + (.55 + .4 * amp) + ")";
+        var bx = off + i * step + (step - bw) / 2;
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(bx, mid - h / 2, bw, h, bw / 2); ctx.fill(); }
+        else ctx.fillRect(bx, mid - h / 2, bw, h);
+      }
+      var px = off + p * bars * step;
+      var gr = ctx.createLinearGradient(0, 0, 0, H);
+      gr.addColorStop(0, "rgba(246,220,152,0)"); gr.addColorStop(.5, "rgba(246,220,152,.95)"); gr.addColorStop(1, "rgba(246,220,152,0)");
+      ctx.fillStyle = gr; ctx.fillRect(px - .75, 0, 1.5, H);
+      var glow = ctx.createRadialGradient(px, mid, 0, px, mid, 46);
+      glow.addColorStop(0, "rgba(246,220,152,.22)"); glow.addColorStop(1, "rgba(246,220,152,0)");
+      ctx.fillStyle = glow; ctx.fillRect(px - 46, 0, 92, H);
+    }
+    function setCaps(i) {
+      capE.classList.add("fade"); capA.classList.add("fade");
+      setTimeout(function () {
+        capE.textContent = PHRASES[i][0]; capA.textContent = PHRASES[i][1];
+        capE.classList.remove("fade"); capA.classList.remove("fade");
+      }, 380);
+    }
+    function frame(ts) {
+      raf = 0; if (!running) return;
+      var t = ts / 1000, loop = Math.floor(t / PERIOD), ph = (t % PERIOD) / PERIOD;
+      var p = Math.max(0, Math.min(1, (ph - .06) / .78)); // sweep across, then a short hold
+      if (loop !== lastLoop) { if (lastLoop >= 0) { idx = (idx + 1) % PHRASES.length; setCaps(idx); } lastLoop = loop; }
+      draw(t, p);
+      raf = requestAnimationFrame(frame);
+    }
+    function start() { if (running || reduce) return; running = true; if (!raf) raf = requestAnimationFrame(frame); }
+    function stop() { running = false; if (raf) { cancelAnimationFrame(raf); raf = 0; } }
+    function evaluate() { if (visible && !doc.hidden) start(); else stop(); }
+    size();
+    if (reduce) draw(2.4, .58);
+    var rt; window.addEventListener("resize", function () {
+      clearTimeout(rt); rt = setTimeout(function () { size(); if (reduce) draw(2.4, .58); }, 120);
+    });
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (es) { visible = es[0].isIntersecting; evaluate(); }, { threshold: 0 }).observe(cv);
+    }
+    doc.addEventListener("visibilitychange", evaluate);
+    evaluate();
+  })();
+
+  /* ---------- Videos: shown only when the file really exists ---------- */
+  function exists(src) {
+    if (!window.fetch) return Promise.resolve(false);
+    return fetch(src, { method: "HEAD", cache: "no-cache" }).then(function (r) {
+      var ct = (r.headers.get("content-type") || "").toLowerCase();
+      return r.ok && (ct.indexOf("video") === 0 || ct.indexOf("octet-stream") >= 0);
+    }).catch(function () { return false; });
+  }
+  function newVideo(src) {
+    var v = doc.createElement("video");
+    v.controls = true; v.preload = "metadata"; v.setAttribute("playsinline", "");
+    v.src = src + "#t=0.1";
+    return v;
+  }
+  function clearFrame(frame) {
+    var v = frame.querySelector("video");
+    if (v) { try { v.pause(); } catch (e) {} v.removeAttribute("src"); v.load(); v.remove(); }
+    frame.classList.remove("has-video");
+  }
+  function mountFrame(frame, src) {
+    clearFrame(frame);
+    frame.classList.add("loading");
+    return exists(src).then(function (ok) {
+      frame.classList.remove("loading");
+      if (!ok) return null;
+      var v = newVideo(src); frame.appendChild(v); frame.classList.add("has-video");
+      return v;
+    });
+  }
+  function whenNear(node, fn) {
+    if (!("IntersectionObserver" in window)) { fn(); return; }
+    var done = false;
+    var io = new IntersectionObserver(function (es) {
+      if (!done && es[0].isIntersecting) { done = true; io.disconnect(); fn(); }
+    }, { rootMargin: "500px 0px" });
+    io.observe(node);
+  }
+  ["howItWorksSlot", "longVideoSlot"].forEach(function (id) {
+    var slot = $(id); if (!slot) return;
+    whenNear(slot, function () { mountFrame(slot, slot.getAttribute("data-src")); });
+  });
+
+  /* ---------- Before / after demos ---------- */
+  (function () {
+    var PAIRS = [
+      { b: "/static/pair1_before.mp4", a: "/static/pair1_after.mp4",
+        en: "Cloned voices", ar: "أصوات مستنسخة",
+        nEn: "Each speaker's own voice, cloned from the video.", nAr: "صوت كل متحدث، مستنسخ من الفيديو." },
+      { b: "/static/pair2_before.mp4", a: "/static/pair2_after.mp4",
+        en: "Custom voices + lip-sync", ar: "أصوات مخصصة + مزامنة الشفاه",
+        nEn: "Custom voices, with lip-sync and audio enhancement.", nAr: "أصوات مخصصة، مع مزامنة الشفاه وتحسين الصوت." },
+      { b: "/static/pair3_before.mp4", a: "/static/pair3_after.mp4",
+        en: "Custom voices", ar: "أصوات مخصصة",
+        nEn: "Custom voices on the original video.", nAr: "أصوات مخصصة على الفيديو الأصلي." }
+    ];
+    var section = $("demos"), tabs = $("demoTabs"), note = $("demoNote"), fb = $("demoBefore"), fa = $("demoAfter");
+    var avail = [], cur = -1;
+    function pauseOther(a, b) { if (a && b) a.addEventListener("play", function () { if (!b.paused) b.pause(); }); }
+    function show(i) {
+      cur = i;
+      var p = avail[i];
+      Array.prototype.forEach.call(tabs.children, function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); });
+      note.innerHTML = ""; note.appendChild(bi(p.nEn, p.nAr));
+      Promise.all([mountFrame(fb, p.b), mountFrame(fa, p.a)]).then(function (r) {
+        if (cur !== i) return;
+        pauseOther(r[0], r[1]); pauseOther(r[1], r[0]);
+      });
+    }
+    whenNear(section, function () {
+      Promise.all(PAIRS.map(function (p) { return Promise.all([exists(p.b), exists(p.a)]).then(function (r) { return r[0] && r[1]; }); }))
+        .then(function (oks) {
+          PAIRS.forEach(function (p, i) { if (oks[i]) avail.push(p); });
+          if (!avail.length) { // nothing to show yet: hide the section instead of showing empty boxes
+            section.style.display = "none"; var nd = $("navDemos"); if (nd) nd.style.display = "none"; return;
+          }
+          if (avail.length > 1) {
+            tabs.hidden = false;
+            avail.forEach(function (p, i) {
+              var b = el("button", "tab"); b.type = "button"; b.setAttribute("role", "tab");
+              b.appendChild(bi(p.en, p.ar));
+              b.addEventListener("click", function () { if (i !== cur) show(i); });
+              tabs.appendChild(b);
+            });
+          }
+          show(0);
+        });
+    });
+  })();
+
+  /* ---------- Live pricing ---------- */
+  (function () {
+    var body = $("pricingBody"), note = $("pNote"), tabsBox = $("pTabs"), tPlans = $("tabPlans"), tPacks = $("tabPacks");
+    var PLAN_AR = { starter_monthly: "المبتدئة", pro_monthly: "الاحترافية", studio_monthly: "الاستوديو" };
+    var PACK_AR = { starter: "أساسية", standard: "قياسية", pro: "احترافية", business: "أعمال", small: "صغيرة", medium: "متوسطة", large: "كبيرة" };
+    var CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    var plans = [], packs = [], mode = "plans";
+    function money(n) { return "$" + (n % 1 ? n.toFixed(2) : String(n)); }
+    function num(n) { return Number(n || 0).toLocaleString("en-US"); }
+    function li(en, ar) { var l = el("li"); l.innerHTML = CHECK; var s = el("span"); s.appendChild(bi(en, ar)); l.appendChild(s); return l; }
+    function planCard(p) {
+      var pop = p.key === "pro_monthly";
+      var c = el("div", "pcard" + (pop ? " pop" : ""));
+      if (pop) { var pb = el("div", "pb"); pb.appendChild(bi("Most popular", "الأكثر طلبًا")); c.appendChild(pb); }
+      var n = el("div", "pn"); n.appendChild(bi(p.name || p.key, PLAN_AR[p.key] || p.name || p.key)); c.appendChild(n);
+      var pp = el("div", "pp"); pp.appendChild(doc.createTextNode(money(parseFloat(p.price_usd || 0))));
+      var sm = el("small"); sm.appendChild(bi("/month", "/شهريًا")); pp.appendChild(sm); c.appendChild(pp);
+      var ul = el("ul");
+      var cr = parseInt(p.credits_per_month || 0, 10), sl = parseInt(p.voice_slots || 0, 10);
+      ul.appendChild(li(num(cr) + " credits every month", num(cr) + " رصيد كل شهر"));
+      ul.appendChild(li(sl + " saved voice slot" + (sl === 1 ? "" : "s"), sl + " مكان صوت محفوظ"));
+      var cl = (p.clones_per_month !== null && p.clones_per_month !== undefined && p.clones_per_month !== "") ? parseInt(p.clones_per_month, 10) : 0;
+      if (cl > 0) ul.appendChild(li(cl + " new voice clone" + (cl === 1 ? "" : "s") + " per month", cl + " استنساخ صوت جديد شهريًا"));
+      if (p.key === "studio_monthly") ul.appendChild(li("Includes Dub Long Video", "تشمل دبلجة فيديو طويل"));
+      ul.appendChild(li("Finished files kept for 30 days", "الملفات الجاهزة محفوظة 30 يومًا"));
+      c.appendChild(ul);
+      var a = el("a", "btn " + (pop ? "btn-gold" : "btn-ghost")); a.href = "/pricing"; a.appendChild(bi("Choose plan", "اختر الباقة")); c.appendChild(a);
+      return c;
+    }
+    function packCard(p) {
+      var c = el("div", "pcard");
+      var n = el("div", "pn"); n.appendChild(bi(p.name || p.key, PACK_AR[p.key] || p.name || p.key)); c.appendChild(n);
+      var pp = el("div", "pp"); pp.appendChild(doc.createTextNode(money(parseFloat(p.amount_usd || 0)))); c.appendChild(pp);
+      var ul = el("ul");
+      ul.appendChild(li(num(p.credits) + " credits", num(p.credits) + " رصيد"));
+      ul.appendChild(li("One-time payment, credits never expire", "دفعة واحدة، والرصيد لا تنتهي صلاحيته"));
+      ul.appendChild(li("Finished files kept for 48 hours", "الملفات الجاهزة محفوظة 48 ساعة"));
+      c.appendChild(ul);
+      var a = el("a", "btn btn-ghost"); a.href = "/pricing"; a.appendChild(bi("Buy credits", "اشترِ رصيدًا")); c.appendChild(a);
+      return c;
+    }
+    function render() {
+      body.innerHTML = ""; note.innerHTML = "";
+      var g = el("div", "pgrid");
+      if (mode === "plans") {
+        plans.forEach(function (p) { g.appendChild(planCard(p)); });
+        note.appendChild(bi("Monthly plans include voice cloning. Subscription credits renew each month and do not carry over.", "الباقات الشهرية تشمل استنساخ الصوت. يتجدد رصيد الاشتراك كل شهر ولا يُرحَّل."));
+      } else {
+        packs.forEach(function (p) { g.appendChild(packCard(p)); });
+        note.appendChild(bi("Packs are pay-as-you-go and do not include voice cloning. Voice cloning comes with a monthly plan.", "الباقات لمرة واحدة تُدفع حسب الاستخدام ولا تشمل استنساخ الصوت، فهو متاح مع الباقة الشهرية."));
+      }
+      body.appendChild(g);
+      tPlans.setAttribute("aria-selected", mode === "plans" ? "true" : "false");
+      tPacks.setAttribute("aria-selected", mode === "packs" ? "true" : "false");
+    }
+    function fail() {
+      body.innerHTML = ""; note.innerHTML = ""; tabsBox.hidden = true;
+      var f = el("div", "pfall");
+      var p = el("p"); p.appendChild(bi("Current prices are on our pricing page.", "الأسعار الحالية متوفرة في صفحة الأسعار.")); f.appendChild(p);
+      var a = el("a", "btn btn-gold"); a.href = "/pricing"; a.appendChild(bi("See pricing", "شاهد الأسعار")); f.appendChild(a);
+      body.appendChild(f);
+    }
+    tPlans.addEventListener("click", function () { mode = "plans"; render(); });
+    tPacks.addEventListener("click", function () { mode = "packs"; render(); });
+    fetch("/api/billing/packs", { headers: { "Accept": "application/json" } })
+      .then(function (r) { if (!r.ok) throw new Error("bad"); return r.json(); })
+      .then(function (d) {
+        plans = (d.subscriptionPlans || []).slice().sort(function (a, b) { return parseFloat(a.price_usd || 0) - parseFloat(b.price_usd || 0); });
+        var pk = d.packs || {};
+        packs = Object.keys(pk).map(function (k) { var o = pk[k] || {}; o.key = k; return o; })
+          .sort(function (a, b) { return parseFloat(a.amount_usd || 0) - parseFloat(b.amount_usd || 0); });
+        if (!plans.length && !packs.length) { fail(); return; }
+        if (!plans.length) mode = "packs";
+        tabsBox.hidden = !(plans.length && packs.length);
+        render();
+      })
+      .catch(fail);
+  })();
+
+  /* ---------- Contact ---------- */
+  (function () {
+    var icon = $("contactIconBtn"), modal = $("contactModal"), closeBtn = $("contactModalClose");
+    var lastFocus = null;
+    function open() { lastFocus = doc.activeElement; modal.classList.remove("hidden"); setTimeout(function () { var i = $("cEmail"); if (i) i.focus(); }, 30); }
+    function close() { modal.classList.add("hidden"); if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+    icon.addEventListener("click", open);
+    closeBtn.addEventListener("click", close);
+    modal.addEventListener("click", function (e) { if (e.target === modal) close(); });
+    doc.addEventListener("keydown", function (e) { if (e.key === "Escape" && !modal.classList.contains("hidden")) close(); });
+    var fc = $("finalContact"); if (fc) fc.addEventListener("click", open);
+    var ft = $("footContact"); if (ft) ft.addEventListener("click", function (e) { e.preventDefault(); open(); });
+
+    var form = $("contactForm"), statusEl = $("contactStatus"), btn = $("contactSubmit");
+    function say(cls, en, ar) { statusEl.className = cls; statusEl.textContent = pick(en, ar); }
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      statusEl.className = ""; statusEl.textContent = "";
+      var payload = { name: $("cName").value, email: $("cEmail").value, message: $("cMessage").value, hp: $("cHp").value };
+      btn.disabled = true;
+      var keep = btn.innerHTML;
+      btn.textContent = pick("Sending…", "جارٍ الإرسال…");
+      fetch("/api/contact", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, body: d }; }); })
+        .then(function (res) {
+          if (res.ok && res.body && res.body.ok) {
+            say("ok", "Message sent. We'll get back to you by email.", "تم إرسال الرسالة. سنعاود التواصل معك عبر البريد الإلكتروني.");
+            form.reset();
+          } else if (res.body && res.body.error) {
+            statusEl.className = "err"; statusEl.textContent = res.body.error;
+          } else {
+            say("err", "Something went wrong. Please email contact@lisanai.org directly.", "حدث خطأ ما. يرجى مراسلتنا مباشرة على contact@lisanai.org.");
+          }
+        })
+        .catch(function () {
+          say("err", "Network error. Please email contact@lisanai.org directly.", "خطأ في الشبكة. يرجى مراسلتنا مباشرة على contact@lisanai.org.");
+        })
+        .then(function () { btn.disabled = false; btn.innerHTML = keep; });
+    });
+  })();
 })();
 </script>
 </body>
