@@ -10,7 +10,7 @@ change is smooth so nothing pumps or clicks. Everywhere else the background is
 identical to before.
 
 Never raises: on any problem the caller keeps the original background.
-Switch off with env BG_DUCK_DB=0. Depth in dB: BG_DUCK_DB (default 12).
+Off by default (BG_DUCK_DB=0); set BG_DUCK_DB=12 to switch it on (it also lowers the ambience while people speak).
 """
 import os
 import subprocess
@@ -34,7 +34,10 @@ def _env_float(name, default):
         return float(default)
 
 
-DEPTH_DB = _env_float("BG_DUCK_DB", 12.0)
+# OFF by default since v1.70: the ambience (room tone, crowd murmur, music) must stay at the same level for the whole clip,
+# with or without speech. Lowering the separated background while people speak also lowered that ambience. Set the
+# environment variable BG_DUCK_DB (e.g. 12) to switch the old behaviour back on.
+DEPTH_DB = _env_float("BG_DUCK_DB", 0.0)
 LOW_KEEP_HZ = _env_float("BG_DUCK_KEEP_LOW_HZ", 250.0)   # below this the background is never lowered
 ENABLED = DEPTH_DB > 0.5
 MAKEUP_MAX_DB = _env_float("BG_MAKEUP_MAX_DB", 20.0)   # most the separated background is raised to match the original (0 = off)
@@ -607,8 +610,10 @@ REACT_BRIDGE_SEC = 0.25       # gaps this short inside one reaction (between two
 REACT_REL_DB = 30.0           # quieter than this far under the speech level = not a reaction
 REACT_MIN_TOTAL_SEC = 0.8     # less than this in total: not worth adding
 REACT_MAX_SHARE = 0.6         # more than this share of the video would not be audience sound (singing, a wrong speech map)
-REACT_RISE_TAU = 0.02         # fade in (s): about 60 ms
-REACT_FALL_TAU = 0.04         # fade out (s): about 120 ms
+REACT_FADE_IN_SEC = 0.08      # fade in
+REACT_FADE_OUT_SEC = _env_float("BG_REACTIONS_FADE_OUT", 1.5)   # laughter is never cut: it fades to zero over (at most) this long
+REACT_FADE_SHARE = 0.75       # ...and over at most this share of a short reaction
+REACT_TAIL_SEC = 0.5          # the natural tail of a reaction is kept this far past the point it drops under the threshold
 
 
 def merge_spans(spans, gap=0.35):
@@ -651,6 +656,30 @@ def reaction_frames(levels_db, spans, min_level_db=None):
         if i1 - i0 < min_len:
             cand[i0:i1] = False
     return cand, speech, {"ref_db": round(ref, 1), "thr_db": round(thr, 1)}
+
+
+def reaction_gain(mask, speech):
+    """Gain curve (0..1, one value per 10 ms) for the reaction layer. Every reaction starts with a short fade in and
+    ENDS WITH A GRADUAL FADE OUT that reaches exactly zero at its last frame: a laugh or an applause is never cut off.
+    The natural tail (REACT_TAIL_SEC) is kept where no word follows; the fade never runs into a spoken word."""
+    n = mask.size
+    g = np.zeros(n, dtype=np.float64)
+    idx = np.flatnonzero(np.diff(np.concatenate([[0], mask.astype(np.int8), [0]])))
+    tail = int(round(REACT_TAIL_SEC / FRAME_SEC))
+    for i0, i1 in zip(idx[0::2], idx[1::2]):
+        e = i1
+        while e < n and e - i1 < tail and not speech[e] and not mask[e]:
+            e += 1
+        L = e - i0
+        if L < 3:
+            continue
+        seg = np.ones(L)
+        fin = max(1, min(int(round(REACT_FADE_IN_SEC / FRAME_SEC)), L // 3))
+        seg[:fin] = np.sin(0.5 * np.pi * np.linspace(0.0, 1.0, fin, endpoint=False)) ** 2
+        fout = max(2, min(int(round(REACT_FADE_OUT_SEC / FRAME_SEC)), int(L * REACT_FADE_SHARE)))
+        seg[L - fout:] *= np.cos(0.5 * np.pi * np.linspace(0.0, 1.0, fout)) ** 2     # 1 -> exactly 0 at the last frame
+        g[i0:e] = np.maximum(g[i0:e], seg)
+    return g
 
 
 def _smooth_gain(target, rise_tau, fall_tau):
@@ -705,7 +734,7 @@ def build_reaction_layer(vocals_path, spans, dub_path, out_path, gain_db=None, m
                               f"could be: not used")
             return info
         info["level_db"] = _db(float(np.mean(10.0 ** (levels[mask] / 10.0))))
-        g = _smooth_gain(mask.astype(np.float64), REACT_RISE_TAU, REACT_FALL_TAU)
+        g = reaction_gain(mask, speech)
         # lowered while the dubbed voice speaks
         duck_note = "no ducking"
         if dub_path is not None and Path(dub_path).exists() and REACT_DUCK_DB > 0.5:
@@ -717,7 +746,7 @@ def build_reaction_layer(vocals_path, spans, dub_path, out_path, gain_db=None, m
                 duck_note = f"lowered {REACT_DUCK_DB:g} dB while the dubbed voice speaks ({dshare * 100:.0f}% of the time)"
         gain_lin = 10.0 ** ((REACT_GAIN_DB if gain_db is None else float(gain_db)) / 20.0)
         centers = (np.arange(g.size) + 0.5) * (HOP * RATE / ANALYSIS_RATE)
-        dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(vocals_path), "-vn", "-ac", "1", "-ar", str(RATE),
+        dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(vocals_path), "-vn", "-af", "pan=mono|c0=0.5*c0+0.5*c1", "-ar", str(RATE),
                                 "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", str(CH), "-i", "-",
                                 "-c:a", "pcm_s16le", str(part)], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)

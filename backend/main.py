@@ -896,10 +896,36 @@ DEFAULT_PACKS = [
 # profile with no subscription_plan_key at all -- i.e. someone who
 # subscribed before tiers existed. Never touched by either page above.
 DEFAULT_SUBSCRIPTION_PLANS = [
-    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1, "clones_per_month": 2},
-    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3, "clones_per_month": 5},
-    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8, "clones_per_month": 15},
+    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1, "clones_per_month": 2,  "storage_gb": 5},
+    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3, "clones_per_month": 5,  "storage_gb": 15},
+    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8, "clones_per_month": 15, "storage_gb": 50},
 ]
+
+# ---- Storage per tier (2026-09) --------------------------------------------
+# Finished dubbed files (mp3 / mp4 / lip-synced mp4) count toward each user's storage. Every monthly tier has a
+# fixed number of GB ("storage_gb" on the tier, editable in admin); a pay-once buyer (no active subscription) gets
+# PAYONCE_STORAGE_GB. When the storage is full the user must delete finished files (Account page) before anything new
+# can be saved: see _storage_block() and the routes that call it.
+PLAN_STORAGE_GB_DEFAULT = {"starter_monthly": 5.0, "pro_monthly": 15.0, "studio_monthly": 50.0}
+STORAGE_FALLBACK_GB = 5.0          # a tier that has no storage number at all (an old custom tier)
+try:
+    PAYONCE_STORAGE_GB = float(os.environ.get("PAYONCE_STORAGE_GB", "1"))
+except Exception:
+    PAYONCE_STORAGE_GB = 1.0
+_GB = 1024 ** 3
+
+
+def _plan_storage_gb(plan):
+    """GB of finished-file storage of one tier dict (admin value, else the built-in default for that key)."""
+    try:
+        v = (plan or {}).get("storage_gb")
+        if v not in (None, ""):
+            v = float(v)
+            if v > 0:
+                return v
+    except (TypeError, ValueError):
+        pass
+    return PLAN_STORAGE_GB_DEFAULT.get(str((plan or {}).get("key") or "").strip().lower(), STORAGE_FALLBACK_GB)
 
 def _pack_dict_key(p):
     """The dict key a pack shows up under publicly. Prefers the pack's own
@@ -1328,6 +1354,7 @@ def _get_subscription_plan(plan_key):
                     "price_usd": float(p.get("price_usd") or 0),
                     "voice_slots": int(p.get("voice_slots") or 0),
                     "clones_per_month": clones_per_month,
+                    "storage_gb": _plan_storage_gb(p),
                 }
     return {
         "key": "pro_monthly",
@@ -1336,6 +1363,7 @@ def _get_subscription_plan(plan_key):
         "price_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         "voice_slots": 0,
         "clones_per_month": None,
+        "storage_gb": _plan_storage_gb({"key": "pro_monthly"}),
     }
 
 
@@ -3126,9 +3154,16 @@ def _plans_for_public_display(plans):
     is blanked, so neither page advertises a monthly clone allowance that
     isn't enforced. The stored admin values are never modified; on
     ElevenLabs the list is returned unchanged."""
-    if _active_voice_engine() != "inworld":
-        return plans
-    return [dict(p, clones_per_month=None) if isinstance(p, dict) else p for p in plans]
+    out = []
+    for p in plans:
+        if not isinstance(p, dict):
+            out.append(p)
+            continue
+        q = dict(p, storage_gb=_plan_storage_gb(p))
+        if _active_voice_engine() == "inworld":
+            q["clones_per_month"] = None
+        out.append(q)
+    return out
 
 
 @app.get("/pricing")
@@ -3799,6 +3834,9 @@ def generate(req: GenerateRequest, request: Request):
         # reason is this reserve floor, a deliberate safety margin so a job
         # can't finish with a negative balance -- so say that instead.
         return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). You're only charged for what's actually used. Use ➕ Buy to top up."}, status_code=402)
+    _blk = _storage_block(uid, 0)
+    if _blk is not None:
+        return _blk          # storage full: delete finished files first (nothing is charged)
     req.elevenlabs_api_key = ELEVENLABS_API_KEY
     req.gemini_api_key = GEMINI_API_KEY
     req.inworld_api_key = INWORLD_API_KEY
@@ -3857,6 +3895,10 @@ def merge_video(req: MergeRequest, request: Request):
     if bal is not None and bal < merge_cost:
         plural = "s" if merge_cost != 1 else ""
         return JSONResponse({"error": f"Insufficient credits (merge costs {merge_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
+    _sv = find_job_video(req.job_id)
+    _blk = _storage_block(uid, _sv.stat().st_size if _sv is not None else 0, OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4")
+    if _blk is not None:
+        return _blk          # before anything is charged
     if uid:
         deduct_credits(uid, merge_cost, "merge", req.job_id)
 
@@ -3991,6 +4033,9 @@ def lipsync(req: LipSyncRequest, request: Request):
         dur = None
     if not dur or dur <= 0:
         return JSONResponse({"error": "Could not determine this video's length. Please try again."}, status_code=500)
+    _blk = _storage_block(uid, video_path.stat().st_size, OUTPUT_DIR / f"{req.job_id}_final_lipsync.mp4")
+    if _blk is not None:
+        return _blk          # before anything is charged
     # Re-check against Wan 3.0's real limits here too, not just at upload
     # time (LIPSYNC_MIN_SEC/LIPSYNC_MAX_SEC, defined above /api/transcribe)
     # -- duration is ground truth, and checking it again right before the
@@ -4483,6 +4528,8 @@ class LongDubInit(BaseModel):
     size: int = 0
     speakers: int = 2
     lipsync: bool = False
+    name: str = ""
+    description: str = ""
 
 
 @app.post("/api/longdub/init")
@@ -4493,7 +4540,12 @@ def longdub_init(body: LongDubInit, request: Request):
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
-    job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync)
+    _vid = str(body.filename or "").lower().endswith(tuple(longdub_service.VIDEO_EXTS))
+    _blk = _storage_block(uid, int(body.size or 0) if _vid else int((body.size or 0) * 0.2))
+    if _blk is not None:
+        return _blk          # no point in uploading a big file that could not be saved
+    job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
+                                            body.name, body.description)
     if err:
         return JSONResponse({"error": err[0]}, status_code=err[1])
     return longdub_service.public_view(job)
@@ -4514,7 +4566,8 @@ async def longdub_chunk(job_id: str, index: int, request: Request):
     ok, msg = await asyncio.to_thread(longdub_service.write_chunk, job, index, data)
     if not ok:
         return JSONResponse({"error": msg}, status_code=400)
-    return {"ok": True, "received_count": len(job.get("received", []))}
+    _held = job.get("reattach") if job.get("status") == "editing" and job.get("reattach") else job
+    return {"ok": True, "received_count": len(_held.get("received", []))}
 
 
 @app.post("/api/longdub/{job_id}/finish")
@@ -4522,12 +4575,63 @@ def longdub_finish(job_id: str, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
-    ok, e = longdub_service.finish_upload(job, uid)
+    if job.get("reattach") or (job.get("status") == "analyzing" and job.get("restoring")):
+        ok, e = longdub_service.finish_restore(job, uid)
+    else:
+        ok, e = longdub_service.finish_upload(job, uid)
     if not ok:
         return JSONResponse({"error": e[0]}, status_code=e[1])
     v = longdub_service.public_view(longdub_service.load_job(job_id) or job)
     v["credits"] = get_credits(uid)
     return v
+
+
+class LongDubProject(BaseModel):
+    name: str = ""
+    description: str = ""
+
+
+@app.put("/api/longdub/{job_id}/project")
+def longdub_project_update(job_id: str, body: LongDubProject, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.update_project(job, body.name, body.description)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return longdub_service.public_view(job)
+
+
+@app.post("/api/longdub/{job_id}/park")
+def longdub_park(job_id: str, request: Request):
+    """Save and close: the text stays, the video and audio copies leave the server. Costs nothing."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.park_job(job, "user")
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return longdub_service.public_view(job)
+
+
+class LongDubReattach(BaseModel):
+    filename: str = ""
+    size: int = 0
+
+
+@app.post("/api/longdub/{job_id}/reattach")
+def longdub_reattach(job_id: str, body: LongDubReattach, request: Request):
+    """The user picked the original file again for a saved project (upload then uses the same /chunk and /finish routes)."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    ok, e = longdub_service.restore_init(job, uid, body.filename, body.size)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return longdub_service.public_view(job)
 
 
 class LongDubAccept(BaseModel):
@@ -4556,7 +4660,12 @@ def longdub_status(job_id: str, request: Request):
     if err:
         return err
     v = longdub_service.public_view(job)
-    v["received"] = sorted(job.get("received", [])) if job.get("status") == "uploading" else []
+    if job.get("status") == "uploading":
+        v["received"] = sorted(job.get("received", []))
+    elif job.get("status") == "editing" and job.get("reattach"):
+        v["received"] = sorted(job["reattach"].get("received", []))
+    else:
+        v["received"] = []
     return v
 
 
@@ -4696,6 +4805,10 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
+    _vid = str(job.get("ext") or "").lower() in longdub_service.VIDEO_EXTS
+    _blk = _storage_block(uid, int(job.get("size") or 0) if _vid else int((job.get("size") or 0) * 0.2))
+    if _blk is not None:
+        return _blk          # before the dubbing is charged
     ok, e = longdub_service.confirm(job, uid, body.expected_due)
     if not ok:
         extra = {}
@@ -4733,6 +4846,19 @@ def longdub_retranslate(job_id: str, body: LongDubRetranslate, request: Request)
     if not ok:
         return JSONResponse({"error": msg}, status_code=409)
     return {"ok": True, "arabic_text": arabic, "emotion": longdub_service.line_emotion(job, body.segment_id)}
+
+
+@app.post("/api/longdub/{job_id}/tashkeel")
+def longdub_tashkeel(job_id: str, body: LongDubRetranslate, request: Request):
+    if _rate_limited(request, "tashkeel", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, msg, arabic = longdub_service.tashkeel_line(job, body.segment_id)
+    if not ok:
+        return JSONResponse({"error": msg}, status_code=409)
+    return {"ok": True, "arabic_text": arabic}
 
 
 @app.delete("/api/longdub/{job_id}")
@@ -4838,17 +4964,11 @@ def _job_belongs_to_uid(uid: str, job_id: str) -> bool:
         return False
 
 
-@app.get("/api/my_jobs")
-def my_jobs(request: Request):
-    """Every job of this user's that still has a finished output on disk --
-    backs the Account page's file list. Reuses credit_spends for ownership
-    instead of a new table; a job with no final file left (never produced
-    one, or past the 30-day window) is simply left out."""
-    uid = _current_uid(request)
-    if not uid:
-        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+# ---- storage per user -------------------------------------------------------------
+def _user_job_ids(uid):
+    """{job_id: newest created_at} of this user's jobs (from credit_spends), or None when the lookup failed."""
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return {"jobs": []}
+        return None
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=job_id,created_at&order=created_at.desc&limit=1000"
     hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
@@ -4857,9 +4977,8 @@ def my_jobs(request: Request):
         with _ur.urlopen(req, timeout=10) as r:
             rows = json.load(r)
     except Exception as e:
-        print("[my_jobs] fetch error:", e)
-        return {"jobs": []}
-
+        print("[storage] job lookup error:", e)
+        return None
     latest_seen = {}
     for row in rows:
         jid = row.get("job_id")
@@ -4868,6 +4987,102 @@ def my_jobs(request: Request):
         ts = row.get("created_at") or ""
         if jid not in latest_seen or ts > latest_seen[jid]:
             latest_seen[jid] = ts
+    return latest_seen
+
+
+def _job_output_files(jid):
+    return [OUTPUT_DIR / f"{jid}{suffix}" for suffix in _MY_JOB_FILE_SUFFIXES.values()]
+
+
+def _fmt_storage(nbytes):
+    gb = nbytes / _GB
+    if gb >= 1:
+        return f"{gb:.2f} GB".replace(".00 GB", " GB")
+    return f"{max(0.0, nbytes) / 1048576:.0f} MB"
+
+
+def _storage_summary(uid, job_ids=None):
+    """{"used_bytes", "quota_bytes", "quota_gb", "percent", "full", "plan_name", "subscribed"} for one user, or None
+    when the user's jobs could not be looked up (callers then never block anybody)."""
+    jobs = job_ids if job_ids is not None else _user_job_ids(uid)
+    if jobs is None:
+        return None
+    used = 0
+    for jid in jobs:
+        for p in _job_output_files(jid):
+            try:
+                if p.exists():
+                    used += p.stat().st_size
+            except Exception:
+                pass
+    subscribed, plan_name, gb = False, "", PAYONCE_STORAGE_GB
+    try:
+        prof = _read_subscription_profile(uid) if SUPABASE_SERVICE_KEY else {}
+        if (prof or {}).get("subscription_status") == "active":
+            plan = _get_subscription_plan(prof.get("subscription_plan_key") or "")
+            subscribed, plan_name, gb = True, plan.get("name") or "", float(plan.get("storage_gb") or STORAGE_FALLBACK_GB)
+    except Exception as ex:
+        print("[storage] plan lookup error:", ex)
+    quota = int(gb * _GB)
+    return {"used_bytes": used, "quota_bytes": quota, "quota_gb": gb,
+            "percent": round(100.0 * used / quota, 1) if quota > 0 else 100.0,
+            "full": used >= quota, "plan_name": plan_name, "subscribed": subscribed}
+
+
+def _storage_block(uid, need_bytes=0, replaces=None):
+    """None when a new file of about need_bytes may be saved, else a 409 JSONResponse telling the user to delete
+    finished files first. `replaces` = a file this job will overwrite (its size is given back). Guests and lookup
+    failures are never blocked."""
+    if not uid:
+        return None
+    try:
+        sm = _storage_summary(uid)
+    except Exception as ex:
+        print("[storage] check skipped:", ex)
+        return None
+    if sm is None:
+        return None
+    used, quota = sm["used_bytes"], sm["quota_bytes"]
+    try:
+        if replaces is not None and Path(replaces).exists():
+            used = max(0, used - Path(replaces).stat().st_size)
+    except Exception:
+        pass
+    need = max(0, int(need_bytes or 0))
+    tail = ("Delete some finished files on your Account page to free space" +
+            ("" if sm["subscribed"] and sm["plan_name"] == "Studio" else ", or upgrade your plan for more storage") + ".")
+    if used >= quota:
+        msg = f"Your storage is full ({_fmt_storage(used)} of {_fmt_storage(quota)} used). {tail}"
+    elif need and used + need > quota:
+        msg = (f"Not enough storage: this needs about {_fmt_storage(need)} but only {_fmt_storage(quota - used)} is free "
+               f"({_fmt_storage(used)} of {_fmt_storage(quota)} used). {tail}")
+    else:
+        return None
+    return JSONResponse({"error": msg, "storage_full": True, "storage": sm}, status_code=409)
+
+
+@app.get("/api/storage")
+def my_storage(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    sm = _storage_summary(uid)
+    return {"storage": sm}
+
+
+@app.get("/api/my_jobs")
+def my_jobs(request: Request):
+    """Every job of this user's that still has a finished output on disk --
+    backs the Account page's file list. Reuses credit_spends for ownership
+    instead of a new table; a job with no final file left (never produced
+    one, or past the 30-day window) is simply left out. Also returns the
+    user's storage meter (used / quota)."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    latest_seen = _user_job_ids(uid)
+    if latest_seen is None:
+        return {"jobs": [], "storage": None}
 
     jobs = []
     for jid, created_at in latest_seen.items():
@@ -4884,10 +5099,11 @@ def my_jobs(request: Request):
             "has_audio": audio.exists(),
             "has_video": video.exists(),
             "has_lipsync": lip.exists(),
+            "bytes": sum(p.stat().st_size for p in existing),
             "expires_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(newest_mtime + CLEANUP_FINAL_OUTPUT_DAYS * 86400)),
         })
     jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
-    return {"jobs": jobs}
+    return {"jobs": jobs, "storage": _storage_summary(uid, latest_seen)}
 
 
 @app.get("/api/my_jobs/{job_id}/{kind}")
@@ -4925,7 +5141,11 @@ def delete_my_job(job_id: str, request: Request):
                 removed += 1
         except Exception:
             pass
-    return {"status": "success", "removed": removed}
+    try:
+        sm = _storage_summary(uid)
+    except Exception:
+        sm = None
+    return {"status": "success", "removed": removed, "storage": sm}
 
 
 def account_summary_diag(request: Request):

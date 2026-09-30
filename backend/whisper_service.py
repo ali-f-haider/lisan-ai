@@ -454,6 +454,36 @@ def chunk_words_by_duration(words, max_duration=15.0):
     return chunks
 
 
+SPEAKER_ISLAND_MAX_SEC = 1.3     # a stretch this short (or shorter) between two lines of the same speaker...
+SPEAKER_ISLAND_MAX_WORDS = 4
+SPEAKER_ISLAND_GAP_SEC = 0.3     # ...that follows it with no real pause...
+
+
+def smooth_speaker_islands(rows):
+    """The speaker detector sometimes flips to the other person for a word or two in the MIDDLE of a sentence
+    ("she didn't" / "have a" / "birthday while we were"), which cuts one spoken sentence into three lines. A very short
+    line with no pause before or after it, sitting between two lines of the same speaker that do not end a sentence,
+    is given to that speaker; merge_mid_sentence_rows then joins the pieces. A real interjection after a finished
+    sentence ("?", ".", "!") is left alone. Returns the same list, edited in place."""
+    def ends_sentence(t):
+        return bool(re.search(r'[.!?؟]["\')\]]*\s*$', (t or "").strip()))
+
+    for i in range(1, len(rows) - 1):
+        prev, cur, nxt = rows[i - 1], rows[i], rows[i + 1]
+        if not (prev["speaker"] == nxt["speaker"] and cur["speaker"] != prev["speaker"]):
+            continue
+        words = len((cur.get("text") or "").split())
+        dur = float(cur["end"]) - float(cur["start"])
+        if words > SPEAKER_ISLAND_MAX_WORDS or dur > SPEAKER_ISLAND_MAX_SEC:
+            continue
+        if float(cur["start"]) - float(prev["end"]) > SPEAKER_ISLAND_GAP_SEC or float(nxt["start"]) - float(cur["end"]) > SPEAKER_ISLAND_GAP_SEC:
+            continue
+        if ends_sentence(prev.get("text")) or ends_sentence(cur.get("text")):
+            continue
+        cur["speaker"] = prev["speaker"]
+    return rows
+
+
 def merge_mid_sentence_rows(rows):
     """Re-join consecutive same-speaker rows cut mid-sentence (no . ! ? at the end)."""
     merged = []
@@ -726,7 +756,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         })
                         seg_index += 1
 
-            result = merge_mid_sentence_rows(result)
+            result = merge_mid_sentence_rows(smooth_speaker_islands(result))
             if not lang_warned:      # model-free second look: lines written in Arabic / other non-Latin letters
                 try:
                     import lang_check

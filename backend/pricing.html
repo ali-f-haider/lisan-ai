@@ -123,7 +123,7 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
     <div class="plan-grid" id="packCards"><p class="loading-note">Loading packs…</p></div>
     <div class="trust">
       <span>🔒 Login-protected purchases<span class="ar2">🔒 عمليات شراء محمية بتسجيل الدخول</span></span>
-      <span>⏳ One-time: 48h file storage · Monthly: 30 days<span class="ar2">⏳ لمرة واحدة: تخزين 48 ساعة · شهري: 30 يومًا</span></span>
+      <span>⏳ One-time: 48h file storage (1 GB) · Monthly: 30 days, storage size by plan<span class="ar2">⏳ لمرة واحدة: تخزين 48 ساعة (1 جيجابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
       <span>💳 Secure payments by Stripe<span class="ar2">💳 مدفوعات آمنة عبر Stripe</span></span>
     </div>
   </div>
@@ -224,6 +224,8 @@ function renderSubs(plans) {
     else if (state === "upgrade") { ctaEn = "⬆ Upgrade now — you only pay the prorated difference"; ctaAr = "⬆ ترقية الآن — تدفع الفرق النسبي فقط"; }
     else { ctaEn = "⬇ Switches at your next renewal" + (periodEnd ? " (" + periodEnd + ")" : ""); ctaAr = "⬇ التحويل عند التجديد القادم" + (periodEnd ? " (" + periodEnd + ")" : ""); }
     var isPro = p.key === "pro_monthly";
+    var storageGb = parseFloat(p.storage_gb || 0) || 0;
+    storageGb = (Math.round(storageGb * 10) / 10).toString();
     // clones_per_month is blank/null in admin when a tier has no separate
     // monthly cloning cap set (see main.py's _get_subscription_plan) --
     // only show this line when a real positive number is configured, same
@@ -242,7 +244,8 @@ function renderSubs(plans) {
       '<div class="pdetail">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '<span class="ar2">' + slots + ' مكان صوت محفوظ</span></div>' +
       clonesLine +
       (p.key === "studio_monthly" ? '<div class="pdetail">🎞️ Includes Dub Long Video<span class="ar2">🎞️ تشمل دبلجة فيديو طويل</span></div>' : '') +
-      '<div class="pdetail">⏳ 30-day file storage · cancel anytime<span class="ar2">تخزين 30 يومًا · إلغاء في أي وقت</span></div>' +
+      '<div class="pdetail">💾 ' + storageGb + ' GB file storage<span class="ar2">💾 ' + storageGb + ' جيجابايت لتخزين الملفات</span></div>' +
+      '<div class="pdetail">⏳ Files kept 30 days · cancel anytime<span class="ar2">الملفات محفوظة 30 يومًا · إلغاء في أي وقت</span></div>' +
       '<div class="pcta">' + ctaEn + '<span class="ar2">' + ctaAr + '</span></div>' +
       '</button>';
   });
@@ -267,7 +270,7 @@ function renderPacks(packs) {
       '<div class="pname">' + label + '<span class="ar2">' + (PACK_NAME_AR[k] || label) + '</span></div>' +
       '<div class="pprice">$' + price.toFixed(2) + '<span class="ar2">' + price.toFixed(2) + '$</span></div>' +
       '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits<span class="ar2">' + credits.toLocaleString() + ' رصيد</span></div>' +
-      '<div class="pdetail">⏳ One-time · 48h file storage · never expires<span class="ar2">لمرة واحدة · تخزين 48 ساعة · لا تنتهي صلاحيته</span></div>' +
+      '<div class="pdetail">⏳ One-time · 48h file storage (1 GB) · never expires<span class="ar2">لمرة واحدة · تخزين 48 ساعة (1 جيجابايت) · لا تنتهي صلاحيته</span></div>' +
       '<div class="pcta">Buy now →<span class="ar2">اشترِ الآن ←</span></div>' +
       '</button>';
   });

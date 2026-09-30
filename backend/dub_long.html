@@ -17,6 +17,13 @@
   .ld-spkask { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
   .ld-spkask label { margin: 0; }
   .ld-spkask input { width: 80px; }
+  .ld-projfields { margin-top: 14px; display: grid; gap: 10px; }
+  .ld-projfields label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+  .ld-projfields input, .ld-projfields textarea { width: 100%; box-sizing: border-box; }
+  .ld-projfields textarea { min-height: 62px; resize: vertical; font: inherit; }
+  .ld-projhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  .ld-projhead .pname { font-size: 17px; font-weight: 700; word-break: break-word; }
+  .ld-projhead .pdesc { color: var(--text-muted); font-size: 13px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
   .ld-lipask { margin-top: 16px; }
   .ld-lipask .ld-radio { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; cursor: pointer; font-size: 14px; line-height: 1.5; }
   .ld-lipask .ld-radio input { width: auto; margin-top: 4px; flex: none; }
@@ -81,6 +88,17 @@
   .ld-arfoot button { padding: 5px 12px; font-size: 12px; }
   .ld-arfoot .ld-emosel { padding: 4px 6px; font-size: 12px; max-width: 150px; min-width: 0; flex: 0 1 auto; width: auto; }
   .ld-cnt { font-size: 11px; color: var(--text-muted); }
+  .ld-arfoot .ld-foot-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+  .ld-emobtn { display: inline-flex; align-items: center; gap: 6px; max-width: 210px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; border-radius: 8px; }
+  .ld-emobtn span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .ld-emopanel { position: fixed; z-index: 400; width: 240px; max-height: 300px; overflow-y: auto; background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 6px; }
+  .ld-emopanel .hint { font-size: 11px; color: var(--text-muted); padding: 4px 8px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .ld-emopanel .hint.warn { color: var(--warning); }
+  .ld-emopanel label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; margin: 0; }
+  .ld-emopanel label:hover { background: var(--muted-surface); }
+  .ld-emopanel label.off { opacity: .45; cursor: not-allowed; }
+  .ld-emopanel input { width: auto; margin: 0; flex: none; }
   .ld-colhead { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
   @media (max-width: 720px) {
     .ld-seg, .ld-colhead { grid-template-columns: 1fr; }
@@ -126,7 +144,11 @@
   </div>
 
   <div class="card" id="uploadCard">
-    <h3 id="uploadHeading">1. Upload your video</h3>
+    <h3 id="uploadHeading">1. Start a new dubbing project</h3>
+    <div class="ld-projfields">
+      <div><label for="projName" id="projNameLabel">Project name</label><input type="text" id="projName" maxlength="80" autocomplete="off"></div>
+      <div><label for="projDesc" id="projDescLabel">Description (optional)</label><textarea id="projDesc" maxlength="500"></textarea></div>
+    </div>
     <div class="ld-spkask">
       <label for="spkCount" id="spkAskLabel">How many people speak in this video?</label>
       <input type="number" id="spkCount" min="1" max="8" value="2">
@@ -199,15 +221,32 @@ var T = {
       return "For videos longer than the normal 15-second limit — up to " + maxMin + " minutes. Available with the Studio plan. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you when your dubbed file is ready.";
     },
     introSteps: [
-      "Upload your video and tell us how many people speak. You pay a small fee to get a price and time estimate for the whole job — it counts toward the total.",
+      "Name your project, upload your video and tell us how many people speak. You pay a small fee to get a price and time estimate for the whole job — it counts toward the total.",
       "If you accept the estimate, we translate it into Arabic.",
-      "You review the text, name the speakers, assign each line to its speaker and edit the English and Arabic.",
+      "You review the text, name the speakers, assign each line to its speaker and edit the English and Arabic. You can save and close at any time and carry on later.",
       "You confirm the exact price. We clone each speaker's voice for this job only, dub the video on our servers and email you when it's finished."
     ],
     upsellHeading: "Studio plan feature",
     upsellText: "Dub Long Video is available with the Studio plan. Upgrade to start dubbing videos of several minutes.",
     upsellBtn: "See the Studio plan",
-    uploadHeading: "1. Upload your video",
+    uploadHeading: "1. Start a new dubbing project",
+    projNameLabel: "Project name", projNamePh: "For example: Friends, season 1 episode 3",
+    projDescLabel: "Description (optional)", projDescPh: "Anything you want to remember about this project",
+    projNameNeeded: "Please give your project a name first.",
+    projNote: "Your project is saved as you work. Press \"Save and close\" whenever you like and come back later or switch to another project. We keep only your text (lines, times, translations, emotions, speakers), so nothing is lost. To dub it, you attach the same video again. Saving and coming back cost no credits.",
+    saveCloseBtn: "Save and close", closeBtn: "Close project",
+    savedMsg: "Your project is saved. Only the text is kept on our servers. When you come back, open it from \"My long dubs\", carry on editing, and attach the same file when you are ready to dub. This costs no credits.",
+    stSaved: "Saved (text only)", newProject: "+ New project",
+    reattachHead: "Your video is not on our servers right now",
+    reattachText: "Your text is saved and you can keep editing it. To dub, attach the same file you started with so we can get its audio ready again. This costs no credits.",
+    reattachBtn: "Attach the same file", reattachResume: "Choose the same file to continue",
+    reattachUp: function (p) { return "Uploading your file… " + p + "%"; },
+    reattachPaused: "The upload stopped. Choose the same file again and it will continue.",
+    wrongFileProj: "That isn't the same file this project was made from. Choose the original file (a re-saved or re-exported copy will not match).",
+    restoringHeading: "Getting your project ready",
+    restoringNote: "We are preparing the audio of your file again (this costs no credits and your text is untouched). You can close this page and come back - your project will be waiting.",
+    detEdit: "Edit name and description", detSave: "Save", detCancel: "Cancel",
+    needFileToDub: "Attach your original file above to enable dubbing.",
     spkAskLabel: "How many people speak in this video?",
     spkAskNote: "Lisan AI also detects the speakers itself after the analysis; you will name them and check every line before anything is dubbed. This number is used for the estimate (each speaker's voice is cloned separately).",
     spkBad: function (max) { return "Enter a number of speakers between 1 and " + max + "."; },
@@ -299,7 +338,7 @@ var T = {
     doneWarn: function (n) { return n + " line(s) could not be dubbed and were left silent (their price was refunded)."; },
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
-    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, split a line in two (if one line holds two people talking), insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. This project is kept for 7 days.",
+    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, split a line in two (if one line holds two people talking), insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. A saved project is kept for 90 days.",
     colTime: "Time / speaker", colEn: "English", colAr: "Arabic", emotionLbl: "Voice style",
     timeFrom: "From", timeTo: "To", timeBad: "Write the time like 1:23.5 or 83.5 (minutes:seconds).",
     insertLine: "+ Insert a line after", deleteLine: "Delete line",
@@ -313,6 +352,9 @@ var T = {
     linesCount: function (n, missing) { return n + " lines" + (missing ? " · " + missing + " without Arabic" : ""); },
     saving: "Saving…", saved: "All changes saved ✓", saveFailed: "Couldn't save — trying again…",
     retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "We couldn't translate this just now. Please try again.",
+    tashkeel: "Tashkeel", tashkeelWorking: "Adding…", tashkeelFail: "We couldn't add the diacritics just now. Please try again.",
+    tashkeelHint: "Adds the vowel marks (tashkeel) to the words of this line that have none.",
+    emoHint: function (n) { return "Pick up to 3 styles (" + n + " of 3)"; }, emoMax: "You can pick up to 3 styles. Untick one first.",
     chars: function (n) { return n + " characters"; },
     spkHeading: "Speakers",
     spkSummary: function (stated, detected) { return "You told us " + stated + " speaker" + (stated === 1 ? "" : "s") + " · Lisan AI detected " + detected + ". Name each speaker, add or remove speakers, then assign every line below."; },
@@ -352,15 +394,32 @@ var T = {
       return "للفيديوهات الأطول من حدّ الـ15 ثانية المعتاد — حتى " + maxMin + " دقائق. متاحة مع باقة Studio. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عندما يجهز الملف المدبلج.";
     },
     introSteps: [
-      "ارفع الفيديو وأخبرنا بعدد المتحدثين. تدفع رسماً صغيراً للحصول على تقدير السعر والوقت للعملية كاملة — ويُحتسب من الإجمالي.",
+      "سمِّ مشروعك، وارفع الفيديو وأخبرنا بعدد المتحدثين. تدفع رسماً صغيراً للحصول على تقدير السعر والوقت للعملية كاملة — ويُحتسب من الإجمالي.",
       "إذا وافقت على التقدير، نقوم بترجمته إلى العربية.",
-      "تراجع النص، وتسمّي المتحدثين، وتُسند كل سطر إلى متحدثه، وتعدّل النص الإنجليزي والعربي.",
+      "تراجع النص، وتسمّي المتحدثين، وتُسند كل سطر إلى متحدثه، وتعدّل النص الإنجليزي والعربي. يمكنك الحفظ والإغلاق في أي وقت والمتابعة لاحقاً.",
       "تؤكد السعر النهائي. نستنسخ صوت كل متحدث لهذه العملية فقط، وندبلج الفيديو على خوادمنا ونراسلك عند الانتهاء."
     ],
     upsellHeading: "ميزة باقة Studio",
     upsellText: "دبلجة الفيديو الطويل متاحة مع باقة Studio. رقِّ باقتك لتبدأ دبلجة فيديوهات من عدة دقائق.",
     upsellBtn: "عرض باقة Studio",
-    uploadHeading: "١. ارفع الفيديو",
+    uploadHeading: "١. ابدأ مشروع دبلجة جديداً",
+    projNameLabel: "اسم المشروع", projNamePh: "مثال: فريندز، الموسم الأول الحلقة 3",
+    projDescLabel: "وصف (اختياري)", projDescPh: "أي شيء تريد تذكّره عن هذا المشروع",
+    projNameNeeded: "يرجى إعطاء المشروع اسماً أولاً.",
+    projNote: "يُحفظ مشروعك أثناء عملك. اضغط «حفظ وإغلاق» متى شئت وارجع لاحقاً أو انتقل إلى مشروع آخر. نحتفظ بالنص فقط (الأسطر والأوقات والترجمات والمشاعر والمتحدثين) فلا يضيع شيء. وعندما تريد الدبلجة تُرفق الفيديو نفسه من جديد. الحفظ والعودة لا يكلّفان أي رصيد.",
+    saveCloseBtn: "حفظ وإغلاق", closeBtn: "إغلاق المشروع",
+    savedMsg: "تم حفظ مشروعك. يبقى النص فقط على خوادمنا. عند عودتك افتحه من «دبلجاتي الطويلة» وتابع التعديل، وأرفق الملف نفسه عندما تكون جاهزاً للدبلجة. هذا لا يكلّف أي رصيد.",
+    stSaved: "محفوظ (النص فقط)", newProject: "+ مشروع جديد",
+    reattachHead: "الفيديو ليس على خوادمنا حالياً",
+    reattachText: "نصّك محفوظ ويمكنك متابعة تعديله. وللدبلجة أرفق الملف نفسه الذي بدأت به لنجهّز صوته من جديد. هذا لا يكلّف أي رصيد.",
+    reattachBtn: "إرفاق الملف نفسه", reattachResume: "اختر الملف نفسه للمتابعة",
+    reattachUp: function (p) { return "جارٍ رفع ملفك… " + p + "٪"; },
+    reattachPaused: "توقّف الرفع. اختر الملف نفسه مرة أخرى وسيتابع من حيث توقف.",
+    wrongFileProj: "هذا ليس الملف نفسه الذي أُنشئ منه المشروع. اختر الملف الأصلي (النسخة المُعاد حفظها أو تصديرها لن تطابق).",
+    restoringHeading: "نجهّز مشروعك",
+    restoringNote: "نجهّز صوت ملفك من جديد (لا يكلّف هذا أي رصيد ولا يتأثر نصّك). يمكنك إغلاق الصفحة والعودة — سيكون مشروعك بانتظارك.",
+    detEdit: "تعديل الاسم والوصف", detSave: "حفظ", detCancel: "إلغاء",
+    needFileToDub: "أرفق ملفك الأصلي في الأعلى لتفعيل الدبلجة.",
     spkAskLabel: "كم شخصاً يتحدث في هذا الفيديو؟",
     spkAskNote: "يكتشف لسان AI المتحدثين بنفسه بعد التحليل أيضاً؛ وستسمّيهم وتراجع كل سطر قبل أي دبلجة. يُستخدم هذا الرقم في التقدير (يُستنسخ صوت كل متحدث على حدة).",
     spkBad: function (max) { return "أدخل عدد متحدثين بين 1 و" + max + "."; },
@@ -452,7 +511,7 @@ var T = {
     doneWarn: function (n) { return "تعذّرت دبلجة " + n + " سطر وتُرك صامتاً (وأُعيد ثمنه)."; },
     doneLip: function (a, b) { return "مزامنة الشفاه: تمت مزامنة " + a + " من " + b + " مقطعاً."; },
     editorHeading: "٣. المراجعة والتعديل",
-    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو تقسيم سطر إلى اثنين (إذا كان يحوي كلام شخصين)، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ هذا المشروع لمدة 7 أيام.",
+    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو تقسيم سطر إلى اثنين (إذا كان يحوي كلام شخصين)، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ المشروع المحفوظ لمدة 90 يوماً.",
     colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية", emotionLbl: "الأسلوب",
     timeFrom: "من", timeTo: "إلى", timeBad: "اكتب الوقت بهذا الشكل: 1:23.5 أو 83.5 (دقائق:ثوانٍ).",
     insertLine: "+ إدراج سطر بعده", deleteLine: "حذف السطر",
@@ -466,6 +525,9 @@ var T = {
     linesCount: function (n, missing) { return n + " سطر" + (missing ? " · " + missing + " بلا ترجمة" : ""); },
     saving: "جارٍ الحفظ…", saved: "تم حفظ كل التعديلات ✓", saveFailed: "تعذّر الحفظ — نحاول مجدداً…",
     retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "تعذّرت الترجمة الآن. حاول مرة أخرى.",
+    tashkeel: "تشكيل", tashkeelWorking: "جارٍ التشكيل…", tashkeelFail: "تعذّر إضافة التشكيل الآن. حاول مرة أخرى.",
+    tashkeelHint: "يضيف التشكيل إلى كلمات هذا السطر التي لا تحمل تشكيلاً.",
+    emoHint: function (n) { return "اختر حتى 3 أساليب (" + n + " من 3)"; }, emoMax: "يمكنك اختيار 3 أساليب كحدٍّ أقصى. ألغِ أحدها أولاً.",
     chars: function (n) { return n + " حرفاً"; },
     spkHeading: "المتحدثون",
     spkSummary: function (stated, detected) { return "أخبرتنا بوجود " + stated + " متحدثين · واكتشف لسان AI " + detected + ". سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; },
@@ -520,6 +582,17 @@ function safeErr(m, fb) {
   if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|\bnull\b|api[ _-]?key|supabase|\bR2\b|ffmpeg|ffprobe|\.py\b|\/api\/|Server error|Internal Server/i.test(m)) return fb;
   return m;
 }
+function fmtBytesGB(n) { n = Number(n) || 0; return n >= 1073741824 ? (Math.round(n / 1073741824 * 100) / 100) + " GB" : Math.round(n / 1048576) + " MB"; }
+// The server refuses to start a dub that could not be saved when the user's storage is full: say it in the page language.
+function storageMsg(d) {
+  var sm = d.storage || {}, u = fmtBytesGB(sm.used_bytes), q = fmtBytesGB(sm.quota_bytes);
+  if (LANG === "ar") {
+    return (sm.full ? "مساحة التخزين ممتلئة (" + u + " من " + q + "). " : "لا توجد مساحة تخزين كافية لحفظ هذا الفيديو (" + u + " من " + q + " مستخدمة). ")
+      + "احذف بعض الملفات الجاهزة من صفحة حسابك لتتمكن من حفظ فيديوهات جديدة، أو رقِّ باقتك للحصول على مساحة أكبر.";
+  }
+  return (sm.full ? "Your storage is full (" + u + " of " + q + " used). " : "There is not enough storage to save this video (" + u + " of " + q + " used). ")
+    + "Delete some finished files on your Account page to be able to save new videos, or upgrade your plan for more storage.";
+}
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function fmtTime(sec) { sec = Math.max(0, Math.round(sec || 0)); var m = Math.floor(sec / 60), s = sec % 60; return m + ":" + (s < 10 ? "0" : "") + s; }
 function fmtMin(sec) { return (Math.round((sec || 0) / 6) / 10).toString(); }
@@ -554,6 +627,8 @@ function applyStaticText() {
   $("langBtn").textContent = LANG === "ar" ? "English" : "العربية";
   $("introHeading").textContent = T.introHeading;
   $("uploadHeading").textContent = T.uploadHeading;
+  $("projNameLabel").textContent = T.projNameLabel; $("projName").placeholder = T.projNamePh;
+  $("projDescLabel").textContent = T.projDescLabel; $("projDesc").placeholder = T.projDescPh;
   $("spkAskLabel").textContent = T.spkAskLabel;
   $("spkAskNote").textContent = T.spkAskNote;
   $("lipAskLabel").textContent = T.lipAskLabel;
@@ -657,6 +732,13 @@ function render() {
   renderList();
 }
 
+function projName(j) { return (j && (j.name || j.filename)) || ""; }
+function isSaved(j) { return !!j && j.status === "editing" && j.media_present === false; }
+function badgeFor(j) {
+  if (isSaved(j) && !j.reattaching) return '<span class="ld-status">' + esc(T.stSaved) + "</span>";
+  return statusBadge(j.status);
+}
+
 function statusBadge(st) {
   var cls = (st === "done" || st === "editing") ? "ok" : (st === "failed" || st === "cancelled" || st === "expired") ? "bad" : "";
   return '<span class="ld-status ' + cls + '">' + esc(T.st[st] || st) + "</span>";
@@ -664,15 +746,17 @@ function statusBadge(st) {
 
 function renderJob() {
   if (!cur) { $("jobBody").innerHTML = ""; return; }
+  if (cur.status === "editing") { renderReattach(); return; }
   var j = cur, h = "";
   var heading = T.jobHeading;
   if (j.status === "estimated") heading = T.estHeading;
+  else if (j.restoring) heading = T.restoringHeading;
   else if (j.status === "accepted" || j.status === "analyzing") heading = T.analyzingHeading;
   else if (j.status === "confirmed" || j.status === "dubbing") heading = T.dubbingHeading;
   else if (j.status === "failed") heading = T.failedHeading;
   else if (j.status === "done") heading = T.doneHeading;
   $("jobHeading").textContent = heading;
-  var name = '<p style="margin:0 0 6px;"><strong style="word-break:break-all;">' + esc(j.filename) + "</strong> " + statusBadge(j.status) + "</p>";
+  var name = '<p style="margin:0 0 6px;"><strong style="word-break:break-all;">' + esc(projName(j)) + "</strong> " + statusBadge(j.status) + "</p>";
 
   if (j.status === "uploading") {
     var pct = j.percent || 0;
@@ -699,7 +783,7 @@ function renderJob() {
     }
     h += "<p style='font-weight:600;'>" + esc(label + extra) + " <span style='color:var(--text-muted);font-weight:400;'>" + (j.percent || 0) + "%</span></p>";
     if (j.stage === "review") h += "<p class='note'>" + esc(T.readyNote) + "</p>";
-    else h += "<p class='note'>" + esc(j.stage === "lipsync" ? T.lipNote : ((j.status === "confirmed" || j.status === "dubbing") ? T.dubbingNote : T.analyzingNote)) + "</p>";
+    else h += "<p class='note'>" + esc(j.stage === "lipsync" ? T.lipNote : ((j.status === "confirmed" || j.status === "dubbing") ? T.dubbingNote : (j.restoring ? T.restoringNote : T.analyzingNote))) + "</p>";
   } else if (j.status === "failed") {
     h += name + "<p class='ld-err'>" + esc(safeErr(j.error || j.message, T.genericErr)) + "</p>";
     h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + '</button><button class="btn-plain" id="btnDelete">' + esc(T.deleteBtn) + "</button></div>";
@@ -779,17 +863,121 @@ function wireJobButtons() {
   if ((b = $("btnResume"))) b.onclick = function () { $("fileInput").dataset.resume = "1"; $("fileInput").click(); };
 }
 
+function renderReattach() {
+  var box = $("reattachBox"); if (!box || !cur) return;
+  if (cur.media_present !== false) { box.innerHTML = ""; return; }
+  var total = cur.total_chunks || 0, got = cur.received_count || 0;
+  var h = '<div class="ld-warn"><strong>' + esc(T.reattachHead) + "</strong><p style='margin:6px 0;'>" + esc(T.reattachText) + "</p>";
+  if (uploading || cur.reattaching) {
+    var pct = cur.percent || (total ? Math.floor(100 * got / total) : 0);
+    h += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
+    if (uploading) h += "<p class='note'>" + esc(total && got >= total ? T.finishing : T.reattachUp(pct)) + "</p>";
+    else h += "<p class='note'>" + esc(T.reattachPaused) + '</p><div class="ld-row-btns"><button id="btnReattach">' + esc(T.reattachResume) + "</button></div>";
+  } else {
+    h += '<div class="ld-row-btns"><button id="btnReattach">' + esc(T.reattachBtn) + "</button></div>";
+  }
+  if (lastErr) h += '<p class="ld-err">' + esc(lastErr) + "</p>";
+  h += "</div>";
+  box.innerHTML = h;
+  var b = $("btnReattach");
+  if (b) b.onclick = function () { lastErr = ""; $("fileInput").dataset.resume = ""; $("fileInput").dataset.reattach = "1"; $("fileInput").click(); };
+}
+
+function handleReattach(file) {
+  lastErr = "";
+  if (!cur || file.size !== cur.size) { lastErr = T.wrongFileProj; renderReattach(); return; }
+  if (cur.reattaching) { continueUpload(cur, file); return; }
+  api("POST", "/api/longdub/" + cur.id + "/reattach", { filename: file.name, size: file.size }).then(function (r) {
+    if (!r.ok) { lastErr = safeErr(r.data.error, T.genericErr); renderReattach(); return; }
+    cur = r.data;
+    renderReattach();
+    continueUpload(cur, file);
+  }).catch(function () { lastErr = T.netErr; renderReattach(); });
+}
+
+// ---- project header (name, description, Save and close)
+function renderProjHead() {
+  var box = $("projHead"); if (!box || !cur) return;
+  var saved = cur.media_present === false;
+  box.innerHTML =
+    '<div><div class="pname">' + esc(projName(cur)) + "</div>" + (cur.description ? '<div class="pdesc">' + esc(cur.description) + "</div>" : "") + "</div>" +
+    '<div class="ld-row-btns" style="margin:0;"><button class="btn-plain" id="btnEditProj">' + esc(T.detEdit) + "</button>" +
+    '<button id="btnSaveClose">' + esc(saved ? T.closeBtn : T.saveCloseBtn) + "</button></div>" +
+    '<div id="projEdit" class="ld-projfields hidden" style="width:100%;"></div>';
+  $("btnEditProj").onclick = openProjEdit;
+  $("btnSaveClose").onclick = saveAndClose;
+}
+
+function openProjEdit() {
+  var f = $("projEdit"); if (!f) return;
+  f.classList.remove("hidden");
+  f.innerHTML = '<div><label>' + esc(T.projNameLabel) + '</label><input type="text" id="peName" maxlength="80" value="' + esc(cur.name || "") + '"></div>' +
+    '<div><label>' + esc(T.projDescLabel) + '</label><textarea id="peDesc" maxlength="500">' + esc(cur.description || "") + '</textarea></div>' +
+    '<div class="ld-row-btns"><button id="peSave">' + esc(T.detSave) + '</button><button class="btn-plain" id="peCancel">' + esc(T.detCancel) + '</button></div>' +
+    '<div class="ld-err hidden" id="peErr"></div>';
+  $("peCancel").onclick = function () { f.classList.add("hidden"); f.innerHTML = ""; };
+  $("peSave").onclick = function () {
+    var nm = $("peName").value.trim();
+    if (!nm) { $("peErr").textContent = T.projNameNeeded; $("peErr").classList.remove("hidden"); return; }
+    api("PUT", "/api/longdub/" + cur.id + "/project", { name: nm, description: $("peDesc").value }).then(function (r) {
+      if (!r.ok) { $("peErr").textContent = safeErr(r.data.error, T.genericErr); $("peErr").classList.remove("hidden"); return; }
+      cur.name = r.data.name; cur.description = r.data.description;
+      jobs.forEach(function (x) { if (x.id === cur.id) { x.name = cur.name; x.description = cur.description; } });
+      renderProjHead(); renderList();
+    }).catch(function () { $("peErr").textContent = T.netErr; $("peErr").classList.remove("hidden"); });
+  };
+}
+
+function flushAll() {
+  return flushSave().then(function () {
+    if (!Object.keys(dirty).length) return true;
+    return sleep(700).then(function () { return flushSave(); }).then(function () { return !Object.keys(dirty).length; });
+  });
+}
+
+// Switching to another project (or to a new one): unsaved typing is saved first, never dropped.
+function switchTo(j) {
+  if (!cur || cur.status !== "editing") { selectJob(j); return; }
+  flushAll().then(function (okSaved) {
+    if (!okSaved) { alertMsg(T.saveFailed); return; }
+    return saveSpeakersIfPending().then(function () { selectJob(j); });
+  });
+}
+
+function saveAndClose() {
+  if (!cur) return;
+  var id = cur.id, saved = cur.media_present === false;
+  var btn = $("btnSaveClose"); if (btn) btn.disabled = true;
+  if (uploading && saved) { alertMsg(T.reattachPaused); if (btn) btn.disabled = false; return; }
+  flushAll().then(function (okSaved) {
+    if (!okSaved) return { ok: false, data: { error: T.saveFailed } };
+    return saveSpeakersIfPending();
+  }).then(function (r0) {
+    if (r0 && r0.ok === false) return r0;
+    if (saved) return { ok: true, data: null };
+    return api("POST", "/api/longdub/" + id + "/park");
+  }).then(function (r) {
+    if (!r.ok) { if (btn) btn.disabled = false; alertMsg(safeErr(r.data && r.data.error, T.genericErr)); return; }
+    selectJob(null);
+    loadList().then(renderList);
+    if (!saved) alertMsg(T.savedMsg);
+  }).catch(function () { if (btn) btn.disabled = false; alertMsg(T.netErr); });
+}
+
 function renderList() {
   $("listCard").classList.toggle("hidden", !jobs.length);
   var h = "";
+  if (cur && (cfg ? cfg.studio : true)) h += '<div class="ld-row-btns" style="margin:0 0 6px;"><button id="btnNewProject" class="btn-plain">' + esc(T.newProject) + "</button></div>";
   jobs.forEach(function (j) {
-    h += '<div class="ld-list-item"><div><div class="ld-list-name">' + esc(j.filename) + "</div>" +
-      '<div class="ld-list-meta">' + statusBadge(j.status) + " · " + fmtMin(j.duration) + " " + esc(T.minShort) + " · " + esc(fmtDate(j.updated || j.created)) + "</div></div>" +
+    h += '<div class="ld-list-item"><div><div class="ld-list-name">' + esc(projName(j)) + "</div>" +
+      (j.description ? '<div class="ld-list-meta" style="white-space:pre-wrap;">' + esc(String(j.description).slice(0, 160)) + "</div>" : "") +
+      '<div class="ld-list-meta">' + badgeFor(j) + " · " + esc(j.filename || "") + " · " + fmtMin(j.duration) + " " + esc(T.minShort) + " · " + esc(fmtDate(j.updated || j.created)) + "</div></div>" +
       '<div style="display:flex;gap:8px;"><button data-open="' + esc(j.id) + '" class="btn-plain">' + esc(T.openBtn) + '</button><button data-del="' + esc(j.id) + '" class="btn-danger">' + esc(T.deleteBtn) + "</button></div></div>";
   });
   $("listBody").innerHTML = h;
+  var np = $("btnNewProject"); if (np) np.onclick = function () { switchTo(null); window.scrollTo(0, 0); };
   Array.prototype.forEach.call($("listBody").querySelectorAll("[data-open]"), function (btn) {
-    btn.onclick = function () { var j = jobs.filter(function (x) { return x.id === btn.dataset.open; })[0]; if (j) selectJob(j); window.scrollTo(0, 0); };
+    btn.onclick = function () { var j = jobs.filter(function (x) { return x.id === btn.dataset.open; })[0]; if (j && !(cur && cur.id === j.id)) switchTo(j); window.scrollTo(0, 0); };
   });
   Array.prototype.forEach.call($("listBody").querySelectorAll("[data-del]"), function (btn) {
     btn.onclick = function () { var j = jobs.filter(function (x) { return x.id === btn.dataset.del; })[0]; if (j) deleteJob(j); };
@@ -804,18 +992,29 @@ function showUploadError(msg) {
   el.classList.toggle("hidden", !msg);
 }
 
+function nameOk() {
+  if ($("projName").value.trim()) return true;
+  showUploadError(T.projNameNeeded);
+  try { $("projName").focus(); } catch (e) {}
+  return false;
+}
+
 function onFilePicked(file) {
   showUploadError("");
   lastErr = "";
   if (!file) return;
   var resume = $("fileInput").dataset.resume === "1";
+  var reattach = $("fileInput").dataset.reattach === "1";
   $("fileInput").dataset.resume = "";
+  $("fileInput").dataset.reattach = "";
   $("fileInput").value = "";
+  if (reattach && cur && cur.status === "editing" && cur.media_present === false) { handleReattach(file); return; }
   if (resume && cur && cur.status === "uploading") {
     if (file.name !== cur.filename || file.size !== cur.size) { lastErr = T.wrongFile; renderJob(); return; }
     continueUpload(cur, file);
     return;
   }
+  if (!nameOk()) return;
   var maxMb = cfg ? cfg.max_upload_mb : 2048;
   if (file.size > maxMb * 1048576) { showUploadError(T.tooBig(Math.round(file.size / 1048576), maxMb)); return; }
   var maxSp = cfg ? cfg.max_speakers : 8;
@@ -823,9 +1022,11 @@ function onFilePicked(file) {
   if (!(nsp >= 1 && nsp <= maxSp)) { showUploadError(T.spkBad(maxSp)); return; }
   var wantLip = !!($("lipYes") && $("lipYes").checked && !$("lipYes").disabled);
   if (wantLip && /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(file.name)) { showUploadError(T.lipAudio); return; }
-  api("POST", "/api/longdub/init", { filename: file.name, size: file.size, speakers: nsp, lipsync: wantLip }).then(function (r) {
-    if (!r.ok) { showUploadError(safeErr(r.data.error, T.genericErr)); return; }
+  api("POST", "/api/longdub/init", { filename: file.name, size: file.size, speakers: nsp, lipsync: wantLip,
+                                        name: $("projName").value.trim(), description: $("projDesc").value.trim() }).then(function (r) {
+    if (!r.ok) { showUploadError(r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr)); return; }
     cur = r.data; jobs.unshift(cur);
+    $("projName").value = ""; $("projDesc").value = "";
     try { localStorage.setItem(LS_KEY, cur.id); } catch (e) {}
     render();
     continueUpload(cur, file);
@@ -891,7 +1092,7 @@ function finishUpload(job) {
     }
     setCredits(r.data.credits);
     cur = r.data; lastErr = "";
-    return loadList().then(function () { render(); });
+    return loadList().then(function () { render(); if (cur && isWorking(cur.status)) startPoll(); });
   }).catch(function () { lastErr = T.netErr; renderJob(); });
 }
 
@@ -951,13 +1152,16 @@ function renderEditor() {
   body.innerHTML = "";
   var head = document.createElement("div");
   head.innerHTML =
+    "<div class='ld-projhead' id='projHead'></div><div id='reattachBox'></div>" +
     "<p style='font-weight:600;margin:0 0 6px;'>" + esc(T.readyHead) + "</p>" +
-    "<p class='note'>" + esc(T.editorNote) + "</p>" +
+    "<p class='note'>" + esc(T.editorNote) + "</p><p class='note'>" + esc(T.projNote) + "</p>" +
     ((cur.warnings || []).map(function (w) { return "<div class='ld-warn'>" + esc(w) + "</div>"; }).join("")) +
     "<div class='ld-spkpanel' id='spkPanel'></div>" +
     "<div class='ld-edhead'><strong id='lineCount'></strong><span class='ld-saved' id='savedState'></span></div>" +
     "<div class='ld-colhead'><div>" + esc(T.colTime) + "</div><div>" + esc(T.colEn) + "</div><div>" + esc(T.colAr) + "</div></div>";
   body.appendChild(head);
+  renderProjHead();
+  renderReattach();
   var list = document.createElement("div"); list.id = "segList";
   segs.forEach(function (s) { list.appendChild(buildRow(s)); });
   body.appendChild(list);
@@ -1087,19 +1291,99 @@ function emoLabel(tag) {
 function emoLabelMulti(v) {
   return String(v || "neutral").split(",").map(function (p) { return emoLabel(p.trim()); }).join(LANG === "ar" ? "، " : ", ");
 }
-function fillEmotion(sel, value) {
-  var v = String(value || "neutral").trim() || "neutral";
-  sel.innerHTML = "";
-  if (EMOTIONS.indexOf(v) < 0) {
-    var o0 = document.createElement("option"); o0.value = v; o0.textContent = emoLabelMulti(v); sel.appendChild(o0);
+var EMO_MAX = 3;
+var emoOpen = null;          // { btn, panel } of the open list
+function closeEmoPanel() {
+  if (!emoOpen) return;
+  try { emoOpen.panel.remove(); } catch (e) {}
+  emoOpen = null;
+}
+document.addEventListener("mousedown", function (e) {
+  if (emoOpen && !emoOpen.panel.contains(e.target) && !emoOpen.btn.contains(e.target)) closeEmoPanel();
+});
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeEmoPanel(); });
+window.addEventListener("scroll", function (e) { if (emoOpen && !emoOpen.panel.contains(e.target)) closeEmoPanel(); }, true);
+window.addEventListener("resize", closeEmoPanel);
+
+function parseEmotions(v) {
+  var out = [];
+  String(v || "neutral").split(",").forEach(function (p) {
+    p = p.trim().toLowerCase();
+    if (p && out.indexOf(p) < 0) out.push(p);
+  });
+  out = out.filter(function (p) { return p !== "neutral"; }).slice(0, EMO_MAX);
+  return out.length ? out : ["neutral"];
+}
+
+// A drop-down list with tick boxes: one line can have up to three delivery styles ("Curious, Hesitant").
+function makeEmoPicker(value, onChange) {
+  var cur = parseEmotions(value);
+  var btn = document.createElement("button"); btn.type = "button"; btn.className = "btn-plain ld-emobtn";
+  btn.title = T.emotionLbl; btn.setAttribute("aria-label", T.emotionLbl); btn.setAttribute("aria-haspopup", "true");
+  var txt = document.createElement("span"); txt.className = "t";
+  var car = document.createElement("span"); car.textContent = "▾"; car.setAttribute("aria-hidden", "true");
+  btn.appendChild(txt); btn.appendChild(car);
+  function refresh() { txt.textContent = emoLabelMulti(cur.join(", ")); btn.title = T.emotionLbl + ": " + txt.textContent; }
+  refresh();
+
+  function buildPanel() {
+    var panel = document.createElement("div"); panel.className = "ld-emopanel"; panel.setAttribute("role", "listbox");
+    panel.setAttribute("aria-multiselectable", "true");
+    var hint = document.createElement("div"); hint.className = "hint"; panel.appendChild(hint);
+    var boxes = [];
+    function sync() {
+      var n = cur.indexOf("neutral") >= 0 ? 0 : cur.length;
+      hint.textContent = T.emoHint(n); hint.classList.remove("warn");
+      boxes.forEach(function (b) {
+        b.cb.checked = cur.indexOf(b.tag) >= 0;
+        b.lab.classList.toggle("off", !b.cb.checked && b.tag !== "neutral" && n >= EMO_MAX);
+      });
+    }
+    var tags = EMOTIONS.slice();
+    cur.forEach(function (c) { if (tags.indexOf(c) < 0) tags.push(c); });     // a style we do not list stays visible
+    tags.map(function (e) { return { e: e, l: emoLabel(e) }; })
+      .sort(function (a, b) {
+        if (a.e === "neutral") return -1; if (b.e === "neutral") return 1;
+        return a.l.localeCompare(b.l, LANG === "ar" ? "ar" : "en", { sensitivity: "base" });
+      })
+      .forEach(function (x) {
+        var lab = document.createElement("label");
+        var cb = document.createElement("input"); cb.type = "checkbox"; cb.value = x.e;
+        var sp = document.createElement("span"); sp.textContent = x.l;
+        lab.appendChild(cb); lab.appendChild(sp); panel.appendChild(lab);
+        boxes.push({ tag: x.e, cb: cb, lab: lab });
+        cb.addEventListener("change", function () {
+          var next;
+          if (x.e === "neutral") next = ["neutral"];
+          else if (cb.checked) {
+            var base = cur.filter(function (c) { return c !== "neutral"; });
+            if (base.length >= EMO_MAX) { cb.checked = false; hint.textContent = T.emoMax; hint.classList.add("warn"); return; }
+            next = base.concat([x.e]);
+          } else {
+            next = cur.filter(function (c) { return c !== x.e; });
+            if (!next.length) next = ["neutral"];
+          }
+          cur = next; refresh(); sync(); onChange(cur.join(", "));
+        });
+      });
+    sync();
+    return panel;
   }
-  // alphabetical by what the user reads (English or Arabic labels)
-  EMOTIONS.map(function (e) { return { e: e, l: emoLabel(e) }; })
-    .sort(function (a, b) { return a.l.localeCompare(b.l, LANG === "ar" ? "ar" : "en", { sensitivity: "base" }); })
-    .forEach(function (x) {
-      var o = document.createElement("option"); o.value = x.e; o.textContent = x.l; sel.appendChild(o);
-    });
-  sel.value = v;
+
+  btn.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (emoOpen && emoOpen.btn === btn) { closeEmoPanel(); return; }
+    closeEmoPanel();
+    var panel = buildPanel();
+    document.body.appendChild(panel);
+    var r = btn.getBoundingClientRect(), pw = panel.offsetWidth, ph = panel.offsetHeight;
+    var left = (LANG === "ar") ? r.right - pw : r.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    var top = (r.bottom + 4 + ph > window.innerHeight - 8 && r.top - 4 - ph > 8) ? r.top - 4 - ph : r.bottom + 4;
+    panel.style.left = left + "px"; panel.style.top = Math.max(8, top) + "px";
+    emoOpen = { btn: btn, panel: panel };
+  });
+  return { el: btn, set: function (v) { cur = parseEmotions(v); refresh(); } };
 }
 
 function buildRow(s) {
@@ -1124,9 +1408,11 @@ function buildRow(s) {
   var foot = document.createElement("div"); foot.className = "ld-arfoot";
   var cnt = document.createElement("span"); cnt.className = "ld-cnt"; cnt.textContent = T.chars((ar.value || "").length);
   var btn = document.createElement("button"); btn.className = "btn-plain"; btn.textContent = T.retranslate;
-  var emoSel = document.createElement("select"); emoSel.className = "ld-emosel"; emoSel.title = T.emotionLbl; emoSel.setAttribute("aria-label", T.emotionLbl);
-  fillEmotion(emoSel, s.emotion);
-  foot.appendChild(cnt); foot.appendChild(emoSel); foot.appendChild(btn);
+  var btnTash = document.createElement("button"); btnTash.type = "button"; btnTash.className = "btn-plain"; btnTash.textContent = T.tashkeel; btnTash.title = T.tashkeelHint;
+  var emoPick = makeEmoPicker(s.emotion, function (v) { s.emotion = v; queueSave(s.segment_id, "emotion", v); pricePreview = null; });
+  var footR = document.createElement("div"); footR.className = "ld-foot-r";
+  footR.appendChild(emoPick.el); footR.appendChild(btnTash); footR.appendChild(btn);
+  foot.appendChild(cnt); foot.appendChild(footR);
   wrap.appendChild(ar); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
 
@@ -1185,8 +1471,14 @@ function buildRow(s) {
     s.speaker_id = sel.value; queueSave(s.segment_id, "speaker_id", sel.value); pricePreview = null;
     renderSpeakers();
   });
-  emoSel.addEventListener("change", function () {
-    s.emotion = emoSel.value; queueSave(s.segment_id, "emotion", emoSel.value); pricePreview = null;
+  btnTash.addEventListener("click", function () {
+    btnTash.disabled = true; btnTash.textContent = T.tashkeelWorking;
+    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/tashkeel", { segment_id: s.segment_id }); }).then(function (r) {
+      btnTash.disabled = false; btnTash.textContent = T.tashkeel;
+      if (!r.ok) { alertMsg(safeErr(r.data.error, T.tashkeelFail)); return; }
+      s.arabic_text = r.data.arabic_text || s.arabic_text; ar.value = s.arabic_text; autosize(ar); pricePreview = null;
+      ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
+    }).catch(function () { btnTash.disabled = false; btnTash.textContent = T.tashkeel; });
   });
   en.addEventListener("input", function () { s.text = en.value; queueSave(s.segment_id, "text", en.value); autosize(en); });
   ar.addEventListener("input", function () {
@@ -1199,7 +1491,7 @@ function buildRow(s) {
       btn.disabled = false; btn.textContent = T.retranslate;
       if (!r.ok) { alertMsg(safeErr(r.data.error, T.retranslateFail)); return; }
       s.arabic_text = r.data.arabic_text || ""; ar.value = s.arabic_text; autosize(ar); pricePreview = null;
-      if (r.data.emotion) { s.emotion = r.data.emotion; fillEmotion(emoSel, s.emotion); }
+      if (r.data.emotion) { s.emotion = r.data.emotion; emoPick.set(s.emotion); }
       ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
     }).catch(function () { btn.disabled = false; btn.textContent = T.retranslate; });
   });
@@ -1271,7 +1563,9 @@ function renderConfirm() {
     var short = p.credits !== null && p.credits !== undefined && p.credits < p.due;
     if (short) h += "<p class='ld-err'>" + esc(T.notEnough(p.due, p.credits)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
     h += "<p class='note'>" + esc(T.confirmRecap + (p.lipsync && p.lipsync.clips ? T.confirmRecapLip : "")) + "</p>";
-    h += '<div class="ld-row-btns"><button class="green" id="btnConfirm" ' + ((short || !p.lines) ? "disabled" : "") + ">" + esc(T.confirmBtn(p.due)) + "</button>" +
+    var noFile = cur && cur.media_present === false;
+    if (noFile) h += "<div class='ld-warn'>" + esc(T.needFileToDub) + "</div>";
+    h += '<div class="ld-row-btns"><button class="green" id="btnConfirm" ' + ((short || !p.lines || noFile) ? "disabled" : "") + ">" + esc(T.confirmBtn(p.due)) + "</button>" +
          '<button class="btn-plain" id="btnPrice">' + esc(T.refreshPrice) + '</button><button class="btn-danger" id="btnDelete2">' + esc(T.deleteBtn) + "</button></div>";
   }
   h += "</div>";
@@ -1313,7 +1607,7 @@ function doConfirm() {
     var b = $("btnConfirm"); if (b) b.disabled = true;
     flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due }); }).then(function (r) {
       if (!r.ok) {
-        lastErr = safeErr(r.data.error, T.genericErr);
+        lastErr = r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr);
         if (r.status === 409 && r.data.price) {
           pricePreview = Object.assign({ credits: p.credits }, r.data.price); lastErr = T.priceChanged;
           var cid = cur.id;   // the Arabic text may have changed (tashkeel added at confirm): show it
@@ -1336,11 +1630,11 @@ function doConfirm() {
 (function init() {
   applyStaticText();
   var dz = $("dropZone"), fi = $("fileInput");
-  dz.onclick = function () { fi.dataset.resume = ""; fi.click(); };
-  dz.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.dataset.resume = ""; fi.click(); } };
+  dz.onclick = function () { fi.dataset.resume = ""; fi.dataset.reattach = ""; if (nameOk()) fi.click(); };
+  dz.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.dataset.resume = ""; fi.dataset.reattach = ""; if (nameOk()) fi.click(); } };
   ["dragenter", "dragover"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.add("over"); }); });
   ["dragleave", "drop"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("over"); }); });
-  dz.addEventListener("drop", function (e) { var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) { fi.dataset.resume = ""; onFilePicked(f); } });
+  dz.addEventListener("drop", function (e) { var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) { fi.dataset.resume = ""; fi.dataset.reattach = ""; if (nameOk()) onFilePicked(f); } });
   fi.onchange = function () { onFilePicked(fi.files && fi.files[0]); };
 
   api("GET", "/api/longdub/config").then(function (r) {

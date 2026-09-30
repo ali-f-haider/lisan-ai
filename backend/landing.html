@@ -857,7 +857,7 @@ html.js .rv.in{opacity:1;transform:none}
         nEn: "Each speaker's own voice, cloned from the video.", nAr: "صوت كل متحدث، مستنسخ من الفيديو." },
       { b: "/static/pair2_before.mp4", a: "/static/pair2_after.mp4",
         en: "Custom voices + lip-sync", ar: "أصوات مخصصة + مزامنة الشفاه",
-        nEn: "Custom voices, with lip-sync and audio enhancement.", nAr: "أصوات مخصصة، مع مزامنة الشفاه وتحسين الصوت." },
+        nEn: "Custom voices, with lip-sync and video enhancement.", nAr: "أصوات مخصصة، مع مزامنة الشفاه وتحسين الفيديو." },
       { b: "/static/pair3_before.mp4", a: "/static/pair3_after.mp4",
         en: "Custom voices", ar: "أصوات مخصصة",
         nEn: "Custom voices on the original video.", nAr: "أصوات مخصصة على الفيديو الأصلي." }
@@ -920,6 +920,8 @@ html.js .rv.in{opacity:1;transform:none}
       var cl = (p.clones_per_month !== null && p.clones_per_month !== undefined && p.clones_per_month !== "") ? parseInt(p.clones_per_month, 10) : 0;
       if (cl > 0) ul.appendChild(li(cl + " new voice clone" + (cl === 1 ? "" : "s") + " per month", cl + " استنساخ صوت جديد شهريًا"));
       if (p.key === "studio_monthly") ul.appendChild(li("Includes Dub Long Video", "تشمل دبلجة فيديو طويل"));
+      var sg = Math.round((parseFloat(p.storage_gb || 0) || 0) * 10) / 10;
+      if (sg > 0) ul.appendChild(li(sg + " GB of file storage", sg + " جيجابايت لتخزين الملفات"));
       ul.appendChild(li("Finished files kept for 30 days", "الملفات الجاهزة محفوظة 30 يومًا"));
       c.appendChild(ul);
       var a = el("a", "btn " + (pop ? "btn-gold" : "btn-ghost")); a.href = "/pricing"; a.appendChild(bi("Choose plan", "اختر الباقة")); c.appendChild(a);

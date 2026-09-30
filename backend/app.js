@@ -3414,7 +3414,6 @@ function hideMediaBanner() {
     var btn = document.createElement("button");
     btn.id = "buyBtn";
     btn.className = "btn-logout";
-    btn.style.cssText = "background:#ecfdf5;border-color:#bbf7d0;color:#059669;font-weight:700;";
     btn.textContent = "➕ Buy";
     btn.onclick = openBuyModal;
     right.insertBefore(btn, right.lastElementChild);
@@ -3531,7 +3530,7 @@ function openBuyModal() {
                         '<span style="font-weight:700;color:' + (tileMuted ? "#6b7280" : "#5b21b6") + ';">🔁 ' + p.name + '</span>' +
                         '<span style="font-weight:800;color:' + (tileMuted ? "#9ca3af" : "#7c3aed") + ';">$' + price.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
                     '</span>' +
-                    '<span style="font-size:12px;color:#6b7280;">' + credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا" : " every month") + ' · ' + slots + (isAr ? " مكان صوت" : (slots === 1 ? " voice slot" : " voice slots")) + (clones > 0 ? (' · ' + clones + (isAr ? " استنساخ/شهر" : (clones === 1 ? " clone/mo" : " clones/mo"))) : '') + '</span>' +
+                    '<span style="font-size:12px;color:#6b7280;">' + credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا" : " every month") + ' · ' + slots + (isAr ? " مكان صوت" : (slots === 1 ? " voice slot" : " voice slots")) + (clones > 0 ? (' · ' + clones + (isAr ? " استنساخ/شهر" : (clones === 1 ? " clone/mo" : " clones/mo"))) : '') + ((parseFloat(p.storage_gb || 0) > 0) ? (' · ' + (Math.round(parseFloat(p.storage_gb) * 10) / 10) + (isAr ? " جيجابايت تخزين" : " GB storage")) : '') + '</span>' +
                     noteHtml;
                 if (!tileDisabled) {
                     sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
@@ -3548,7 +3547,7 @@ function openBuyModal() {
             });
             var divider = document.createElement("p");
             divider.style.cssText = "font-size:11px;color:#9ca3af;margin:2px 0 0;";
-            divider.textContent = isAr ? "أو باقة رصيد لمرة واحدة (تخزين الملفات 48 ساعة):" : "Or a one-time pack (48-hour file storage):";
+            divider.textContent = isAr ? "أو باقة رصيد لمرة واحدة (تخزين الملفات 48 ساعة، 1 جيجابايت):" : "Or a one-time pack (48-hour file storage, 1 GB):";
             wrap.appendChild(divider);
         }
         // Loop over whatever pack keys the admin panel actually defines,

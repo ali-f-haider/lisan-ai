@@ -24,6 +24,23 @@
      landscape video can't stretch to the full card width like it does
      on the main app page. */
   #myJobsList video { max-width: 500px; max-height: 500px; }
+  /* Storage meter */
+  .stor { border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; margin: 4px 0 16px; background: #f9fafb; }
+  .stor-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .stor-head strong { font-size: 15px; color: #1a237e; }
+  .stor-text { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stor-bar { height: 12px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+  .stor-fill { height: 100%; width: 0; border-radius: 999px; background: #2563eb; transition: width .4s ease, background-color .3s; }
+  .stor.warn .stor-fill { background: #d97706; }
+  .stor.full .stor-fill { background: #dc2626; }
+  .stor-msg { font-size: 13px; margin: 8px 0 0; color: #6b7280; }
+  .stor.full .stor-msg { color: #b91c1c; font-weight: 600; }
+  .job-size { font-size: 12px; color: #6b7280; margin-inline-start: 10px; }
+  body.dark .stor { background: var(--card); border-color: var(--border); }
+  body.dark .stor-head strong { color: var(--primary-fg); }
+  body.dark .stor-bar { background: var(--border); }
+  body.dark .stor.full .stor-msg { color: #f87171; }
+  body.dark .job-size { color: var(--text-muted); }
   #myJobsList audio { max-width: 500px; }
   /* Tabs, added so the page isn't one long scroll of cards -- light theme
      to match this page (admin.html has its own dark-themed .tab/.panel,
@@ -139,6 +156,11 @@
   <div class="card">
     <h3 id="filesHeading">🎬 Your Finished Files</h3>
     <p id="filesNote" class="note">Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
+    <div class="stor" id="storageMeter" style="display:none;" role="group" aria-labelledby="storTitle">
+      <div class="stor-head"><strong id="storTitle">Storage</strong><span class="stor-text" id="storText"></span></div>
+      <div class="stor-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="storBar"><div class="stor-fill" id="storFill"></div></div>
+      <p class="stor-msg" id="storMsg"></p>
+    </div>
     <div id="myJobsList"><p style="color:#6b7280;" id="loadingText">Loading…</p></div>
   </div>
 </div>
@@ -249,6 +271,11 @@ var T = {
     noPurchases: "No purchases yet.", noSpends: "No consumption recorded yet.",
     expiringSoon: "expiring soon", expiresOneDay: "expires in 1 day",
     expiresDays: function (n) { return "expires in " + n + " days"; },
+    storTitle: function (plan) { return plan ? "Storage · " + plan + " plan" : "Storage"; },
+    storText: function (used, quota, pct) { return used + " of " + quota + " used (" + pct + "%)"; },
+    storOk: function (free) { return free + " free. Finished files count toward your storage."; },
+    storNear: function (free) { return "Only " + free + " left. Delete files you no longer need, or upgrade your plan for more storage."; },
+    storFull: "Your storage is full. Delete some finished files below to be able to save new videos, or upgrade your plan for more storage.",
     nothingYet: function (isSub) { return "Nothing here yet — files you generate will show up here for " + (isSub ? "30 days" : "48 hours") + "."; },
     couldntLoad: "Couldn't load your files right now.",
     dlVideo: "⬇️ Download Video", dlLipsync: "⬇️ Download Lip-Synced Video", dlMp3: "⬇️ Download MP3",
@@ -318,6 +345,11 @@ var T = {
     noPurchases: "لا توجد مشتريات بعد.", noSpends: "لم يُسجَّل أي استهلاك بعد.",
     expiringSoon: "تنتهي صلاحيته قريبًا", expiresOneDay: "تنتهي صلاحيته خلال يوم واحد",
     expiresDays: function (n) { return "تنتهي صلاحيته خلال " + n + " يومًا"; },
+    storTitle: function (plan) { return plan ? "التخزين · باقة " + plan : "التخزين"; },
+    storText: function (used, quota, pct) { return "استُخدم " + used + " من " + quota + " (" + pct + "%)"; },
+    storOk: function (free) { return "المتاح " + free + ". الملفات الجاهزة تُحتسب من مساحة التخزين."; },
+    storNear: function (free) { return "المتبقي " + free + " فقط. احذف الملفات التي لا تحتاجها أو رقِّ باقتك للحصول على مساحة أكبر."; },
+    storFull: "مساحة التخزين ممتلئة. احذف بعض الملفات الجاهزة أدناه لتتمكن من حفظ فيديوهات جديدة، أو رقِّ باقتك للحصول على مساحة أكبر.",
     nothingYet: function (isSub) { return "لا يوجد شيء هنا بعد — ستظهر الملفات التي تولّدها هنا لمدة " + (isSub ? "30 يومًا" : "48 ساعة") + "."; },
     couldntLoad: "تعذّر تحميل ملفاتك الآن.",
     dlVideo: "⬇️ تنزيل الفيديو", dlLipsync: "⬇️ تنزيل الفيديو المتزامن مع الشفاه", dlMp3: "⬇️ تنزيل MP3",
@@ -577,6 +609,30 @@ function daysUntil(iso) {
   } catch (e) { return ""; }
 }
 
+function fmtBytes(n) {
+  n = Number(n) || 0;
+  if (n >= 1073741824) return (Math.round(n / 1073741824 * 100) / 100) + " GB";
+  if (n >= 1048576) return Math.round(n / 1048576) + " MB";
+  return Math.max(1, Math.round(n / 1024)) + " KB";
+}
+
+function renderStorage(sm) {
+  var box = document.getElementById("storageMeter");
+  if (!box) return;
+  if (!sm || !sm.quota_bytes) { box.style.display = "none"; return; }
+  window._storage = sm;
+  var pct = Math.min(100, Math.round(sm.percent || 0));
+  var free = Math.max(0, sm.quota_bytes - sm.used_bytes);
+  box.style.display = "";
+  document.getElementById("storTitle").textContent = T.storTitle(sm.subscribed ? sm.plan_name : "");
+  document.getElementById("storText").textContent = T.storText(fmtBytes(sm.used_bytes), fmtBytes(sm.quota_bytes), pct);
+  document.getElementById("storFill").style.width = pct + "%";
+  var bar = document.getElementById("storBar"); bar.setAttribute("aria-valuenow", String(pct));
+  var full = sm.used_bytes >= sm.quota_bytes, near = !full && pct >= 80;
+  box.classList.toggle("full", full); box.classList.toggle("warn", near);
+  document.getElementById("storMsg").textContent = full ? T.storFull : (near ? T.storNear(fmtBytes(free)) : T.storOk(fmtBytes(free)));
+}
+
 function renderMyJobs(jobs) {
   var list = document.getElementById("myJobsList");
   if (!jobs.length) {
@@ -605,7 +661,8 @@ function renderMyJobs(jobs) {
     buttons += '<a class="btn-danger" onclick="deleteMyJob(\'' + j.job_id.replace(/'/g, "") + '\')">' + T.del + '</a>';
     item.innerHTML =
       '<div class="job-meta"><span class="job-date">' + fmtDate(j.created_at) + '</span>' +
-      '<span class="job-expiry">' + daysUntil(j.expires_at) + '</span></div>' +
+      '<span class="job-expiry">' + daysUntil(j.expires_at) + '</span>' +
+      (j.bytes ? '<span class="job-size">' + fmtBytes(j.bytes) + '</span>' : '') + '</div>' +
       preview +
       '<div class="download-buttons">' + buttons + '</div>';
     list.appendChild(item);
@@ -616,6 +673,7 @@ function loadMyJobs() {
   fetch("/api/my_jobs").then(function (r) { return r.json(); }).then(function (d) {
     window._lastMyJobs = d.jobs || [];
     renderMyJobs(window._lastMyJobs);
+    renderStorage(d.storage);
   }).catch(function () {
     document.getElementById("myJobsList").innerHTML = '<p style="color:#6b7280;">' + T.couldntLoad + '</p>';
   });
@@ -624,7 +682,8 @@ function loadMyJobs() {
 function deleteMyJob(jobId) {
   LisanDialog.confirm(T.confirmDelete, { okText: T.deleteVoiceBtn ? T.deleteVoiceBtn.replace(/^\S+\s*/, "") : undefined, danger: true }).then(function (ok) {
     if (!ok) return;
-    fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function () {
+    fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (res) {
+      if (res && res.storage) renderStorage(res.storage);
       var el = document.getElementById("job-" + jobId);
       if (el) el.remove();
       var list = document.getElementById("myJobsList");

@@ -54,7 +54,18 @@ CHUNK_BYTES = 8 * 1024 * 1024            # upload chunk size the page uses
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB hard ceiling on the source file
 MIN_SEC = 20.0                           # shorter than this: use the normal app
 DEFAULT_MAX_MIN = 10                     # overridden by admin (longDubMaxMin)
-MAX_ACTIVE_PER_USER = 2                  # unfinished long jobs one user may hold at once
+MAX_ACTIVE_PER_USER = 2                  # long jobs one user may have holding a video on the server at once
+MAX_PROJECTS_PER_USER = 25               # unfinished projects one user may keep (saved ones hold text only)
+try:      # hours without activity before a project's video is taken off the server (the text stays)
+    PARK_HOURS = float(os.environ.get("LONGDUB_PARK_HOURS") or 24)
+except ValueError:
+    PARK_HOURS = 24.0
+try:      # days a saved project (text only) is kept when nobody opens it
+    PROJECT_KEEP_DAYS = float(os.environ.get("LONGDUB_PROJECT_KEEP_DAYS") or 90)
+except ValueError:
+    PROJECT_KEEP_DAYS = 90.0
+NAME_MAX = 80
+DESC_MAX = 500
 MAX_CONCURRENT_WORKERS = 2               # long jobs running at once, whole server
 MAX_SEGMENTS = 1500                      # sanity ceiling on transcript lines
 
@@ -217,7 +228,8 @@ def _ffprobe_json(path, entries):
 PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "message", "duration",
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
-                 "stated_speakers", "detected_speakers", "speaker_list", "lipsync")
+                 "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
+                 "media_present", "restoring", "parked_at")
 
 
 def result_file(job):
@@ -234,6 +246,14 @@ def public_view(job):
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
     v["received_count"] = len(job.get("received", []))
     v["total_chunks"] = job.get("total_chunks", 0)
+    v["name"] = project_name(job)
+    v["description"] = job.get("description") or ""
+    v["media_present"] = has_media(job)
+    ra = job.get("reattach")
+    if ra and job.get("status") == "editing":
+        v["received_count"] = len(ra.get("received", []))
+        v["total_chunks"] = ra.get("total_chunks", 0)
+        v["reattaching"] = True
     if job.get("status") == "done":
         v["file_available"] = result_file(job) is not None
     return v
@@ -347,15 +367,58 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False):
 
 # ------------------------------------------------------------------ upload
 
+def has_media(job):
+    """Does the server still hold this job's video/audio? (Jobs made before
+    projects existed always do.)"""
+    return bool(job.get("media_present", True))
+
+
+def project_name(job):
+    n = (job.get("name") or "").strip()
+    if n:
+        return n
+    return Path(job.get("filename") or "").stem or "Untitled project"
+
+
+def clean_project_text(name, description):
+    name = re.sub(r"\s+", " ", str(name or "")).strip()[:NAME_MAX]
+    description = str(description or "").replace("\r", "").strip()[:DESC_MAX]
+    return name, description
+
+
 def active_count(uid):
+    """Jobs that hold a video on the server right now. A saved project (text
+    only) is not counted: it takes almost no room."""
     n = 0
     for j in list_jobs_for_uid(uid):
-        if j.get("status") not in ("done", "failed", "cancelled", "expired"):
-            n += 1
+        if j.get("status") in ("done", "failed", "cancelled", "expired"):
+            continue
+        if j.get("status") == "editing" and not has_media(j) and not j.get("reattach"):
+            continue
+        n += 1
     return n
 
 
-def init_upload(uid, filename, size, speakers=2, lipsync=False):
+def project_count(uid):
+    return sum(1 for j in list_jobs_for_uid(uid) if j.get("status") not in ("done", "failed", "cancelled", "expired"))
+
+
+def _fingerprint(path):
+    """Size + the first and last megabyte: enough to tell whether a re-attached
+    file is the same one, without reading a whole 2 GB file."""
+    import hashlib
+    path = Path(path)
+    size = path.stat().st_size
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        h.update(f.read(1024 * 1024))
+        if size > 2 * 1024 * 1024:
+            f.seek(size - 1024 * 1024)
+            h.update(f.read(1024 * 1024))
+    return {"size": size, "sha1": h.hexdigest()}
+
+
+def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description=""):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -380,8 +443,14 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False):
         return None, ("The file is empty.", 400)
     if size > MAX_UPLOAD_BYTES:
         return None, (f"This file is {size / 1048576:.0f} MB. The limit is {MAX_UPLOAD_BYTES // 1048576} MB.", 413)
+    name, description = clean_project_text(name, description)
+    if not name:
+        name = Path(filename or "").stem[:NAME_MAX] or "Untitled project"
+    if project_count(uid) >= MAX_PROJECTS_PER_USER:
+        return None, (f"You already have {MAX_PROJECTS_PER_USER} unfinished projects. Finish or delete one first.", 429)
     if active_count(uid) >= MAX_ACTIVE_PER_USER:
-        return None, (f"You already have {MAX_ACTIVE_PER_USER} unfinished long dubs. Finish or delete one first.", 429)
+        return None, (f"You can work on {MAX_ACTIVE_PER_USER} projects at the same time. Press \"Save and close\" on one of them "
+                      "(or finish or delete it) and then start this one.", 429)
     try:
         free = shutil.disk_usage(str(DATA_DIR)).free
     except Exception:
@@ -395,6 +464,7 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False):
     total_chunks = int(math.ceil(size / float(CHUNK_BYTES)))
     job = {
         "id": job_id, "uid": uid, "filename": (filename or "video")[:200], "ext": ext, "size": size,
+        "name": name, "description": description, "media_present": True,
         "created": _now(), "updated": _now(), "status": "uploading", "stage": "upload",
         "percent": 0, "message": "Uploading...", "received": [], "total_chunks": total_chunks,
         "chunk_bytes": CHUNK_BYTES, "duration": 0.0, "has_video": ext in VIDEO_EXTS,
@@ -410,17 +480,22 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False):
 
 
 def write_chunk(job, index, data):
-    """Writes one chunk at its own offset. Returns (True, None) or (False, msg)."""
-    if job.get("status") != "uploading":
+    """Writes one chunk at its own offset. Returns (True, None) or (False, msg).
+    Works for a first upload and for re-attaching the file of a saved project."""
+    if job.get("status") == "uploading":
+        holder, size = job, job["size"]
+    elif job.get("status") == "editing" and job.get("reattach"):
+        holder, size = job["reattach"], int((job.get("media_fp") or {}).get("size") or 0)
+    else:
         return False, "This upload is no longer accepting data."
     try:
         index = int(index)
     except Exception:
         return False, "The upload was interrupted. Please try again."
-    total = job["total_chunks"]
+    total = holder["total_chunks"]
     if index < 0 or index >= total:
         return False, "The upload was interrupted. Please try again."
-    expected = CHUNK_BYTES if index < total - 1 else job["size"] - CHUNK_BYTES * (total - 1)
+    expected = CHUNK_BYTES if index < total - 1 else size - CHUNK_BYTES * (total - 1)
     if len(data) != expected:
         return False, "The upload was interrupted. Please try again."
     part = job_dir(job["id"]) / "src.part"
@@ -429,11 +504,11 @@ def write_chunk(job, index, data):
         with open(part, mode) as f:
             f.seek(index * CHUNK_BYTES)
             f.write(data)
-        if index not in job["received"]:
-            job["received"].append(index)
-        job["percent"] = int(100 * len(job["received"]) / max(1, total))
+        if index not in holder["received"]:
+            holder["received"].append(index)
+        job["percent"] = int(100 * len(holder["received"]) / max(1, total))
     # Persist occasionally, not for every 8 MB chunk.
-    if len(job["received"]) % 8 == 0:
+    if len(holder["received"]) % 8 == 0:
         _save(job)
     return True, None
 
@@ -495,6 +570,10 @@ def finish_upload(job, uid):
             _ev(job, "upload_finished", "failed", "no readable video picture for lip-sync")
             _discard(job)
             return False, ("This file has no readable video picture, so it cannot be lip-synced. Nothing was charged.", 400)
+    try:
+        job["media_fp"] = dict(_fingerprint(src), duration=round(duration, 1))
+    except Exception as ex:
+        print(f"[longdub] could not fingerprint the upload: {ex}")
     fee = int(cfg.get("fee", 3))
     bal = Hooks.get_credits(uid)
     if bal is not None and bal < fee:
@@ -575,6 +654,181 @@ def delete_job(job, uid):
         _JOBS.pop(job["id"], None)
     shutil.rmtree(job_dir(job["id"]), ignore_errors=True)
     return True, None
+
+
+# ------------------------------------------------------------- projects
+# A long dub is a project: the text (lines, times, translations, emotions,
+# speakers) is what the user works on for a long time. The video itself is
+# only needed to (1) find the words at the start and (2) cut/mix the final
+# file when Dub is pressed. So a project can be "saved": the video and the
+# big audio copies are removed from the server and only the text stays. To
+# carry on, the user attaches the same file again and the server prepares
+# the audio again. None of this costs credits.
+
+_MEDIA_FILES = ("audio.wav", "vocals_mono.wav", "background.wav", "vocals.wav", "vocals_normalized.wav", "src.part")
+_MEDIA_DIRS = ("pieces", "vocals", "bg", "asr", "sep")
+
+
+def _remove_media(job):
+    wd = _wd(job)
+    for f in _MEDIA_FILES + (f"src{job.get('ext', '')}",):
+        try:
+            (wd / f).unlink()
+        except Exception:
+            pass
+    for sub in _MEDIA_DIRS:
+        shutil.rmtree(wd / sub, ignore_errors=True)
+
+
+def park_job(job, reason="user"):
+    """Save the project: keep the text, remove the video and audio copies."""
+    if job["id"] in _RUNNING:
+        return False, ("This project is being processed right now. Try again in a moment.", 409)
+    if job.get("status") != "editing":
+        return False, ("Only a project that is being reviewed can be saved and closed.", 409)
+    with _lock_for(job["id"]):
+        _remove_media(job)
+        job["media_present"] = False
+        job.pop("reattach", None)
+        job["parked_at"] = _now()
+        job["stage"] = "review"
+        job["percent"] = 100
+        job["message"] = "Saved. Attach your file again to carry on."
+    _save(job)
+    _ev(job, "project_saved", "ok", f"reason={reason}; text kept, video and audio removed from the server")
+    return True, None
+
+
+def update_project(job, name=None, description=None):
+    if job.get("status") in ("done", "failed", "cancelled", "expired"):
+        return False, ("This project is finished and can't be renamed.", 409)
+    nm, ds = clean_project_text(name if name is not None else job.get("name"),
+                                description if description is not None else job.get("description"))
+    if not nm:
+        return False, ("Please give the project a name.", 400)
+    with _lock_for(job["id"]):
+        job["name"] = nm
+        job["description"] = ds
+    _save(job)
+    return True, None
+
+
+def restore_init(job, uid, filename, size):
+    """The user chose the file again for a saved project."""
+    if job.get("status") != "editing":
+        return False, ("This project is not waiting for its file.", 409)
+    if has_media(job):
+        return False, ("This project already has its file.", 409)
+    if job["id"] in _RUNNING:
+        return False, ("This project is being processed right now.", 409)
+    fp = job.get("media_fp") or {}
+    try:
+        size = int(size)
+    except Exception:
+        return False, ("Missing file size.", 400)
+    ext = Path(filename or "").suffix.lower()
+    if ext not in ALLOWED_EXTS or (job.get("has_video") and ext not in VIDEO_EXTS):
+        return False, (f"Please choose the same {'video' if job.get('has_video') else 'audio'} file you started this project with.", 400)
+    if not fp.get("size") or size != int(fp["size"]):
+        return False, ("This is not the same file this project was made from. Choose the original file "
+                       "(a re-saved or re-exported copy will not match).", 409)
+    if active_count(uid) >= MAX_ACTIVE_PER_USER:
+        return False, (f"You can work on {MAX_ACTIVE_PER_USER} projects at the same time. Press \"Save and close\" on another one first.", 429)
+    try:
+        free = shutil.disk_usage(str(DATA_DIR)).free
+    except Exception:
+        free = None
+    if free is not None and free < size * 2 + 1024 * 1024 * 1024:
+        return False, ("We can't accept new uploads right now. Please try again in a little while.", 503)
+    with _lock_for(job["id"]):
+        try:
+            (job_dir(job["id"]) / "src.part").unlink()
+        except Exception:
+            pass
+        job["reattach"] = {"received": [], "total_chunks": int(math.ceil(size / float(CHUNK_BYTES))), "ext": ext,
+                           "filename": (filename or "")[:200], "started": _now()}
+        job["percent"] = 0
+        job["message"] = "Uploading your file again..."
+    _save(job)
+    _ev(job, "project_reattach_started", "ok", f"file={filename} size={size}")
+    return True, None
+
+
+def _cancel_reattach(job):
+    job.pop("reattach", None)
+    try:
+        (job_dir(job["id"]) / "src.part").unlink()
+    except Exception:
+        pass
+
+
+def finish_restore(job, uid):
+    """All chunks of the re-attached file are in: check it is the same file,
+    then prepare the audio again in the background (no credits involved)."""
+    ra = job.get("reattach")
+    if job.get("status") == "analyzing" and job.get("restoring"):
+        return True, None
+    if job.get("status") != "editing" or not ra:
+        return False, ("This project is not waiting for its file.", 409)
+    if len(set(ra["received"])) != ra["total_chunks"]:
+        return False, ("The upload didn't finish. Please try again.", 409)
+    fp = job.get("media_fp") or {}
+    d = job_dir(job["id"])
+    part = d / "src.part"
+    if not part.exists() or part.stat().st_size != int(fp.get("size") or -1):
+        _cancel_reattach(job)
+        _save(job)
+        return False, ("The uploaded file is damaged or incomplete. Please attach it again.", 400)
+    same = True
+    try:
+        same = _fingerprint(part).get("sha1") == fp.get("sha1") if fp.get("sha1") else True
+        if same and fp.get("duration"):
+            dur = float(_ffprobe_json(part, "format=duration").get("format", {}).get("duration"))
+            same = abs(dur - float(fp["duration"])) <= 1.0
+    except Exception:
+        same = False
+    if not same:
+        _cancel_reattach(job)
+        _save(job)
+        _ev(job, "project_reattach", "failed", "the file is not the one this project was made from")
+        return False, ("This is not the same file this project was made from. Choose the original file.", 409)
+    with _lock_for(job["id"]):
+        os.replace(part, d / f"src{job['ext']}")
+        job.pop("reattach", None)
+        an = job.setdefault("analysis", {})
+        an["sep_done"] = []
+        an["bg_failed"] = []
+        an["sep_logged"] = True
+        job["restoring"] = True
+        job["status"] = "analyzing"
+        job["stage"] = "queued"
+        job["percent"] = 0
+        job["message"] = "Waiting for your turn..."
+    _save(job)
+    _ev(job, "project_reattach", "ok", "same file confirmed; preparing the audio again (no credits)")
+    start_worker(job["id"])
+    return True, None
+
+
+def _finish_restored_media(job, wd, vocals_all):
+    """The restore run reached the end of the separation step: rebuild the
+    files the dubbing needs and hand the project back for editing."""
+    ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vocals_all), "-ac", "1", "-ar", str(SAMPLE_RATE),
+                             "-acodec", "pcm_s16le", str(wd / "vocals_mono.wav")])
+    for sub in ("pieces", "vocals", "bg", "asr", "sep"):
+        shutil.rmtree(wd / sub, ignore_errors=True)
+    for f in ("vocals.wav", "vocals_normalized.wav"):
+        try:
+            (wd / f).unlink()
+        except Exception:
+            pass
+    job["restoring"] = False
+    job["media_present"] = True
+    job.pop("parked_at", None)
+    job["status"] = "editing"
+    _mark(job, "review", 100, "Ready for you to review.")
+    _save(job)
+    _ev(job, "project_restored", "ok", "audio prepared again; text unchanged")
 
 
 # ------------------------------------------------------- piece planning
@@ -958,7 +1212,7 @@ def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
                     "arabic_text": "", "words": part_words,
                 })
                 seg_index += 1
-    result = ws.merge_mid_sentence_rows(split_rows_by_sentence(result))
+    result = ws.merge_mid_sentence_rows(ws.smooth_speaker_islands(split_rows_by_sentence(result)))
     if silences:
         try:
             result, _n_cuts = split_rows_at_pauses(result, silences)
@@ -1072,6 +1326,9 @@ def _run_analysis(job):
         # (an audio job started before audio files were separated has no background pieces: it just has no background)
         if not (wd / "background.wav").exists() and all((wd / "bg" / f"p{i:03d}.wav").exists() for i in range(n)):
             _concat_wavs([wd / "bg" / f"p{i:03d}.wav" for i in range(n)], wd / "background.wav")
+        if job.get("restoring"):
+            _finish_restored_media(job, wd, vocals_all)      # a saved project getting its audio back: text is untouched
+            return
 
         # 4. speaker detection over the whole vocals track ---------------
         turns_path = wd / "turns.json"
@@ -1260,6 +1517,14 @@ def _run_analysis(job):
         import traceback
         print(f"[longdub] analysis failed for {job['id']}: {ex}\n{traceback.format_exc()}")
         _ev(job, "analysis_failed", "failed", f"{type(ex).__name__}: {ex}"[:600])
+        if job.get("restoring"):
+            # The project's text is safe: go back to "saved" so the user can attach the file again. Nothing was charged.
+            _remove_media(job)
+            job.update({"restoring": False, "media_present": False, "status": "editing", "stage": "review",
+                        "percent": 100, "message": "We couldn't prepare your file. Please attach it again."})
+            job.setdefault("warnings", []).append("We couldn't prepare your file this time. Your text is safe - please attach the file again.")
+            _save(job)
+            return
         _fail(job, "We couldn't finish preparing this video. Please try again, or try another file", "analysis")
 
 
@@ -1359,7 +1624,54 @@ def _word_needs_tashkeel(w):
 
 
 def needs_tashkeel(text):
-    return any(_word_needs_tashkeel(w) for w in (text or "").split())
+    """True when the automatic pass (price / confirm) should add tashkeel to this line. A line that already carries
+    tashkeel (added by the user, by the Tashkeel button or by the translation) is left exactly as it is."""
+    t = text or ""
+    if _MARK_RE.search(t):
+        return False
+    return any(_word_needs_tashkeel(w) for w in t.split())
+
+
+def tashkeel_line(job, segment_id):
+    """The Tashkeel button of one line: adds tashkeel to every word of the Arabic text that has none (words that
+    already have it are kept). Returns (ok, message, arabic_text). Nothing is charged."""
+    import gemini_service
+    if job.get("status") != "editing":
+        return False, "This job is not open for editing.", None
+    rows = read_segments(job)
+    r = next((x for x in rows if x["segment_id"] == segment_id), None)
+    if not r:
+        return False, "Line not found.", None
+    text = (r.get("arabic_text") or "").strip()
+    if not text:
+        return False, "There is no Arabic text on this line yet.", None
+    if not any(_word_needs_tashkeel(w) for w in text.split()):
+        return True, "", r["arabic_text"]          # already fully marked: nothing to do
+    got = None
+    for attempt in range(2):
+        try:
+            got = gemini_service.add_tashkeel_lines(job["id"], [{"segment_id": segment_id, "arabic_text": text}], GEMINI_API_KEY)
+        except Exception as ex:
+            print(f"[longdub] tashkeel button failed (attempt {attempt + 1}): {ex}")
+            got = None
+        if got is not None:
+            break
+        time.sleep(1.5)
+    if got is None:
+        return False, "We couldn't add the diacritics just now. Please try again in a moment.", None
+    new = merge_tashkeel(text, got.get(segment_id, ""))
+    if new == text:
+        return False, "The diacritics could not be added to this line. Please try again.", None
+    with _lock_for(job["id"]):
+        fresh = read_segments(job)
+        row = next((x for x in fresh if x["segment_id"] == segment_id), None)
+        if row is None:
+            return False, "Line not found.", None
+        if (row.get("arabic_text") or "").strip() != text:      # the user kept typing meanwhile: keep their text
+            return False, "The line was changed while the diacritics were being added. Please try again.", None
+        row["arabic_text"] = new
+        _write_segments(job, fresh)
+    return True, "", new
 
 
 def merge_tashkeel(original, returned):
@@ -2286,6 +2598,8 @@ def confirm(job, uid, expected_due):
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
         return False, ("This job is not waiting for confirmation.", 409)
+    if not has_media(job):
+        return False, ("Attach your original file again to continue. Your text is saved.", 409)
     added, terr = ensure_tashkeel(job)      # words typed without tashkeel get it (this changes the price)
     if terr:
         return False, (terr, 503)
@@ -3314,8 +3628,10 @@ def _run_dubbing(job):
 
 # Unfinished jobs nobody came back to are removed so they never pile up on
 # the disk. (Finished results are handled by the app's normal retention.)
-STALE_HOURS = {"uploading": 24, "estimated": 24, "failed": 24, "cancelled": 24, "editing": 24 * 7,
+STALE_HOURS = {"uploading": 24, "estimated": 24, "failed": 24, "cancelled": 24,
                "done": 24 * 35}
+# A project being reviewed ("editing") is handled separately in sweep_stale: after PARK_HOURS without
+# activity its video is taken off the server and only the text stays; after PROJECT_KEEP_DAYS it is removed.
 
 
 def sweep_stale():
@@ -3335,6 +3651,27 @@ def sweep_stale():
                     removed += 1
             except Exception:
                 pass
+            continue
+        if job.get("status") == "editing" and job["id"] not in _RUNNING:
+            idle = now - job.get("updated", now)
+            try:
+                if has_media(job):
+                    if idle > PARK_HOURS * 3600:
+                        park_job(job, f"idle for over {PARK_HOURS:g} hours")
+                    continue
+                if job.get("reattach") and idle > 24 * 3600:
+                    _cancel_reattach(job)
+                    _save(job)
+                    continue
+                if idle > PROJECT_KEEP_DAYS * 86400:
+                    _ev(job, "removed_by_housekeeping", "ok", f"saved project not opened for over {PROJECT_KEEP_DAYS:g} days")
+                    _delete_pending_voices(job)
+                    with _LOCK:
+                        _JOBS.pop(job["id"], None)
+                    shutil.rmtree(d, ignore_errors=True)
+                    removed += 1
+            except Exception as ex:
+                print(f"[longdub] housekeeping of {job.get('id')} skipped: {ex}")
             continue
         hours = STALE_HOURS.get(job.get("status"))
         if hours and job["id"] not in _RUNNING and now - job.get("updated", now) > hours * 3600:
