@@ -24,6 +24,31 @@
   .ld-projhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
   .ld-projhead .pname { font-size: 17px; font-weight: 700; word-break: break-word; }
   .ld-projhead .pdesc { color: var(--text-muted); font-size: 13px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+  .ld-unheard { grid-column: 1 / -1; background: rgba(217,119,6,.12); border-left: 3px solid var(--warning); padding: 7px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; }
+  html[dir="rtl"] .ld-unheard { border-left: none; border-right: 3px solid var(--warning); }
+  .ld-pl-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.6); z-index: 99990; display: flex; align-items: flex-start; justify-content: center; padding: 16px; overflow-y: auto; }
+  .ld-pl { background: var(--card); color: var(--text); border-radius: 14px; width: 100%; max-width: 760px; padding: 18px 20px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.35); margin: auto; }
+  .ld-pl h4 { margin: 0 0 4px; font-size: 16px; }
+  .ld-pl video { width: 100%; max-height: 34vh; background: #000; border-radius: 10px; display: block; margin-top: 10px; }
+  .ld-pl video.audio { height: 0; max-height: 0; margin: 0; }
+  .ld-pl-time { font-size: 34px; font-weight: 700; text-align: center; margin: 10px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: .5px; direction: ltr; }
+  .ld-pl-time small { font-size: 15px; font-weight: 500; color: var(--text-muted); }
+  .ld-pl input[type=range] { width: 100%; margin: 6px 0; direction: ltr; }
+  .ld-pl-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center; margin: 8px 0; }
+  .ld-pl-row button { padding: 6px 11px; font-size: 13px; }
+  .ld-pl-row label { white-space: nowrap; font-size: 12.5px; color: var(--text-muted); display: inline-flex; gap: 5px; align-items: center; }
+  .ld-pl-row select { padding: 4px 6px; font-size: 13px; }
+  .ld-pl-marks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+  .ld-pl-mark { border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+  .ld-pl-mark b { display: block; font-size: 13px; margin-bottom: 6px; }
+  .ld-pl-mark input { width: 100%; box-sizing: border-box; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; direction: ltr; margin-bottom: 6px; }
+  .ld-pl-mark .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ld-pl-mark .btns button { padding: 5px 10px; font-size: 12.5px; flex: 1; }
+  .ld-pl-info { text-align: center; font-size: 13px; color: var(--text-muted); margin: 8px 0 2px; }
+  .ld-pl-err { color: var(--error); font-size: 13px; text-align: center; margin: 6px 0; }
+  .ld-pl-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; position: sticky; bottom: 0; background: var(--card); padding-top: 10px; }
+  .ld-pl-keys { font-size: 11.5px; color: var(--text-muted); text-align: center; margin-top: 6px; }
+  @media (max-width: 560px) { .ld-pl-marks { grid-template-columns: 1fr; } .ld-pl-time { font-size: 28px; } }
   .ld-lipask { margin-top: 16px; }
   .ld-lipask .ld-radio { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; cursor: pointer; font-size: 14px; line-height: 1.5; }
   .ld-lipask .ld-radio input { width: auto; margin-top: 4px; flex: none; }
@@ -76,7 +101,7 @@
   .ld-time select { margin-top: 6px; padding: 6px 8px; font-size: 13px; }
   .ld-tf { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
   .ld-tf span { width: 30px; }
-  .ld-tf input.ld-t { width: 82px; padding: 5px 6px; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
+  .ld-tf input.ld-t { width: 92px; padding: 5px 6px; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
   .ld-terr { color: var(--error); font-size: 11px; margin: 2px 0 4px; line-height: 1.4; }
   .ld-lbtns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
   .ld-lbtns button { padding: 4px 10px; font-size: 12px; }
@@ -245,6 +270,19 @@ var T = {
     wrongFileProj: "That isn't the same file this project was made from. Choose the original file (a re-saved or re-exported copy will not match).",
     restoringHeading: "Getting your project ready",
     restoringNote: "We are preparing the audio of your file again (this costs no credits and your text is untouched). You can close this page and come back - your project will be waiting.",
+    enterMan: "Enter man.", enterManHint: "Open the original and set this line's start and end yourself, by ear, to the millisecond.",
+    unheardNote: "The AI did not hear any speech in this time range. If you can hear words here, click \"Enter man.\" and set the exact start and end yourself. A line you time by hand is dubbed just like the lines the AI found.",
+    plTitle: function (n, who) { return "Enter man. - line " + n + (who ? " (" + who + ")" : ""); },
+    plPrep: "Preparing the player... the first time this can take up to a minute.",
+    plNeedFile: "Your video is not on our servers right now (this project is saved). Choose the same file from your computer to use it in this player. It is only played in your browser - nothing is uploaded and nothing costs credits.",
+    plChoose: "Choose the file", plWrongFile: "That isn't the same file this project was made from.",
+    plCantPlay: "Your browser can't play this file. Attach the file to the project instead (\"Attach the same file\") and we will make a playable copy.",
+    plStart: "Start", plEnd: "End", plSetStart: "Set start here", plSetEnd: "Set end here", plGoto: "Go to",
+    plPlayRange: "Play start to end", plPlay: "Play", plPause: "Pause", plSpeed: "Speed", plBoost: "Volume boost", plBoostHint: "Raises the volume to help you hear very quiet words.",
+    plLength: function (x) { return "Line length: " + x + " s"; },
+    plBad: "The end must be after the start.", plSaveClose: "Close and use these times", plDiscard: "Close without changing",
+    plKeys: "Keys: Space play/pause · [ set start · ] set end · ← → 0.1 s · Shift+← → 0.01 s · Esc close",
+    plNoChange: "No change to the times.",
     detEdit: "Edit name and description", detSave: "Save", detCancel: "Cancel",
     needFileToDub: "Attach your original file above to enable dubbing.",
     spkAskLabel: "How many people speak in this video?",
@@ -418,6 +456,19 @@ var T = {
     wrongFileProj: "هذا ليس الملف نفسه الذي أُنشئ منه المشروع. اختر الملف الأصلي (النسخة المُعاد حفظها أو تصديرها لن تطابق).",
     restoringHeading: "نجهّز مشروعك",
     restoringNote: "نجهّز صوت ملفك من جديد (لا يكلّف هذا أي رصيد ولا يتأثر نصّك). يمكنك إغلاق الصفحة والعودة — سيكون مشروعك بانتظارك.",
+    enterMan: "إدخال يدوي", enterManHint: "افتح الملف الأصلي وحدّد بداية هذا السطر ونهايته بنفسك بالسمع وبدقة الميلي ثانية.",
+    unheardNote: "لم يسمع الذكاء الاصطناعي أي كلام في هذا المدى الزمني. إذا كنت تسمع كلاماً هنا فاضغط «إدخال يدوي» وحدّد البداية والنهاية بدقة بنفسك. السطر الذي تحدّد وقته يدوياً يُدبلج تماماً مثل الأسطر التي وجدها الذكاء الاصطناعي.",
+    plTitle: function (n, who) { return "إدخال يدوي - السطر " + n + (who ? " (" + who + ")" : ""); },
+    plPrep: "جارٍ تجهيز المشغّل... قد يستغرق هذا حتى دقيقة في المرة الأولى.",
+    plNeedFile: "الفيديو ليس على خوادمنا حالياً (هذا المشروع محفوظ). اختر الملف نفسه من جهازك لاستخدامه في هذا المشغّل. يُشغَّل في متصفحك فقط - لا يُرفع شيء ولا يكلّف أي رصيد.",
+    plChoose: "اختر الملف", plWrongFile: "هذا ليس الملف نفسه الذي أُنشئ منه المشروع.",
+    plCantPlay: "لا يستطيع متصفحك تشغيل هذا الملف. أرفق الملف بالمشروع بدلاً من ذلك («إرفاق الملف نفسه») وسنصنع نسخة قابلة للتشغيل.",
+    plStart: "البداية", plEnd: "النهاية", plSetStart: "اجعل البداية هنا", plSetEnd: "اجعل النهاية هنا", plGoto: "انتقل إلى",
+    plPlayRange: "تشغيل من البداية إلى النهاية", plPlay: "تشغيل", plPause: "إيقاف مؤقت", plSpeed: "السرعة", plBoost: "تكبير الصوت", plBoostHint: "يرفع مستوى الصوت لتسمع الكلمات الخافتة جداً.",
+    plLength: function (x) { return "مدة السطر: " + x + " ث"; },
+    plBad: "يجب أن تكون النهاية بعد البداية.", plSaveClose: "إغلاق واستخدام هذه الأوقات", plDiscard: "إغلاق دون تغيير",
+    plKeys: "المفاتيح: المسافة تشغيل/إيقاف · [ البداية · ] النهاية · ← → ‏0.1 ث · Shift+← → ‏0.01 ث · Esc إغلاق",
+    plNoChange: "لا تغيير في الأوقات.",
     detEdit: "تعديل الاسم والوصف", detSave: "حفظ", detCancel: "إلغاء",
     needFileToDub: "أرفق ملفك الأصلي في الأعلى لتفعيل الدبلجة.",
     spkAskLabel: "كم شخصاً يتحدث في هذا الفيديو؟",
@@ -685,6 +736,7 @@ function selectJob(j) {
   stopPoll();
   cur = j || null;
   segs = []; spk = []; dirty = {}; pricePreview = null; tashNote = ""; lastErr = "";
+  if (localMedia && (!cur || localMedia.jobId !== cur.id)) { try { URL.revokeObjectURL(localMedia.url); } catch (e) {} localMedia = null; }
   try { if (cur) localStorage.setItem(LS_KEY, cur.id); else localStorage.removeItem(LS_KEY); } catch (e) {}
   render();
   if (cur && cur.status === "editing") loadSegments();
@@ -1241,6 +1293,10 @@ function fmtT(sec) {
   var t = Math.round(Math.max(0, +sec || 0) * 10) / 10, m = Math.floor(t / 60), x = t - m * 60;
   return m + ":" + (x < 10 ? "0" : "") + x.toFixed(1);
 }
+function fmtMs(sec) {
+  var ms = Math.round(Math.max(0, +sec || 0) * 1000), m = Math.floor(ms / 60000), x = (ms - m * 60000) / 1000;
+  return m + ":" + (x < 10 ? "0" : "") + x.toFixed(3);
+}
 // "1:23.5", "83.5" or Arabic digits -> seconds, or null when it isn't a time
 function parseT(str) {
   var t = String(str || "").trim().replace(/[\u0660-\u0669]/g, function (d) { return String(d.charCodeAt(0) - 1632); })
@@ -1253,7 +1309,7 @@ function timeField(label) {
   var w = document.createElement("label"); w.className = "ld-tf";
   var sp = document.createElement("span"); sp.textContent = label;
   var inp = document.createElement("input"); inp.type = "text"; inp.className = "ld-t"; inp.dir = "ltr";
-  inp.maxLength = 12; inp.autocomplete = "off"; inp.setAttribute("inputmode", "decimal");
+  inp.maxLength = 14; inp.autocomplete = "off"; inp.setAttribute("inputmode", "decimal");
   w.appendChild(sp); w.appendChild(inp);
   return { wrap: w, input: inp };
 }
@@ -1265,6 +1321,235 @@ function lineOp(send, done) {
   lineBusy = true;
   return flushSave().then(send).then(function (r) { lineBusy = false; done(r); })
     .catch(function () { lineBusy = false; alertMsg(T.netErr); });
+}
+
+// ------------------------------------------------------- "Enter man." player
+var localMedia = null;       // {jobId, url, name}: the user's own file played in the browser (saved projects), never uploaded
+var plState = null;
+
+function plFmt(sec) {
+  var ms = Math.round(Math.max(0, +sec || 0) * 1000), m = Math.floor(ms / 60000), x = (ms - m * 60000) / 1000;
+  return m + ":" + (x < 10 ? "0" : "") + x.toFixed(3);
+}
+
+function openPlayer(s) {
+  if (plState) return;
+  var idx = segs.indexOf(s) + 1;
+  var st = { seg: s, a: +s.start, b: +s.end, a0: +s.start, b0: +s.end, raf: 0, stopAt: null, ctx: null, gain: null, el: null, closing: false };
+  plState = st;
+  var ov = document.createElement("div"); ov.className = "ld-pl-overlay";
+  var box = document.createElement("div"); box.className = "ld-pl"; if (LANG === "ar") box.dir = "rtl";
+  var spkName = s.speaker || "";
+  box.innerHTML =
+    "<h4>" + esc(T.plTitle(idx, spkName)) + "</h4>" +
+    "<div class='ld-pl-info' id='plEnglish' dir='ltr'></div>" +
+    "<div id='plPrep' class='ld-pl-info'>" + esc(T.plPrep) + "</div>" +
+    "<div id='plNeed' class='hidden'></div>" +
+    "<div id='plMain' class='hidden'>" +
+      "<video id='plVideo' preload='auto' playsinline></video>" +
+      "<div class='ld-pl-time'><span id='plNow'>0:00.000</span> <small>/ <span id='plTotal'></span></small></div>" +
+      "<input type='range' id='plSeek' min='0' max='1' step='0.001' value='0'>" +
+      "<div class='ld-pl-row' dir='ltr'>" +
+        "<button class='btn-plain' data-step='-1'>−1 s</button><button class='btn-plain' data-step='-0.1'>−0.1</button><button class='btn-plain' data-step='-0.01'>−0.01</button>" +
+        "<button id='plPlayBtn'>" + esc(T.plPlay) + "</button>" +
+        "<button class='btn-plain' data-step='0.01'>+0.01</button><button class='btn-plain' data-step='0.1'>+0.1</button><button class='btn-plain' data-step='1'>+1 s</button>" +
+      "</div>" +
+      "<div class='ld-pl-row'>" +
+        "<label>" + esc(T.plSpeed) + " <select id='plSpeed'><option value='0.25'>0.25×</option><option value='0.5'>0.5×</option><option value='0.75'>0.75×</option><option value='1' selected>1×</option></select></label>" +
+        "<label title='" + esc(T.plBoostHint) + "'>" + esc(T.plBoost) + " <select id='plBoost'><option value='1'>1×</option><option value='2'>2×</option><option value='4'>4×</option><option value='8'>8×</option></select></label>" +
+      "</div>" +
+      "<div class='ld-pl-marks'>" +
+        "<div class='ld-pl-mark'><b>" + esc(T.plStart) + "</b><input type='text' id='plA' inputmode='decimal' autocomplete='off'><div class='btns'><button id='plSetA'>" + esc(T.plSetStart) + "</button><button class='btn-plain' id='plGoA'>" + esc(T.plGoto) + "</button></div></div>" +
+        "<div class='ld-pl-mark'><b>" + esc(T.plEnd) + "</b><input type='text' id='plB' inputmode='decimal' autocomplete='off'><div class='btns'><button id='plSetB'>" + esc(T.plSetEnd) + "</button><button class='btn-plain' id='plGoB'>" + esc(T.plGoto) + "</button></div></div>" +
+      "</div>" +
+      "<div class='ld-pl-row'><button class='btn-plain' id='plRange'>" + esc(T.plPlayRange) + "</button></div>" +
+      "<div class='ld-pl-info' id='plLen'></div>" +
+      "<div class='ld-pl-keys'>" + esc(T.plKeys) + "</div>" +
+    "</div>" +
+    "<div class='ld-pl-err hidden' id='plErr'></div>" +
+    "<div class='ld-pl-foot'><button class='btn-plain' id='plDiscard'>" + esc(T.plDiscard) + "</button><button class='green' id='plClose'>" + esc(T.plSaveClose) + "</button></div>";
+  ov.appendChild(box); document.body.appendChild(ov);
+  st.ov = ov;
+  var q = function (id) { return box.querySelector("#" + id); };
+  q("plEnglish").textContent = (s.text || "") + (s.text && s.arabic_text ? "  ·  " : "") + (s.arabic_text ? s.arabic_text : "");
+  st.q = q;
+
+  function err(msg) { var e = q("plErr"); e.textContent = msg || ""; e.classList.toggle("hidden", !msg); }
+  st.err = err;
+
+  function closeOnly() {
+    if (st.raf) cancelAnimationFrame(st.raf);
+    try { if (st.el) { st.el.pause(); st.el.removeAttribute("src"); st.el.load(); } } catch (e) {}
+    try { if (st.ctx) st.ctx.close(); } catch (e) {}
+    document.removeEventListener("keydown", st.onKey, true);
+    if (st.ov.parentNode) st.ov.parentNode.removeChild(st.ov);
+    plState = null;
+  }
+  st.closeOnly = closeOnly;
+  q("plDiscard").onclick = closeOnly;
+  q("plClose").onclick = function () { applyAndClose(st); };
+
+  st.onKey = function (e) {
+    if (!plState) return;
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); applyAndClose(st); return; }
+    if (!st.el) return;
+    var tag = e.target && e.target.tagName;
+    if ((tag === "INPUT" && e.target.type === "text") || tag === "SELECT" || tag === "TEXTAREA") return;
+    if (e.key === " ") { if (tag === "BUTTON") return; e.preventDefault(); plToggle(st); }
+    else if (e.key === "[") { e.preventDefault(); plSetA(st); }
+    else if (e.key === "]") { e.preventDefault(); plSetB(st); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); plStep(st, e.shiftKey ? -0.01 : -0.1); }
+    else if (e.key === "ArrowRight") { e.preventDefault(); plStep(st, e.shiftKey ? 0.01 : 0.1); }
+  };
+  document.addEventListener("keydown", st.onKey, true);
+
+  plSource().then(function (src) {
+    if (!plState || plState !== st) return;
+    if (!src) return;   // waiting for the user's own file (plNeed shown)
+    plStartVideo(st, src);
+  });
+}
+
+// Where the player gets its picture and sound: a small playable copy made on the server, or (saved project) the user's own file.
+function plSource() {
+  var st = plState; if (!st) return Promise.resolve(null);
+  var q = st.q;
+  if (cur.media_present !== false) {
+    return api("POST", "/api/longdub/" + cur.id + "/player").then(function (r) {
+      if (!plState || plState !== st) return null;
+      if (!r.ok) { q("plPrep").classList.add("hidden"); st.err(safeErr(r.data.error, T.genericErr)); return null; }
+      return { url: r.data.url, kind: r.data.kind };
+    }).catch(function () { st.err(T.netErr); return null; });
+  }
+  if (localMedia && localMedia.jobId === cur.id) return Promise.resolve({ url: localMedia.url, kind: cur.has_video ? "video" : "audio" });
+  q("plPrep").classList.add("hidden");
+  var need = q("plNeed"); need.classList.remove("hidden");
+  need.innerHTML = "<p class='ld-warn'>" + esc(T.plNeedFile) + "</p><div class='ld-row-btns' style='justify-content:center;'><button id='plPick'>" + esc(T.plChoose) + "</button></div><input type='file' id='plFile' accept='video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg' class='hidden'>";
+  return new Promise(function (resolve) {
+    var fi = need.querySelector("#plFile");
+    need.querySelector("#plPick").onclick = function () { fi.click(); };
+    fi.onchange = function () {
+      var f = fi.files && fi.files[0]; if (!f) return;
+      if (f.size !== cur.size) { st.err(T.plWrongFile); return; }
+      st.err("");
+      localMedia = { jobId: cur.id, url: URL.createObjectURL(f), name: f.name };
+      need.classList.add("hidden");
+      resolve({ url: localMedia.url, kind: cur.has_video ? "video" : "audio" });
+    };
+  }).then(function (src) { if (plState === st) { q("plPrep").classList.remove("hidden"); } return src; });
+}
+
+function plStartVideo(st, src) {
+  var q = st.q, el = q("plVideo");
+  st.el = el;
+  if (src.kind === "audio") el.classList.add("audio");
+  el.src = src.url;
+  el.onerror = function () { q("plPrep").classList.add("hidden"); q("plMain").classList.add("hidden"); st.err(T.plCantPlay); };
+  el.addEventListener("loadedmetadata", function () {
+    q("plPrep").classList.add("hidden"); q("plMain").classList.remove("hidden");
+    st.dur = el.duration || (cur.duration || 0);
+    q("plTotal").textContent = plFmt(st.dur);
+    q("plSeek").max = st.dur;
+    q("plA").value = plFmt(st.a); q("plB").value = plFmt(st.b);
+    el.currentTime = Math.max(0, st.a - 1);
+    plRefresh(st);
+  });
+  el.addEventListener("timeupdate", function () { plRefresh(st); });
+  el.addEventListener("seeked", function () { plRefresh(st); });
+  el.addEventListener("play", function () { q("plPlayBtn").textContent = T.plPause; plLoop(st); });
+  el.addEventListener("pause", function () { q("plPlayBtn").textContent = T.plPlay; plRefresh(st); });
+  el.addEventListener("ended", function () { q("plPlayBtn").textContent = T.plPlay; });
+  q("plPlayBtn").onclick = function () { plToggle(st); };
+  q("plSeek").oninput = function () { st.stopAt = null; el.currentTime = parseFloat(this.value); plRefresh(st); };
+  Array.prototype.forEach.call(st.ov.querySelectorAll("[data-step]"), function (b) { b.onclick = function () { plStep(st, parseFloat(b.dataset.step)); }; });
+  q("plSpeed").onchange = function () { el.playbackRate = parseFloat(this.value); };
+  q("plBoost").onchange = function () { plBoost(st, parseFloat(this.value)); };
+  q("plSetA").onclick = function () { plSetA(st); };
+  q("plSetB").onclick = function () { plSetB(st); };
+  q("plGoA").onclick = function () { st.stopAt = null; el.currentTime = st.a; };
+  q("plGoB").onclick = function () { st.stopAt = null; el.currentTime = st.b; };
+  q("plRange").onclick = function () {
+    if (!(st.b > st.a)) { st.err(T.plBad); return; }
+    st.err(""); el.currentTime = st.a; st.stopAt = st.b; el.play();
+  };
+  ["plA", "plB"].forEach(function (id) {
+    q(id).onchange = function () {
+      var v = parseT(this.value);
+      if (v === null) { this.value = plFmt(id === "plA" ? st.a : st.b); return; }
+      v = Math.round(v * 1000) / 1000;
+      if (id === "plA") st.a = v; else st.b = v;
+      this.value = plFmt(v); plRefresh(st);
+    };
+  });
+}
+
+function plNowT(st) { return Math.round((st.el.currentTime || 0) * 1000) / 1000; }
+function plRefresh(st) {
+  if (!st.el) return;
+  var t = plNowT(st), q = st.q;
+  q("plNow").textContent = plFmt(t);
+  var sk = q("plSeek"); if (document.activeElement !== sk) sk.value = t;
+  var len = st.b - st.a;
+  q("plLen").textContent = len > 0 ? T.plLength(len.toFixed(3)) : T.plBad;
+}
+function plLoop(st) {
+  if (st.raf) cancelAnimationFrame(st.raf);
+  var tick = function () {
+    if (!plState || plState !== st || !st.el || st.el.paused) { st.raf = 0; return; }
+    if (st.stopAt !== null && st.el.currentTime >= st.stopAt) { st.el.pause(); st.el.currentTime = st.stopAt; st.stopAt = null; plRefresh(st); st.raf = 0; return; }
+    plRefresh(st); st.raf = requestAnimationFrame(tick);
+  };
+  st.raf = requestAnimationFrame(tick);
+}
+function plToggle(st) {
+  if (!st.el) return;
+  st.stopAt = null;
+  plBoostInit(st);
+  if (st.el.paused) st.el.play(); else st.el.pause();
+}
+function plStep(st, d) {
+  if (!st.el) return;
+  st.stopAt = null;
+  st.el.pause();
+  st.el.currentTime = Math.min(Math.max(0, st.el.currentTime + d), st.dur || 1e9);
+  plRefresh(st);
+}
+function plSetA(st) { if (!st.el) return; st.a = plNowT(st); st.q("plA").value = plFmt(st.a); st.err(""); plRefresh(st); }
+function plSetB(st) { if (!st.el) return; st.b = plNowT(st); st.q("plB").value = plFmt(st.b); st.err(""); plRefresh(st); }
+function plBoostInit(st) {
+  if (st.ctx || !(window.AudioContext || window.webkitAudioContext)) return;
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    st.ctx = new AC();
+    var srcNode = st.ctx.createMediaElementSource(st.el);
+    st.gain = st.ctx.createGain(); st.gain.gain.value = parseFloat(st.q("plBoost").value) || 1;
+    var comp = st.ctx.createDynamicsCompressor(); comp.threshold.value = -6; comp.ratio.value = 12;
+    srcNode.connect(st.gain); st.gain.connect(comp); comp.connect(st.ctx.destination);
+  } catch (e) { st.ctx = null; st.gain = null; }
+}
+function plBoost(st, v) {
+  plBoostInit(st);
+  if (st.gain) st.gain.gain.value = v;
+  try { if (st.ctx && st.ctx.state === "suspended") st.ctx.resume(); } catch (e) {}
+}
+
+// Closing the box puts the times into the line (only when they changed).
+function applyAndClose(st) {
+  if (st.closing) return;
+  var changed = Math.abs(st.a - st.a0) > 0.0004 || Math.abs(st.b - st.b0) > 0.0004;
+  if (!changed) { st.closeOnly(); return; }
+  if (!(st.b > st.a)) { st.err(T.plBad); st.q("plMain").classList.remove("hidden"); return; }
+  if (lineBusy) return;
+  st.closing = true;
+  var btn = st.q("plClose"); btn.disabled = true;
+  var id = st.seg.segment_id;
+  lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/time", { segment_id: id, start: st.a, end: st.b, manual: true }); },
+    function (r) {
+      st.closing = false; btn.disabled = false;
+      if (!r.ok) { st.err(safeErr(r.data.error, T.genericErr)); return; }   // e.g. overlaps another line: the box stays open so the times can be fixed
+      st.closeOnly();
+      applyRows(r.data.segments, id);
+    });
 }
 
 function applyRows(rows, focusId) {
@@ -1390,7 +1675,7 @@ function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   var time = document.createElement("div"); time.className = "ld-time";
   var tf0 = timeField(T.timeFrom), tf1 = timeField(T.timeTo);
-  tf0.input.value = fmtT(s.start); tf1.input.value = fmtT(s.end);
+  tf0.input.value = fmtMs(s.start); tf1.input.value = fmtMs(s.end);
   var terr = document.createElement("div"); terr.className = "ld-terr hidden";
   time.appendChild(tf0.wrap); time.appendChild(tf1.wrap); time.appendChild(terr);
   var sel = document.createElement("select"); sel.className = "ld-spksel"; fillSelect(sel, s.speaker_id);
@@ -1400,7 +1685,8 @@ function buildRow(s) {
   var bSplit = document.createElement("button"); bSplit.className = "btn-plain"; bSplit.textContent = T.splitLine; bSplit.title = T.splitHint;
   var bDel = document.createElement("button"); bDel.className = "btn-danger"; bDel.textContent = T.deleteLine;
   bDel.style.padding = "4px 10px"; bDel.style.fontSize = "12px";
-  lb.appendChild(bSplit); lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
+  var bMan = document.createElement("button"); bMan.className = "btn-plain"; bMan.textContent = T.enterMan; bMan.title = T.enterManHint;
+  lb.appendChild(bMan); lb.appendChild(bSplit); lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
   var en = document.createElement("textarea"); en.className = "en"; en.value = s.text || ""; en.dir = "ltr"; en.maxLength = 2000;
   var wrap = document.createElement("div"); wrap.className = "ld-arwrap";
   var ar = document.createElement("textarea"); ar.className = "ar"; ar.value = s.arabic_text || ""; ar.maxLength = 2000;
@@ -1415,15 +1701,17 @@ function buildRow(s) {
   foot.appendChild(cnt); foot.appendChild(footR);
   wrap.appendChild(ar); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
+  if (s.heard === false) { var un = document.createElement("div"); un.className = "ld-unheard"; un.textContent = T.unheardNote; row.appendChild(un); }
+  bMan.addEventListener("click", function () { openPlayer(s); });
 
   function commitTime() {
     terr.classList.add("hidden");
     var a = parseT(tf0.input.value), b = parseT(tf1.input.value);
-    var back = function () { tf0.input.value = fmtT(s.start); tf1.input.value = fmtT(s.end); };
+    var back = function () { tf0.input.value = fmtMs(s.start); tf1.input.value = fmtMs(s.end); };
     if (a === null || b === null) { terr.textContent = T.timeBad; terr.classList.remove("hidden"); back(); return; }
     // a box the user did not touch keeps its exact stored value (the box only shows tenths)
-    var ns = tf0.input.value.trim() === fmtT(s.start) ? s.start : a;
-    var ne = tf1.input.value.trim() === fmtT(s.end) ? s.end : b;
+    var ns = tf0.input.value.trim() === fmtMs(s.start) ? s.start : a;
+    var ne = tf1.input.value.trim() === fmtMs(s.end) ? s.end : b;
     if (ns === s.start && ne === s.end) return;
     lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/time", { segment_id: s.segment_id, start: ns, end: ne }); },
       function (r) {

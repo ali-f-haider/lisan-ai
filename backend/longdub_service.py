@@ -665,7 +665,8 @@ def delete_job(job, uid):
 # carry on, the user attaches the same file again and the server prepares
 # the audio again. None of this costs credits.
 
-_MEDIA_FILES = ("audio.wav", "vocals_mono.wav", "background.wav", "vocals.wav", "vocals_normalized.wav", "src.part")
+_MEDIA_FILES = ("audio.wav", "vocals_mono.wav", "background.wav", "vocals.wav", "vocals_normalized.wav", "src.part",
+                "preview.mp4", "preview.m4a", "preview.tmp.mp4", "preview.tmp.m4a")
 _MEDIA_DIRS = ("pieces", "vocals", "bg", "asr", "sep")
 
 
@@ -1833,19 +1834,111 @@ def update_segments(job, edits):
     return True, changed
 
 
-def set_line_time(job, segment_id, start, end):
-    """Change when one line starts and ends. Returns (ok, message, rows)."""
+UNHEARD_SHARE = 0.3       # a line with less than this share of its time overlapping speech the AI heard counts as "not heard by the AI"
+
+
+def _speech_spans(job):
+    """Where the AI heard words (written at analysis). None for a job that has no such map."""
+    p = _wd(job) / "speech_spans.json"
+    if not p.exists():
+        return None
+    try:
+        sp = sorted((float(a), float(z)) for a, z in json.loads(p.read_text(encoding="utf-8")))
+        return sp
+    except Exception:
+        return None
+
+
+def unheard_ids(job, rows):
+    """Ids of the lines whose time range holds (almost) no speech the AI heard: lines the user added or
+    timed by hand where the AI found nothing. (Empty for jobs made before the speech map existed.)"""
+    import bisect
+    spans = _speech_spans(job)
+    if spans is None:
+        return set()
+    starts = [a for a, _ in spans]
+    out = set()
+    for r in rows:
+        try:
+            a, b = float(r["start"]), float(r["end"])
+        except Exception:
+            continue
+        dur = max(0.001, b - a)
+        covered = 0.0
+        i = max(0, bisect.bisect_left(starts, a - 90.0))
+        while i < len(spans) and spans[i][0] < b:
+            covered += max(0.0, min(spans[i][1], b) - max(spans[i][0], a))
+            i += 1
+        if min(covered, dur) / dur < UNHEARD_SHARE:
+            out.add(r.get("segment_id"))
+    return out
+
+
+# A small playable copy of the original for the "Enter man." player: any browser can play it and seek in it,
+# whatever the original format (MKV, AVI ...). Made the first time the player is opened; removed when the project is saved.
+_PREVIEW_LOCKS = {}
+_PREVIEW_SEM = threading.Semaphore(2)
+
+
+def preview_path(job):
+    return _wd(job) / ("preview.mp4" if job.get("has_video") else "preview.m4a")
+
+
+def ensure_preview(job):
+    """Returns (path, None) or (None, (message, http_status))."""
+    if job.get("status") != "editing":
+        return None, ("The player is available while you review a project.", 409)
+    if not has_media(job):
+        return None, ("Your video is not on our servers right now. Choose the file in the player, or attach it to the project.", 409)
+    wd = _wd(job)
+    src = wd / f"src{job['ext']}"
+    if not src.exists():
+        return None, ("Your video is not on our servers right now.", 409)
+    out = preview_path(job)
+    if out.exists() and out.stat().st_size > 1000 and out.stat().st_mtime >= src.stat().st_mtime:
+        return out, None
+    with _LOCK:
+        lk = _PREVIEW_LOCKS.setdefault(job["id"], threading.Lock())
+    with lk:
+        if out.exists() and out.stat().st_size > 1000:
+            return out, None
+        tmp = wd / ("preview.tmp.mp4" if job.get("has_video") else "preview.tmp.m4a")
+        with _PREVIEW_SEM:
+            try:
+                if job.get("has_video"):
+                    cmd = ["ffmpeg", "-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?",
+                           "-vf", "scale='min(640,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
+                           "-g", "24", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                           "-movflags", "+faststart", str(tmp)]
+                else:
+                    cmd = ["ffmpeg", "-y", "-i", str(src), "-vn", "-c:a", "aac", "-b:a", "128k", "-ac", "2",
+                           "-movflags", "+faststart", str(tmp)]
+                ffmpeg_utils.run_ffmpeg(cmd)
+                os.replace(tmp, out)
+            except Exception as ex:
+                print(f"[longdub] player copy failed for {job['id']}: {ex}")
+                try:
+                    tmp.unlink()
+                except Exception:
+                    pass
+                return None, ("We couldn't prepare the player for this file. Please try again.", 500)
+    return out, None
+
+
+def set_line_time(job, segment_id, start, end, manual=False):
+    """Change when one line starts and ends (to the millisecond). manual=True
+    means the user set the times by ear with the player. Returns (ok, message, rows)."""
     if job.get("status") != "editing":
         return False, "This job is not open for editing.", None
     try:
-        start, end = round(float(start), 2), round(float(end), 2)
+        start, end = round(float(start), 3), round(float(end), 3)
     except (TypeError, ValueError):
         return False, "Enter the times as numbers (for example 1:23.5 or 83.5).", None
     if not (math.isfinite(start) and math.isfinite(end)):
         return False, "Enter the times as numbers (for example 1:23.5 or 83.5).", None
     total = _total_secs(job)
     if total and end > total and end - total <= 0.01:
-        end = round(total, 2)
+        end = round(total, 3)
     with _lock_for(job["id"]):
         rows = read_segments(job)
         r = next((x for x in rows if x["segment_id"] == segment_id), None)
@@ -1855,9 +1948,11 @@ def set_line_time(job, segment_id, start, end):
         if err:
             return False, err, None
         r["start"], r["end"] = start, end
+        if manual:
+            r["manual_time"] = True
         rows = _by_start(rows)
         _write_segments(job, rows)
-    _ev(job, "line_time_changed", "ok", f"{segment_id} -> {start}-{end}")
+    _ev(job, "line_time_changed", "ok", f"{segment_id} -> {start}-{end}" + (" (set by ear with the player)" if manual else ""))
     return True, "", rows
 
 
@@ -2714,6 +2809,13 @@ def _clone_sample(job, spid, rows, out_dir):
     total = float(job.get("analysis", {}).get("audio_duration") or 0) or ffmpeg_utils.get_media_duration(ref)
     cands = [r for r in rows if r.get("speaker_id") == spid and (r.get("text") or "").strip()
              and r["end"] - r["start"] > 0.3]
+    try:     # a voice is copied from clear speech the AI heard; lines found only by ear are used only when there is nothing else
+        _un = unheard_ids(job, rows)
+        _heard = [r for r in cands if r.get("segment_id") not in _un]
+        if _heard:
+            cands = _heard
+    except Exception:
+        pass
     cands.sort(key=lambda r: r["end"] - r["start"], reverse=True)
     parts, acc = [], 0.0
     for r in cands:
@@ -3515,6 +3617,15 @@ def _run_dubbing(job):
                             spans_.append((float(job["analysis"]["pieces"][i_][0]), float(job["analysis"]["pieces"][i_][1])))
                         except Exception:
                             pass
+                    try:     # lines the user timed by ear (the AI heard nothing there) are speech too: no word of theirs may come back as a "reaction"
+                        _un = unheard_ids(job, rows)
+                        for r_ in rows:
+                            if r_.get("segment_id") in _un:
+                                spans_.append((float(r_["start"]), float(r_["end"])))
+                        if _un:
+                            _ev(job, "hand_timed_lines", "info", f"{len(_un)} lines the AI did not hear are treated as speech like all others")
+                    except Exception as ex_:
+                        print(f"[longdub] hand-timed lines not added to the speech map: {ex_}")
                     rinfo_ = bg_duck.build_reaction_layer(wd / "vocals_mono.wav", spans_, dub_full, wd / "reactions.wav",
                                                       min_level_db=(bed_level_ + 8.0) if bed_level_ is not None else None)
                     if rinfo_["ok"]:
@@ -3585,7 +3696,7 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", "reactions.wav", "speech_spans.json", f"src{job['ext']}", "turns.json"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", "reactions.wav", "speech_spans.json", f"src{job['ext']}", "turns.json", "preview.mp4", "preview.m4a"):
             try:
                 (wd / f).unlink()
             except Exception:

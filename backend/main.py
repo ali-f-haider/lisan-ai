@@ -4669,10 +4669,21 @@ def longdub_status(job_id: str, request: Request):
     return v
 
 
-def _ld_public_rows(rows):
+def _ld_public_rows(rows, job=None):
     # Word-level timings stay on the server -- the editor only needs the text and the times.
-    return [{k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "speaker_id", "gender", "emotion", "text", "arabic_text")}
-            for r in rows]
+    unheard = set()
+    if job is not None:
+        try:
+            unheard = longdub_service.unheard_ids(job, rows)    # lines where the AI heard no speech (added or timed by hand)
+        except Exception:
+            unheard = set()
+    out = []
+    for r in rows:
+        d = {k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "speaker_id", "gender", "emotion", "text", "arabic_text")}
+        d["heard"] = r.get("segment_id") not in unheard
+        d["manual_time"] = bool(r.get("manual_time"))
+        out.append(d)
+    return out
 
 
 @app.get("/api/longdub/{job_id}/segments")
@@ -4680,7 +4691,7 @@ def longdub_get_segments(job_id: str, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
-    rows = _ld_public_rows(longdub_service.read_segments(job))
+    rows = _ld_public_rows(longdub_service.read_segments(job), job)
     return {"segments": rows, "status": job.get("status"),
             "warnings": job.get("warnings", []), "speaker_list": job.get("speaker_list", []),
             "stated_speakers": job.get("stated_speakers"), "detected_speakers": job.get("detected_speakers")}
@@ -4705,6 +4716,7 @@ class LongDubLineTime(BaseModel):
     segment_id: str = ""
     start: float = 0.0
     end: float = 0.0
+    manual: bool = False
 
 
 @app.post("/api/longdub/{job_id}/segments/time")
@@ -4712,10 +4724,35 @@ def longdub_line_time(job_id: str, body: LongDubLineTime, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
-    ok, msg, rows = longdub_service.set_line_time(job, body.segment_id, body.start, body.end)
+    ok, msg, rows = longdub_service.set_line_time(job, body.segment_id, body.start, body.end, body.manual)
     if not ok:
         return JSONResponse({"error": msg}, status_code=409)
-    return {"ok": True, "segments": _ld_public_rows(rows)}
+    return {"ok": True, "segments": _ld_public_rows(rows, job)}
+
+
+@app.post("/api/longdub/{job_id}/player")
+async def longdub_player(job_id: str, request: Request):
+    """Makes (the first time) a small playable copy of the original for the "Enter man." player."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    path, e = await asyncio.to_thread(longdub_service.ensure_preview, job)
+    if e:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return {"ok": True, "url": f"/api/longdub/{job_id}/media", "kind": "video" if job.get("has_video") else "audio",
+            "duration": job.get("duration") or 0}
+
+
+@app.get("/api/longdub/{job_id}/media")
+def longdub_media(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    p = longdub_service.preview_path(job)
+    if not p.exists():
+        return JSONResponse({"error": "The player copy is not ready."}, status_code=404)
+    return FileResponse(p, media_type="video/mp4" if job.get("has_video") else "audio/mp4",
+                        headers={"Cache-Control": "private, max-age=600"})
 
 
 class LongDubLineRef(BaseModel):
@@ -4730,7 +4767,7 @@ def longdub_line_insert(job_id: str, body: LongDubLineRef, request: Request):
     ok, msg, rows, new_id = longdub_service.insert_line(job, body.segment_id)
     if not ok:
         return JSONResponse({"error": msg}, status_code=409)
-    return {"ok": True, "segments": _ld_public_rows(rows), "new_id": new_id}
+    return {"ok": True, "segments": _ld_public_rows(rows, job), "new_id": new_id}
 
 
 class LongDubLineSplit(BaseModel):
@@ -4746,7 +4783,7 @@ def longdub_line_split(job_id: str, body: LongDubLineSplit, request: Request):
     ok, msg, rows, new_id = longdub_service.split_line(job, body.segment_id, body.position)
     if not ok:
         return JSONResponse({"error": msg}, status_code=409)
-    return {"ok": True, "segments": _ld_public_rows(rows), "new_id": new_id}
+    return {"ok": True, "segments": _ld_public_rows(rows, job), "new_id": new_id}
 
 
 @app.post("/api/longdub/{job_id}/segments/delete")
@@ -4757,7 +4794,7 @@ def longdub_line_delete(job_id: str, body: LongDubLineRef, request: Request):
     ok, msg, rows = longdub_service.delete_line(job, body.segment_id)
     if not ok:
         return JSONResponse({"error": msg}, status_code=409)
-    return {"ok": True, "segments": _ld_public_rows(rows)}
+    return {"ok": True, "segments": _ld_public_rows(rows, job)}
 
 
 class LongDubSpeakers(BaseModel):
