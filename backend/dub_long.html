@@ -270,6 +270,9 @@ var T = {
     wrongFileProj: "That isn't the same file this project was made from. Choose the original file (a re-saved or re-exported copy will not match).",
     restoringHeading: "Getting your project ready",
     restoringNote: "We are preparing the audio of your file again (this costs no credits and your text is untouched). You can close this page and come back - your project will be waiting.",
+    showLines: "Show the lines", hideLines: "Hide the lines",
+    roNote: "This project is finished, so its lines can't be edited here. They are shown for your reference.",
+    roNone: "No lines were found for this project.",
     enterMan: "Enter man.", enterManHint: "Open the original and set this line's start and end yourself, by ear, to the millisecond.",
     unheardNote: "The AI did not hear any speech in this time range. If you can hear words here, click \"Enter man.\" and set the exact start and end yourself. A line you time by hand is dubbed just like the lines the AI found.",
     plTitle: function (n, who) { return "Enter man. - line " + n + (who ? " (" + who + ")" : ""); },
@@ -456,6 +459,9 @@ var T = {
     wrongFileProj: "هذا ليس الملف نفسه الذي أُنشئ منه المشروع. اختر الملف الأصلي (النسخة المُعاد حفظها أو تصديرها لن تطابق).",
     restoringHeading: "نجهّز مشروعك",
     restoringNote: "نجهّز صوت ملفك من جديد (لا يكلّف هذا أي رصيد ولا يتأثر نصّك). يمكنك إغلاق الصفحة والعودة — سيكون مشروعك بانتظارك.",
+    showLines: "عرض الأسطر", hideLines: "إخفاء الأسطر",
+    roNote: "هذا المشروع منتهٍ، لذلك لا يمكن تعديل أسطره هنا. تُعرض للاطلاع فقط.",
+    roNone: "لم يُعثر على أسطر لهذا المشروع.",
     enterMan: "إدخال يدوي", enterManHint: "افتح الملف الأصلي وحدّد بداية هذا السطر ونهايته بنفسك بالسمع وبدقة الميلي ثانية.",
     unheardNote: "لم يسمع الذكاء الاصطناعي أي كلام في هذا المدى الزمني. إذا كنت تسمع كلاماً هنا فاضغط «إدخال يدوي» وحدّد البداية والنهاية بدقة بنفسك. السطر الذي تحدّد وقته يدوياً يُدبلج تماماً مثل الأسطر التي وجدها الذكاء الاصطناعي.",
     plTitle: function (n, who) { return "إدخال يدوي - السطر " + n + (who ? " (" + who + ")" : ""); },
@@ -796,6 +802,25 @@ function statusBadge(st) {
   return '<span class="ld-status ' + cls + '">' + esc(T.st[st] || st) + "</span>";
 }
 
+var roOpen = {};       // job id -> the read-only lines of a finished project are shown
+var roCache = {};
+function roHtml(j) {
+  var rows = roCache[j.id];
+  if (!rows) return "<p class='note'>" + esc(T.loading) + "</p>";
+  if (!rows.length) return "<p class='note'>" + esc(T.roNone) + "</p>";
+  var h = "<p class='note'>" + esc(T.roNote) + "</p><div style='overflow-x:auto;'><table class='ld-table' style='width:100%;'>";
+  rows.forEach(function (r) {
+    h += "<tr><td style='white-space:nowrap;direction:ltr;vertical-align:top;'>" + esc(fmtMs(r.start)) + " → " + esc(fmtMs(r.end)) + "<br><span class='sub'>" + esc(r.speaker || "") + "</span></td>" +
+         "<td dir='ltr' style='vertical-align:top;'>" + esc(r.text || "") + "</td>" +
+         "<td dir='rtl' style='vertical-align:top;font-size:15px;'>" + esc(r.arabic_text || "") + "</td></tr>";
+  });
+  return h + "</table></div>";
+}
+function roLoad(j) {
+  if (roCache[j.id]) return Promise.resolve();
+  return api("GET", "/api/longdub/" + j.id + "/segments").then(function (r) { roCache[j.id] = r.ok ? (r.data.segments || []) : []; });
+}
+
 function renderJob() {
   if (!cur) { $("jobBody").innerHTML = ""; return; }
   if (cur.status === "editing") { renderReattach(); return; }
@@ -868,9 +893,19 @@ function renderJob() {
     h += name;
     h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + "</button></div>";
   }
+  if (j.status === "done" || j.status === "failed") {
+    h += '<div class="ld-row-btns"><button class="btn-plain" id="btnShowLines">' + esc(roOpen[j.id] ? T.hideLines : T.showLines) + "</button></div>";
+    if (roOpen[j.id]) h += '<div id="roLines">' + roHtml(j) + "</div>";
+  }
   if (lastErr) h += '<div class="ld-err">' + esc(lastErr) + "</div>";
   $("jobBody").innerHTML = h;
   wireJobButtons();
+  var sb = $("btnShowLines");
+  if (sb) sb.onclick = function () {
+    roOpen[j.id] = !roOpen[j.id];
+    renderJob();
+    if (roOpen[j.id] && !roCache[j.id]) roLoad(j).then(function () { if (cur && cur.id === j.id) renderJob(); });
+  };
 }
 
 function renderEstimate(j) {
