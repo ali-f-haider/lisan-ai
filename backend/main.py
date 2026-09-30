@@ -896,9 +896,9 @@ DEFAULT_PACKS = [
 # profile with no subscription_plan_key at all -- i.e. someone who
 # subscribed before tiers existed. Never touched by either page above.
 DEFAULT_SUBSCRIPTION_PLANS = [
-    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1, "clones_per_month": 2,  "storage_gb": 5},
-    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3, "clones_per_month": 5,  "storage_gb": 15},
-    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8, "clones_per_month": 15, "storage_gb": 50},
+    {"key": "starter_monthly", "name": "Starter", "price_usd": 19.0, "credits_per_month": 2000,  "voice_slots": 1, "clones_per_month": 2,  "storage_gb": 0.2},
+    {"key": "pro_monthly",     "name": "Pro",      "price_usd": 29.0, "credits_per_month": 4000,  "voice_slots": 3, "clones_per_month": 5,  "storage_gb": 0.3},
+    {"key": "studio_monthly",  "name": "Studio",   "price_usd": 59.0, "credits_per_month": 10000, "voice_slots": 8, "clones_per_month": 15, "storage_gb": 0.6},
 ]
 
 # ---- Storage per tier (2026-09) --------------------------------------------
@@ -906,12 +906,12 @@ DEFAULT_SUBSCRIPTION_PLANS = [
 # fixed number of GB ("storage_gb" on the tier, editable in admin); a pay-once buyer (no active subscription) gets
 # PAYONCE_STORAGE_GB. When the storage is full the user must delete finished files (Account page) before anything new
 # can be saved: see _storage_block() and the routes that call it.
-PLAN_STORAGE_GB_DEFAULT = {"starter_monthly": 5.0, "pro_monthly": 15.0, "studio_monthly": 50.0}
-STORAGE_FALLBACK_GB = 5.0          # a tier that has no storage number at all (an old custom tier)
+PLAN_STORAGE_GB_DEFAULT = {"starter_monthly": 0.2, "pro_monthly": 0.3, "studio_monthly": 0.6}
+STORAGE_FALLBACK_GB = 0.2          # a tier that has no storage number at all (an old custom tier)
 try:
-    PAYONCE_STORAGE_GB = float(os.environ.get("PAYONCE_STORAGE_GB", "1"))
+    PAYONCE_STORAGE_GB = float(os.environ.get("PAYONCE_STORAGE_GB", "0.1"))
 except Exception:
-    PAYONCE_STORAGE_GB = 1.0
+    PAYONCE_STORAGE_GB = 0.1
 _GB = 1024 ** 3
 
 

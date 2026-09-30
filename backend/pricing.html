@@ -123,7 +123,7 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
     <div class="plan-grid" id="packCards"><p class="loading-note">Loading packs…</p></div>
     <div class="trust">
       <span>🔒 Login-protected purchases<span class="ar2">🔒 عمليات شراء محمية بتسجيل الدخول</span></span>
-      <span>⏳ One-time: 48h file storage (1 GB) · Monthly: 30 days, storage size by plan<span class="ar2">⏳ لمرة واحدة: تخزين 48 ساعة (1 جيجابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
+      <span>⏳ One-time: 48h file storage (100 MB) · Monthly: 30 days, storage size by plan<span class="ar2">⏳ لمرة واحدة: تخزين 48 ساعة (100 ميغابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
       <span>💳 Secure payments by Stripe<span class="ar2">💳 مدفوعات آمنة عبر Stripe</span></span>
     </div>
   </div>
@@ -270,7 +270,7 @@ function renderPacks(packs) {
       '<div class="pname">' + label + '<span class="ar2">' + (PACK_NAME_AR[k] || label) + '</span></div>' +
       '<div class="pprice">$' + price.toFixed(2) + '<span class="ar2">' + price.toFixed(2) + '$</span></div>' +
       '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits<span class="ar2">' + credits.toLocaleString() + ' رصيد</span></div>' +
-      '<div class="pdetail">⏳ One-time · 48h file storage (1 GB) · never expires<span class="ar2">لمرة واحدة · تخزين 48 ساعة (1 جيجابايت) · لا تنتهي صلاحيته</span></div>' +
+      '<div class="pdetail">⏳ One-time · 48h file storage (100 MB) · never expires<span class="ar2">لمرة واحدة · تخزين 48 ساعة (100 ميغابايت) · لا تنتهي صلاحيته</span></div>' +
       '<div class="pcta">Buy now →<span class="ar2">اشترِ الآن ←</span></div>' +
       '</button>';
   });

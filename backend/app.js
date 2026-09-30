@@ -3547,7 +3547,7 @@ function openBuyModal() {
             });
             var divider = document.createElement("p");
             divider.style.cssText = "font-size:11px;color:#9ca3af;margin:2px 0 0;";
-            divider.textContent = isAr ? "أو باقة رصيد لمرة واحدة (تخزين الملفات 48 ساعة، 1 جيجابايت):" : "Or a one-time pack (48-hour file storage, 1 GB):";
+            divider.textContent = isAr ? "أو باقة رصيد لمرة واحدة (تخزين الملفات 48 ساعة، 100 ميغابايت):" : "Or a one-time pack (48-hour file storage, 100 MB):";
             wrap.appendChild(divider);
         }
         // Loop over whatever pack keys the admin panel actually defines,

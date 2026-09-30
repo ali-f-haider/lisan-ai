@@ -634,7 +634,7 @@ async function loadPricing() {
       <td><input type="number" value="${p.credits_per_month}" data-idx="${i}" data-field="credits_per_month" style="width:100px"></td>
       <td><input type="number" value="${p.voice_slots||0}" data-idx="${i}" data-field="voice_slots" style="width:90px"></td>
       <td><input type="number" value="${clonesVal}" placeholder="unlimited" data-idx="${i}" data-field="clones_per_month" style="width:90px" title="Leave blank for no separate monthly cap"></td>
-      <td><input type="number" step="0.5" min="0" value="${p.storage_gb!=null?p.storage_gb:''}" placeholder="5" data-idx="${i}" data-field="storage_gb" style="width:80px" title="GB of finished-file storage for this tier. Pay-once buyers get 1 GB (env PAYONCE_STORAGE_GB)."></td>
+      <td><input type="number" step="0.05" min="0" value="${p.storage_gb!=null?p.storage_gb:''}" placeholder="0.2" data-idx="${i}" data-field="storage_gb" style="width:80px" title="GB of finished-file storage for this tier. Pay-once buyers get 0.1 GB (env PAYONCE_STORAGE_GB)."></td>
       <td><button class="btn-sm btn-danger" onclick="deletePlan(${i})">Delete</button></td>
     </tr>`;
   });
@@ -785,7 +785,7 @@ function addPlan() {
     <td><input type="number" value="4000" data-idx="${i}" data-field="credits_per_month" style="width:100px"></td>
     <td><input type="number" value="1" data-idx="${i}" data-field="voice_slots" style="width:90px"></td>
     <td><input type="number" value="" placeholder="unlimited" data-idx="${i}" data-field="clones_per_month" style="width:90px" title="Leave blank for no separate monthly cap"></td>
-    <td><input type="number" step="0.5" min="0" value="5" data-idx="${i}" data-field="storage_gb" style="width:80px"></td>
+    <td><input type="number" step="0.05" min="0" value="0.2" data-idx="${i}" data-field="storage_gb" style="width:80px"></td>
     <td><button class="btn-sm btn-danger" onclick="this.closest('tr').remove()">Delete</button></td>`;
   tbody.appendChild(tr);
 }
