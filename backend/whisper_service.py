@@ -1,3 +1,4 @@
+import json
 import re
 import threading
 import time
@@ -650,6 +651,20 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                 # already released its own pipeline before this point, so at no
                 # point in this job are both large models in memory together.
                 _release_model()
+
+            # Where words are spoken, kept next to the separated voices: the merge step uses it to tell
+            # laughter / applause / cheering (which the separator files under "voices") from speech.
+            if background_path:
+                try:
+                    _sp = []
+                    for _s in raw_segments:
+                        _ws = [(_w.start, _w.end) for _w in (getattr(_s, "words", None) or [])
+                               if _w.start is not None and _w.end is not None]
+                        _sp.extend(_ws if _ws else [(_s.start, _s.end)])
+                    (Path(background_path).parent / "speech_spans.json").write_text(
+                        json.dumps([[round(float(_a), 3), round(float(_z), 3)] for _a, _z in _sp]), encoding="utf-8")
+                except Exception as _spx:
+                    print(f"[transcribe] {job_id}: could not keep the speech map: {_spx}")
 
             jobs_progress[job_id]["status_text"] = "Preparing your lines..."
             jobs_progress[job_id]["percent"] = 90

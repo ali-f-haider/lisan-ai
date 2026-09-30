@@ -218,7 +218,20 @@ def mute_video_copy(video_path: Path, out_path: Path):
 
 
 def mix_two_audio(main_audio: Path, bg_audio: Path, out_wav: Path,
-                  main_vol: float = 1.0, bg_vol: float = 0.8):
+                  main_vol: float = 1.0, bg_vol: float = 0.8, extra_audio: Path = None, extra_vol: float = 1.0):
+    """Dubbed voice + background. With extra_audio (the laughter / applause layer) a third track is added."""
+    if extra_audio is not None and Path(extra_audio).exists():
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(main_audio), "-i", str(bg_audio), "-i", str(extra_audio),
+            "-filter_complex",
+            f"[0:a]volume={main_vol}[d];[1:a]volume={bg_vol}[b];[2:a]volume={extra_vol}[r];"
+            "[d][b][r]amix=inputs=3:duration=first:normalize=0[out]",
+            "-map", "[out]",
+            str(out_wav)
+        ]
+        run_ffmpeg(cmd)
+        return
     cmd = [
         "ffmpeg", "-y",
         "-i", str(main_audio), "-i", str(bg_audio),

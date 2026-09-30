@@ -812,6 +812,7 @@ def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
             info = add_ambience_bed(plan, sep_used, restored, seed=seed)
             if info["ok"] and restored.exists() and restored.stat().st_size > 1000:
                 res["path"], res["bed"] = restored, True
+                res["bed_level"] = plan.get("target")
                 g, _n = makeup_gain(original, restored, pauses, max_db=6.0, mix_filter=SHORT_MIX_FILTER, min_db=1.0)
                 if g > 0 and lift_background(restored, lifted, g):
                     res["path"] = lifted
@@ -824,4 +825,32 @@ def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
     except Exception as ex:
         res["path"] = Path(bg_path)
         res["note"] = f"skipped ({ex})"[:200]
+        return res
+
+
+def prepare_reactions(vocals_path, spans_path, dub_path, work_dir, tag, bed_level=None):
+    """Short dubbing: the laughter / applause / cheering layer (see build_reaction_layer).
+    spans_path = the speech map written when the video was transcribed (where words are spoken).
+    Returns {"path": wav to mix or None, "temps": files to delete afterwards, "note": text for the log}.
+    Never raises; "path" is None whenever there is nothing to add (no map, no such sounds, switched off)."""
+    res = {"path": None, "temps": [], "note": ""}
+    try:
+        if not REACT_ENABLED:
+            res["note"] = "reactions: switched off"
+            return res
+        if spans_path is None or not Path(spans_path).exists():
+            res["note"] = "reactions: not used (no speech map for this job)"
+            return res
+        import json
+        spans = [(float(x[0]), float(x[1])) for x in json.loads(Path(spans_path).read_text(encoding="utf-8"))]
+        out = Path(work_dir) / f"reactions_{tag}.wav"
+        res["temps"] = [out, out.with_name(out.name + ".part.wav")]
+        info = build_reaction_layer(vocals_path, spans, dub_path, out,
+                                    min_level_db=(float(bed_level) + 8.0) if bed_level is not None else None)
+        res["note"] = "reactions: " + str(info["reason"])
+        if info["ok"] and out.exists() and out.stat().st_size > 1000:
+            res["path"] = out
+        return res
+    except Exception as ex:
+        res["note"] = f"reactions: skipped ({ex})"[:200]
         return res

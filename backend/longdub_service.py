@@ -1024,7 +1024,7 @@ def _run_analysis(job):
                                      "-acodec", "pcm_s16le", "-ar", str(SAMPLE_RATE), "-ac", "2", str(piece)])
             vocals_dst = wd / "vocals" / f"p{i:03d}.wav"
             bg_dst = wd / "bg" / f"p{i:03d}.wav"
-            if has_video:
+            if True:      # video and audio files alike: music, ambience and crowd reactions live in the background
                 ok = False
                 slot.take()
                 try:
@@ -1053,10 +1053,8 @@ def _run_analysis(job):
                     if i not in an.setdefault("bg_failed", []):
                         an["bg_failed"].append(i)
                     job.setdefault("warnings", []).append(
-                        f"We couldn't separate the background sound for part {i + 1} of {n} of your video, so that part will have no background sound.")
+                        f"We couldn't separate the background sound for part {i + 1} of {n} of your {'video' if has_video else 'audio'}, so that part will have no background sound.")
                     _ev(job, "separation", "failed", f"piece {i + 1}/{n}: separation failed twice; used the original sound and silent background")
-            else:
-                shutil.copy(piece, vocals_dst)
             try:
                 piece.unlink()
             except Exception:
@@ -1066,13 +1064,13 @@ def _run_analysis(job):
             time.sleep(0.05)
 
         if not an.get("sep_logged"):
-            _ev(job, "separation", "ok" if has_video else "skipped",
-                f"{n} pieces" if has_video else "audio-only file: no background separation")
+            _ev(job, "separation", "ok", f"{n} pieces" + ("" if has_video else " (audio file)"))
             an["sep_logged"] = True
         vocals_all = wd / "vocals.wav"
         if not vocals_all.exists():
             _concat_wavs([wd / "vocals" / f"p{i:03d}.wav" for i in range(n)], vocals_all)
-        if has_video and not (wd / "background.wav").exists():
+        # (an audio job started before audio files were separated has no background pieces: it just has no background)
+        if not (wd / "background.wav").exists() and all((wd / "bg" / f"p{i:03d}.wav").exists() for i in range(n)):
             _concat_wavs([wd / "bg" / f"p{i:03d}.wav" for i in range(n)], wd / "background.wav")
 
         # 4. speaker detection over the whole vocals track ---------------
@@ -3095,7 +3093,7 @@ def _run_dubbing(job):
         vsrc = lip_video if lip_video is not None else src      # picture: lip-synced or original
         bg = wd / "background.wav"
         bg_info = None
-        if video_out:
+        if video_out or bg.exists():      # audio files have a background only when they were separated
             an_ = job.get("analysis") or {}
             failed_parts = len(an_.get("bg_failed") or [])
             parts_total = len(an_.get("pieces") or [])
@@ -3118,10 +3116,12 @@ def _run_dubbing(job):
             _ev(job, "background_mix", "ok" if bg_info["state"] == "mixed" else "failed",
                 f"{bg_info['state']}; background track mean {bg_info.get('mean_db')} dB, peak {bg_info.get('max_db')} dB; "
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
+            if not video_out and bg_info["state"] == "silent" and not bg_info["failed_parts"]:
+                bg_info = None      # a recording with only voices has no background: nothing is missing, nothing to report
         bg_use = bg
         bed_done = False
         bed_level_ = None
-        if video_out and bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
+        if bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
             try:
                 pauses_ = []
                 pp_ = wd / "pauses.json"
@@ -3175,7 +3175,7 @@ def _run_dubbing(job):
             except Exception as ex:
                 print(f"[longdub] background restore skipped: {ex}")
         bg_mix = bg_use
-        if video_out and bg.exists() and bg_duck.ENABLED and not bed_done:
+        if bg.exists() and bg_duck.ENABLED and not bed_done:
             # the separated background keeps a faint metallic copy of the original voices:
             # lower its voice range only while the original speakers talk
             _bdk = bg_duck.duck_background(bg_use, wd / "vocals_mono.wav", wd / "background_ducked.wav")
@@ -3185,7 +3185,7 @@ def _run_dubbing(job):
         # Laughter, applause and cheers: the separator files them under "voices", so the separated background
         # has none. They are cut out of the separated voices outside the spoken words and laid back as their own layer.
         react = None
-        if video_out:
+        if bg.exists():         # the reaction layer is cut from the separated voices, so it needs a separation
             try:
                 sp_file = wd / "speech_spans.json"
                 if not bg_duck.REACT_ENABLED:
@@ -3194,6 +3194,13 @@ def _run_dubbing(job):
                     _ev(job, "reactions", "info", "not used: no speech map for this job")
                 else:
                     spans_ = [tuple(x) for x in json.loads(sp_file.read_text(encoding="utf-8"))]
+                    # a part whose separation failed has the original sound (music included) as its "voices":
+                    # nothing in it may be taken for a reaction
+                    for i_ in (job.get("analysis") or {}).get("bg_failed") or []:
+                        try:
+                            spans_.append((float(job["analysis"]["pieces"][i_][0]), float(job["analysis"]["pieces"][i_][1])))
+                        except Exception:
+                            pass
                     rinfo_ = bg_duck.build_reaction_layer(wd / "vocals_mono.wav", spans_, dub_full, wd / "reactions.wav",
                                                       min_level_db=(bed_level_ + 8.0) if bed_level_ is not None else None)
                     if rinfo_["ok"]:
@@ -3202,33 +3209,40 @@ def _run_dubbing(job):
             except Exception as ex:
                 print(f"[longdub] reaction layer skipped: {ex}")
                 react = None
-        if video_out and bg.exists():
+        use_bg = bg.exists()
+        if use_bg:
             _bg_final_event(job, wd, bg_mix, dub_full)
-            if react is not None:
-                fc = ("[1:a]volume=1.0[d];"
-                      f"[2:a]{BG_MIX_FILTER}[b];"
-                      "[3:a]volume=1.0[r];"
-                      "[d][b][r]amix=inputs=3:duration=first:normalize=0[out]")
-                extra_in = ["-i", str(react)]
+        if not use_bg and react is None:
+            # nothing to lay under the dubbed voice
+            if video_out:
+                ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-map", "0:v:0", "-map", "1:a:0",
+                                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
             else:
-                fc = ("[1:a]volume=1.0[d];"
-                      f"[2:a]{BG_MIX_FILTER}[b];"
-                      "[d][b]amix=inputs=2:duration=first:normalize=0[out]")
-                extra_in = []
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(bg_mix)] + extra_in +
-                                    ["-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
-                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
-        elif video_out and react is not None:
-            fc = ("[1:a]volume=1.0[d];[2:a]volume=1.0[r];"
-                  "[d][r]amix=inputs=2:duration=first:normalize=0[out]")
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-i", str(react),
-                                     "-filter_complex", fc, "-map", "0:v:0", "-map", "[out]",
-                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
-        elif video_out:
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-map", "0:v:0", "-map", "1:a:0",
-                                     "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
+                ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(dub_full), "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)])
         else:
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(dub_full), "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)])
+            # dubbed voice + (background) + (reactions): the same mix for a video and an audio file
+            ins = ([vsrc] if video_out else []) + [dub_full] + ([bg_mix] if use_bg else []) + ([react] if react is not None else [])
+            o = 1 if video_out else 0
+            parts_ = [f"[{o}:a]volume=1.0[d]"]
+            labels_ = ["[d]"]
+            k_ = o + 1
+            if use_bg:
+                parts_.append(f"[{k_}:a]{BG_MIX_FILTER}[b]")
+                labels_.append("[b]")
+                k_ += 1
+            if react is not None:
+                parts_.append(f"[{k_}:a]volume=1.0[r]")
+                labels_.append("[r]")
+            fc = ";".join(parts_) + ";" + "".join(labels_) + f"amix=inputs={len(labels_)}:duration=first:normalize=0[out]"
+            cmd_ = ["ffmpeg", "-y"]
+            for f_ in ins:
+                cmd_ += ["-i", str(f_)]
+            cmd_ += ["-filter_complex", fc]
+            if video_out:
+                cmd_ += ["-map", "0:v:0", "-map", "[out]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)]
+            else:
+                cmd_ += ["-map", "[out]", "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)]
+            ffmpeg_utils.run_ffmpeg(cmd_)
         if not tmp_final.exists() or tmp_final.stat().st_size < 1000:
             raise Exception("the final file was not produced")
         os.replace(tmp_final, OUTPUT_DIR / final_name)
@@ -3276,8 +3290,8 @@ def _run_dubbing(job):
                      + (f" The credits saved on the shorter text ({dub['rephrase_refund']}) were refunded." if dub.get("rephrase_refund") else ""))
         if bg_info and bg_info["state"] != "mixed":
             note += ("\n\nNote: the original background sound (music, ambience) could not be separated "
-                     + ("for the whole video" if bg_info["state"] in ("missing", "silent") else
-                        f"for {bg_info['failed_parts']} of {bg_info['parts']} parts of the video")
+                     + (f"for the whole {'video' if video_out else 'recording'}" if bg_info["state"] in ("missing", "silent") else
+                        f"for {bg_info['failed_parts']} of {bg_info['parts']} parts of the {'video' if video_out else 'recording'}")
                      + ", so it is missing from the dubbed file there.")
         if lip_summary is not None:
             note += (f"\n\nLip-sync: {lip_summary['synced']} of {lip_summary['clips']} parts of the video were lip-synced."

@@ -3902,10 +3902,15 @@ def merge_video(req: MergeRequest, request: Request):
                                          OUTPUT_DIR, f"merge_{req.job_id}", seed=zlib.crc32(str(req.job_id).encode("utf-8")))
         print(f"[bg-duck] {req.job_id}: {_bp['note']}")
         bg_to_use = _bp["path"]
+        # Laughter, applause and cheers: the separator files them under "voices", so the separated background
+        # has none. They are cut out of the separated voices outside the spoken words and laid back as a layer.
+        _rx = bg_duck.prepare_reactions(bg.parent / "vocals.wav", bg.parent / "speech_spans.json", dub, OUTPUT_DIR,
+                                        f"merge_{req.job_id}", bed_level=_bp.get("bed_level"))
+        print(f"[bg-duck] {req.job_id}: {_rx['note']}")
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
-        ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed)
+        ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed, extra_audio=_rx["path"])
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
-        for _tmp in [mixed] + list(_bp["temps"]):
+        for _tmp in [mixed] + list(_bp["temps"]) + list(_rx["temps"]):
             try:
                 _tmp.unlink()
             except Exception:

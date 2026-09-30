@@ -609,6 +609,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             mixed = OUTPUT_DIR / f"lipsync_mixed_{job_id}.wav"
             bg_used = background
             _bp_temps = []
+            _rx_path = None
             try:
                 import bg_duck, zlib
                 from config import UPLOAD_DIR
@@ -617,9 +618,15 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                 print(f"[bg-duck] {job_id}: lip-sync {_bp['note']}")
                 bg_used = _bp["path"]
                 _bp_temps = list(_bp["temps"])
+                # laughter / applause / cheers (see bg_duck.prepare_reactions)
+                _rx = bg_duck.prepare_reactions(background.parent / "vocals.wav", background.parent / "speech_spans.json",
+                                                dubbed_audio, OUTPUT_DIR, f"lipsync_{job_id}", bed_level=_bp.get("bed_level"))
+                print(f"[bg-duck] {job_id}: lip-sync {_rx['note']}")
+                _rx_path = _rx["path"]
+                _bp_temps += list(_rx["temps"])
             except Exception as _bd_ex:
                 print(f"[bg-duck] {job_id}: lip-sync skipped ({_bd_ex})")
-            mix_two_audio(raw_video, bg_used, mixed)
+            mix_two_audio(raw_video, bg_used, mixed, extra_audio=_rx_path)
             for _t in _bp_temps:
                 try: _t.unlink()
                 except Exception: pass
