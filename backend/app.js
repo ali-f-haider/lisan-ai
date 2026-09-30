@@ -1995,6 +1995,8 @@ async function startTranscribe() {
     form.append("speaker_count", speakerCount);
     form.append("voice_consent", "true");
     form.append("lipsync", lipsyncWanted ? "true" : "false");
+    // remembered for this job: Step 7 (lip-sync) is only shown when it was chosen in Step 1
+    window._lipsyncWantedAtUpload = lipsyncWanted;
     if (trimStart >= 0) {
         form.append("trim_start", String(trimStart));
         form.append("trim_end", String(trimEnd));
@@ -3047,7 +3049,11 @@ checkGenerateProgress = async function () {
                 // feature is actually turned on (LIPSYNC_ENABLED in
                 // config.py) -- window.LIPSYNC_ENABLED is set from
                 // /api/user/info's lipsync_enabled field on page load.
-                if (window.LIPSYNC_ENABLED) {
+                // ...and only when the user chose lip-sync in Step 1 (the choice made at upload time;
+                // falls back to the checkbox if this page never saw the upload, e.g. after a reload)
+                var _lsChoice = (typeof window._lipsyncWantedAtUpload === "boolean") ? window._lipsyncWantedAtUpload
+                    : !!(document.getElementById("lipsyncWantedCheckbox") || {}).checked;
+                if (window.LIPSYNC_ENABLED && _lsChoice) {
                     var lsSection = document.getElementById("lipsyncSection");
                     if (lsSection) lsSection.classList.remove("hidden");
                 }
@@ -3984,7 +3990,7 @@ function buildVolumeTable(lines) {
         td(String(i + 1));
         td(ln.speaker || seg.speaker || "");
         var full = (seg.arabic_text || seg.text || "");
-        td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + '</span>');
+        td('<span title="' + full.replace(/"/g, "'") + '">' + full.replace(/&/g, "&amp;").replace(/</g, "&lt;") + '</span>');
         var c1 = document.createElement("td");
         var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "▶"; b1.title = "Play original line";
         b1.onclick = function () { playOrigLine(ln); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -4308,7 +4314,7 @@ async function applyVolumes() {
             td(String(i + 1));
             td(ln.speaker || seg.speaker || "");
             var full = (seg.arabic_text || seg.text || "");
-            td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + '</span>');
+            td('<span title="' + full.replace(/"/g, "'") + '">' + full.replace(/&/g, "&amp;").replace(/</g, "&lt;") + '</span>');
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "▶"; b1.title = "Play original line";
             b1.onclick = function () { window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -5217,7 +5223,7 @@ window.cleanOldClones = function () {
             td(String(i + 1));
             td(ln.speaker || seg.speaker || "");
             var full = (seg.arabic_text || seg.text || "");
-            td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
+            td('<span title="' + full.replace(/"/g, "'") + '">' + full.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>");
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "▶"; b1.title = "Play original line";
             b1.onclick = function () { window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -5378,7 +5384,7 @@ window.cleanOldClones = function () {
             td(String(i + 1));
             td(ln.speaker || seg.speaker || "");
             var full = (seg.arabic_text || seg.text || "");
-            td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
+            td('<span title="' + full.replace(/"/g, "'") + '">' + full.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>");
             var c1 = document.createElement("td");
             var b1 = document.createElement("button"); b1.className = "action-btn green"; b1.textContent = "▶"; b1.title = "Play original line";
             b1.onclick = function () { if (window.playOrigLine) window.playOrigLine(ln, b1); }; c1.appendChild(b1); tr.appendChild(c1);
@@ -5602,7 +5608,7 @@ window.cleanOldClones = function () {
             td((needsAttention ? '<span title="' + warnMsg.replace(/"/g, "'") + '" style="margin-right:4px;">\u26A0\uFE0F</span>' : "") + String(i + 1));
             td(ln.speaker || seg.speaker || "");
             var full = (seg.arabic_text || seg.text || "");
-            td('<span title="' + full.replace(/"/g, "'") + '">' + full.slice(0, 60) + "</span>");
+            td('<span title="' + full.replace(/"/g, "'") + '">' + full.replace(/&/g, "&amp;").replace(/</g, "&lt;") + "</span>");
             var cN = document.createElement("td");
             var cb = document.createElement("input"); cb.type = "checkbox";
             cb.checked = !window.overlapAllowed[ln.segment_id];
@@ -5820,7 +5826,8 @@ window.cleanOldClones = function () {
                 segments: segmentsData, originalSegments: originalSegments,
                 speakerVoices: speakerVoices, speakerVoiceNames: speakerVoiceNames,
                 speakerChoices: speakerChoices, clonedBySpeaker: clonedBySpeaker,
-                customBySpeaker: window.customBySpeaker || {}, segmentOffsets: segmentOffsets
+                customBySpeaker: window.customBySpeaker || {}, segmentOffsets: segmentOffsets,
+                lipsyncWanted: window._lipsyncWantedAtUpload
             }));
         } catch (e) {}
     }
@@ -5836,6 +5843,7 @@ window.cleanOldClones = function () {
             speakerVoices = d.speakerVoices || {}; speakerVoiceNames = d.speakerVoiceNames || {};
             speakerChoices = d.speakerChoices || {}; clonedBySpeaker = d.clonedBySpeaker || {};
             window.customBySpeaker = d.customBySpeaker || {}; segmentOffsets = d.segmentOffsets || {};
+            if (typeof d.lipsyncWanted === "boolean") window._lipsyncWantedAtUpload = d.lipsyncWanted;
             renderTable(); if (typeof renderSpeakerVoices === "function") renderSpeakerVoices();
             ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(function (id) { var el = document.getElementById(id); if (el) el.classList.remove("hidden"); });
             if (typeof showMediaBanner === "function") showMediaBanner();
