@@ -333,14 +333,15 @@ def _pause_mean_db(path, pauses, af=None):
     return _db(p[mask].mean()) if mask.sum() >= 100 else None
 
 
-def makeup_gain(original, background, pauses, max_db=None, mix_filter=None):
+def makeup_gain(original, background, pauses, max_db=None, mix_filter=None, min_db=None):
     """How many dB the separated background must be raised so that, in the pauses of the voices
     (where the original holds only music and ambience), it is as loud as the original there.
     The separator often keeps far less of the room sound than the original had. Returns
     (gain_db, note); gain_db is 0.0 whenever nothing should be done."""
     try:
         mx = MAKEUP_MAX_DB if max_db is None else float(max_db)
-        if mx < MAKEUP_MIN_DB:
+        mn = MAKEUP_MIN_DB if min_db is None else float(min_db)
+        if mx < mn:
             return 0.0, "switched off"
         rep = level_report(original, background, pauses)
         if "orig_pauses" not in rep:
@@ -356,7 +357,7 @@ def makeup_gain(original, background, pauses, max_db=None, mix_filter=None):
             if m is not None:
                 b_after = m
         diff = o - b_after
-        if diff < MAKEUP_MIN_DB:
+        if diff < mn:
             return 0.0, f"already within {diff:.1f} dB of the original in the pauses"
         g = round(min(diff, mx), 1)
         return g, (f"raised {g:g} dB (in the pauses: original {o} dB, separated background {b} dB"
@@ -383,6 +384,202 @@ def lift_background(bg_path, out_path, gain_db):
     except Exception:
         return False
     finally:
+        try:
+            if part.exists():
+                part.unlink()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------- ambience bed
+#
+# The voice separator often files a steady background sound (a crowd murmur, a machine hum, traffic,
+# rain, wind ...) under "voices". In the pauses between the speakers that sound is then the ONLY thing in
+# the voices track. The bed is made from exactly those steady stretches: pieces of them are joined in
+# random order with long crossfades and laid under the whole video, so the sound also continues while
+# people speak. Nothing is done unless the sound is clearly missing and clean, steady material exists.
+
+BED_ENABLED = _env_float("BG_BED", 1.0) > 0.5
+BED_TRIGGER_DB = 6.0           # the pauses must be at least this much quieter in the separated background than in the original
+BED_MIN_SOURCE_SEC = 4.0       # least clean, steady material needed
+BED_MAX_SOURCE_SEC = 90.0      # most material that is used
+BED_MARGIN_SEC = 0.25          # kept away from both ends of a pause (word tails, breaths)
+BED_MIN_SEG_SEC = 2.0          # shortest usable stretch
+BED_STEADY_DB = 6.0            # a stretch whose 0.1 s loudness jumps more than this (clinks, words, barks) is not used
+BED_LEVEL_WINDOW_DB = 5.0      # stretches this far from the typical level are not used
+BED_FLOOR_DB = -70.0           # quieter than this there is nothing to rebuild
+BED_XFADE = int(0.6 * RATE)    # crossfade between two pieces
+BED_PIECE_SEC = (3.0, 7.0)
+
+
+def _bed_material(vocals, pauses):
+    """Clean, steady stretches of the separated voices found in the pauses. Returns (list, note);
+    each item = {"t0","t1","level","spread"} (seconds, dB of mean power)."""
+    p = _frame_power_db(vocals)
+    if p.size < 300:
+        return [], "the separated voices track is too short"
+    cands = []
+    for (a, z) in pauses or []:
+        i0 = int((float(a) + BED_MARGIN_SEC) / FRAME_SEC)
+        i1 = min(int((float(z) - BED_MARGIN_SEC) / FRAME_SEC), p.size)
+        if i1 - i0 < int(BED_MIN_SEG_SEC / FRAME_SEC):
+            continue
+        seg = p[i0:i1]
+        lvl = _db(seg.mean())
+        if lvl < BED_FLOOR_DB:
+            continue
+        sm = 10.0 * np.log10(np.convolve(seg, np.ones(10) / 10.0, mode="valid") + 1e-12)
+        spread = float(np.percentile(sm, 95) - np.percentile(sm, 50))
+        cands.append({"t0": i0 * FRAME_SEC, "t1": i1 * FRAME_SEC, "level": lvl, "spread": round(spread, 1)})
+    if not cands:
+        return [], "no stretch between the voices is long and loud enough"
+    steady = [c for c in cands if c["spread"] <= BED_STEADY_DB]
+    if not steady:
+        return [], f"none of the {len(cands)} stretches is steady (clinks, words or other single sounds in them)"
+    med = float(np.median([c["level"] for c in steady]))
+    steady = [c for c in steady if abs(c["level"] - med) <= BED_LEVEL_WINDOW_DB]
+    steady.sort(key=lambda c: c["t1"] - c["t0"], reverse=True)
+    out, tot = [], 0.0
+    for c in steady:
+        if tot >= BED_MAX_SOURCE_SEC:
+            break
+        out.append(c)
+        tot += c["t1"] - c["t0"]
+    if tot < BED_MIN_SOURCE_SEC:
+        return [], f"only {tot:.1f}s of clean, steady sound between the voices (needs {BED_MIN_SOURCE_SEC:g}s)"
+    return out, f"{len(out)} stretches, {tot:.0f}s"
+
+
+def plan_ambience_bed(original, background, vocals, pauses):
+    """Decides whether a bed should be built. Returns (plan, reason); plan is None when not."""
+    try:
+        if not BED_ENABLED:
+            return None, "switched off"
+        rep = level_report(original, background, pauses)
+        if "orig_pauses" not in rep or rep.get("pause_sec", 0) < MAKEUP_MIN_PAUSE_SEC:
+            return None, "not enough silence between the voices to compare the sound"
+        o, b = rep["orig_pauses"], rep["bg_pauses"]
+        missing = o - b
+        if missing < BED_TRIGGER_DB:
+            return None, f"the separated background already holds the sound of the pauses (gap {missing:.1f} dB)"
+        v = _pause_mean_db(vocals, pauses)
+        if v is None or v < o - 8.0:
+            return None, f"the missing sound is not in the separated voices either (voices {v} dB in the pauses, original {o} dB)"
+        segs, note = _bed_material(vocals, pauses)
+        if not segs:
+            return None, note
+        target = float(np.median([c["level"] for c in segs]))
+        return {"segs": segs, "target": target, "vocals": str(vocals), "missing": round(missing, 1), "note": note}, note
+    except Exception as ex:
+        return None, f"skipped ({ex})"[:200]
+
+
+def _read_mono(path, t0, dur):
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{t0:.3f}", "-t", f"{dur:.3f}", "-i", str(path), "-vn",
+                        "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"], capture_output=True, timeout=300)
+    return np.frombuffer(r.stdout, dtype="<f4").astype(np.float32)
+
+
+class _BedStream:
+    """Endless steady sound made of random pieces of the source stretches, equal-power crossfaded."""
+
+    def __init__(self, segs, seed):
+        self.segs = segs
+        self.rng = np.random.default_rng(int(seed) & 0xFFFFFFFF)
+        w = np.array([len(s["x"]) for s in segs], dtype=np.float64)
+        self.w = w / w.sum()
+        self.acc = np.zeros(0, dtype=np.float32)
+        self.first = True
+        t = np.linspace(0.0, np.pi / 2.0, BED_XFADE, dtype=np.float32)
+        self.fin, self.fout = np.sin(t), np.cos(t)
+
+    def _add_piece(self):
+        s = self.segs[int(self.rng.choice(len(self.segs), p=self.w))]
+        x = s["x"]
+        L = int(self.rng.uniform(*BED_PIECE_SEC) * RATE)
+        L = min(L, x.size)
+        off = int(self.rng.integers(0, max(1, x.size - L + 1)))
+        p = (x[off:off + L] * s["gain"]).astype(np.float32)
+        if p.size <= 2 * BED_XFADE:
+            return
+        p[-BED_XFADE:] *= self.fout
+        if self.acc.size == 0:
+            self.acc = p
+        else:
+            p[:BED_XFADE] *= self.fin
+            self.acc[-BED_XFADE:] += p[:BED_XFADE]
+            self.acc = np.concatenate([self.acc, p[BED_XFADE:]])
+
+    def take(self, n):
+        guard = 0
+        while self.acc.size - BED_XFADE < n:
+            before = self.acc.size
+            self._add_piece()
+            guard += 1
+            if guard > 10000 or (self.acc.size == before and guard > 50):
+                raise RuntimeError("could not build the ambience bed")
+        out, self.acc = self.acc[:n], self.acc[n:]
+        return out
+
+
+def add_ambience_bed(plan, sep_path, out_path, seed=0):
+    """Writes `out_path` (16-bit stereo WAV, 44.1 kHz) = the separated background + the ambience bed
+    laid under the whole video. Returns a dict {"ok", "reason", ...}; never raises."""
+    info = {"ok": False, "reason": ""}
+    out_path = Path(out_path)
+    part = out_path.with_name(out_path.name + ".part.wav")
+    dec = enc = None
+    try:
+        segs = []
+        for c in plan["segs"]:
+            x = _read_mono(plan["vocals"], c["t0"], c["t1"] - c["t0"])
+            if x.size < BED_MIN_SEG_SEC * RATE * 0.9:
+                continue
+            segs.append({"x": x, "gain": float(10.0 ** ((plan["target"] - c["level"]) / 20.0))})
+        if not segs or sum(s["x"].size for s in segs) < BED_MIN_SOURCE_SEC * RATE * 0.9:
+            info["reason"] = "could not read the clean stretches"
+            return info
+        bed = _BedStream(segs, seed)
+        dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(sep_path), "-vn", "-ac", str(CH), "-ar", str(RATE),
+                                "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", str(CH), "-i", "-",
+                                "-c:a", "pcm_s16le", str(part)], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        left, fb, pos = b"", 4 * CH, 0
+        while True:
+            buf = dec.stdout.read(CHUNK * fb)
+            if not buf:
+                break
+            buf = left + buf
+            n = (len(buf) // fb) * fb
+            left = buf[n:]
+            if not n:
+                continue
+            x = np.frombuffer(buf[:n], dtype="<f4").reshape(-1, CH).astype(np.float32)
+            y = x + bed.take(x.shape[0])[:, None]
+            np.clip(y, -1.0, 1.0, out=y)
+            enc.stdin.write(y.astype("<f4").tobytes())
+            pos += x.shape[0]
+        dec.stdout.close()
+        dec.wait()
+        enc.stdin.close()
+        enc.wait()
+        if dec.returncode not in (0, None) or enc.returncode != 0 or pos == 0 or not part.exists() or part.stat().st_size < 1000:
+            info["reason"] = "ffmpeg failed while adding the ambience bed"
+            return info
+        os.replace(part, out_path)
+        info.update({"ok": True, "reason": f"built from {plan['note']} of the separated voices in the pauses, "
+                                           f"level {plan['target']:.1f} dB, {plan['missing']} dB was missing"})
+        return info
+    except Exception as ex:
+        info["reason"] = f"skipped ({ex})"[:200]
+        return info
+    finally:
+        for pr in (dec, enc):
+            try:
+                if pr is not None and pr.poll() is None:
+                    pr.kill()
+            except Exception:
+                pass
         try:
             if part.exists():
                 part.unlink()

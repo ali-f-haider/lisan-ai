@@ -3084,27 +3084,61 @@ def _run_dubbing(job):
                 f"{bg_info['state']}; background track mean {bg_info.get('mean_db')} dB, peak {bg_info.get('max_db')} dB; "
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
         bg_use = bg
+        bed_done = False
         if video_out and bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
-            # The separator often keeps far less of the room sound than the original had. Raise the
-            # background until, in the pauses of the voices, it is as loud as the original there.
             try:
                 pauses_ = []
                 pp_ = wd / "pauses.json"
                 if pp_.exists():
                     pauses_ = [tuple(x) for x in json.loads(pp_.read_text(encoding="utf-8"))]
-                gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_, mix_filter=BG_MIX_FILTER)
-                if gain_ > 0 and bg_duck.lift_background(bg, wd / "background_lifted.wav", gain_):
-                    bg_use = wd / "background_lifted.wav"
-                    l_mean, l_max = _volume_stats(bg_use)
-                    if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
-                        bg_info["state"] = "mixed"       # no longer faint once raised
-                    _ev(job, "background_lift", "ok", note_ + f"; the raised track averages {l_mean} dB, peak {l_max} dB")
+                # First choice: a steady background sound that the separator filed under "voices" (a crowd, a
+                # machine hum, traffic, rain ...) is rebuilt from the pauses between the speakers and laid under
+                # the whole video. Second choice (below): the separated background is simply raised in level.
+                plan_, why_ = bg_duck.plan_ambience_bed(wd / "audio.wav", bg, wd / "vocals_mono.wav", pauses_)
+                if plan_:
+                    sep_used = bg
+                    if bg_duck.ENABLED:
+                        _bdk = bg_duck.duck_background(bg, wd / "vocals_mono.wav", wd / "background_ducked.wav")
+                        if _bdk["ducked"]:
+                            sep_used = wd / "background_ducked.wav"
+                        _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
+                    import zlib
+                    binfo_ = bg_duck.add_ambience_bed(plan_, sep_used, wd / "background_restored.wav",
+                                                      seed=zlib.crc32(job["id"].encode("utf-8")))
+                    if binfo_["ok"]:
+                        bg_use = wd / "background_restored.wav"
+                        # the final mix costs a few dB (volume, bass filter): give them back so that the
+                        # pauses end up as loud as in the original
+                        g2_, _n2 = bg_duck.makeup_gain(wd / "audio.wav", bg_use, pauses_, max_db=6.0,
+                                                       mix_filter=BG_MIX_FILTER, min_db=1.0)
+                        if g2_ > 0 and bg_duck.lift_background(bg_use, wd / "background_restored_lifted.wav", g2_):
+                            bg_use = wd / "background_restored_lifted.wav"
+                        l_mean, l_max = _volume_stats(bg_use)
+                        if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
+                            bg_info["state"] = "mixed"
+                        bed_done = True
+                        _ev(job, "background_bed", "ok", f"{binfo_['reason']}; level correction {g2_:g} dB; "
+                                                          f"the track averages {l_mean} dB, peak {l_max} dB")
+                    else:
+                        _ev(job, "background_bed", "info", "could not be built (" + binfo_["reason"] + "); the level is raised instead")
                 else:
-                    _ev(job, "background_lift", "info", note_ if gain_ <= 0 else "could not raise the background, it is used as it is")
+                    _ev(job, "background_bed", "info", "not used: " + str(why_))
+                if not bed_done:
+                    # The separator often keeps far less of the room sound than the original had. Raise the
+                    # background until, in the pauses of the voices, it is as loud as the original there.
+                    gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_, mix_filter=BG_MIX_FILTER)
+                    if gain_ > 0 and bg_duck.lift_background(bg, wd / "background_lifted.wav", gain_):
+                        bg_use = wd / "background_lifted.wav"
+                        l_mean, l_max = _volume_stats(bg_use)
+                        if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
+                            bg_info["state"] = "mixed"       # no longer faint once raised
+                        _ev(job, "background_lift", "ok", note_ + f"; the raised track averages {l_mean} dB, peak {l_max} dB")
+                    else:
+                        _ev(job, "background_lift", "info", note_ if gain_ <= 0 else "could not raise the background, it is used as it is")
             except Exception as ex:
-                print(f"[longdub] background lift skipped: {ex}")
+                print(f"[longdub] background restore skipped: {ex}")
         bg_mix = bg_use
-        if video_out and bg.exists() and bg_duck.ENABLED:
+        if video_out and bg.exists() and bg_duck.ENABLED and not bed_done:
             # the separated background keeps a faint metallic copy of the original voices:
             # lower its voice range only while the original speakers talk
             _bdk = bg_duck.duck_background(bg_use, wd / "vocals_mono.wav", wd / "background_ducked.wav")
@@ -3152,7 +3186,7 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", f"src{job['ext']}", "turns.json"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", f"src{job['ext']}", "turns.json"):
             try:
                 (wd / f).unlink()
             except Exception:
