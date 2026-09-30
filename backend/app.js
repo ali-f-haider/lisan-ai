@@ -2751,17 +2751,39 @@ function playPreview(url, btn) {
 }
 
 // ===== TIMELINE WITH RULER + OVERLAP PREVENTION =====
+// ---- timeline extent: the clip plus a spare zone after its end -------------------------------
+// The timeline is drawn a little longer than the clip, so a last line whose Arabic audio is longer than
+// its slot can be seen running past the end of the clip (that part is cut in the final video).
+function timelineClip() {
+    return totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+}
+function computeTimelineSpan() {
+    var clip = timelineClip(), over = 0;
+    segmentsData.forEach(function (s) {
+        if (!(s.arabic_text || "").trim()) return;
+        var off = segmentOffsets[s.segment_id] || 0;
+        var eng = (s.text || "").length / ENGLISH_CHARS_PER_SEC;
+        var ar = (window._lineDurations || {})[s.segment_id] || 0;
+        over = Math.max(over, s.start + off + Math.max(eng, ar, s.end - s.start) - clip);
+    });
+    var extra = Math.max(3, clip * 0.06, over > 0 ? over + 0.5 : 0);
+    return clip + Math.min(extra, Math.max(3, clip * 0.5));
+}
+function timelineSpan() { return (window._tlSpan > 0) ? window._tlSpan : timelineClip(); }
+
 function renderTimeline() {
     var wrap = document.getElementById("timelineWrap");
     if (!wrap) return;
     wrap.innerHTML = "";
     if (!segmentsData.length) return;
-    var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function(s) { return s.end; }).concat([1]));
+    var clip = timelineClip();
+    var total = computeTimelineSpan();
+    window._tlSpan = total; window._tlClip = clip;
     var W = wrap.clientWidth || 900;
     var scale = W / total;
     var ruler = document.createElement("div");
     ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
-    var step = total <= 10 ? 1 : total <= 30 ? 5 : 10;
+    var step = total <= 10 ? 1 : total <= 30 ? 5 : total <= 120 ? 10 : total <= 600 ? 30 : 60;
     for (var t = 0; t <= total; t += step) {
         var mark = document.createElement("div");
         mark.style.cssText = "position:absolute;left:" + (t * scale) + "px;top:0;height:100%;border-left:1px solid #475569;";
@@ -2810,6 +2832,7 @@ function renderTimeline() {
                     no = Math.max(-2, Math.min(2, no));
                     if (seg.start + no < 0) no = -seg.start;
                     if (seg.start + no + widthTime > total) no = total - widthTime - seg.start;
+                    if (seg.start + no > clip - 0.3) no = clip - 0.3 - seg.start;   // a line may not start inside the cut zone
                     for (var k = 0; k < sameLane.length; k++) {
                         var nb = sameLane[k];
                         var nbOff = segmentOffsets[nb.segment_id] || 0;
@@ -3095,7 +3118,7 @@ checkGenerateProgress = async function () {
         _baseRenderTimeline();
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData.length) return;
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var total = timelineSpan();
         var W = wrap.clientWidth || 900;
         var scale = W / total;
         var band = document.createElement("div");
@@ -5978,7 +6001,7 @@ window.cleanOldClones = function () {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData.length) return;
         wrap.querySelectorAll(".fadeFinal").forEach(function (f) { f.remove(); });
-        var total = totalDuration > 0 ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var total = timelineSpan();
         var scale = (wrap.clientWidth || 900) / total;
         var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
         var divs = wrap.querySelectorAll("div");
@@ -6305,7 +6328,7 @@ window.cleanOldClones = function () {
     function timelineScale() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData || !segmentsData.length) return null;
-        var total = (typeof totalDuration === "number" && totalDuration > 0) ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var total = timelineSpan();
         return { wrap: wrap, scale: (wrap.clientWidth || 900) / total };
     }
     function ensurePlayhead(wrap) {
@@ -6415,7 +6438,7 @@ window.cleanOldClones = function () {
             if (leg0) leg0.remove();
             return;
         }
-        var total = (typeof totalDuration === "number" && totalDuration > 0) ? totalDuration : Math.max.apply(null, segmentsData.map(function (s) { return s.end; }).concat([1]));
+        var total = timelineSpan();
         var scale = (wrap.clientWidth || 900) / total;
         var divs = wrap.querySelectorAll("div");
         var any = false;
@@ -6597,6 +6620,93 @@ window.cleanOldClones = function () {
             };
             Promise.all([ensureSavedVoices(), Promise.resolve(p)]).then(addOptions);
             return p;
+        };
+    }
+})();
+
+// ===== TIMELINE: end-of-clip marker + cut zone =====
+// The timeline is drawn longer than the clip (see computeTimelineSpan). Everything after the clip's end is
+// cut in the final video, so that stretch is hatched and marked, and a note names every line whose Arabic
+// audio runs into it. Purely visual: nothing here changes what is mixed.
+(function () {
+    if (window._tlEndZoneV1) return; window._tlEndZoneV1 = true;
+    function isAr() { return window.currentLang === "ar"; }
+    function fmt(n) { return (Math.round(n * 10) / 10).toFixed(1); }
+
+    function drawEndZone() {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !segmentsData || !segmentsData.length) return;
+        var clip = (window._tlClip > 0) ? window._tlClip : timelineClip();
+        var span = timelineSpan();
+        if (!(span > clip + 0.01)) return;
+        var W = wrap.clientWidth || 900, scale = W / span, x = clip * scale;
+        var modeEl = document.getElementById("durationMode");
+        var extendAudioOnly = !!(modeEl && modeEl.value === "extend" && !isVideoUpload);   // only then is the audio allowed to be longer
+        wrap.querySelectorAll(".tlEndZone").forEach(function (e) { e.remove(); });
+
+        var zone = document.createElement("div");
+        zone.className = "tlEndZone";
+        zone.style.cssText = "position:absolute;top:0;bottom:0;left:" + x + "px;width:" + Math.max(0, W - x) + "px;pointer-events:none;z-index:7;" +
+            (extendAudioOnly ? "background:rgba(148,163,184,0.14);"
+                             : "background:repeating-linear-gradient(135deg,rgba(239,68,68,0.20) 0,rgba(239,68,68,0.20) 6px,rgba(15,23,42,0.60) 6px,rgba(15,23,42,0.60) 12px);");
+        wrap.appendChild(zone);
+
+        var line = document.createElement("div");
+        line.className = "tlEndZone";
+        line.style.cssText = "position:absolute;top:0;bottom:0;left:" + Math.max(0, x - 1) + "px;width:2px;background:" + (extendAudioOnly ? "#94a3b8" : "#ef4444") + ";pointer-events:none;z-index:8;";
+        wrap.appendChild(line);
+
+        var tag = document.createElement("div");
+        tag.className = "tlEndZone";
+        tag.textContent = extendAudioOnly ? (isAr() ? "نهاية المقطع" : "End of clip") : (isAr() ? "نهاية المقطع ✂ ما بعده يُقصّ" : "End of clip ✂ cut after this");
+        tag.style.cssText = "position:absolute;bottom:2px;right:" + (W - x + 5) + "px;pointer-events:none;z-index:9;font-size:10px;line-height:14px;padding:0 6px;border-radius:3px;white-space:nowrap;color:#fff;background:" + (extendAudioOnly ? "#475569" : "#b91c1c") + ";";
+        wrap.appendChild(tag);
+        if (x < 90) tag.style.display = "none";
+        updateNote(clip, extendAudioOnly);
+    }
+
+    function updateNote(clip, extendAudioOnly) {
+        var wrap = document.getElementById("timelineWrap");
+        if (!wrap || !wrap.parentNode) return;
+        var overs = [];
+        segmentsData.forEach(function (s, i) {
+            if (!(s.arabic_text || "").trim()) return;
+            var dur = (window._lineDurations || {})[s.segment_id] || 0;
+            if (dur <= 0) return;
+            var over = s.start + (segmentOffsets[s.segment_id] || 0) + dur - clip;
+            if (over > 0.05) overs.push({ n: i + 1, over: over });
+        });
+        var txt = "";
+        if (overs.length) {
+            var list = overs.map(function (o) { return o.n + " (" + fmt(o.over) + (isAr() ? " ث)" : " s)"); }).join(", ");
+            if (isAr()) txt = "⚠ " + (overs.length > 1 ? "الأسطر " : "السطر ") + list + " يتجاوز نهاية المقطع. " +
+                (extendAudioOnly ? "سيصبح الصوت أطول من المقطع (وضع تمديد المدة)." : "الجزء الواقع بعد العلامة الحمراء يُقصّ في الفيديو النهائي.") + " قصّر النص العربي أو ابدأ السطر في وقت أبكر.";
+            else txt = "⚠ " + (overs.length > 1 ? "Lines " : "Line ") + list + (overs.length > 1 ? " run" : " runs") + " past the end of the clip. " +
+                (extendAudioOnly ? "The audio will be longer than the clip (Extend duration)." : "The part after the red end marker is cut in the final video.") + " Shorten its Arabic text or start it earlier.";
+        }
+        var note = document.getElementById("timelineEndNote");
+        if (!note) {
+            if (!txt) return;
+            note = document.createElement("div");
+            note.id = "timelineEndNote";
+            note.style.cssText = "margin:4px 0 8px;padding:8px 12px;border-radius:8px;font-size:13px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;";
+            wrap.parentNode.insertBefore(note, wrap.nextSibling);
+        }
+        // only touch the page when something changed (renderTimeline() is re-run often; see the dub overlay above)
+        if (note.dataset.txt !== txt) {
+            note.dataset.txt = txt;
+            note.textContent = txt;
+            note.style.display = txt ? "" : "none";
+            note.dir = isAr() ? "rtl" : "ltr";
+        }
+    }
+
+    if (typeof renderTimeline === "function") {
+        var _rtEnd = renderTimeline;
+        renderTimeline = function () {
+            var r = _rtEnd.apply(this, arguments);
+            try { drawEndZone(); } catch (e) {}
+            return r;
         };
     }
 })();
