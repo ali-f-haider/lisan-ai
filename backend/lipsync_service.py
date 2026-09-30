@@ -633,7 +633,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
 
         jobs_progress[key].update({"status": "done", "percent": 100,
                                    "message": "Lip-sync complete.",
-                                   "result": {"video": f"{job_id}_final_lipsync.mp4", "provider": provider}})
+                                   "result": {"video": f"{job_id}_final_lipsync.mp4"}})
     except Exception as e:
         _msg = _ls_friendly(e)
         jobs_progress[key] = {"status": "error", "percent": 0, "message": _msg, "error": _msg,

@@ -1,16 +1,9 @@
 const EMOTIONS = ["neutral","happy","sad","angry","fearful","surprised","disgusted","shouting","whispering","screaming","yelling","crying","laughing","sarcastic","seductive","narrative","announcer","conversational","depressed","anxious","confident","indifferent","excited","serious","playful","terrified","relieved","thoughtful","mocking","pleading","commanding","slowly","rushed","drawn out","hesitant","stammering","softly","booming","sorrowful","frustrated","annoyed","appalled","awe","regretful","resigned","curious","deadpan","tired","sneezing","coughing","sighing","gasping"];
-// Inworld-only "extra" tags (added 2026-09-27) -- concrete non-verbal/prosody
-// examples named in Inworld's own "Prompting for TTS-2" docs and confirmed
-// via their support bot, that aren't part of the shared 52-word canonical
-// vocabulary above (kept in sync by hand with inworld_service.py's
-// INWORLD_EXTRA_TAGS / _INSTRUCTION_PHRASES). There's no fixed enum Inworld
-// actually enforces -- inworld-tts-2 interprets any reasonable free-form
-// bracketed instruction -- these are just the specific named examples worth
-// offering as one-click Step 2 dropdown options. Only shown in that dropdown
-// when Inworld is the active engine (window._realPricing.voiceEngine), but
-// sanitizeStyle() below whitelists these everywhere so a manually-typed tag
-// still survives regardless of which engine is active.
-const INWORLD_EXTRA_TAGS = ["laugh","sigh","clear throat","yawn","very fast","very quiet","high pitch"];
+// Extra style tags (non-verbal / prosody examples) that are not part of the shared vocabulary above.
+// They are offered as one-click options in the Step 2 dropdown only when the second voice engine is
+// active (window._realPricing.voiceEngine === "v2"), but sanitizeStyle() below accepts them everywhere,
+// so a manually typed tag is never stripped.
+const EXTRA_STYLE_TAGS = ["laugh","sigh","clear throat","yawn","very fast","very quiet","high pitch"];
 const CREDIT_USD = 0.01;
 const GEMINI_IN_PER_M = 0.30, GEMINI_OUT_PER_M = 2.50;
 const AUDIO_TOKENS_PER_SEC = 258;
@@ -64,7 +57,7 @@ function friendly(msg) {
         return "Connection problem. Please check your internet connection and try again.";
     }
     // Safety net: anything that still looks technical is never shown as it is.
-    if (/HTTP\s*\d{3}|\b[45]\d\d\s*[:)]|Traceback|Exception|TypeError|ReferenceError|SyntaxError|Unexpected token|JSON|\bundefined\b|\bnull\b|api[ _-]?key|\btokens?\b|elevenlabs|inworld|gemini|dashscope|\bwan ?3|demucs|whisper|supabase|stripe|railway|cloudflare|\bR2\b|ffmpeg|ffprobe|stderr|\.py\b|\/api\/|[A-Za-z]:\\|\/tmp\/|Server error|Internal Server|Cannot (GET|POST)/i.test(msg)) {
+    if (/HTTP\s*\d{3}|\b[45]\d\d\s*[:)]|Traceback|Exception|TypeError|ReferenceError|SyntaxError|Unexpected token|JSON|\bundefined\b|\bnull\b|api[ _-]?key|\btokens?\b|supabase|cloudflare|\bR2\b|ffmpeg|ffprobe|stderr|\.py\b|\/api\/|[A-Za-z]:\\|\/tmp\/|Server error|Internal Server|Cannot (GET|POST)/i.test(msg)) {
         return FRIENDLY_GENERIC;
     }
     return msg;
@@ -122,7 +115,7 @@ function setBadge(id, credits) {
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
-window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, inworldCharsPerCredit: 60, inworldCloneCredits: 5, voiceEngine: "elevenlabs", lipsyncCreditsPerSec: 40 };
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, altCharsPerCredit: 60, altCloneCredits: 5, voiceEngine: "v1", lipsyncCreditsPerSec: 40 };
 async function loadRealPricing() {
     try {
         const res = await fetch("/api/pricing");
@@ -132,8 +125,8 @@ async function loadRealPricing() {
             if (typeof d.mergeCredits === "number") window._realPricing.mergeCredits = d.mergeCredits;
             if (typeof d.charsPerCredit === "number") window._realPricing.charsPerCredit = d.charsPerCredit;
             if (typeof d.cloneCredits === "number") window._realPricing.cloneCredits = d.cloneCredits;
-            if (typeof d.inworldCharsPerCredit === "number") window._realPricing.inworldCharsPerCredit = d.inworldCharsPerCredit;
-            if (typeof d.inworldCloneCredits === "number") window._realPricing.inworldCloneCredits = d.inworldCloneCredits;
+            if (typeof d.altCharsPerCredit === "number") window._realPricing.altCharsPerCredit = d.altCharsPerCredit;
+            if (typeof d.altCloneCredits === "number") window._realPricing.altCloneCredits = d.altCloneCredits;
             if (typeof d.voiceEngine === "string") window._realPricing.voiceEngine = d.voiceEngine;
             if (typeof d.lipsyncCreditsPerSec === "number") window._realPricing.lipsyncCreditsPerSec = d.lipsyncCreditsPerSec;
         }
@@ -160,12 +153,9 @@ function updateBadges() {
     // two separate 5-credit charges for one action.)
     setBadge("badgeAutoAssign", 0);
     setBadge("badgeVoiceLibrary", 0);
-    // Clone cost badges reflect whichever engine is ACTUALLY active right
-    // now (server-resolved, same _active_voice_engine() the real /api/clone
-    // and /api/upload_custom_voice charges use) -- showing ElevenLabs'
-    // number here after admin switches to Inworld would misquote what the
-    // user is actually about to be charged.
-    var _cloneRate = (window._realPricing.voiceEngine === "inworld") ? window._realPricing.inworldCloneCredits : window._realPricing.cloneCredits;
+    // Clone cost badges follow the engine that is active right now (the server decides it, and it is
+    // the same one the real clone / custom-voice charges use), so the badge never misquotes the price.
+    var _cloneRate = (window._realPricing.voiceEngine === "v2") ? window._realPricing.altCloneCredits : window._realPricing.cloneCredits;
     setBadge("badgeCvUpload", _cloneRate);
     setBadge("badgePrepareClone", 0);
     setBadge("badgeClone", _cloneRate);
@@ -1516,12 +1506,8 @@ async function startTranscribe() {
     if (!document.getElementById("emotionList")) {
         const dl = document.createElement("datalist");
         dl.id = "emotionList";
-        // Always includes the Inworld extras too (superset) -- this is just
-        // an autocomplete suggestion list for the free-text tags field, so
-        // there's no need to gate it by active engine the way the Step 2
-        // dropdown select is gated; a user could always type any tag here
-        // manually anyway (sanitizeStyle whitelists the same superset).
-        EMOTIONS.concat(INWORLD_EXTRA_TAGS).slice().sort().forEach(e => {
+        // Includes the extra tags too: this is only an autocomplete list for the free-text tags field.
+        EMOTIONS.concat(EXTRA_STYLE_TAGS).slice().sort().forEach(e => {
             const o = document.createElement("option");
             o.value = e;
             dl.appendChild(o);
@@ -1587,12 +1573,9 @@ async function autoTranslate() {
 function sanitizeStyle(v) {
     const parts = String(v || "").toLowerCase().split(/[,+\/;]| and /).map(s => s.trim()).filter(Boolean);
     const kept = [];
-    // Whitelist is the shared 52-word vocabulary PLUS Inworld's extra
-    // non-verbal/prosody tags (see INWORLD_EXTRA_TAGS above) -- accepted
-    // regardless of which engine is currently active so a manually-typed
-    // tag never gets silently stripped just because the dropdown wasn't
-    // showing it right now.
-    parts.forEach(p => { if ((EMOTIONS.includes(p) || INWORLD_EXTRA_TAGS.includes(p)) && !kept.includes(p)) kept.push(p); });
+    // Whitelist: the shared vocabulary plus the extra tags (see EXTRA_STYLE_TAGS above), whichever
+    // engine is active, so a manually typed tag is never silently stripped.
+    parts.forEach(p => { if ((EMOTIONS.includes(p) || EXTRA_STYLE_TAGS.includes(p)) && !kept.includes(p)) kept.push(p); });
     return kept.join(", ");
 }
 
@@ -2484,15 +2467,9 @@ function createRow(seg, i) {
     var eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
     var eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
     var blank = mk("option"); blank.value = ""; blank.textContent = "＋"; eS.appendChild(blank);
-    // Inworld's extra non-verbal/prosody tags only show up here when
-    // Inworld is the currently active engine (see window._realPricing.
-    // voiceEngine, populated by loadRealPricing() from /api/pricing) --
-    // they'd be meaningless one-click options while ElevenLabs is active,
-    // since the dropdown's job is to offer a QUICK PICK of tags that make
-    // sense for whatever's actually generating audio right now. Manually
-    // typing any tag still always works either way (sanitizeStyle
-    // whitelists the same superset regardless of engine).
-    var _engineEmotionTags = (window._realPricing && window._realPricing.voiceEngine === "inworld") ? EMOTIONS.concat(INWORLD_EXTRA_TAGS) : EMOTIONS;
+    // The extra tags are offered here only when the second voice engine is active
+    // (window._realPricing.voiceEngine, from /api/pricing). Typing any tag by hand always works.
+    var _engineEmotionTags = (window._realPricing && window._realPricing.voiceEngine === "v2") ? EMOTIONS.concat(EXTRA_STYLE_TAGS) : EMOTIONS;
     _engineEmotionTags.slice().sort().forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
     ["confident, calm", "anxious, afraid", "calm, firm", "playful, teasing", "tired, sad", "angry, controlled"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; eS.appendChild(o); });
     eS.onchange = function() {
@@ -2824,39 +2801,58 @@ function renderTimeline() {
             box.title = "Line " + (i + 1) + ": drag to shift (" + engLen + " English characters)";
             box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
             box.onmousedown = function(ev) {
+                if (ev.button !== 0) return;
                 ev.preventDefault();
                 var startX = ev.clientX;
                 var startOff = off;
-                // Collision must be checked against this block's actual VISUAL
-                // width (time-equivalent), not seg.end - seg.start -- since the
-                // block is now sized by English text length, its rendered width
-                // no longer matches its timespan. Checking against the timespan
-                // (as this used to) let a wide block's blue box visually run into
-                // the next block even while "respecting" a collision limit that
-                // no longer matched what was on screen.
+                // A block is as wide as its English text takes to say (chars / ENGLISH_CHARS_PER_SEC),
+                // not as long as its slot, so neighbours in the same lane can already overlap on screen
+                // before anything is dragged. The limits below are worked out ONCE, at the moment of the
+                // grab, and the block is then simply held inside them while the mouse moves:
+                //  - free space next to a neighbour: the block cannot enter it (solid);
+                //  - already overlapping a neighbour: the block may move inside the overlap, but its
+                //    start never crosses the neighbour's start (the order of the lines is kept);
+                //  - the grab position itself is always allowed, so nothing ever jumps when it is picked up.
+                // (The old version re-checked every neighbour on every mouse move and snapped the block to
+                // the far side of any neighbour it overlapped, after the edge limits had been applied. That
+                // made blocks jump seconds at a time, land in the cut zone, and stay there.)
                 var widthTime = width / scale;
-                var sameLane = segmentsData.filter(function(s, idx) { return idx !== i && (s.speaker || "Speaker 1") === spk && (s.arabic_text || "").trim(); });
-                var move = function(e2) {
-                    var no = startOff + (e2.clientX - startX) / scale;
-                    no = Math.max(-2, Math.min(2, no));
-                    if (seg.start + no < 0) no = -seg.start;
-                    if (seg.start + no + widthTime > total) no = total - widthTime - seg.start;
-                    if (seg.start + no > clip - 0.3) no = clip - 0.3 - seg.start;   // a line may not start inside the cut zone
-                    for (var k = 0; k < sameLane.length; k++) {
-                        var nb = sameLane[k];
-                        var nbOff = segmentOffsets[nb.segment_id] || 0;
-                        var nbWidthTime = Math.max(8 / scale, ((nb.text || "").length) / ENGLISH_CHARS_PER_SEC);
-                        var nbStart = nb.start + nbOff;
-                        var nbEnd = nbStart + nbWidthTime;
-                        if (seg.start + no < nbEnd && seg.start + no + widthTime > nbStart) {
-                            if (no > startOff) { no = nbStart - widthTime - seg.start; } else { no = nbEnd - seg.start; }
-                        }
+                var startPos = seg.start + startOff;
+                var lo = -Infinity, hi = Infinity;
+                segmentsData.forEach(function(nb, idx) {
+                    if (idx === i || (nb.speaker || "Speaker 1") !== spk || !(nb.arabic_text || "").trim()) return;
+                    var nbStart = nb.start + (segmentOffsets[nb.segment_id] || 0);
+                    var nbWidthTime = Math.max(8 / scale, ((nb.text || "").length) / ENGLISH_CHARS_PER_SEC);
+                    var nbEnd = nbStart + nbWidthTime;
+                    if (nbStart > startPos || (nbStart === startPos && idx > i)) {                // neighbour on the right (the order of the lines is kept)
+                        var freeHi = nbStart - widthTime - seg.start;
+                        hi = Math.min(hi, freeHi >= startOff ? freeHi : Math.max(nbStart - 0.05 - seg.start, startOff));
+                    } else {                                                             // neighbour on the left
+                        var freeLo = nbEnd - seg.start;
+                        lo = Math.max(lo, freeLo <= startOff ? freeLo : Math.min(nbStart + 0.05 - seg.start, startOff));
                     }
+                });
+                lo = Math.min(lo, startOff); hi = Math.max(hi, startOff);
+                // edge limits: max 2 s from the original start, inside the timeline, never starting in the cut zone
+                var gLo = Math.max(-2, -seg.start);
+                var gHi = Math.min(2, total - widthTime - seg.start, clip - 0.3 - seg.start);
+                gLo = Math.min(gLo, startOff); gHi = Math.max(gHi, startOff);
+                window._tlDragging = true;
+                var move = function(e2) {
+                    if (e2.buttons === 0) { up(); return; }           // the button was released outside the page
+                    var no = startOff + (e2.clientX - startX) / scale;
+                    no = Math.min(Math.max(no, lo), hi);
+                    no = Math.min(Math.max(no, gLo), gHi);
                     segmentOffsets[seg.segment_id] = no;
                     box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
                     box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
                 };
-                var up = function() { document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); renderTimeline(); };
+                var up = function() {
+                    document.removeEventListener("mousemove", move);
+                    document.removeEventListener("mouseup", up);
+                    window._tlDragging = false;
+                    renderTimeline();
+                };
                 document.addEventListener("mousemove", move);
                 document.addEventListener("mouseup", up);
             };
@@ -5829,7 +5825,10 @@ window.cleanOldClones = function () {
             }
         });
         var rs = document.getElementById("resultSection"), ts = document.getElementById("timelineSection");
-        if (rs && ts && !rs.classList.contains("hidden")) { ts.classList.remove("hidden"); if (typeof renderTimeline === "function") renderTimeline(); }
+        // This runs 300 ms after ANY change anywhere on the page, and drawing the timeline is itself a change
+        // on the page, so redrawing it unconditionally kept the timeline rebuilding itself every ~0.3 s (which
+        // also destroyed the block being dragged). It is only redrawn now when what it shows has changed.
+        if (rs && ts && !rs.classList.contains("hidden")) { ts.classList.remove("hidden"); if (typeof renderTimeline === "function" && !(window._tlUpToDate && window._tlUpToDate())) renderTimeline(); }
     }
     function fixDub() {
         var btn = null;
@@ -6006,7 +6005,6 @@ window.cleanOldClones = function () {
     function draw9() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData.length) return;
-        wrap.querySelectorAll(".fadeFinal").forEach(function (f) { f.remove(); });
         var total = timelineSpan();
         var scale = (wrap.clientWidth || 900) / total;
         var act = segmentsData.filter(function (s) { return (s.arabic_text || "").trim(); });
@@ -6042,9 +6040,19 @@ window.cleanOldClones = function () {
                 var qs = q.start + (segmentOffsets[q.segment_id] || 0);
                 if (qs > cs + 0.0001 && qs < limit) limit = qs;
             });
-            if (limit === Infinity || cs + dur <= limit + 0.02) continue;
+            // The striped tail is kept and updated in place: deleting and re-creating it on every mouse move
+            // during a drag was a burst of page changes each frame, and every one of them woke up all the
+            // page-wide watchers.
+            var oldFade = b.querySelector(".fadeFinal");
+            if (limit === Infinity || cs + dur <= limit + 0.02) { if (oldFade) oldFade.remove(); continue; }
             var fadeLeft = Math.max(0, (limit - cs) * scale);
-            if (fadeLeft >= slotPx - 2) continue;
+            if (fadeLeft >= slotPx - 2) { if (oldFade) oldFade.remove(); continue; }
+            if (oldFade) {
+                var fl = fadeLeft + "px", fw = (slotPx - fadeLeft) + "px";
+                if (oldFade.style.left !== fl) oldFade.style.left = fl;
+                if (oldFade.style.width !== fw) oldFade.style.width = fw;
+                continue;
+            }
             var f = document.createElement("div");
             f.className = "fadeFinal";
             f.style.cssText = "position:absolute;top:0;height:100%;left:" + fadeLeft + "px;width:" + (slotPx - fadeLeft) + "px;background:repeating-linear-gradient(45deg,#f59e0b,#f59e0b 4px,#d97706 4px,#d97706 8px);opacity:0.9;border-radius:0 4px 4px 0;pointer-events:none;";
@@ -6712,6 +6720,45 @@ window.cleanOldClones = function () {
         renderTimeline = function () {
             var r = _rtEnd.apply(this, arguments);
             try { drawEndZone(); } catch (e) {}
+            return r;
+        };
+    }
+})();
+
+// ===== TIMELINE: no self-rebuilding, no rebuilding under the mouse =====
+// (1) renderTimeline() is called by a page-wide watcher 300 ms after ANY change, and drawing the timeline is
+//     itself a change, so it used to rebuild itself about three times a second even when nothing had changed.
+//     A rebuild throws away every block, including the one being dragged: after a short pause the block froze
+//     on screen while the mouse kept going, then jumped on release. _tlUpToDate() lets that watcher skip the
+//     redraw when what the timeline shows has not changed.
+// (2) While a block is being dragged, redraws are held back and done once, when the mouse is released.
+(function () {
+    if (window._tlNoLoopV1) return; window._tlNoLoopV1 = true;
+    function signature() {
+        var wrap = document.getElementById("timelineWrap");
+        var modeEl = document.getElementById("durationMode");
+        return [
+            segmentsData.map(function (s) { return [s.segment_id, s.speaker, s.start, s.end, (s.text || "").length, (s.arabic_text || "").trim() ? 1 : 0].join(":"); }).join("|"),
+            JSON.stringify(segmentOffsets || {}), JSON.stringify(window._lineDurations || {}),
+            JSON.stringify(window.overlapAllowed || {}), JSON.stringify(window.deadSpaceAllowed || {}),
+            totalDuration, wrap ? wrap.clientWidth : 0, window.currentLang || "", modeEl ? modeEl.value : "",
+            isVideoUpload ? 1 : 0, window._hideArabicDubOverlay ? 1 : 0
+        ].join("#");
+    }
+    window._tlUpToDate = function () {
+        try {
+            var wrap = document.getElementById("timelineWrap");
+            if (!wrap || !wrap.children.length) return false;
+            return window._tlLastSig === signature();
+        } catch (e) { return false; }
+    };
+    if (typeof renderTimeline === "function") {
+        var _rtNoLoop = renderTimeline;
+        renderTimeline = function () {
+            if (window._tlDragging) { window._tlRenderHeld = true; return; }
+            window._tlRenderHeld = false;
+            var r = _rtNoLoop.apply(this, arguments);
+            try { window._tlLastSig = signature(); } catch (e) {}
             return r;
         };
     }

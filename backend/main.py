@@ -6092,9 +6092,10 @@ def public_pricing():
         "charsPerCredit": cfg.get("charsPerCredit", 60),
         "cloneCredits": cfg.get("cloneCredits", 5),
         "lipsyncCreditsPerSec": cfg.get("lipsyncCreditsPerSec", 10),
-        "voiceEngine": cfg.get("voiceEngine", "elevenlabs"),
-        "inworldCharsPerCredit": cfg.get("inworldCharsPerCredit", 60),
-        "inworldCloneCredits": cfg.get("inworldCloneCredits", 5),
+        # Neutral names on purpose: this answer is public, so it must not name the voice providers.
+        "voiceEngine": "v2" if cfg.get("voiceEngine") == "inworld" else "v1",
+        "altCharsPerCredit": cfg.get("inworldCharsPerCredit", 60),
+        "altCloneCredits": cfg.get("inworldCloneCredits", 5),
     }
 
 @app.get("/api/billing/packs")

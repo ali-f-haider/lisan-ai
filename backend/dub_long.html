@@ -517,7 +517,7 @@ var tashNote = "";       // shown under the price when tashkeel was just added
 function $(id) { return document.getElementById(id); }
 function safeErr(m, fb) {
   m = String(m == null ? "" : m).trim();
-  if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|\bnull\b|api[ _-]?key|elevenlabs|inworld|gemini|dashscope|demucs|whisper|supabase|stripe|railway|\bR2\b|ffmpeg|ffprobe|\.py\b|\/api\/|Server error|Internal Server/i.test(m)) return fb;
+  if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|\bnull\b|api[ _-]?key|supabase|\bR2\b|ffmpeg|ffprobe|\.py\b|\/api\/|Server error|Internal Server/i.test(m)) return fb;
   return m;
 }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
