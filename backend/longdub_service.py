@@ -3083,11 +3083,31 @@ def _run_dubbing(job):
             _ev(job, "background_mix", "ok" if bg_info["state"] == "mixed" else "failed",
                 f"{bg_info['state']}; background track mean {bg_info.get('mean_db')} dB, peak {bg_info.get('max_db')} dB; "
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
-        bg_mix = bg
+        bg_use = bg
+        if video_out and bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
+            # The separator often keeps far less of the room sound than the original had. Raise the
+            # background until, in the pauses of the voices, it is as loud as the original there.
+            try:
+                pauses_ = []
+                pp_ = wd / "pauses.json"
+                if pp_.exists():
+                    pauses_ = [tuple(x) for x in json.loads(pp_.read_text(encoding="utf-8"))]
+                gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_)
+                if gain_ > 0 and bg_duck.lift_background(bg, wd / "background_lifted.wav", gain_):
+                    bg_use = wd / "background_lifted.wav"
+                    l_mean, l_max = _volume_stats(bg_use)
+                    if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
+                        bg_info["state"] = "mixed"       # no longer faint once raised
+                    _ev(job, "background_lift", "ok", note_ + f"; the raised track averages {l_mean} dB, peak {l_max} dB")
+                else:
+                    _ev(job, "background_lift", "info", note_ if gain_ <= 0 else "could not raise the background, it is used as it is")
+            except Exception as ex:
+                print(f"[longdub] background lift skipped: {ex}")
+        bg_mix = bg_use
         if video_out and bg.exists() and bg_duck.ENABLED:
             # the separated background keeps a faint metallic copy of the original voices:
             # lower its voice range only while the original speakers talk
-            _bdk = bg_duck.duck_background(bg, wd / "vocals_mono.wav", wd / "background_ducked.wav")
+            _bdk = bg_duck.duck_background(bg_use, wd / "vocals_mono.wav", wd / "background_ducked.wav")
             if _bdk["ducked"]:
                 bg_mix = wd / "background_ducked.wav"
             _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
@@ -3132,7 +3152,7 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", f"src{job['ext']}", "turns.json"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", f"src{job['ext']}", "turns.json"):
             try:
                 (wd / f).unlink()
             except Exception:

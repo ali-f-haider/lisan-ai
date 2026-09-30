@@ -37,6 +37,10 @@ def _env_float(name, default):
 DEPTH_DB = _env_float("BG_DUCK_DB", 12.0)
 LOW_KEEP_HZ = _env_float("BG_DUCK_KEEP_LOW_HZ", 250.0)   # below this the background is never lowered
 ENABLED = DEPTH_DB > 0.5
+MAKEUP_MAX_DB = _env_float("BG_MAKEUP_MAX_DB", 15.0)   # most the separated background is raised to match the original (0 = off)
+MAKEUP_MIN_DB = 3.0            # a smaller difference is left alone
+MAKEUP_MIN_PAUSE_SEC = 5.0     # needs at least this much silence between the voices to compare levels
+MAKEUP_FLOOR_DB = -80.0        # a background this silent in the pauses holds nothing to raise
 QUIET_BG_DB = -50.0     # background this quiet while people speak (mean power): never lowered
 LOUD_BG_DB = -34.0      # ...and from this level up it is lowered by the full depth (in between: in proportion)
 
@@ -314,3 +318,54 @@ def final_level_report(mixed_background, mix_filter, dub, pauses):
         return rep
     except Exception:
         return {}
+
+
+def makeup_gain(original, background, pauses, max_db=None):
+    """How many dB the separated background must be raised so that, in the pauses of the voices
+    (where the original holds only music and ambience), it is as loud as the original there.
+    The separator often keeps far less of the room sound than the original had. Returns
+    (gain_db, note); gain_db is 0.0 whenever nothing should be done."""
+    try:
+        mx = MAKEUP_MAX_DB if max_db is None else float(max_db)
+        if mx < MAKEUP_MIN_DB:
+            return 0.0, "switched off"
+        rep = level_report(original, background, pauses)
+        if "orig_pauses" not in rep:
+            return 0.0, "not enough silence between the voices to compare the levels"
+        if rep["pause_sec"] < MAKEUP_MIN_PAUSE_SEC:
+            return 0.0, f"only {rep['pause_sec']:g}s of silence between the voices, too little to compare the levels"
+        o, b = rep["orig_pauses"], rep["bg_pauses"]
+        if b < MAKEUP_FLOOR_DB:
+            return 0.0, f"the separated background is silent in the pauses ({b} dB)"
+        diff = o - b
+        if diff < MAKEUP_MIN_DB:
+            return 0.0, f"already within {diff:.1f} dB of the original in the pauses"
+        g = round(min(diff, mx), 1)
+        return g, (f"raised {g:g} dB (in the pauses: original {o} dB, separated background {b} dB"
+                   + (f"; limited to {mx:g} dB" if diff > mx else "") + ")")
+    except Exception as ex:
+        return 0.0, f"skipped ({ex})"[:200]
+
+
+def lift_background(bg_path, out_path, gain_db):
+    """Writes `out_path` (16-bit stereo WAV, 44.1 kHz) = the background raised by gain_db, with a
+    limiter so nothing clips. Returns True on success; never raises."""
+    out_path = Path(out_path)
+    part = out_path.with_name(out_path.name + ".part.wav")
+    try:
+        cmd = ["ffmpeg", "-v", "error", "-y", "-i", str(bg_path), "-vn",
+               "-af", f"volume={float(gain_db):.2f}dB,alimiter=limit=0.95:level=disabled",
+               "-ac", str(CH), "-ar", str(RATE), "-c:a", "pcm_s16le", str(part)]
+        r = subprocess.run(cmd, capture_output=True, timeout=900)
+        if r.returncode != 0 or not part.exists() or part.stat().st_size < 1000:
+            return False
+        os.replace(part, out_path)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            if part.exists():
+                part.unlink()
+        except Exception:
+            pass
