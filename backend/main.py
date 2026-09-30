@@ -3859,16 +3859,17 @@ def merge_video(req: MergeRequest, request: Request):
                 bg_to_use = enhanced_bg
         # The separated background keeps a faint metallic copy of the original
         # voices; lower its voice range while the original speakers talk.
-        ducked_bg = OUTPUT_DIR / f"{req.job_id}_bg_ducked.wav"
-        if bg_duck.ENABLED:
-            _bd = bg_duck.duck_background(bg_to_use, bg.parent / "vocals.wav", ducked_bg)
-            print(f"[bg-duck] {req.job_id}: ducked={_bd['ducked']} {_bd['reason']}")
-            if _bd["ducked"] and ducked_bg.exists() and ducked_bg.stat().st_size > 1000:
-                bg_to_use = ducked_bg
+        # A steady background sound that the separator filed under "voices" (crowd, machine hum, traffic ...)
+        # is rebuilt from the pauses between the speakers when it is clearly missing (never fails the merge).
+        import zlib
+        _bp = bg_duck.prepare_background(bg_to_use, bg.parent / "vocals.wav", UPLOAD_DIR / f"{req.job_id}_audio.wav",
+                                         OUTPUT_DIR, f"merge_{req.job_id}", seed=zlib.crc32(str(req.job_id).encode("utf-8")))
+        print(f"[bg-duck] {req.job_id}: {_bp['note']}")
+        bg_to_use = _bp["path"]
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
         ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed)
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
-        for _tmp in (mixed, ducked_bg):
+        for _tmp in [mixed] + list(_bp["temps"]):
             try:
                 _tmp.unlink()
             except Exception:

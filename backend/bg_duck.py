@@ -585,3 +585,63 @@ def add_ambience_bed(plan, sep_path, out_path, seed=0):
                 part.unlink()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------- short dubbing: one call for the whole background
+
+SHORT_MIX_FILTER = "volume=0.8"      # what ffmpeg_utils.mix_two_audio does to the background
+
+
+def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
+    """Background track for the short dubbing (used by the merge step and by the lip-sync step).
+    Rebuilds a steady background sound that the separator filed under "voices" (crowd, machine hum, traffic,
+    rain ...) when it is clearly missing; the separated background is lowered while people speak as before.
+    Returns {"path": file to mix, "temps": files to delete afterwards, "note": text for the log,
+    "bed": True/False, "ducked": True/False}. Never raises; on any problem "path" is the given background."""
+    res = {"path": Path(bg_path), "temps": [], "note": "", "bed": False, "ducked": False}
+    work_dir = Path(work_dir)
+    try:
+        ducked = work_dir / f"bg_ducked_{tag}.wav"
+        restored = work_dir / f"bg_restored_{tag}.wav"
+        lifted = work_dir / f"bg_restored_lifted_{tag}.wav"
+        res["temps"] = [ducked, restored, lifted]
+        vocals_ok = vocals_path is not None and Path(vocals_path).exists()
+        # 1. is a steady background sound missing? (needs the pauses between the voices)
+        plan, why = None, "not tried"
+        if BED_ENABLED and vocals_ok and original is not None and Path(original).exists():
+            try:
+                import ffmpeg_utils
+                gaps = ffmpeg_utils.detect_silence_gaps(vocals_path, min_silence_sec=0.6, noise_db="-30dB")
+                pauses = [(float(g["start"]), float(g["end"])) for g in gaps]
+                plan, why = plan_ambience_bed(original, bg_path, vocals_path, pauses)
+            except Exception as ex:
+                plan, why = None, f"skipped ({ex})"[:160]
+        else:
+            why = "switched off" if not BED_ENABLED else "no original audio or separated voices to compare"
+        # 2. lower the voice range of the separated background while people speak
+        sep_used = Path(bg_path)
+        if ENABLED and vocals_ok:
+            d = duck_background(bg_path, vocals_path, ducked)
+            res["ducked"] = bool(d.get("ducked")) and ducked.exists() and ducked.stat().st_size > 1000
+            if res["ducked"]:
+                sep_used = ducked
+            res["note"] = "duck: " + str(d.get("reason"))
+        res["path"] = sep_used
+        # 3. lay the rebuilt sound under the whole video
+        if plan:
+            info = add_ambience_bed(plan, sep_used, restored, seed=seed)
+            if info["ok"] and restored.exists() and restored.stat().st_size > 1000:
+                res["path"], res["bed"] = restored, True
+                g, _n = makeup_gain(original, restored, pauses, max_db=6.0, mix_filter=SHORT_MIX_FILTER, min_db=1.0)
+                if g > 0 and lift_background(restored, lifted, g):
+                    res["path"] = lifted
+                res["note"] += f"; bed: {info['reason']}; level correction {g:g} dB"
+            else:
+                res["note"] += "; bed: could not be built (" + info["reason"] + ")"
+        else:
+            res["note"] += "; bed: not used (" + str(why) + ")"
+        return res
+    except Exception as ex:
+        res["path"] = Path(bg_path)
+        res["note"] = f"skipped ({ex})"[:200]
+        return res

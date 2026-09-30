@@ -41,6 +41,7 @@ from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_K
 import ffmpeg_utils
 import voice_clean
 import bg_duck
+import lang_check
 
 LONG_DIR = DATA_DIR / "longjobs"
 LONG_DIR.mkdir(parents=True, exist_ok=True)
@@ -1125,6 +1126,14 @@ def _run_analysis(job):
                     continue
                 _mark(job, "transcribe", 52 + int(33 * i / n), f"Transcribing (part {i + 1} of {n})...")
                 slot.yield_if_needed(release_model=True)
+                if lang_check.ENABLED:      # is this part really spoken in English? (a warning only, see lang_check.py)
+                    try:
+                        _lj = lang_check.judge_file(whisper_service._get_model(), wd / "vocals" / f"p{i:03d}.wav", max_windows=1)
+                        for _x in _lj:
+                            _x["t0"], _x["t1"] = round(float(b0), 1), round(float(b1), 1)
+                        (wd / "asr" / f"p{i:03d}.lang.json").write_text(json.dumps(_lj), encoding="utf-8")
+                    except Exception as ex:
+                        print(f"[longdub] language check of part {i} skipped: {ex}")
                 segs_gen, _info = whisper_service._get_model().transcribe(
                     str(wd / "vocals" / f"p{i:03d}.wav"), beam_size=5, language="en",
                     word_timestamps=True, vad_filter=True, condition_on_previous_text=False)
@@ -1189,6 +1198,24 @@ def _run_analysis(job):
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
                                            f"{job.get('stated_speakers')} stated by the user; "
                                            f"{len(silences)} pauses of {PAUSE_MIN_SEC:g}s+ measured")
+
+        # Is the speech really English? A warning only: the transcription is fixed to English, so another
+        # language would come out as a translation or in its own letters, and Arabic would be dubbed into Arabic.
+        try:
+            judged_ = []
+            for i_ in range(n):
+                lp_ = wd / "asr" / f"p{i_:03d}.lang.json"
+                if lp_.exists():
+                    judged_.extend(json.loads(lp_.read_text(encoding="utf-8")))
+            l_msg, l_det = lang_check.summarize(judged_) if lang_check.ENABLED else (None, "switched off")
+            t_msg, t_det = lang_check.text_check(rows)
+            w_msg = l_msg or t_msg
+            if w_msg:
+                job.setdefault("warnings", []).append(w_msg)
+            _ev(job, "language_check", "partial" if w_msg else "ok", f"{l_det}; {t_det}")
+            _save(job)
+        except Exception as ex:
+            print(f"[longdub] language check skipped: {ex}")
 
         # 7. translate in small batches ------------------------------------
         _translate_all(job, rows)

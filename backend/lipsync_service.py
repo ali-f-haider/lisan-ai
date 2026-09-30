@@ -594,19 +594,21 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
         if background is not None:
             mixed = OUTPUT_DIR / f"lipsync_mixed_{job_id}.wav"
             bg_used = background
-            ducked = OUTPUT_DIR / f"lipsync_bg_ducked_{job_id}.wav"
+            _bp_temps = []
             try:
-                import bg_duck
-                if bg_duck.ENABLED:
-                    _bd = bg_duck.duck_background(background, background.parent / "vocals.wav", ducked)
-                    print(f"[bg-duck] {job_id}: lip-sync ducked={_bd['ducked']} {_bd['reason']}")
-                    if _bd["ducked"] and ducked.exists() and ducked.stat().st_size > 1000:
-                        bg_used = ducked
+                import bg_duck, zlib
+                from config import UPLOAD_DIR
+                _bp = bg_duck.prepare_background(background, background.parent / "vocals.wav", UPLOAD_DIR / f"{job_id}_audio.wav",
+                                                 OUTPUT_DIR, f"lipsync_{job_id}", seed=zlib.crc32(str(job_id).encode("utf-8")))
+                print(f"[bg-duck] {job_id}: lip-sync {_bp['note']}")
+                bg_used = _bp["path"]
+                _bp_temps = list(_bp["temps"])
             except Exception as _bd_ex:
                 print(f"[bg-duck] {job_id}: lip-sync skipped ({_bd_ex})")
             mix_two_audio(raw_video, bg_used, mixed)
-            try: ducked.unlink()
-            except Exception: pass
+            for _t in _bp_temps:
+                try: _t.unlink()
+                except Exception: pass
             mux_audio_into_video(raw_video, mixed, final_video)
             try: mixed.unlink()
             except Exception: pass

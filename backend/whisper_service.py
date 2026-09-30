@@ -612,6 +612,18 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
             torch.set_num_threads(4)
             jobs_progress[job_id]["status_text"] = "Transcribing audio..."
+            lang_warned = False
+            try:      # is the speech really English? (a warning only, see lang_check.py)
+                import lang_check
+                if lang_check.ENABLED:
+                    _lj = lang_check.judge_file(_get_model(), audio_path, max_windows=6)
+                    _lmsg, _ldet = lang_check.summarize(_lj)
+                    print(f"[lang-check] {job_id}: {_ldet}")
+                    if _lmsg:
+                        warning = (warning + " | " if warning else "") + _lmsg
+                        lang_warned = True
+            except Exception as _lex:
+                print(f"[lang-check] {job_id}: skipped ({_lex})")
             segments_gen, info = _get_model().transcribe(
                 str(audio_path),
                 beam_size=5,
@@ -697,6 +709,16 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         seg_index += 1
 
             result = merge_mid_sentence_rows(result)
+            if not lang_warned:      # model-free second look: lines written in Arabic / other non-Latin letters
+                try:
+                    import lang_check
+                    if lang_check.ENABLED:
+                        _tmsg, _tdet = lang_check.text_check(result)
+                        print(f"[lang-check] {job_id}: text {_tdet}")
+                        if _tmsg:
+                            warning = (warning + " | " if warning else "") + _tmsg
+                except Exception as _tex:
+                    print(f"[lang-check] {job_id}: text check skipped ({_tex})")
 
             # Attach real, audio-measured silence windows to each segment, as a
             # fallback signal for the frontend's auto-split-at-pauses feature.
