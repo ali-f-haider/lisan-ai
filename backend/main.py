@@ -6626,7 +6626,9 @@ def admin_mem_diag(request: Request):
 # Serve the admin HTML page
 @app.get("/admin")
 def admin_page(request: Request):
-    if not APP_PASSWORD:
+    # Was "if not APP_PASSWORD": that blocked the page itself as soon as the
+    # shared APP_PASSWORD was removed, even with ADMIN_PASSWORD set.
+    if not ADMIN_PASSWORD:
         return JSONResponse({"error": "admin access disabled"}, status_code=403)
     from pathlib import Path
     p = Path(__file__).parent / "admin.html"
