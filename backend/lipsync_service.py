@@ -281,19 +281,21 @@ WAN3_MODEL = "wan3.0-video"
 # "Voice timbre references Audio 1") and never mentions English. The previous
 # caps-heavy version named "English" six times and English words still bled
 # into the Arabic voice; this one did not. Do not edit without his sign-off.
-# 2026-10-01 (Ali's sign-off): added the paragraph "Change a character's lips only
-# where ... clearly visible" so the model does not turn a face toward the camera
-# (or change the pose or camera) just to lip-sync a character seen from behind,
-# bent over or hidden. It still never mentions English.
+# 2026-10-01 (Ali's sign-off): added a paragraph so that Wan leaves a character
+# alone whose lips are not visible. Wan did not obey the first, long version
+# ("do not turn them, do not move the camera ..."), so on 2026-10-01 Ali replaced
+# it with the short version below: lip-sync only where the lips are originally
+# visible, and say plainly that nothing is needed where a face is turned, bent
+# down or covered. It still never mentions English.
 # Media numbering is per type, so "Video 1"/"Audio 1" stay correct even when
 # reference_image entries are prepended.
-WAN3_DUB_PROMPT = """Edit the video: in Video 1, replace the characters' spoken dialogue with the speech in Audio 1, and adjust only their lip and mouth movements to match Audio 1. Lip sync. Voice timbre references Audio 1. Keep the rest of the frame unchanged.
+WAN3_DUB_PROMPT = """Edit the video: in Video 1, replace the characters' spoken dialogue with the speech in Audio 1, and adjust only their lip and mouth movements to match Audio 1. Lip sync if the lips are originally visible. Voice timbre references Audio 1. Keep the rest of the frame unchanged.
 
 Audio 1 is a finished Arabic dialogue recording. It is the complete and only speech in the output. Play it exactly as supplied, with the same voices, wording, pacing and delivery. All speech is Arabic. Video 1's own audio track is discarded and must not be heard.
 
 Keep Video 1 exactly as is: the same characters, faces, clothing, setting, camera position, framing, camera movement, lighting, colors, gestures, expressions, acting and cuts.
 
-Change a character's lips only where that character's lips are clearly visible in Video 1. Where a speaking character is turned away, seen from behind, bent over, hidden, covered, in shadow, or too small or too far away for the lips to be seen, leave that character exactly as in Video 1: do not turn them, do not move or rotate the camera, do not change anyone's pose, position or head direction, and do not bring a face into view. In those moments Audio 1 is still heard exactly as supplied.
+Some faces of the characters are not shown as they turn or bend or their faces are covered, here no lip syncing required. In those moments Audio 1 is still heard exactly as supplied.
 
 No other dialogue, no voiceover, no background music, no subtitles, no captions, no on-screen text."""
 

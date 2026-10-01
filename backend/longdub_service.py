@@ -586,7 +586,7 @@ def finish_upload(job, uid):
         job["has_video"] = "video" in streams and job["ext"] in VIDEO_EXTS
         job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2), lip_wanted)
         if lip_wanted and geo:
-            job["lipsync"].update({"fps": str(geo[0]), "w": geo[1], "h": geo[2]})
+            job["lipsync"].update({"fps": str(geo[0]), "w": geo[1], "h": geo[2], "frames": _video_frames(src)})
         if fee > 0 and not job["paid"]["fee"]:
             Hooks.charge(uid, fee, "long_dub_estimate", job["id"])
             job["paid"]["fee"] = fee
@@ -870,6 +870,11 @@ def finish_restore(job, uid):
         return False, ("This is not the same file this project was made from. Choose the original file.", 409)
     with _lock_for(job["id"]):
         os.replace(part, d / f"src{job['ext']}")
+        if (job.get("lipsync") or {}).get("wanted") and not (job.get("lipsync") or {}).get("frames"):
+            try:
+                job["lipsync"]["frames"] = _video_frames(d / f"src{job['ext']}")      # old projects: exact frame count from now on
+            except Exception:
+                pass
         job.pop("reattach", None)
         an = job.setdefault("analysis", {})
         an["sep_done"] = []
@@ -2365,7 +2370,35 @@ def _video_geometry(path):
         return None
 
 
-def plan_lipsync_clips(lines, total, fps):
+def _video_frames(path):
+    """Exact number of picture frames in the first video stream (read from the
+    file's header, no decoding), or None when the file does not say."""
+    try:
+        out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=nb_frames",
+             "-of", "json", str(path)], timeout=60)
+        n = int(((json.loads(out.decode() or "{}").get("streams") or [{}])[0]).get("nb_frames"))
+        return n if n > 0 else None
+    except Exception:
+        return None
+
+
+def _n_frames(total, fps, frames=None):
+    """How many frames the finished picture has. The video's own frame count
+    when it is known (and agrees with the length of the sound within 2 s),
+    else the length times the frame rate ROUNDED to the nearest frame (it used
+    to be rounded down, which lost the last frame of many videos)."""
+    fr = float(fps)
+    try:
+        n = int(frames or 0)
+    except Exception:
+        n = 0
+    if n > 0 and abs(n / fr - float(total)) <= 2.0:
+        return n
+    return int(round(float(total) * fr))
+
+
+def plan_lipsync_clips(lines, total, fps, frames=None):
     """lines: [(start, end)] of the dubbed lines; total: length in seconds;
     fps: Fraction. Returns (clips, short) where clips is a list of
     {"f0", "f1", "dur"} (frame numbers; frame f is at f/fps seconds) that are
@@ -2375,7 +2408,7 @@ def plan_lipsync_clips(lines, total, fps):
     Deterministic: the same input always gives the same plan (the price shown
     to the user is computed from it)."""
     fr = float(fps)
-    n_total = int(math.floor(float(total) * fr))
+    n_total = _n_frames(total, fps, frames)
     body = LIPSYNC_MAX_CLIP - LIPSYNC_HEAD - LIPSYNC_TAIL
     items = []
     for s, e in sorted((max(0.0, float(a)), min(float(total), float(b))) for a, b in lines):
@@ -2453,7 +2486,7 @@ def lipsync_price(job, rows, cfg):
     per_sec = float(cfg.get("lipsync_per_sec", 40))
     total = float((job.get("analysis") or {}).get("audio_duration") or job.get("duration") or 0)
     fps = Fraction(ls.get("fps") or "30")
-    clips, short = plan_lipsync_clips([(r["start"], r["end"]) for r in rows], total, fps)
+    clips, short = plan_lipsync_clips([(r["start"], r["end"]) for r in rows], total, fps, ls.get("frames"))
     for c in clips:
         c["credits"] = max(1, int(round(c["dur"] * per_sec)))
     secs = sum(c["dur"] for c in clips)
@@ -2550,7 +2583,7 @@ def _run_lipsync(job, dub_full, kept, total, d):
     ls = job["lipsync"]
     fps = Fraction(ls["fps"])
     w, h = int(ls["w"]), int(ls["h"])
-    n_total = int(math.floor(float(total) * float(fps)))
+    n_total = _n_frames(total, fps, ls.get("frames"))
     src = wd / f"src{job['ext']}"
     ldir = d / "lip"
     ldir.mkdir(parents=True, exist_ok=True)

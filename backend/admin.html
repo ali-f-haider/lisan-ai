@@ -336,7 +336,11 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" style="margin-bottom:12px;">Every step of every long dub (upload, estimate, terms accepted, each analysis and dubbing step, charges, refunds, voice deletion, emails) with success or failure. Search by job id (or its first characters) or by the user's email; leave empty for the newest events.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <input type="text" id="ldLogQuery" placeholder="job id or user email" style="max-width:340px;">
+          <label class="muted" style="display:flex;align-items:center;gap:6px;">From <input type="date" id="ldLogFrom" style="max-width:160px;"></label>
+          <label class="muted" style="display:flex;align-items:center;gap:6px;">To <input type="date" id="ldLogTo" style="max-width:160px;"></label>
           <button class="btn" onclick="loadLongDubLog()">Search</button>
+          <button class="btn" onclick="ldLogToday()" title="Only today (UTC)">Today</button>
+          <button class="btn" onclick="ldLogClear()" title="Clear the search and the dates">Clear</button>
         </div>
         <p class="muted" id="ldLogNote"></p>
         <table>
@@ -892,9 +896,22 @@ async function loadAudit() {
   document.getElementById('auditTable').innerHTML = html || '<tr><td colspan="5" class="muted">No adjustments yet</td></tr>';
 }
 
+function ldLogToday() {
+  const d = new Date().toISOString().slice(0, 10);
+  document.getElementById('ldLogFrom').value = d;
+  document.getElementById('ldLogTo').value = d;
+  loadLongDubLog();
+}
+function ldLogClear() {
+  ['ldLogQuery', 'ldLogFrom', 'ldLogTo'].forEach(id => { document.getElementById(id).value = ''; });
+  loadLongDubLog();
+}
+
 async function loadLongDubLog() {
   const q = (document.getElementById('ldLogQuery').value || '').trim();
-  const r = await api('/api/admin/longdub_log?q=' + encodeURIComponent(q));
+  const df = (document.getElementById('ldLogFrom').value || '').trim();
+  const dt = (document.getElementById('ldLogTo').value || '').trim();
+  const r = await api('/api/admin/longdub_log?q=' + encodeURIComponent(q) + '&date_from=' + encodeURIComponent(df) + '&date_to=' + encodeURIComponent(dt));
   const note = document.getElementById('ldLogNote');
   if (!r.ok) { note.textContent = 'Could not load the log.'; return; }
   note.textContent = r.data.note || '';

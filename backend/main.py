@@ -6325,7 +6325,7 @@ def admin_audit(request: Request):
     return {"audit": rows}
 
 @app.get("/api/admin/longdub_log")
-def admin_longdub_log(request: Request, q: str = "", limit: int = 300):
+def admin_longdub_log(request: Request, q: str = "", limit: int = 300, date_from: str = "", date_to: str = ""):
     """Step-by-step record of Dub Long Video jobs (table long_dub_events) --
     for answering a complaint. q = a job id (or its first characters) or a
     user's email; empty = the newest events of all jobs."""
@@ -6338,6 +6338,17 @@ def admin_longdub_log(request: Request, q: str = "", limit: int = 300):
     hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
     flt = ""
     note = ""
+    # optional day range (UTC, both days included): date_from / date_to as YYYY-MM-DD
+    import datetime as _dt
+    try:
+        d_from = _dt.date.fromisoformat(date_from.strip()) if (date_from or "").strip() else None
+        d_to = _dt.date.fromisoformat(date_to.strip()) if (date_to or "").strip() else None
+    except ValueError:
+        return {"events": [], "note": "Dates must look like 2026-10-01."}
+    if d_from:
+        flt += f"created_at=gte.{d_from.isoformat()}T00:00:00Z&"
+    if d_to:
+        flt += f"created_at=lt.{(d_to + _dt.timedelta(days=1)).isoformat()}T00:00:00Z&"
     try:
         if "@" in q:
             # the e-mail lives in the sign-in accounts (Supabase auth), not in the profiles table
@@ -6358,11 +6369,11 @@ def admin_longdub_log(request: Request, q: str = "", limit: int = 300):
                     break
             if not found_uid:
                 return {"events": [], "note": "No user with that email."}
-            flt = f"uid=eq.{found_uid}&"
+            flt += f"uid=eq.{found_uid}&"
         elif q:
             if not _re.fullmatch(r"[0-9a-fA-F-]{4,36}", q):
                 return {"events": [], "note": "Enter a job id (or its first characters) or an email."}
-            flt = f"job_id=like.{q.lower()}*&"
+            flt += f"job_id=like.{q.lower()}*&"
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/long_dub_events?{flt}select=*&order=id.desc&limit={limit}", headers=hdrs)
         with urllib.request.urlopen(req, timeout=10) as r:
