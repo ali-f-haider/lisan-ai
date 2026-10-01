@@ -1477,6 +1477,10 @@ def billing_checkout(payload: dict, request: Request):
                 },
                 "quantity": 1,
             }],
+            # A real numbered invoice (PDF) for each credit pack, not just a
+            # bare receipt. The invoice.paid webhook ignores it: it has no
+            # subscription id, so no credits are granted from it twice.
+            invoice_creation={"enabled": True},
             success_url=origin + "/app#credits-purchased",
             cancel_url=origin + "/app",
         )
