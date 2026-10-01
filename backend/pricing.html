@@ -105,8 +105,8 @@ h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
 
 <section id="dubLong">
   <div class="wrap">
-    <h2>Dub Long Video — Studio plan<span class="ar2">دبلجة فيديو طويل — باقة Studio</span></h2>
-    <p class="section-note">Dub videos of several minutes in one go. It is included with the Studio plan — there is no separate subscription; you pay for each job with your credits. Before anything is dubbed you see the exact price.<span class="ar2">دبلج فيديوهات تمتد لعدة دقائق دفعة واحدة. الميزة متاحة مع باقة Studio — بلا اشتراك منفصل؛ تدفع ثمن كل مهمة من رصيدك. وترى السعر الدقيق قبل بدء أي دبلجة.</span></p>
+    <h2>Dub Long Video<span class="ar2">دبلجة فيديو طويل</span></h2>
+    <p class="section-note">Dub videos of several minutes in one go. It is available to everyone, on every plan and with pay-as-you-go credits — there is no separate subscription; you pay for each job with your credits. Before anything is dubbed you see the exact price.<span class="ar2">دبلج فيديوهات تمتد لعدة دقائق دفعة واحدة. الميزة متاحة للجميع، في كل الباقات ومع الرصيد بالدفع حسب الاستخدام — بلا اشتراك منفصل؛ تدفع ثمن كل مهمة من رصيدك. وترى السعر الدقيق قبل بدء أي دبلجة.</span></p>
     <div class="plan-grid">
       <div class="plan-card info"><div class="pname">1. Estimate<span class="ar2">١. التقدير</span></div><div class="pdetail">A small fee gives you the price and time for the whole video. The fee counts toward the total.<span class="ar2">رسم صغير يمنحك السعر والمدة للفيديو كاملًا. ويُحتسب الرسم ضمن الإجمالي.</span></div><div class="pdetail">Then a charge per minute of video for analysis: transcription, speakers and Arabic translation.<span class="ar2">ثم رسم لكل دقيقة من الفيديو للتحليل: التفريغ والمتحدثون والترجمة العربية.</span></div></div>
       <div class="plan-card info"><div class="pname">2. Exact price<span class="ar2">٢. السعر الدقيق</span></div><div class="pdetail">After you have reviewed your text, you see the exact price: the Arabic voice (by amount of text), a charge for each copied speaker voice, and a small charge for the final merge.<span class="ar2">بعد مراجعة نصك ترى السعر الدقيق: الصوت العربي (بحسب كمية النص)، ورسم لكل صوت متحدث يُنسخ، ورسم صغير للدمج النهائي.</span></div></div>
@@ -243,7 +243,6 @@ function renderSubs(plans) {
       '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits every month<span class="ar2">' + credits.toLocaleString() + ' رصيد كل شهر</span></div>' +
       '<div class="pdetail">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '<span class="ar2">' + slots + ' مكان صوت محفوظ</span></div>' +
       clonesLine +
-      (p.key === "studio_monthly" ? '<div class="pdetail">🎞️ Includes Dub Long Video<span class="ar2">🎞️ تشمل دبلجة فيديو طويل</span></div>' : '') +
       '<div class="pdetail">💾 ' + storageGb + ' GB file storage<span class="ar2">💾 ' + storageGb + ' جيجابايت لتخزين الملفات</span></div>' +
       '<div class="pdetail">⏳ Files kept 30 days · cancel anytime<span class="ar2">الملفات محفوظة 30 يومًا · إلغاء في أي وقت</span></div>' +
       '<div class="pcta">' + ctaEn + '<span class="ar2">' + ctaAr + '</span></div>' +
