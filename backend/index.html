@@ -255,6 +255,10 @@
 <div id="lipsyncSection" class="card hidden">
     <h3>Step 7: Lip-Sync (Premium)</h3>
     <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using advanced AI. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video. <strong id="lipsyncTimeNote">This can take up to about 15 minutes -- please keep this tab open and be patient.</strong></p>
+    <div class="note" id="lipsyncResWrap" style="margin-bottom:10px;">
+        <label for="lipsyncRes" id="lipsyncResLabel" style="font-weight:600;margin-right:8px;">Lip-sync resolution:</label>
+        <select id="lipsyncRes" onchange="onLipsyncResChange()" style="width:auto;max-width:100%;"><option value="480P">480p</option><option value="720P" selected>720p</option><option value="1080P">1080p</option></select>
+    </div>
     <div class="note" id="lipsyncRefImagesWrap" style="margin-bottom:10px;">
         <label for="lipsyncRefImages" style="font-weight:600;display:block;margin-bottom:4px;" id="lipsyncRefImagesLabel">Reference photos (optional):</label>
         <p class="note" style="margin:0 0 6px;" id="lipsyncRefImagesHint">Upload up to 5 clear photos of the speaker(s)' faces to help the AI keep their exact appearance. Not required.</p>

@@ -384,7 +384,7 @@ def _update_lipsync_run(task_id, status, error=None):
         print(f"[lipsync] could not update lipsync_runs status for task {task_id}: {e}")
 
 
-def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None):
+def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: str, workspace_id: str, region: str, raw_video: Path, progress: dict, job_id: str, ref_image_paths=None, resolution=None):
     if not workspace_id:
         raise UserError(_LS_DOWN)
     base_url = f"https://{workspace_id}.{region}.maas.aliyuncs.com"
@@ -439,7 +439,8 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
         # Range documented by Alibaba: -1 or [0, 2147483647]. We always send
         # an explicit one (rather than -1/omitted) so it can be recorded.
         wan_seed = random.randint(0, 2147483647)
-        wan_resolution = _wan3_resolution_tier(upload_path)
+        # the user chooses the output resolution (480P / 720P / 1080P); without a choice it follows the source
+        wan_resolution = resolution if resolution in ("480P", "720P", "1080P") else _wan3_resolution_tier(upload_path)
         body = json.dumps({
             "model": WAN3_MODEL,
             "input": {
@@ -569,7 +570,7 @@ def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
     shutil.copy(source_video, raw_video)
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1"):
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None):
     key = f"lipsync_{job_id}"
     upload_path = None
     try:
@@ -600,7 +601,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             elif provider == "wan3":
                 if not dashscope_key: raise UserError(_LS_DOWN)
                 ref_images = job_reference_images(job_id)
-                _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id, ref_images)
+                _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id, ref_images, resolution)
             else:
                 if not eleven_key: raise UserError(_LS_DOWN)
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])

@@ -115,7 +115,35 @@ function setBadge(id, credits) {
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
-window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, altCharsPerCredit: 60, altCloneCredits: 5, voiceEngine: "v1", lipsyncCreditsPerSec: 40 };
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, altCharsPerCredit: 60, altCloneCredits: 5, voiceEngine: "v1", lipsyncCreditsPerSec: 40, lipsyncRates: { "480P": 20, "720P": 40, "1080P": 80 } };
+// ---- Step 7: resolution of the lip-synced video (480p / 720p / 1080p), each with its credits per second.
+function selectedLipsyncRes() {
+    var el = document.getElementById("lipsyncRes");
+    var v = el ? el.value : "720P";
+    return (v === "480P" || v === "1080P") ? v : "720P";
+}
+function lipsyncRateFor(res) {
+    var r = window._realPricing.lipsyncRates && window._realPricing.lipsyncRates[res];
+    if (typeof r === "number") return r;
+    var base = window._realPricing.lipsyncCreditsPerSec;
+    return Math.max(1, Math.round(base * (res === "480P" ? 0.5 : res === "1080P" ? 2 : 1)));
+}
+function renderLipsyncRes() {
+    var sel = document.getElementById("lipsyncRes");
+    if (!sel) return;
+    var ar = window.currentLang === "ar";
+    var keep = selectedLipsyncRes();
+    ["480P", "720P", "1080P"].forEach(function (r) {
+        var o = sel.querySelector('option[value="' + r + '"]');
+        if (!o) return;
+        var t = r.replace("P", "p") + " (" + lipsyncRateFor(r) + (ar ? " رصيد/ثانية)" : " credits/sec)");
+        if (o.textContent !== t) o.textContent = t;
+    });
+    sel.value = keep;
+    var lb = document.getElementById("lipsyncResLabel");
+    if (lb) lb.textContent = ar ? "دقة مزامنة الشفاه:" : "Lip-sync resolution:";
+}
+function onLipsyncResChange() { updateBadges(); }
 async function loadRealPricing() {
     try {
         const res = await fetch("/api/pricing");
@@ -129,6 +157,7 @@ async function loadRealPricing() {
             if (typeof d.altCloneCredits === "number") window._realPricing.altCloneCredits = d.altCloneCredits;
             if (typeof d.voiceEngine === "string") window._realPricing.voiceEngine = d.voiceEngine;
             if (typeof d.lipsyncCreditsPerSec === "number") window._realPricing.lipsyncCreditsPerSec = d.lipsyncCreditsPerSec;
+            if (d.lipsyncRates && typeof d.lipsyncRates === "object") window._realPricing.lipsyncRates = d.lipsyncRates;
         }
     } catch (e) {}
     updateBadges();
@@ -168,12 +197,14 @@ function updateBadges() {
     // the coin-badge pattern -- update the rate shown in Step 7's note, and the
     // actual total-credits estimate shown right on the button (same formula as
     // the server's real charge in /api/lipsync: max(1, round(duration * rate))).
+    renderLipsyncRes();
+    var lsPerSec = lipsyncRateFor(selectedLipsyncRes());
     var lsRate = document.getElementById("lipsyncRateNote");
-    if (lsRate) lsRate.textContent = window._realPricing.lipsyncCreditsPerSec;
+    if (lsRate) lsRate.textContent = lsPerSec;
     var lsCostNote = document.getElementById("lipsyncCostNote");
     if (lsCostNote) {
         if (typeof totalDuration === "number" && totalDuration > 0) {
-            var lsCost = Math.max(1, Math.round(totalDuration * window._realPricing.lipsyncCreditsPerSec));
+            var lsCost = Math.max(1, Math.round(totalDuration * lsPerSec));
             lsCostNote.textContent = "(" + lsCost + " credits)";
         } else {
             lsCostNote.textContent = "";
@@ -1246,7 +1277,7 @@ async function runLipsync() {
         const res = await fetch("/api/lipsync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ job_id: currentJobId })
+            body: JSON.stringify({ job_id: currentJobId, resolution: selectedLipsyncRes() })
         });
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
@@ -5063,6 +5094,7 @@ window.cleanOldClones = function () {
             // handled outside the R-array/BANNERS paths -- see the comment
             // by renderLipsyncChoiceNote()'s definition).
             if (typeof renderLipsyncChoiceNote === "function") renderLipsyncChoiceNote();
+            if (typeof renderLipsyncRes === "function") renderLipsyncRes();
         } catch (e) { console.error("applyLang:", e); }
     }
     window.applyLang = applyLang;

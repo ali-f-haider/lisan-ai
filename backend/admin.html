@@ -188,9 +188,9 @@ button.btn-success:hover { background: #15803d; }
           <span class="muted">Current default: 3. A lip-synced long video is cut into clips of at most 15 seconds and each clip is billed to you by Alibaba (~$0.1153/sec) and takes up to ~15 minutes, a few at a time, so long videos get expensive and slow. Users pay the per-second lip-sync price below, only for the stretches where somebody speaks. Needs the long_dub_lipsync_max_min column (SQL sent with v1.53.0) to be saved.</span>
         </div>
         <div class="form-group">
-          <label>Lip-sync (credits per second of video)</label>
+          <label>Lip-sync, 720p price (credits per second of video)</label>
           <input type="number" id="lipsyncCreditsPerSec" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Current default: 40 (= $0.40/sec at 100 credits = $1). Wan 3.0 (Step 7, via Alibaba Model Studio) actually costs this app ~$0.1153/sec (confirmed from a real 15-second 720P test: $1.73), so 40 leaves roughly 52–71% margin depending on which credit pack the user bought — a 1-minute video costs the user 2,400 credits at the default rate.</span>
+          <span class="muted">Users choose 480p / 720p / 1080p. This field is the 720p price; 480p is charged at half of it and 1080p at double (defaults: 20 / 40 / 80). Alibaba bills about 1 : 2 : 4 for 480p : 720p : 1080p, so the margins stay the same at every size. </span><span class="muted">Current default: 40 (= $0.40/sec at 100 credits = $1). Wan 3.0 (Step 7, via Alibaba Model Studio) actually costs this app ~$0.1153/sec (confirmed from a real 15-second 720P test: $1.73), so 40 leaves roughly 52–71% margin depending on which credit pack the user bought — a 1-minute video costs the user 2,400 credits at the default rate.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
       </div>

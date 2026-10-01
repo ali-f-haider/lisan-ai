@@ -23,7 +23,7 @@ from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, INWORLD_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
                     LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION,
-                    SITE_GATE_PASSWORD)
+                    SITE_GATE_PASSWORD, lipsync_res, lipsync_rate, lipsync_rates)
 import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
@@ -262,6 +262,7 @@ class LipSyncRequest(_JobIdModel):
     provider: str = "wan3"
     model: str = "lipsync-2"
     sync_key: str = ""
+    resolution: str = ""        # "480P" / "720P" / "1080P"; empty = 720P
 
 class TashkeelItem(_JobIdModel):
     segment_id: str
@@ -4333,7 +4334,8 @@ def lipsync(req: LipSyncRequest, request: Request):
     if dur < LIPSYNC_MIN_SEC or dur > LIPSYNC_MAX_SEC:
         return JSONResponse({"error": f"Lip-sync only works on clips between {LIPSYNC_MIN_SEC} and {LIPSYNC_MAX_SEC} seconds. This video is {round(dur, 1)} seconds."}, status_code=413)
 
-    per_sec = float(_get_pricing_config().get("lipsyncCreditsPerSec", 10))
+    res = lipsync_res(req.resolution)
+    per_sec = lipsync_rate(_get_pricing_config().get("lipsyncCreditsPerSec", 10), res)
     lipsync_cost = max(1, round(dur * per_sec))
 
     # LIPSYNC_TEST_MODE (config.py): no real API call happens below, so
@@ -4352,9 +4354,9 @@ def lipsync(req: LipSyncRequest, request: Request):
                                               "result": None, "generation_id": None}
     threading.Thread(target=lipsync_service.lipsync_worker,
                      args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY,
-                           DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION),
+                           DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, res),
                      daemon=True).start()
-    return {"status": "started", "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
+    return {"status": "started", "resolution": res, "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
 
 @app.get("/api/progress/lipsync/{job_id}")
 def lipsync_progress(job_id: str, request: Request):
@@ -4827,7 +4829,7 @@ def longdub_config(request: Request):
         "credits": get_credits(uid), "studio": _ld_is_studio(uid),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
         "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
-                    "max_min": p["lipsync_max_min"]},
+                    "rates": lipsync_rates(p["lipsync_per_sec"]), "max_min": p["lipsync_max_min"]},
     }
 
 
@@ -4845,6 +4847,7 @@ class LongDubInit(BaseModel):
     size: int = 0
     speakers: int = 2
     lipsync: bool = False
+    lip_res: str = ""            # "480P" / "720P" / "1080P"; empty = 720P
     name: str = ""
     description: str = ""
 
@@ -4865,7 +4868,7 @@ def longdub_init(body: LongDubInit, request: Request):
     if not _dg_ok:
         return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE, "capacity": True}, status_code=503)
     job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
-                                            body.name, body.description)
+                                            body.name, body.description, body.lip_res)
     if err:
         return JSONResponse({"error": err[0]}, status_code=err[1])
     return longdub_service.public_view(job)
@@ -4917,6 +4920,25 @@ def longdub_project_update(job_id: str, body: LongDubProject, request: Request):
     if err:
         return err
     ok, e = longdub_service.update_project(job, body.name, body.description)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return longdub_service.public_view(job)
+
+
+class LongDubLipRes(BaseModel):
+    resolution: str = ""
+
+
+@app.post("/api/longdub/{job_id}/lipres")
+def longdub_lipres(job_id: str, body: LongDubLipRes, request: Request):
+    """Change the lip-sync resolution of a project that is not paid for yet."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    ok, e = longdub_service.set_lipsync_resolution(job, uid, body.resolution)
     if not ok:
         return JSONResponse({"error": e[0]}, status_code=e[1])
     return longdub_service.public_view(job)
@@ -6861,6 +6883,7 @@ def public_pricing():
         "charsPerCredit": cfg.get("charsPerCredit", 60),
         "cloneCredits": cfg.get("cloneCredits", 5),
         "lipsyncCreditsPerSec": cfg.get("lipsyncCreditsPerSec", 10),
+        "lipsyncRates": lipsync_rates(cfg.get("lipsyncCreditsPerSec", 10)),      # credits per second at 480P / 720P / 1080P
         # Neutral names on purpose: this answer is public, so it must not name the voice providers.
         "voiceEngine": "v2" if cfg.get("voiceEngine") == "inworld" else "v1",
         "altCharsPerCredit": cfg.get("inworldCharsPerCredit", 60),

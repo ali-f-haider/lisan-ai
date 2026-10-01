@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.73.2"
+APP_VERSION = "1.74.0"
 
 
 def _load_env():
@@ -125,6 +125,31 @@ DASHSCOPE_SG_WORKSPACE_ID = os.environ.get("DASHSCOPE_SG_WORKSPACE_ID", "")
 # up. /api/lipsync checks this flag and refuses the request while it's
 # off. Set back to False if Wan 3.0 turns out to be unreliable in practice.
 LIPSYNC_ENABLED = True
+
+# Lip-sync output resolution, chosen by the user. Alibaba bills Wan 3.0 per second at
+# 480P : 720P : 1080P = 1 : 2 : 4, so the credit price follows the same ratio. The admin's
+# "Lip-sync credits per second" is the 720P price; the other two are derived from it.
+LIPSYNC_RESOLUTIONS = ("480P", "720P", "1080P")
+DEFAULT_LIPSYNC_RES = "720P"
+LIPSYNC_RES_FACTOR = {"480P": 0.5, "720P": 1.0, "1080P": 2.0}
+LIPSYNC_RES_BOX = {"480P": (854, 480), "720P": (1280, 720), "1080P": (1920, 1080)}   # long edge x short edge
+
+
+def lipsync_res(value=None):
+    """'480', '720p', '1080P' ... -> '480P' / '720P' / '1080P'; anything else -> the default."""
+    v = str(value or "").strip().upper().replace(" ", "")
+    if v.isdigit():
+        v += "P"
+    return v if v in LIPSYNC_RESOLUTIONS else DEFAULT_LIPSYNC_RES
+
+
+def lipsync_rate(base_per_sec, res=None):
+    """Credits per second at this resolution, from the admin's 720P price."""
+    return round(float(base_per_sec) * LIPSYNC_RES_FACTOR[lipsync_res(res)], 4)
+
+
+def lipsync_rates(base_per_sec):
+    return {r: lipsync_rate(base_per_sec, r) for r in LIPSYNC_RESOLUTIONS}
 
 # Was TEMPORARILY True (2026-09-25) so Ali could check Step 7's progress bar
 # / loading-animation text and positioning without spending real money or

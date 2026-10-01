@@ -340,7 +340,18 @@ def lipsync_range(clip_seconds):
     return {"lipsync_min": lo, "lipsync_max": hi}
 
 
-def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False):
+def _lip_res(value=None):
+    from config import lipsync_res
+    return lipsync_res(value)
+
+
+def _lip_rate(cfg, res=None):
+    """Credits per second of lip-sync at this resolution (the admin's price is the 720P one)."""
+    from config import lipsync_rate
+    return lipsync_rate(float(cfg.get("lipsync_per_sec", 40)), res)
+
+
+def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None):
     """Cost of the whole job, shown to the user before anything expensive
     runs. cfg = Hooks.pricing():
       fee               -- small fixed charge for producing this estimate
@@ -362,7 +373,7 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False):
     clone_each = int(cfg.get("clone_credits", 5))
     clones = clone_each * speakers
     merge = max(1, int(cfg.get("merge_credits", 1)))
-    per_sec = float(cfg.get("lipsync_per_sec", 40))
+    per_sec = _lip_rate(cfg, lip_res)
     lip = int(math.ceil(max(0.0, float(duration_sec)) * per_sec)) if lipsync else 0
     total = fee + analysis + voice + clones + merge + lip
     return {
@@ -370,6 +381,7 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False):
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
         "speakers": speakers, "assumed_speakers": speakers,
         "lipsync_wanted": bool(lipsync), "lipsync": lip, "lipsync_per_sec": per_sec if lipsync else 0,
+        "lipsync_res": _lip_res(lip_res) if lipsync else None,
         "times": estimate_times(float(duration_sec), bool(lipsync)), "terms_version": TERMS_VERSION,
     }
 
@@ -427,7 +439,7 @@ def _fingerprint(path):
     return {"size": size, "sha1": h.hexdigest()}
 
 
-def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description=""):
+def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -479,12 +491,13 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", descrip
         "chunk_bytes": CHUNK_BYTES, "duration": 0.0, "has_video": ext in VIDEO_EXTS,
         "estimate": None, "paid": {"fee": 0, "analysis": 0, "dub": 0}, "error": "",
         "n_segments": 0, "speakers": [], "warnings": [], "stated_speakers": speakers,
-        "speaker_list": [], "detected_speakers": 0, "lipsync": {"wanted": lipsync},
+        "speaker_list": [], "detected_speakers": 0,
+        "lipsync": {"wanted": lipsync, "resolution": _lip_res(lip_res)},
     }
     with _LOCK:
         _JOBS[job_id] = job
     _save(job)
-    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers} lipsync={'yes' if lipsync else 'no'}")
+    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers} lipsync={'yes ' + _lip_res(lip_res) if lipsync else 'no'}")
     return job, None
 
 
@@ -575,6 +588,7 @@ def finish_upload(job, uid):
             _discard(job)
             return False, ("Lip-sync is not available right now. Please start again without lip-sync or try later. Nothing was charged.", 503)
         geo = _video_geometry(src)
+        geo_raw = _video_geometry(src, raw=True)
         if geo is None or "video" not in streams:
             _ev(job, "upload_finished", "failed", "no readable video picture for lip-sync")
             _discard(job)
@@ -593,9 +607,11 @@ def finish_upload(job, uid):
     with _lock_for(job["id"]):
         job["duration"] = round(duration, 3)
         job["has_video"] = "video" in streams and job["ext"] in VIDEO_EXTS
-        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2), lip_wanted)
+        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2), lip_wanted, (job.get("lipsync") or {}).get("resolution"))
         if lip_wanted and geo:
             job["lipsync"].update({"fps": str(geo[0]), "w": geo[1], "h": geo[2], "frames": _video_frames(src)})
+            if geo_raw:
+                job["lipsync"].update({"sw": geo_raw[1], "sh": geo_raw[2]})      # the picture's own size: the chosen resolution is fitted to it
         if fee > 0 and not job["paid"]["fee"]:
             Hooks.charge(uid, fee, "long_dub_estimate", job["id"])
             job["paid"]["fee"] = fee
@@ -2347,9 +2363,9 @@ def _capped_size(w, h):
     return max(2, int(w * s) // 2 * 2), max(2, int(h * s) // 2 * 2)
 
 
-def _video_geometry(path):
+def _video_geometry(path, raw=False):
     """(frame rate as Fraction, width, height as the picture is SHOWN) of the
-    first video stream, or None."""
+    first video stream, or None. The size is capped at 1280x720 unless raw=True."""
     try:
         out = subprocess.check_output(
             ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
@@ -2373,10 +2389,25 @@ def _video_geometry(path):
         if abs(rot) % 180 == 90:
             w, h = h, w
         fps = _pick_fps(st.get("avg_frame_rate") if st.get("avg_frame_rate") not in (None, "0/0") else st.get("r_frame_rate"))
+        if raw:
+            return fps, w, h
         cw, ch = _capped_size(w, h)
         return fps, cw, ch
     except Exception:
         return None
+
+
+def _tier_size(sw, sh, res, upscale=True):
+    """Picture size for a lip-sync resolution tier: the source's shape fitted into the tier's box
+    (854x480, 1280x720 or 1920x1080, upright videos the other way round), even numbers.
+    upscale=False never makes the picture bigger than the source."""
+    from config import LIPSYNC_RES_BOX, lipsync_res
+    bl, bs = LIPSYNC_RES_BOX[lipsync_res(res)]
+    sw, sh = max(2, int(sw)), max(2, int(sh))
+    s = min(bl / float(max(sw, sh)), bs / float(min(sw, sh)))
+    if not upscale:
+        s = min(1.0, s)
+    return max(2, int(round(sw * s / 2.0)) * 2), max(2, int(round(sh * s / 2.0)) * 2)
 
 
 def _video_frames(path):
@@ -2390,6 +2421,25 @@ def _video_frames(path):
         return n if n > 0 else None
     except Exception:
         return None
+
+
+def _mux_length(video_path):
+    """ffmpeg options that end the finished file where the PICTURE ends.
+    "-shortest" ended it where the (slightly shorter) sound ended, and with a copied
+    picture that cut off the last frames of the video (a video of 29.43 s came back as
+    29.40 s). The sound is cut at the end of the picture instead, and never makes it shorter."""
+    try:
+        out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=duration", "-of", "csv=p=0",
+             str(video_path)], timeout=60).decode().strip().splitlines()
+        d = float(out[0]) if out and out[0] not in ("", "N/A") else 0.0
+        if d <= 0:
+            d = float(ffmpeg_utils.get_media_duration(video_path) or 0)
+        if d > 0.5:
+            return ["-t", f"{d:.6f}"]
+    except Exception:
+        pass
+    return ["-shortest"]
 
 
 def _n_frames(total, fps, frames=None):
@@ -2492,7 +2542,8 @@ def lipsync_price(job, rows, cfg):
     ls = job.get("lipsync") or {}
     if not ls.get("wanted"):
         return None
-    per_sec = float(cfg.get("lipsync_per_sec", 40))
+    res = _lip_res(ls.get("resolution"))
+    per_sec = _lip_rate(cfg, res)
     total = float((job.get("analysis") or {}).get("audio_duration") or job.get("duration") or 0)
     fps = Fraction(ls.get("fps") or "30")
     clips, short = plan_lipsync_clips([(r["start"], r["end"]) for r in rows], total, fps, ls.get("frames"))
@@ -2500,7 +2551,7 @@ def lipsync_price(job, rows, cfg):
         c["credits"] = max(1, int(round(c["dur"] * per_sec)))
     secs = sum(c["dur"] for c in clips)
     lo_hi = lipsync_range(secs) if clips else {"lipsync_min": 0, "lipsync_max": 0}
-    return {"clips": clips, "short": short, "seconds": round(secs, 1), "per_sec": per_sec,
+    return {"clips": clips, "short": short, "seconds": round(secs, 1), "per_sec": per_sec, "resolution": res,
             "credits": sum(c["credits"] for c in clips), "n": len(clips),
             "time_min": lo_hi["lipsync_min"], "time_max": lo_hi["lipsync_max"]}
 
@@ -2553,7 +2604,7 @@ def _encode_engine_output(raw, f0, f1, fps, w, h, out, fix=None):
     os.replace(tmp, out)
 
 
-def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag):
+def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag, res=None):
     """Lip-sync one clip. Returns (task_id, None) on success, (task_id, error)
     on failure. Runs in a worker thread and never touches the job dict."""
     import lipsync_service
@@ -2580,7 +2631,7 @@ def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag):
             try:
                 with _LIPSYNC_SLOTS:
                     lipsync_service._alibaba_wan3_lipsync(inp, aud, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID,
-                                                          DASHSCOPE_REGION, raw, prog, job["id"], None)
+                                                          DASHSCOPE_REGION, raw, prog, job["id"], None, res)
                 last = None
                 break
             except Exception as ex:
@@ -2613,7 +2664,16 @@ def _run_lipsync(job, dub_full, kept, total, d):
         return None
     ls = job["lipsync"]
     fps = Fraction(ls["fps"])
-    w, h = int(ls["w"]), int(ls["h"])
+    # The resolution the user paid for (older projects have none: the picture keeps its own size, capped at 720p,
+    # and the engine picks its tier from it as before).
+    res = plan.get("resolution") or ls.get("resolution")
+    res = _lip_res(res) if res else None
+    if res and ls.get("sw") and ls.get("sh"):
+        w, h = _tier_size(ls["sw"], ls["sh"], res, True)            # delivered picture size
+        iw, ih = _tier_size(ls["sw"], ls["sh"], res, False)         # what the engine is given (never enlarged)
+    else:
+        w, h = int(ls["w"]), int(ls["h"])
+        iw, ih = w, h
     n_total = _n_frames(total, fps, ls.get("frames"))
     src = wd / f"src{job['ext']}"
     ldir = d / "lip"
@@ -2640,6 +2700,7 @@ def _run_lipsync(job, dub_full, kept, total, d):
     todo = [k for k in range(len(clips)) if not clip_done(k)]
     n_clips = len(clips)
     _ev(job, "lipsync", "info", f"{n_clips} clips ({sum(c['dur'] for c in clips):.1f}s), {len(todo)} still to do, {w}x{h} at {fps} fps, "
+                                f"resolution {res or 'automatic'}, "
                                 f"picture touch-up {'on' if LIPSYNC_FIX_ON else 'off'}")
     started = time.time()
     finished = {"n": n_clips - len(todo)}
@@ -2653,7 +2714,7 @@ def _run_lipsync(job, dub_full, kept, total, d):
             return {"k": k, "status": "skipped", "why": "no dubbed speech was left in this stretch", "task": None, "secs": 0}
         j = [i for i, p in enumerate(pieces) if p[3] == k][0]
         t_start = time.time()
-        task, err = _engine_clip(job, src, dub_full, f0, f1, fps, w, h, ldir, f"k{k:03d}")
+        task, err = _engine_clip(job, src, dub_full, f0, f1, fps, iw, ih, ldir, f"k{k:03d}", res)
         if err is None:
             try:
                 _encode_engine_output(ldir / f"k{k:03d}_raw.mp4", f0, f1, fps, w, h, pfile(j), LIPSYNC_FIX.get(k + 1))
@@ -2824,8 +2885,30 @@ def dub_price(job, cfg=None):
         "speakers_used": [{"id": k, "name": names.get(k, "?"), "lines": v} for k, v in used.items()],
         "time_min": lo, "time_max": hi,
         "lipsync": ({"clips": lip["n"], "seconds": lip["seconds"], "credits": lip["credits"], "per_sec": lip["per_sec"],
+                     "resolution": lip["resolution"],
                      "short": lip["short"], "time_min": lip["time_min"], "time_max": lip["time_max"]} if lip else None),
     }
+
+
+def set_lipsync_resolution(job, uid, res):
+    """Change the lip-sync resolution of a project that has not been paid for yet
+    (before the estimate is accepted, or while the text is being reviewed)."""
+    ls = job.get("lipsync") or {}
+    if not ls.get("wanted"):
+        return False, ("This project was started without lip-sync.", 409)
+    if job.get("status") not in ("estimated", "editing"):
+        return False, ("The resolution can only be changed before you accept the estimate or while you review the text.", 409)
+    res = _lip_res(res)
+    with _lock_for(job["id"]):
+        job["lipsync"]["resolution"] = res
+        if job.get("status") == "estimated" and job.get("estimate"):
+            try:
+                job["estimate"] = compute_estimate(job.get("duration") or 0, Hooks.pricing(), job.get("stated_speakers", 2), True, res)
+            except Exception as ex:
+                print(f"[longdub] could not refresh the estimate after a resolution change: {ex}")
+    _save(job)
+    _ev(job, "lipsync_resolution", "ok", f"lip-sync resolution set to {res}")
+    return True, None
 
 
 def confirm(job, uid, expected_due):
@@ -2858,7 +2941,7 @@ def confirm(job, uid, expected_due):
         lp = lipsync_price(job, [r for r in read_segments(job) if (r.get("arabic_text") or "").strip()], cfg)
         if lp["credits"] != (price.get("lipsync") or {}).get("credits"):
             return False, ("The price changed. Please check the new price and confirm again.", 409)
-        lip_plan = {"per_sec": lp["per_sec"], "credits": lp["credits"], "seconds": lp["seconds"], "short": lp["short"],
+        lip_plan = {"per_sec": lp["per_sec"], "resolution": lp["resolution"], "credits": lp["credits"], "seconds": lp["seconds"], "short": lp["short"],
                     "clips": [{"f0": c["f0"], "f1": c["f1"], "dur": c["dur"], "credits": c["credits"]} for c in lp["clips"]]}
     bal = Hooks.get_credits(uid)
     if bal is not None and bal < price["due"]:
@@ -3781,7 +3864,7 @@ def _run_dubbing(job):
             # nothing to lay under the dubbed voice
             if video_out:
                 ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vsrc), "-i", str(dub_full), "-map", "0:v:0", "-map", "1:a:0",
-                                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)])
+                                         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"] + _mux_length(vsrc) + [str(tmp_final)])
             else:
                 ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(dub_full), "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)])
         else:
@@ -3804,7 +3887,7 @@ def _run_dubbing(job):
                 cmd_ += ["-i", str(f_)]
             cmd_ += ["-filter_complex", fc]
             if video_out:
-                cmd_ += ["-map", "0:v:0", "-map", "[out]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(tmp_final)]
+                cmd_ += ["-map", "0:v:0", "-map", "[out]", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"] + _mux_length(vsrc) + [str(tmp_final)]
             else:
                 cmd_ += ["-map", "[out]", "-codec:a", "libmp3lame", "-q:a", "2", str(tmp_final)]
             ffmpeg_utils.run_ffmpeg(cmd_)
