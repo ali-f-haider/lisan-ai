@@ -460,3 +460,98 @@
     window.lisanConfirm = api.confirm;
     window.lisanPrompt = api.prompt;
 })();
+
+
+/* Planned-maintenance banner. The admin sets a From/To window (Admin -> Settings);
+   this shows a bar at the top of the page with those times in the visitor's own
+   time zone, from the moment it is switched on until the window ends. It can be
+   dismissed for the rest of the visit. Not shown on the admin page itself. */
+(function () {
+    if (window.__lisanMaintBanner) return;
+    window.__lisanMaintBanner = true;
+    if (/^\/admin/.test(location.pathname)) return;
+
+    var data = null, bar = null, timer = null;
+
+    function ar() {
+        try {
+            if (window.currentLang) return window.currentLang === "ar";
+            if (document.documentElement.lang === "ar") return true;
+            return (localStorage.getItem("lisan_lang") || "") === "ar";
+        } catch (e) { return false; }
+    }
+    function fmt(iso) {
+        try {
+            return new Intl.DateTimeFormat(ar() ? "ar" : undefined, {
+                weekday: "short", day: "numeric", month: "short",
+                hour: "2-digit", minute: "2-digit", timeZoneName: "short"
+            }).format(new Date(iso));
+        } catch (e) { return iso; }
+    }
+    function dismissKey() { return "lisan_maint_" + data.start + "_" + data.end; }
+    function dismissed() { try { return sessionStorage.getItem(dismissKey()) === "1"; } catch (e) { return false; } }
+
+    function text() {
+        var now = Date.now(), s = Date.parse(data.start), e = Date.parse(data.end);
+        var from = fmt(data.start), to = fmt(data.end), note = data.message ? " " + data.message : "";
+        if (ar()) {
+            return (now >= s)
+                ? "🛠️ صيانة جارية: قد يكون Lisan AI غير متاح لفترة قصيرة حتى " + to + "." + note
+                : "🛠️ صيانة مجدولة: قد يكون Lisan AI غير متاح لفترة قصيرة بين " + from + " و " + to +
+                  ". يُرجى عدم بدء مهمة طويلة قرب هذا الوقت، فقد تحتاج أي مهمة قيد التنفيذ إلى إعادة التشغيل." + note;
+        }
+        return (now >= s)
+            ? "🛠️ Maintenance in progress: Lisan AI may be briefly unavailable until " + to + "." + note
+            : "🛠️ Planned maintenance: Lisan AI may be briefly unavailable between " + from + " and " + to +
+              ". Please avoid starting a long job close to that time — anything still running then may need to be restarted." + note;
+    }
+
+    function remove() { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); bar = null; pad(); }
+
+    function render() {
+        if (!data || !data.active || Date.now() >= Date.parse(data.end) || dismissed()) { remove(); return; }
+        if (!document.body) return;
+        if (!bar) {
+            bar = document.createElement("div");
+            bar.id = "lisanMaintBanner";
+            bar.setAttribute("role", "status");
+            bar.style.cssText = "position:fixed;top:0;left:0;right:0;width:100%;z-index:99990;display:flex;gap:12px;align-items:flex-start;" +
+                "justify-content:center;padding:10px 16px;background:#fef3c7;color:#78350f;border-bottom:1px solid #f59e0b;" +
+                "font:600 13px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;text-align:center;box-sizing:border-box;margin:0;";
+            var span = document.createElement("span"); span.id = "lisanMaintText"; span.style.cssText = "flex:1 1 auto;min-width:0;";
+            var x = document.createElement("button");
+            x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label", "Close");
+            x.style.cssText = "flex:0 0 auto;width:auto!important;display:block!important;box-sizing:content-box;border:0!important;border-radius:0;background:transparent;color:inherit;font-size:20px;line-height:1;cursor:pointer;padding:0 4px!important;margin:0!important;";
+            x.onclick = function () { try { sessionStorage.setItem(dismissKey(), "1"); } catch (e) {} remove(); };
+            bar.appendChild(span); bar.appendChild(x);
+            document.body.appendChild(bar);
+        }
+        bar.dir = ar() ? "rtl" : "ltr";
+        bar.firstChild.textContent = text();
+        pad();
+    }
+
+    // The bar is fixed to the top of the window (works with every page layout);
+    // push the page down by its height so it never covers the page's own header.
+    var origPad = null;
+    function pad() {
+        if (!document.body) return;
+        if (origPad === null) origPad = document.body.style.paddingTop || "";
+        document.body.style.paddingTop = bar ? bar.offsetHeight + "px" : origPad;
+    }
+
+    function load() {
+        fetch("/api/maintenance", { cache: "no-store" })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) { if (d) { data = d; render(); } })
+            .catch(function () {});
+    }
+
+    function start() {
+        load();
+        setInterval(load, 5 * 60 * 1000);     // pick up a newly switched-on notice
+        timer = setInterval(render, 30 * 1000); // flip "planned" -> "in progress" -> gone
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+    else start();
+})();

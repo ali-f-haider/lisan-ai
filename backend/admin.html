@@ -234,6 +234,30 @@ button.btn-success:hover { background: #15803d; }
     <!-- SETTINGS -->
     <div class="panel" id="panel-settings">
       <div class="card">
+        <h3>🛠️ Planned Maintenance Banner</h3>
+        <p class="muted" style="margin-bottom:16px;">Before you update the site (every update restarts the server for a short time), tell users when it may be unavailable. A yellow bar appears at the top of every page, from the moment you save until the "To" time, with the times shown in each visitor's own time zone. Work still running when the server restarts has to be started again, so pick a quiet time. The notice survives the restart and disappears by itself after the "To" time.</p>
+        <div class="form-group">
+          <label><input type="checkbox" id="maintEnabled" style="width:auto;vertical-align:middle;"> Show the maintenance banner</label>
+        </div>
+        <div class="form-group">
+          <label for="maintStart" style="display:block;margin-bottom:6px;">From (possible downtime starts)</label>
+          <input type="datetime-local" id="maintStart" style="max-width:260px;">
+        </div>
+        <div class="form-group">
+          <label for="maintEnd" style="display:block;margin-bottom:6px;">To (back to normal)</label>
+          <input type="datetime-local" id="maintEnd" style="max-width:260px;">
+          <span class="muted" id="maintTz">Times are in your computer's time zone.</span>
+        </div>
+        <div class="form-group">
+          <label for="maintMsg" style="display:block;margin-bottom:6px;">Extra note for users (optional, max 300 characters)</label>
+          <input type="text" id="maintMsg" maxlength="300" placeholder="e.g. We are adding new features." style="max-width:520px;">
+        </div>
+        <p class="muted" id="maintStatus" style="margin-bottom:12px;">—</p>
+        <button class="btn" onclick="saveMaintenance()">💾 Save Banner</button>
+        <button class="btn-sm" onclick="clearMaintenance()" style="margin-left:8px;padding:8px 14px;font-size:13px;">Turn off &amp; clear</button>
+      </div>
+
+      <div class="card">
         <h3>🔒 Site Access Gate</h3>
         <p class="muted" style="margin-bottom:16px;">A password wall in front of the ENTIRE site — landing page, login, everything — for while the product is still being tested. Random visitors see an "Under Construction" message instead of the real site; testers with the access code get straight in. The actual password only lives in Railway's <code>SITE_GATE_PASSWORD</code> environment variable (never shown here) — this switch just turns enforcement of it on or off. Leave <code>SITE_GATE_PASSWORD</code> unset in Railway and this switch does nothing either way.</p>
         <div class="form-group">
@@ -486,7 +510,7 @@ function doLogin() {
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadOverview(); loadUsers(); loadPricing(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
+  loadOverview(); loadUsers(); loadPricing(); loadMaintenance(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -497,6 +521,61 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
   };
 });
+
+function maintToLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function maintShow(d) {
+  const st = document.getElementById('maintStatus');
+  const fmt = iso => new Date(iso).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+  if (d.enabled && d.start && d.end && Date.now() < Date.parse(d.end)) {
+    st.textContent = (Date.now() >= Date.parse(d.start) ? '🟡 Showing now: maintenance in progress until ' : '🟡 Showing now: planned for ') +
+      (Date.now() >= Date.parse(d.start) ? fmt(d.end) : fmt(d.start) + ' to ' + fmt(d.end)) + '.';
+  } else if (d.enabled && d.end && Date.now() >= Date.parse(d.end)) {
+    st.textContent = 'The saved window has ended, so no banner is showing.';
+  } else {
+    st.textContent = 'No banner is showing.';
+  }
+}
+async function loadMaintenance() {
+  try { document.getElementById('maintTz').textContent = "Times are in your computer's time zone (" + Intl.DateTimeFormat().resolvedOptions().timeZone + "); users see them in theirs."; } catch (e) {}
+  const r = await api('/api/admin/maintenance');
+  if (!r.ok) return;
+  document.getElementById('maintEnabled').checked = !!r.data.enabled;
+  document.getElementById('maintStart').value = maintToLocalInput(r.data.start);
+  document.getElementById('maintEnd').value = maintToLocalInput(r.data.end);
+  document.getElementById('maintMsg').value = r.data.message || '';
+  maintShow(r.data);
+}
+async function saveMaintenance() {
+  const enabled = document.getElementById('maintEnabled').checked;
+  const sv = document.getElementById('maintStart').value, ev = document.getElementById('maintEnd').value;
+  if (enabled && (!sv || !ev)) { toast('Please choose both a From and a To time.', true); return; }
+  const body = {
+    enabled,
+    start: sv ? new Date(sv).toISOString() : '',
+    end: ev ? new Date(ev).toISOString() : '',
+    message: document.getElementById('maintMsg').value.trim()
+  };
+  const r = await api('/api/admin/maintenance', { method: 'POST', body: JSON.stringify(body) });
+  if (!r.ok) { toast(r.data.error || 'Could not save.', true); return; }
+  toast(enabled ? 'Banner saved.' : 'Banner turned off.');
+  loadMaintenance();
+}
+async function clearMaintenance() {
+  document.getElementById('maintEnabled').checked = false;
+  document.getElementById('maintStart').value = '';
+  document.getElementById('maintEnd').value = '';
+  document.getElementById('maintMsg').value = '';
+  const r = await api('/api/admin/maintenance', { method: 'POST', body: JSON.stringify({ enabled: false, start: '', end: '', message: '' }) });
+  if (!r.ok) { toast(r.data.error || 'Could not save.', true); return; }
+  toast('Banner turned off.');
+  loadMaintenance();
+}
 
 async function loadOverview() {
   const r = await api('/api/admin/overview');

@@ -526,7 +526,7 @@ def _site_gate_ok(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
-    "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact",
+    "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact",
     "/api/account/delete"
 , "/help.html", "/admin"])
 
@@ -6412,6 +6412,115 @@ def admin_health(request: Request):
         "dashscope": dashscope, "stripe": stripe_status, "resend": resend_status,
         "r2": r2_status, "sentry": sentry_status,
     }
+
+
+# ---------------------------------------------------------------------------
+# Planned-maintenance banner. The admin sets a FROM / TO window (stored in UTC)
+# and an optional note; every page that loads /dialogs.js shows a bar with the
+# times in each visitor's own time zone. Stored as a tiny JSON file on the
+# volume (DATA_DIR), so it needs no database change and survives the very
+# redeploy it announces.
+# ---------------------------------------------------------------------------
+_MAINT_FILE = DATA_DIR / "maintenance.json"
+_MAINT_MAX_NOTE = 300
+_MAINT_MAX_DAYS = 14
+_maint_cache = {"mtime": None, "data": None}
+
+
+def _maint_read():
+    """Saved maintenance settings as a dict ({} when none/unreadable)."""
+    try:
+        mt = os.path.getmtime(_MAINT_FILE)
+    except OSError:
+        _maint_cache.update(mtime=None, data={})
+        return {}
+    if _maint_cache["mtime"] == mt and _maint_cache["data"] is not None:
+        return _maint_cache["data"]
+    try:
+        d = json.loads(_MAINT_FILE.read_text(encoding="utf-8"))
+        if not isinstance(d, dict):
+            d = {}
+    except Exception:
+        d = {}
+    _maint_cache.update(mtime=mt, data=d)
+    return d
+
+
+def _maint_parse(v):
+    """ISO-8601 time -> aware UTC datetime, or None."""
+    if not isinstance(v, str) or not v.strip() or len(v) > 40:
+        return None
+    try:
+        dt = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _maint_iso(dt):
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@app.get("/api/maintenance")
+def maintenance_public():
+    """What the banner needs: nothing unless a window is switched on and has
+    not finished yet."""
+    d = _maint_read()
+    start, end = _maint_parse(d.get("start")), _maint_parse(d.get("end"))
+    now = datetime.now(timezone.utc)
+    if d.get("enabled") and start and end and now < end:
+        out = {"active": True, "start": _maint_iso(start), "end": _maint_iso(end),
+               "message": str(d.get("message") or "")[:_MAINT_MAX_NOTE]}
+    else:
+        out = {"active": False}
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/admin/maintenance")
+def admin_maintenance_get(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    d = _maint_read()
+    return {"enabled": bool(d.get("enabled")), "start": d.get("start") or "",
+            "end": d.get("end") or "", "message": d.get("message") or ""}
+
+
+@app.post("/api/admin/maintenance")
+async def admin_maintenance_set(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid request."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Invalid request."}, status_code=400)
+    enabled = bool(body.get("enabled"))
+    note = str(body.get("message") or "").strip()[:_MAINT_MAX_NOTE]
+    start, end = _maint_parse(body.get("start")), _maint_parse(body.get("end"))
+    if enabled:
+        if not start or not end:
+            return JSONResponse({"error": "Please choose both a From and a To time."}, status_code=400)
+        if end <= start:
+            return JSONResponse({"error": "The To time must be after the From time."}, status_code=400)
+        if end <= datetime.now(timezone.utc):
+            return JSONResponse({"error": "The To time is already in the past."}, status_code=400)
+        if (end - start) > timedelta(days=_MAINT_MAX_DAYS):
+            return JSONResponse({"error": f"A maintenance window can be at most {_MAINT_MAX_DAYS} days long."}, status_code=400)
+    data = {"enabled": enabled, "message": note,
+            "start": _maint_iso(start) if start else "", "end": _maint_iso(end) if end else ""}
+    try:
+        _MAINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _MAINT_FILE.with_name(_MAINT_FILE.name + ".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        os.replace(tmp, _MAINT_FILE)
+    except Exception as ex:
+        print(f"[maintenance] could not save: {ex}")
+        return JSONResponse({"error": "Could not save the maintenance notice."}, status_code=500)
+    _maint_cache.update(mtime=None, data=None)
+    return {"ok": True, **data}
 
 
 @app.get("/api/admin/storage")
