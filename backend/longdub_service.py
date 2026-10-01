@@ -3745,8 +3745,11 @@ STALE_HOURS = {"uploading": 24, "estimated": 24, "failed": 24, "cancelled": 24,
 # activity its video is taken off the server and only the text stays; after PROJECT_KEEP_DAYS it is removed.
 
 
-def sweep_stale():
+def sweep_stale(park_hours=None):
+    """park_hours: park an idle project after this many hours instead of the
+    normal PARK_HOURS -- used by disk_guard when the volume is nearly full."""
     now = _now()
+    _park_after = PARK_HOURS if not park_hours else min(PARK_HOURS, float(park_hours))
     removed = 0
     if not LONG_DIR.exists():
         return 0
@@ -3767,8 +3770,8 @@ def sweep_stale():
             idle = now - job.get("updated", now)
             try:
                 if has_media(job):
-                    if idle > PARK_HOURS * 3600:
-                        park_job(job, f"idle for over {PARK_HOURS:g} hours")
+                    if idle > _park_after * 3600:
+                        park_job(job, f"idle for over {_park_after:g} hours")
                     continue
                 if job.get("reattach") and idle > 24 * 3600:
                     _cancel_reattach(job)

@@ -35,6 +35,7 @@ import ffmpeg_utils
 import lipsync_service
 import longdub_service
 import r2_backup
+import disk_guard
 import railway_monitor
 import service_usage_monitor
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
@@ -496,6 +497,12 @@ def _eleven_alerts_enabled() -> bool:
     except Exception:
         return True  # fail OPEN, not closed -- a Supabase hiccup should never silently swallow a real "you're about to run out" warning
 
+def _disk_alerts_enabled() -> bool:
+    try:
+        return bool(_get_pricing_config().get("diskAlertsEnabled", True))
+    except Exception:
+        return True  # fail OPEN -- same reasoning as the two above
+
 def _railway_alerts_enabled() -> bool:
     try:
         return bool(_get_pricing_config().get("railwayAlertsEnabled", True))
@@ -601,6 +608,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
             return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200)
+        if request.method == "POST" and path in ("/api/transcribe", "/api/attach_media"):
+            # Disk guard: say "try again shortly" up front, before the user waits
+            # through an upload that could not be saved (and before any charge).
+            try:
+                _clen = max(0, int(request.headers.get("content-length") or 0))
+            except ValueError:
+                _clen = 0
+            _ok, _ = await asyncio.to_thread(disk_guard.check, _clen, disk_guard.WORK_SHORT_GB, _is_final_output)
+            if not _ok:
+                return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE, "capacity": True}, status_code=503)
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
@@ -3204,6 +3221,12 @@ def _cleanup_worker():
                             removed += 1
                     except Exception:
                         pass
+            try:
+                freed_dirs = disk_guard.remove_stale_dirs((UPLOAD_DIR, OUTPUT_DIR), short_cutoff)
+                if freed_dirs:
+                    print(f"[cleanup] removed old working folders, freed {freed_dirs / 1048576:.0f} MB")
+            except Exception as _dg_ex:
+                print("[cleanup] folder sweep error:", _dg_ex)
             for jid in list(_job_started.keys()):
                 if _job_started[jid] < short_cutoff:
                     jobs_progress.pop(jid, None)
@@ -3245,6 +3268,7 @@ def _cleanup_worker():
 threading.Thread(target=_cleanup_worker, daemon=True).start()
 railway_monitor.start()
 service_usage_monitor.start()
+disk_guard.start(_is_final_output)
 
 # ==================== GEMINI HELPER ====================
 
@@ -4796,6 +4820,9 @@ def longdub_init(body: LongDubInit, request: Request):
     _blk = _storage_block(uid, int(body.size or 0) if _vid else int((body.size or 0) * 0.2))
     if _blk is not None:
         return _blk          # no point in uploading a big file that could not be saved
+    _dg_ok, _ = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
+    if not _dg_ok:
+        return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE, "capacity": True}, status_code=503)
     job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
                                             body.name, body.description)
     if err:
@@ -4880,6 +4907,9 @@ def longdub_reattach(job_id: str, body: LongDubReattach, request: Request):
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
+    _dg_ok, _ = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
+    if not _dg_ok:
+        return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE, "capacity": True}, status_code=503)
     ok, e = longdub_service.restore_init(job, uid, body.filename, body.size)
     if not ok:
         return JSONResponse({"error": e[0]}, status_code=e[1])
@@ -5649,6 +5679,9 @@ def _get_pricing_config():
         # and the admin dashboard's live numbers are unaffected.
         "elevenAlertsEnabled": True,
         "railwayAlertsEnabled": True,
+        # Third e-mail switch (Oct 2026): "the server disk is getting full".
+        # See disk_guard.py. Defaults to True like the other two.
+        "diskAlertsEnabled": True,
         # Which voice engine NEW clones + generations use -- "elevenlabs"
         # (default, unchanged behavior) or "inworld" (added 2026-09-27, see
         # inworld_service.py). A voice already cloned keeps using whichever
@@ -5749,6 +5782,7 @@ def _get_pricing_config():
                 "siteGateEnabled": defaults["siteGateEnabled"] if row.get("site_gate_enabled") is None else bool(row.get("site_gate_enabled")),
                 "elevenAlertsEnabled": defaults["elevenAlertsEnabled"] if row.get("eleven_alerts_enabled") is None else bool(row.get("eleven_alerts_enabled")),
                 "railwayAlertsEnabled": defaults["railwayAlertsEnabled"] if row.get("railway_alerts_enabled") is None else bool(row.get("railway_alerts_enabled")),
+                "diskAlertsEnabled": defaults["diskAlertsEnabled"] if row.get("disk_alerts_enabled") is None else bool(row.get("disk_alerts_enabled")),
                 "voiceEngine": row.get("voice_engine") or defaults["voiceEngine"],
                 "inworldCharsPerCredit": row.get("inworld_chars_per_credit") or defaults["inworldCharsPerCredit"],
                 "inworldCloneCredits": row.get("inworld_clone_credits") or defaults["inworldCloneCredits"],
@@ -5847,6 +5881,18 @@ def _save_pricing_config(config):
                 pass
         except Exception as _ld_ex:
             print(f"[admin] long-dub settings not saved (has the long_dub_* SQL been run?): {_ld_ex}")
+        # The disk-alert switch also gets its OWN request: if its column hasn't been
+        # added yet (see the ALTER TABLE in the release notes), only this write
+        # fails and the main save above is unaffected.
+        try:
+            _da_body = json.dumps({
+                "id": "singleton",
+                "disk_alerts_enabled": bool(config.get("diskAlertsEnabled", True)),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_da_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _da_ex:
+            print(f"[admin] disk-alert switch not saved (has disk_alerts_enabled been added to pricing_config?): {_da_ex}")
         # ...and the lip-sync length limit in its own request too (its column came later).
         try:
             _ll_body = json.dumps({
@@ -6423,6 +6469,19 @@ def admin_storage(request: Request):
         "percent_used": round(used / total * 100, 1) if total else 0,
         "final_output_count": final_count,
         "final_output_gb": round(final_bytes / gb, 2),
+        # where the space actually is, and what the disk guard is doing
+        "breakdown_gb": {
+            "uploads": round(disk_guard._tree_size(UPLOAD_DIR) / gb, 2),
+            "outputs": round(disk_guard._tree_size(OUTPUT_DIR) / gb, 2),
+            "long_dub_projects": round(disk_guard._tree_size(DATA_DIR / "longjobs") / gb, 2),
+        },
+        "guard": {
+            "refuses_below_free_gb": round(disk_guard.RESERVE_GB + disk_guard.WORK_SHORT_GB, 2),
+            "reserve_gb": disk_guard.RESERVE_GB,
+            "refusals_since_start": disk_guard.get_cached().get("refusals", 0),
+            "last_cleanup_freed_mb": disk_guard.get_cached().get("last_cleanup_freed_mb", 0),
+            "alert_email": bool(_disk_alerts_enabled()),
+        },
     }
 
 @app.get("/api/admin/railway_memory")

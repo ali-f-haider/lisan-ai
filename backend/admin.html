@@ -278,6 +278,9 @@ button.btn-success:hover { background: #15803d; }
         </div>
         <div class="form-group">
           <label><input type="checkbox" id="railwayAlertsEnabled" style="width:auto;vertical-align:middle;"> Send Railway memory alerts</label>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="diskAlertsEnabled" style="width:auto;vertical-align:middle;"> Send disk-space alerts (the server volume is getting full)</label>
           <span class="muted">Each takes effect on that monitor's next poll (every ~20 minutes), not instantly.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Alert Settings</button>
@@ -348,6 +351,8 @@ button.btn-success:hover { background: #15803d; }
           <div id="sBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
         </div>
         <p class="muted" id="sFinalOutputs">—</p>
+        <p class="muted" id="sBreakdown">—</p>
+        <p class="muted" id="sGuard">—</p>
       </div>
       <div class="card">
         <h3>🔌 Service Usage</h3>
@@ -609,6 +614,8 @@ async function loadPricing() {
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
   document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
   document.getElementById('railwayAlertsEnabled').checked = r.data.railwayAlertsEnabled !== false;
+  const _dae = document.getElementById('diskAlertsEnabled');
+  if (_dae) _dae.checked = r.data.diskAlertsEnabled !== false;
   document.getElementById('voiceEngine').value = (r.data.voiceEngine === 'inworld') ? 'inworld' : 'elevenlabs';
   document.getElementById('uiStyle').value = (r.data.uiStyle === 'new') ? 'new' : 'classic';
   updateEngineFieldVisibility();
@@ -736,6 +743,7 @@ async function savePricing() {
     siteGateEnabled: document.getElementById('siteGateEnabled')?.checked ?? true,
     elevenAlertsEnabled: document.getElementById('elevenAlertsEnabled')?.checked ?? true,
     railwayAlertsEnabled: document.getElementById('railwayAlertsEnabled')?.checked ?? true,
+    diskAlertsEnabled: document.getElementById('diskAlertsEnabled')?.checked ?? true,
     voiceEngine: document.getElementById('voiceEngine')?.value === 'inworld' ? 'inworld' : 'elevenlabs',
     uiStyle: document.getElementById('uiStyle')?.value === 'new' ? 'new' : 'classic'
   };
@@ -866,6 +874,15 @@ async function loadStorage() {
   bar.style.background = d.percent_used >= 90 ? '#dc2626' : (d.percent_used >= 70 ? '#f59e0b' : '#16a34a');
   document.getElementById('sFinalOutputs').textContent =
     d.final_output_count + ' finished file(s) on the 30-day retention policy, using ' + d.final_output_gb + ' GB of the ' + d.used_gb + ' GB used.';
+  if (d.breakdown_gb) {
+    document.getElementById('sBreakdown').textContent = 'Where the space is: uploads ' + d.breakdown_gb.uploads + ' GB, outputs ' +
+      d.breakdown_gb.outputs + ' GB, long-dub projects ' + d.breakdown_gb.long_dub_projects + ' GB.';
+  }
+  if (d.guard) {
+    document.getElementById('sGuard').textContent = '🛡️ Disk guard ON: new uploads are turned away politely when less than ' +
+      d.guard.refuses_below_free_gb + ' GB is free (turned away ' + d.guard.refusals_since_start + ' time(s) since the last restart). ' +
+      'Last automatic clean-up freed ' + d.guard.last_cleanup_freed_mb + ' MB. Alert e-mail: ' + (d.guard.alert_email ? 'on' : 'off') + '.';
+  }
 }
 
 async function loadRailwayMemory() {
