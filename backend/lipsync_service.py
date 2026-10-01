@@ -634,7 +634,9 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                 _bp_temps += list(_rx["temps"])
             except Exception as _bd_ex:
                 print(f"[bg-duck] {job_id}: lip-sync skipped ({_bd_ex})")
-            mix_two_audio(raw_video, bg_used, mixed, extra_audio=_rx_path)
+            # The voice is OUR finished dubbed audio, never the sound that came back inside the
+            # provider's video (the provider re-renders the voice and it can pick up artifacts).
+            mix_two_audio(dubbed_audio, bg_used, mixed, extra_audio=_rx_path)
             for _t in _bp_temps:
                 try: _t.unlink()
                 except Exception: pass
@@ -642,7 +644,8 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             try: mixed.unlink()
             except Exception: pass
         else:
-            shutil.copy(raw_video, final_video)
+            # no background sound: the picture from the provider + our own dubbed audio (its sound is dropped)
+            mux_audio_into_video(raw_video, dubbed_audio, final_video)
         try: raw_video.unlink()
         except Exception: pass
 
