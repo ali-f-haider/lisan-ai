@@ -229,7 +229,7 @@ PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "messag
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
                  "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
-                 "media_present", "restoring", "parked_at")
+                 "media_present", "restoring", "parked_at", "redo_of")
 
 
 def result_file(job):
@@ -698,6 +698,81 @@ def park_job(job, reason="user"):
     _save(job)
     _ev(job, "project_saved", "ok", f"reason={reason}; text kept, video and audio removed from the server")
     return True, None
+
+
+def _redo_name(uid, name):
+    """"Film" -> "Film (2)"; redoing "Film (2)" gives "Film (3)": one more than the
+    highest number any of this user's projects already carries for the same base name."""
+    base = re.sub(r"\s*\(\d+\)\s*$", "", str(name or "")).strip() or "Untitled project"
+    best = 1
+    for j in list_jobs_for_uid(uid):
+        m = re.fullmatch(re.escape(base) + r"(?:\s*\((\d+)\))?", project_name(j))
+        if m:
+            best = max(best, int(m.group(1)) if m.group(1) else 1)
+    suffix = f" ({best + 1})"
+    return base[:NAME_MAX - len(suffix)].rstrip() + suffix
+
+
+def redo_project(job, uid):
+    """Make a NEW project from a finished one: the same lines, translations, speakers,
+    emotions and options, so the user has nothing to edit. The new project starts "saved"
+    (text only): the user attaches the original file again (free), sees the exact price and
+    confirms. Nothing is charged here. Returns (True, new_job) or (False, (message, status))."""
+    if job.get("status") != "done":
+        return False, ("Only a finished project can be redone.", 409)
+    rows = read_segments(job)
+    if not rows:
+        return False, ("The text of this project is no longer on the server, so it can't be redone.", 404)
+    with _LOCK:
+        for j in list_jobs_for_uid(uid):       # a second click (or a second tab) opens the redo that already exists
+            if j.get("redo_of") == job["id"] and j.get("status") not in ("done", "failed", "cancelled", "expired"):
+                return True, j
+        if project_count(uid) >= MAX_PROJECTS_PER_USER:
+            return False, (f"You already have {MAX_PROJECTS_PER_USER} unfinished projects. Finish or delete one first.", 429)
+        new_id = str(uuid.uuid4())
+        size = int(job.get("size") or 0)
+        fp = dict(job.get("media_fp") or {})
+        if not fp.get("size"):                  # a project finished before files were fingerprinted: the size is still checked
+            fp = {"size": size}
+            if job.get("duration"):
+                fp["duration"] = round(float(job["duration"]), 1)
+        old_an = job.get("analysis") or {}
+        an = {"sep_done": [], "asr_done": [], "bg_failed": [], "sep_logged": True, "started": _now()}
+        if old_an.get("pieces"):
+            an["pieces"] = old_an["pieces"]
+            an["audio_duration"] = old_an.get("audio_duration")
+        an["diarized"] = True
+        new = {
+            "id": new_id, "uid": uid, "filename": job.get("filename") or "video", "ext": job.get("ext") or "",
+            "size": size, "name": _redo_name(uid, project_name(job)), "description": job.get("description") or "",
+            "media_present": False, "created": _now(), "updated": _now(), "status": "editing", "stage": "review",
+            "percent": 100, "message": "Saved. Attach your file again to carry on.",
+            "received": [], "total_chunks": int(math.ceil(size / float(CHUNK_BYTES))) if size else 0,
+            "chunk_bytes": CHUNK_BYTES, "duration": job.get("duration") or 0.0, "has_video": bool(job.get("has_video")),
+            "estimate": json.loads(json.dumps(job.get("estimate"))), "paid": {"fee": 0, "analysis": 0, "dub": 0},
+            "error": "", "n_segments": len(rows), "speakers": list(job.get("speakers") or []),
+            "warnings": [], "stated_speakers": job.get("stated_speakers", 2),
+            "speaker_list": json.loads(json.dumps(job.get("speaker_list") or [])),
+            "detected_speakers": job.get("detected_speakers", 0),
+            "lipsync": json.loads(json.dumps(job.get("lipsync") or {"wanted": False})),
+            "media_fp": fp, "analysis": an, "parked_at": _now(), "redo_of": job["id"],
+            "terms_accepted": job.get("terms_accepted"),
+        }
+        nd = job_dir(new_id)
+        nd.mkdir(parents=True, exist_ok=True)
+        _JOBS[new_id] = new
+    _write_segments(new, rows)
+    old_wd = _wd(job)
+    for f in ("pauses.json", "speech_spans.json", "turns.json"):     # tiny timing maps (not there for projects finished before they were kept)
+        try:
+            if (old_wd / f).exists():
+                shutil.copyfile(old_wd / f, nd / f)
+        except Exception as ex:
+            print(f"[longdub] redo: could not copy {f}: {ex}")
+    _save(new)
+    _ev(new, "project_redo_created", "ok", f"from {job['id']} ({project_name(job)}); {len(rows)} lines; nothing charged")
+    _ev(job, "redo_started", "ok", f"new project {new_id} ({new['name']})")
+    return True, new
 
 
 def update_project(job, name=None, description=None):
@@ -3696,7 +3771,8 @@ def _run_dubbing(job):
         _save(job)
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "pauses.json", "reactions.wav", "speech_spans.json", f"src{job['ext']}", "turns.json", "preview.mp4", "preview.m4a"):
+        # (pauses.json, speech_spans.json and turns.json are tiny and are kept: a "Redo" of this project needs them)
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
             try:
                 (wd / f).unlink()
             except Exception:

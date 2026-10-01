@@ -288,6 +288,10 @@ var T = {
     plNoChange: "No change to the times.",
     detEdit: "Edit name and description", detSave: "Save", detCancel: "Cancel",
     needFileToDub: "Attach your original file above to enable dubbing.",
+    redoBtn: "Redo this project", redoWorking: "Creating…", redoOk: "Create the new project",
+    redoAsk: function (name) { return "Make a new project from \"" + name + "\"?\n\nIt starts with exactly the same lines, translations, speakers and options, so there is nothing to edit. Nothing is charged now: you attach your original file again, see the exact price, and decide whether to go ahead. The finished file of the old project stays as it is."; },
+    redoNote: "This is a redo of an earlier project. All the lines, translations and speakers are already filled in, so you don't need to edit anything. Attach your original file again, check the price below and confirm. Nothing is charged until you confirm.",
+    redoFail: "We couldn't create the new project. Please try again.",
     spkAskLabel: "How many people speak in this video?",
     spkAskNote: "Lisan AI also detects the speakers itself after the analysis; you will name them and check every line before anything is dubbed. This number is used for the estimate (each speaker's voice is cloned separately).",
     spkBad: function (max) { return "Enter a number of speakers between 1 and " + max + "."; },
@@ -477,6 +481,10 @@ var T = {
     plNoChange: "لا تغيير في الأوقات.",
     detEdit: "تعديل الاسم والوصف", detSave: "حفظ", detCancel: "إلغاء",
     needFileToDub: "أرفق ملفك الأصلي في الأعلى لتفعيل الدبلجة.",
+    redoBtn: "إعادة هذا المشروع", redoWorking: "جارٍ الإنشاء…", redoOk: "إنشاء المشروع الجديد",
+    redoAsk: function (name) { return "هل تريد إنشاء مشروع جديد من «" + name + "»؟\n\nيبدأ بنفس السطور والترجمات والمتحدثين والخيارات تمامًا، فلا حاجة إلى أي تعديل. لن يُخصم أي رصيد الآن: ستُرفق ملفك الأصلي مرة أخرى، وتطّلع على السعر الدقيق، ثم تقرر المتابعة. يبقى الملف المنتهي في المشروع القديم كما هو."; },
+    redoNote: "هذه إعادة لمشروع سابق. جميع السطور والترجمات والمتحدثين مُعبّأة مسبقًا، فلا حاجة إلى أي تعديل. أرفق ملفك الأصلي مرة أخرى، وتحقق من السعر أدناه ثم أكّد. لن يُخصم أي رصيد قبل التأكيد.",
+    redoFail: "تعذّر إنشاء المشروع الجديد. حاول مرة أخرى.",
     spkAskLabel: "كم شخصاً يتحدث في هذا الفيديو؟",
     spkAskNote: "يكتشف لسان AI المتحدثين بنفسه بعد التحليل أيضاً؛ وستسمّيهم وتراجع كل سطر قبل أي دبلجة. يُستخدم هذا الرقم في التقدير (يُستنسخ صوت كل متحدث على حدة).",
     spkBad: function (max) { return "أدخل عدد متحدثين بين 1 و" + max + "."; },
@@ -888,7 +896,7 @@ function renderJob() {
     } else {
       h += "<p class='note'>" + esc(T.fileGone) + "</p>";
     }
-    h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + "</button></div>";
+    h += '<div class="ld-row-btns"><button id="btnRedo">' + esc(T.redoBtn) + '</button><button class="btn-plain" id="btnNew">' + esc(T.startNew) + "</button></div>";
   } else {
     h += name;
     h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + "</button></div>";
@@ -945,9 +953,32 @@ function wireJobButtons() {
   if ((b = $("btnAccept"))) b.onclick = onAccept;
   if ((b = $("agreeBox"))) b.onchange = function () { var ag = $("agreeBox"), ac = $("btnAccept"); if (ac) ac.disabled = !(ag && ag.checked) || !!window._estShort; };
   if ((b = $("btnDelete"))) b.onclick = onDelete;
+  if ((b = $("btnRedo"))) b.onclick = onRedo;
   if ((b = $("btnNew"))) b.onclick = function () { selectJob(null); };
   if ((b = $("btnFinish"))) b.onclick = function () { finishUpload(cur); };
   if ((b = $("btnResume"))) b.onclick = function () { $("fileInput").dataset.resume = "1"; $("fileInput").click(); };
+}
+
+var redoAuto = {};     // job id -> the price of this redo was fetched automatically already
+function onRedo() {
+  if (!cur || cur.status !== "done") return;
+  var src = cur;
+  var msg = T.redoAsk(projName(src));
+  var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { okText: T.redoOk }) : Promise.resolve(window.confirm(msg));
+  ask.then(function (yes) {
+    if (!yes) return;
+    var b = $("btnRedo"); if (b) { b.disabled = true; b.textContent = T.redoWorking; }
+    var reset = function () { var bb = $("btnRedo"); if (bb) { bb.disabled = false; bb.textContent = T.redoBtn; } };
+    api("POST", "/api/longdub/" + src.id + "/redo").then(function (r) {
+      if (!r.ok) { reset(); alertMsg(safeErr(r.data.error, T.redoFail)); return; }
+      var nj = r.data;
+      jobs = jobs.filter(function (x) { return x.id !== nj.id; });
+      jobs.unshift(nj);
+      selectJob(nj);
+      window.scrollTo(0, 0);
+      loadList().then(renderList);
+    }).catch(function () { reset(); alertMsg(T.netErr); });
+  });
 }
 
 function renderReattach() {
@@ -1226,8 +1257,16 @@ function loadSegments() {
     cur.warnings = r.data.warnings || [];
     cur.stated_speakers = r.data.stated_speakers; cur.detected_speakers = r.data.detected_speakers;
     renderEditor();
+    if (cur.redo_of) {
+      // A redo has nothing to edit: show the price straight away; once the file is attached again, bring the Dub button into view.
+      if (!pricePreview && !redoAuto[id]) {
+        redoAuto[id] = true;
+        loadPrice(true).then(function () { if (cur && cur.id === id && cur.media_present !== false && pricePreview) scrollToConfirm(); });
+      } else if (cur.media_present !== false && pricePreview) scrollToConfirm();
+    }
   });
 }
+function scrollToConfirm() { var ca = $("confirmArea"); if (ca && ca.scrollIntoView) { try { ca.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) { ca.scrollIntoView(); } } }
 
 function missingCount() { return segs.filter(function (s) { return !(s.arabic_text || "").trim(); }).length; }
 function linesOf(spid) { return segs.filter(function (s) { return s.speaker_id === spid; }).length; }
@@ -1240,6 +1279,7 @@ function renderEditor() {
   var head = document.createElement("div");
   head.innerHTML =
     "<div class='ld-projhead' id='projHead'></div><div id='reattachBox'></div>" +
+    (cur.redo_of ? "<div class='ld-warn'>" + esc(T.redoNote) + "</div>" : "") +
     "<p style='font-weight:600;margin:0 0 6px;'>" + esc(T.readyHead) + "</p>" +
     "<p class='note'>" + esc(T.editorNote) + "</p><p class='note'>" + esc(T.projNote) + "</p>" +
     ((cur.warnings || []).map(function (w) { return "<div class='ld-warn'>" + esc(w) + "</div>"; }).join("")) +
@@ -1910,13 +1950,13 @@ function renderConfirm() {
   if ((b = $("btnDelete2"))) b.onclick = onDelete;
 }
 
-function loadPrice() {
+function loadPrice(quiet) {      // quiet === true: the automatic price on a redo, which never pops up an error box
   lastErr = ""; tashNote = "";
   var pb = $("btnPrice"); if (pb) { pb.disabled = true; pb.textContent = T.checking; }
   return flushSave().then(function () { return saveSpeakersIfPending(); }).then(function () {
     return api("GET", "/api/longdub/" + cur.id + "/preview");
   }).then(function (r) {
-    if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); renderConfirm(); return; }
+    if (!r.ok) { if (quiet !== true) alertMsg(safeErr(r.data.error, T.genericErr)); renderConfirm(); return; }
     pricePreview = r.data; setCredits(r.data.credits);
     if (r.data.tashkeel_added) {
       tashNote = T.priceTashkeel(r.data.tashkeel_added);

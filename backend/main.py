@@ -4912,6 +4912,22 @@ def longdub_project_update(job_id: str, body: LongDubProject, request: Request):
     return longdub_service.public_view(job)
 
 
+@app.post("/api/longdub/{job_id}/redo")
+def longdub_redo(job_id: str, request: Request):
+    """Redo a finished project: a new project with the same lines, translations and options.
+    Costs nothing here -- the user attaches the original file again, sees the exact price and confirms."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    ok, res = longdub_service.redo_project(job, uid)
+    if not ok:
+        return JSONResponse({"error": res[0]}, status_code=res[1])
+    return longdub_service.public_view(res)
+
+
 @app.post("/api/longdub/{job_id}/park")
 def longdub_park(job_id: str, request: Request):
     """Save and close: the text stays, the video and audio copies leave the server. Costs nothing."""
