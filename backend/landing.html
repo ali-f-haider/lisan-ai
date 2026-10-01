@@ -877,15 +877,12 @@ html.js .rv.in{opacity:1;transform:none}
   /* ---------- Before / after demos ---------- */
   (function () {
     var PAIRS = [
-      { b: "/static/pair1_before.mp4", a: "/static/pair1_after.mp4",
-        en: "Cloned voices", ar: "أصوات مستنسخة",
-        nEn: "Each speaker's own voice, cloned from the video.", nAr: "صوت كل متحدث، مستنسخ من الفيديو." },
-      { b: "/static/pair2_before.mp4", a: "/static/pair2_after.mp4",
-        en: "Custom voices + lip-sync (alpha)", ar: "أصوات مخصصة + مزامنة الشفاه (ألفا)",
-        nEn: "Custom voices with lip-sync (alpha, experimental) and video enhancement.", nAr: "أصوات مخصصة مع مزامنة الشفاه (ألفا، تجريبية) وتحسين الفيديو." },
-      { b: "/static/pair3_before.mp4", a: "/static/pair3_after.mp4",
-        en: "Custom voices", ar: "أصوات مخصصة",
-        nEn: "Custom voices on the original video.", nAr: "أصوات مخصصة على الفيديو الأصلي." }
+      { b: "/static/NonLipSyncSample_before.mp4", a: "/static/NonLipSyncSample_After.mp4",
+        en: "Without lip-sync", ar: "بدون مزامنة الشفاه",
+        nEn: "The Arabic dub with the speaker's own cloned voice. The picture stays exactly as it is.", nAr: "الدبلجة العربية بصوت المتحدث نفسه المستنسخ. وتبقى الصورة كما هي تمامًا." },
+      { b: "/static/LipSyncSample_before.mp4", a: "/static/LipSyncSample_After.mp4",
+        en: "With lip-sync (alpha)", ar: "مع مزامنة الشفاه (ألفا)",
+        nEn: "Lip-sync is an experimental alpha feature for short dubs and may show unexpected results.", nAr: "مزامنة الشفاه ميزة تجريبية بنسخة ألفا للدبلجات القصيرة وقد تظهر نتائج غير متوقعة." }
     ];
     var section = $("demos"), tabs = $("demoTabs"), note = $("demoNote"), fb = $("demoBefore"), fa = $("demoAfter");
     var avail = [], cur = -1;
