@@ -1842,7 +1842,18 @@ function queueSave(id, field, value) {
 function flushSave(opts) {
   if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
   var ids = Object.keys(dirty);
-  if (!ids.length || !cur || saving) return Promise.resolve();
+  if (!ids.length || !cur) return Promise.resolve();
+  if (saving) {
+    // A save is already in flight. Wait for it (up to 15 s), then save whatever
+    // was typed meanwhile -- so "Translate again", Tashkeel, Confirm etc. always
+    // act on the text exactly as it is on screen, never on a stale copy.
+    return new Promise(function (resolve) {
+      var waited = 0, t = setInterval(function () {
+        waited += 100;
+        if (!saving || waited >= 15000) { clearInterval(t); saving = false; flushSave(opts).then(resolve, resolve); }
+      }, 100);
+    });
+  }
   saving = true;
   var batch = ids.map(function (i) { return Object.assign({}, dirty[i]); });
   var jobId = cur.id;

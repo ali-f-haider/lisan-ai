@@ -6411,63 +6411,8 @@ def admin_health(request: Request):
         "supabase": supabase, "elevenlabs": eleven, "gemini": gemini,
         "dashscope": dashscope, "stripe": stripe_status, "resend": resend_status,
         "r2": r2_status, "sentry": sentry_status,
-        "checks": _launch_checks(),
     }
 
-
-def _launch_checks():
-    """Plain-English go-live checklist shown on the admin Health tab. Every
-    item looks only at configuration this server can see for itself (never a
-    secret's value), so it is safe to show. status: ok / warn / bad."""
-    out = []
-
-    def add(label, status, detail):
-        out.append({"label": label, "status": status, "detail": detail})
-
-    sk = STRIPE_SECRET_KEY or ""
-    if not sk:
-        add("Stripe key", "bad", "STRIPE_SECRET_KEY is not set.")
-    elif sk.startswith(("sk_live_", "rk_live_")):
-        add("Stripe mode", "ok", "LIVE mode key -- real payments.")
-    else:
-        add("Stripe mode", "warn", "TEST mode key -- fine for testing, swap for the live key (and live webhook secret) before launch.")
-    add("Stripe webhook secret", "ok" if STRIPE_WEBHOOK_SECRET else "bad",
-        "Set." if STRIPE_WEBHOOK_SECRET else "STRIPE_WEBHOOK_SECRET is not set: paid credits would never arrive.")
-
-    if not ADMIN_PASSWORD:
-        add("Admin password", "bad", "No admin password set: the admin panel is locked out.")
-    elif APP_PASSWORD and ADMIN_PASSWORD == APP_PASSWORD:
-        add("Admin password", "bad", "Admin password is the same as APP_PASSWORD. Set a separate ADMIN_PASSWORD.")
-    elif len(ADMIN_PASSWORD) < 12:
-        add("Admin password", "warn", "Shorter than 12 characters -- use a longer one.")
-    else:
-        add("Admin password", "ok", "Separate and 12+ characters.")
-    add("Shared login (APP_PASSWORD)", "warn" if APP_PASSWORD else "ok",
-        "Still set: anyone who knows it gets a login without an account. Remove it from Railway before launch." if APP_PASSWORD
-        else "Not set (good).")
-    add("Site gate", "warn" if _site_gate_active() else "ok",
-        "ON -- the public cannot see the site yet." if _site_gate_active() else "OFF -- the site is open to everyone.")
-
-    try:
-        d_dev = os.stat(str(DATA_DIR)).st_dev
-        r_dev = os.stat("/").st_dev
-        if d_dev != r_dev or os.path.ismount(str(DATA_DIR)):
-            add("Data volume", "ok", f"{DATA_DIR} is on its own mounted volume (survives redeploys).")
-        else:
-            add("Data volume", "bad", f"{DATA_DIR} is NOT on a mounted volume: uploads, projects and outputs are erased on every redeploy.")
-    except Exception as ex:
-        add("Data volume", "warn", f"Could not check: {ex}")
-    try:
-        total, used, free = shutil.disk_usage(str(DATA_DIR))
-        pct = used * 100 / total if total else 0
-        add("Disk space", "bad" if pct >= 90 else ("warn" if pct >= 75 else "ok"),
-            f"{pct:.0f}% of the volume is used ({free / 1e9:.1f} GB free).")
-    except Exception:
-        pass
-    add("Off-site backup (R2)", "ok" if (r2_backup._enabled()) else "warn",
-        "Finished outputs are copied to Cloudflare R2." if r2_backup._enabled() else "R2 is not configured: no off-site copy of finished files.")
-    add("Database key", "ok" if SUPABASE_SERVICE_KEY else "bad", "Set." if SUPABASE_SERVICE_KEY else "SUPABASE_SERVICE_KEY is not set.")
-    return out
 
 @app.get("/api/admin/storage")
 def admin_storage(request: Request):

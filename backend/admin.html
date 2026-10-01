@@ -338,10 +338,6 @@ button.btn-success:hover { background: #15803d; }
         <p class="muted" style="margin-top:10px;">Amber = not configured (may be intentional). Red = configured but not responding -- that one needs attention.</p>
       </div>
       <div class="card">
-        <h3>🚦 Go-live checklist</h3>
-        <div id="hChecks" class="muted">—</div>
-      </div>
-      <div class="card">
         <h3>💾 Server Storage</h3>
         <div class="metric"><div class="label">Used</div><div class="value" id="sUsed">—</div></div>
         <div class="metric"><div class="label">Free</div><div class="value" id="sFree">—</div></div>
@@ -852,13 +848,6 @@ async function loadHealth() {
   setStatus('hResend', r.data.resend);
   setStatus('hR2', r.data.r2);
   setStatus('hSentry', r.data.sentry);
-  const box = document.getElementById('hChecks');
-  if (box && Array.isArray(r.data.checks)) {
-    const ic = { ok: '✅', warn: '🟠', bad: '🔴' };
-    box.innerHTML = r.data.checks.map(c =>
-      '<div style="padding:6px 0;border-bottom:1px solid #1e293b;"><b>' + (ic[c.status] || '•') + ' ' + escapeHtml(c.label) +
-      '</b><div class="muted" style="font-size:12px;">' + escapeHtml(c.detail) + '</div></div>').join('');
-  }
 }
 
 async function loadStorage() {
