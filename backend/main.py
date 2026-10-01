@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, HTMLResponse
+from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -551,6 +551,22 @@ _SECURITY_HEADERS = {
 }
 
 
+def _path_has_route(request) -> bool:
+    """True when the request path matches a route (or mount) the app really
+    serves, for any HTTP method. Used so logged-out visitors get the login
+    redirect only on real pages and a plain 404 on made-up paths."""
+    try:
+        from starlette.routing import Match
+        scope = request.scope
+        for _r in request.app.router.routes:
+            _m, _ = _r.matches(scope)
+            if _m in (Match.FULL, Match.PARTIAL):
+                return True
+    except Exception:
+        return True   # never block a real page because of a lookup error
+    return False
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -590,6 +606,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # touch the login check at all.
         if path in GATE_EXEMPT_PATHS:
             return await call_next(request)
+        # Hidden files and folders (.git, .svn, .env, .DS_Store ...) never
+        # exist on this site -- answer a plain 404 straight away, before the
+        # gate or the login redirect, so scanners probing for them don't get
+        # a 200 "redirect to login" page that looks like a hit. /.well-known/
+        # is the one legitimate dot-path (certificates, security.txt).
+        if any(_seg.startswith(".") for _seg in path.split("/")[1:]) and not path.startswith("/.well-known/"):
+            return PlainTextResponse("Not found", status_code=404)
         # The site-wide testing gate runs next and applies to EVERY other
         # path, including ones PUBLIC_PATHS and the /api/admin/ bypass below
         # would otherwise let straight through -- that's the whole point
@@ -607,6 +630,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not _is_logged_in(request):
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Not logged in"}, status_code=401)
+            if not _path_has_route(request):
+                # Not one of our pages at all (a scanner probing for files):
+                # a real 404, not the "go to login" page with a 200.
+                return PlainTextResponse("Not found", status_code=404)
             return HTMLResponse('<script>window.location.href="/login";</script>', status_code=200)
         if request.method == "POST" and path in ("/api/transcribe", "/api/attach_media"):
             # Disk guard: say "try again shortly" up front, before the user waits
