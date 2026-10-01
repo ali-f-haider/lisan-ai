@@ -102,6 +102,15 @@ LIPSYNC_HEAD = 0.2          # seconds of picture before the first word of a clip
 LIPSYNC_TAIL = 0.6          # ...and after the last one (dubbed lines may run a bit long)
 LIPSYNC_PARALLEL = 3        # clips of one job at the engine at the same time
 LIPSYNC_MAX_SIZE = (1280, 720)   # lip-synced videos are delivered in up to 720p, the size the price is calibrated for
+# Picture touch-up per lip-synced clip, applied to Wan's clip before it is joined
+# (Ali's hand test in CapCut, 2026-10-02: clip 1 a little bigger, clip 2 a little
+# less exposed with deeper blacks, so the cut between them is less visible).
+# Keys are clip numbers as planned (1 = first clip). "zoom": picture enlarged by that
+# factor around its centre and cropped back to the frame; "exposure": brightness change
+# (-0.01 = 1% darker); "blacks": shadows deepened (-0.02 = 2%). Clips without an entry
+# are left as Wan made them. Set the Railway variable LIPSYNC_FIX=off to switch it all off.
+LIPSYNC_FIX = {1: {"zoom": 1.02}, 2: {"exposure": -0.01, "blacks": -0.02}}
+LIPSYNC_FIX_ON = os.environ.get("LIPSYNC_FIX", "on").strip().lower() not in ("off", "0", "false", "no")
 DEFAULT_LIPSYNC_MAX_MIN = 3      # overridden by admin (longDubLipsyncMaxMin)
 LIPSYNC_RETRY_WAITS = (0, 30, 90)
 _LIPSYNC_SLOTS = threading.Semaphore(4)   # clips at the engine at once, whole server
@@ -2511,12 +2520,34 @@ def _encode_from_source(src, f0, f1, fps, w, h, out):
     os.replace(tmp, out)
 
 
-def _encode_engine_output(raw, f0, f1, fps, w, h, out):
+def _fix_filters(fix, w, h):
+    """ffmpeg filters for one clip's touch-up (see LIPSYNC_FIX), as a string
+    that starts with a comma, or '' when there is nothing to do."""
+    if not fix or not LIPSYNC_FIX_ON:
+        return ""
+    f = ""
+    z = float(fix.get("zoom") or 1.0)
+    if abs(z - 1.0) > 1e-6:
+        zw, zh = max(w, int(round(w * z / 2.0)) * 2), max(h, int(round(h * z / 2.0)) * 2)
+        f += f",scale={zw}:{zh}:flags=lanczos,crop={w}:{h}"
+    ex = float(fix.get("exposure") or 0.0)
+    bl = float(fix.get("blacks") or 0.0)
+    if abs(ex) > 1e-9 or abs(bl) > 1e-9:
+        # luma only, on the video range 16..235: darker overall by `ex`, and the dark tones
+        # pushed further down by `bl` (the effect fades out towards the bright tones)
+        yn = "((val-16)/219)"
+        expr = f"16+219*clip((1+({ex}))*{yn}+({bl})*pow(1-{yn},2),0,1)"
+        f += f",lutyuv=y='{expr}'"
+    return f
+
+
+def _encode_engine_output(raw, f0, f1, fps, w, h, out, fix=None):
     """The engine's clip, brought to the delivery format and to exactly
-    f1-f0 frames (its own frame rate/size/length may differ a little)."""
+    f1-f0 frames (its own frame rate/size/length may differ a little).
+    fix: optional touch-up for this clip (LIPSYNC_FIX entry)."""
     tmp = out.with_name(out.stem + ".tmp.mp4")
     vf = (f"fps={fps},scale={w}:{h}:force_original_aspect_ratio=decrease:flags=lanczos,"
-          f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p,tpad=stop_mode=clone:stop_duration=3")
+          f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p{_fix_filters(fix, w, h)},tpad=stop_mode=clone:stop_duration=3")
     with _FF_LOCAL:
         ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(raw), "-vf", vf, "-frames:v", str(f1 - f0)] + _enc_common() + [str(tmp)])
     os.replace(tmp, out)
@@ -2608,7 +2639,8 @@ def _run_lipsync(job, dub_full, kept, total, d):
 
     todo = [k for k in range(len(clips)) if not clip_done(k)]
     n_clips = len(clips)
-    _ev(job, "lipsync", "info", f"{n_clips} clips ({sum(c['dur'] for c in clips):.1f}s), {len(todo)} still to do, {w}x{h} at {fps} fps")
+    _ev(job, "lipsync", "info", f"{n_clips} clips ({sum(c['dur'] for c in clips):.1f}s), {len(todo)} still to do, {w}x{h} at {fps} fps, "
+                                f"picture touch-up {'on' if LIPSYNC_FIX_ON else 'off'}")
     started = time.time()
     finished = {"n": n_clips - len(todo)}
 
@@ -2624,7 +2656,7 @@ def _run_lipsync(job, dub_full, kept, total, d):
         task, err = _engine_clip(job, src, dub_full, f0, f1, fps, w, h, ldir, f"k{k:03d}")
         if err is None:
             try:
-                _encode_engine_output(ldir / f"k{k:03d}_raw.mp4", f0, f1, fps, w, h, pfile(j))
+                _encode_engine_output(ldir / f"k{k:03d}_raw.mp4", f0, f1, fps, w, h, pfile(j), LIPSYNC_FIX.get(k + 1))
             except Exception as ex:
                 err = ex
         for suffix in ("_in.mp4", "_dub.mp3", "_raw.mp4"):

@@ -413,7 +413,7 @@ html.js .rv.in{opacity:1;transform:none}
     </div>
     <div class="how-grid">
       <div class="rv">
-        <div class="vframe" id="howItWorksSlot" data-src="/static/HowItWorks.mp4">
+        <div class="vframe" id="howItWorksSlot" data-src="/static/HowItWorks.mp4" data-src-en="/static/HowItWorks_En.mp4" data-src-ar="/static/HowItWorks.mp4">
           <div class="ph"><div class="play-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></div>
             <span><span class="en">How Lisan AI works</span><span class="ar">كيف يعمل Lisan AI</span></span></div>
         </div>
@@ -844,9 +844,34 @@ html.js .rv.in{opacity:1;transform:none}
     }, { rootMargin: "500px 0px" });
     io.observe(node);
   }
+  // The walkthrough exists in two versions: the English page shows the one with
+  // English subtitles (HowItWorks_En.mp4), the Arabic page the one without
+  // (HowItWorks.mp4). If the file for the chosen language is missing, the other one is used.
+  function mountHowVideo(slot) {
+    var first = slot.getAttribute("data-src-" + lang()) || slot.getAttribute("data-src");
+    var other = slot.getAttribute("data-src-" + (lang() === "ar" ? "en" : "ar"));
+    return mountFrame(slot, first).then(function (v) {
+      if (v || !other || other === first) return v;
+      return mountFrame(slot, other);
+    });
+  }
   ["howItWorksSlot", "longVideoSlot"].forEach(function (id) {
     var slot = $(id); if (!slot) return;
-    whenNear(slot, function () { mountFrame(slot, slot.getAttribute("data-src")); });
+    var isHow = id === "howItWorksSlot";
+    whenNear(slot, function () {
+      if (isHow) {
+        mountHowVideo(slot);
+        // switching the language swaps the video (only once it has been loaded)
+        if (window.MutationObserver) {
+          var shown = lang();
+          new MutationObserver(function () {
+            if (lang() !== shown) { shown = lang(); mountHowVideo(slot); }
+          }).observe(root, { attributes: true, attributeFilter: ["data-lang"] });
+        }
+      } else {
+        mountFrame(slot, slot.getAttribute("data-src"));
+      }
+    });
   });
 
   /* ---------- Before / after demos ---------- */
