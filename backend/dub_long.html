@@ -1486,7 +1486,7 @@ function plStartVideo(st, src) {
     q("plTotal").textContent = plFmt(st.dur);
     q("plSeek").max = st.dur;
     q("plA").value = plFmt(st.a); q("plB").value = plFmt(st.b);
-    el.currentTime = Math.max(0, st.a - 1);
+    el.currentTime = Math.max(0, st.a);   // open exactly on the line's start time
     plRefresh(st);
   });
   el.addEventListener("timeupdate", function () { plRefresh(st); });
