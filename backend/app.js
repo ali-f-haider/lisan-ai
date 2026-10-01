@@ -3362,6 +3362,7 @@ function hideMediaBanner() {
         resultsExist = false;
         resultsDownloaded = false;
         hideMediaBanner();
+        try { localStorage.removeItem("lisan_workspace_v1"); } catch (e) {}   // "start over" must not come back after a reload
     };
 })();
 
@@ -4868,6 +4869,9 @@ window.cleanOldClones = function () {
         ["All lines locked.", "جميع الأسطر مقفلة."],
         ["Restored your session. Reconnecting to your last job on the server...", "استُعيدت جلستك. جارٍ إعادة الاتصال بآخر مهمة على الخادم..."],
         ["Restored your previous session from this browser. Re-upload the original file to enable preview/clone/merge.", "استُعيدت جلستك السابقة من هذا المتصفح. أعد رفع الملف الأصلي لتفعيل المعاينة/الاستنساخ/الدمج."],
+        ["Restored your previous session from this browser. Checking whether your original file is still on the server...", "استُعيدت جلستك السابقة من هذا المتصفح. جارٍ التحقق من وجود ملفك الأصلي على الخادم..."],
+        ["Your last media is no longer on the server (it is kept for about 6 hours). Choose the original file again to continue; your text and settings are kept.", "وسائطك الأخيرة لم تعد موجودة على الخادم (تُحفظ لنحو 6 ساعات). اختر الملف الأصلي مرة أخرى للمتابعة؛ نصوصك وإعداداتك محفوظة."],
+        ["Your session is back, including the original file.", "عادت جلستك، بما في ذلك الملف الأصلي."],
         ["Your last media is no longer on the server (it is kept for about 6 hours). Re-upload the original file to continue.", "وسائطك الأخيرة لم تعد موجودة على الخادم (تُحفظ لنحو 6 ساعات). أعد رفع الملف الأصلي للمتابعة."],
         ["📼 Loaded projects have no media on the server. Preview, re-speak, emotions, auto-fix and merge need a fresh upload. Editing, translate, tashkeel, SRT export and Generate still work.", "📼 المشاريع المحمّلة لا تحتوي وسائط على الخادم. المعاينة وإعادة النطق وكشف المشاعر والإصلاح التلقائي والدمج تحتاج رفعًا جديدًا. التحرير والترجمة والتشكيل وتصدير SRT والتوليد تعمل كالمعتاد."],
         ["🎉 Payment complete! Your credits have been added.", "🎉 اكتمل الدفع! أُضيف رصيدك."],
@@ -5848,7 +5852,9 @@ window.cleanOldClones = function () {
     function saveWs() {
         try {
             if (!segmentsData.length) return;
+            if (!window._lisanUid) return;      // do not keep anything on this browser before we know whose work it is
             localStorage.setItem(SAVE_KEY, JSON.stringify({
+                uid: window._lisanUid,
                 currentJobId: currentJobId, totalDuration: totalDuration, isVideoUpload: isVideoUpload,
                 segments: segmentsData, originalSegments: originalSegments,
                 speakerVoices: speakerVoices, speakerVoiceNames: speakerVoiceNames,
@@ -5858,25 +5864,36 @@ window.cleanOldClones = function () {
             }));
         } catch (e) {}
     }
+    function applyRestore(d) {
+        segmentsData = d.segments; originalSegments = d.originalSegments || [];
+        currentJobId = d.currentJobId || null; totalDuration = d.totalDuration || 0; isVideoUpload = !!d.isVideoUpload;
+        speakerVoices = d.speakerVoices || {}; speakerVoiceNames = d.speakerVoiceNames || {};
+        speakerChoices = d.speakerChoices || {}; clonedBySpeaker = d.clonedBySpeaker || {};
+        window.customBySpeaker = d.customBySpeaker || {}; segmentOffsets = d.segmentOffsets || {};
+        if (typeof d.lipsyncWanted === "boolean") window._lipsyncWantedAtUpload = d.lipsyncWanted;
+        renderTable(); if (typeof renderSpeakerVoices === "function") renderSpeakerVoices();
+        ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(function (id) { var el = document.getElementById(id); if (el) el.classList.remove("hidden"); });
+        notify("info", "Restored your previous session from this browser. Checking whether your original file is still on the server...");
+        // the server decides whether the original media is still there (see probeAndRevive below)
+        if (typeof window._reviveProbe === "function") window._reviveProbe();
+    }
     function restoreWs() {
-        try {
-            if (segmentsData.length) return;
-            var raw = localStorage.getItem(SAVE_KEY);
-            if (!raw) return;
-            var d = JSON.parse(raw);
-            if (!d || !Array.isArray(d.segments) || !d.segments.length) return;
-            segmentsData = d.segments; originalSegments = d.originalSegments || [];
-            currentJobId = d.currentJobId || null; totalDuration = d.totalDuration || 0; isVideoUpload = !!d.isVideoUpload;
-            speakerVoices = d.speakerVoices || {}; speakerVoiceNames = d.speakerVoiceNames || {};
-            speakerChoices = d.speakerChoices || {}; clonedBySpeaker = d.clonedBySpeaker || {};
-            window.customBySpeaker = d.customBySpeaker || {}; segmentOffsets = d.segmentOffsets || {};
-            if (typeof d.lipsyncWanted === "boolean") window._lipsyncWantedAtUpload = d.lipsyncWanted;
-            renderTable(); if (typeof renderSpeakerVoices === "function") renderSpeakerVoices();
-            ["editorSection", "voicesSection", "speakerVoicesSection", "generateSection"].forEach(function (id) { var el = document.getElementById(id); if (el) el.classList.remove("hidden"); });
-            if (typeof showMediaBanner === "function") showMediaBanner();
-            if (window._revivePending) notify("info", "Restored your session. Reconnecting to your last job on the server...");
-    else notify("info", "Restored your previous session from this browser. Re-upload the original file to enable preview/clone/merge.");
-        } catch (e) {}
+        // Who is signed in? Needed both to tag what we save and to refuse another account's saved work.
+        fetch("/api/user/info", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (u) {
+            var uid = (u && !u.is_guest && u.uid) ? String(u.uid) : "";
+            window._lisanUid = uid;
+            if (!uid) return;
+            try {
+                if (segmentsData.length) return;
+                var raw = localStorage.getItem(SAVE_KEY);
+                if (!raw) return;
+                var d = JSON.parse(raw);
+                if (!d || !Array.isArray(d.segments) || !d.segments.length) return;
+                // saved by a different account on this browser: never show it, and delete it
+                if (d.uid && String(d.uid) !== uid) { localStorage.removeItem(SAVE_KEY); return; }
+                applyRestore(d);
+            } catch (e) {}
+        }).catch(function () {});
     }
     setInterval(saveWs, 4000);
     window.addEventListener("beforeunload", saveWs);
@@ -6189,34 +6206,35 @@ window.cleanOldClones = function () {
         window.open(target, "_blank", "noopener");
     }, true);
 
-    // 3) Server-revive: reuse the app's own progress handlers to bring Step 6 / timeline / audio back
+    // 3) After a restore: ask the server whether the original media of the restored job is still there
+    //    (it is kept about 6 hours). Present -> everything works as before. Gone -> the same "attach your
+    //    file again" state as a loaded project file, so choosing the file attaches it instead of starting over.
     function probeAndRevive() {
         window._revivePending = false;
-        if (!window.currentJobId) return;
-        function banner() {
-            if (typeof window._markNoMedia === "function") window._markNoMedia();
-            notify("info", "Your last media is no longer on the server (it is kept for about 6 hours). Re-upload the original file to continue.");
+        var jid = (typeof currentJobId !== "undefined") ? currentJobId : null;
+        function noMedia() {
+            workspaceHasMedia = false; projectWasLoaded = true;
+            if (typeof showMediaBanner === "function") showMediaBanner();
+            var am = document.getElementById("attachMediaSection"); if (am) am.classList.remove("hidden");
+            notify("info", "Your last media is no longer on the server (it is kept for about 6 hours). Choose the original file again to continue; your text and settings are kept.");
         }
-        fetch("/api/progress/generate?t=" + Date.now(), { credentials: "same-origin" })
-            .then(function (r) { return r.ok ? r.json() : null; })
+        if (!jid) { noMedia(); return; }
+        fetch("/api/job_status?job_id=" + encodeURIComponent(jid), { credentials: "same-origin" })
+            .then(function (r) { return r.ok ? r.json() : (r.status === 404 ? { media: false } : null); })
             .then(function (d) {
-                if (d && d.status === "done" && d.result) {
+                if (!d) return;                       // could not ask: leave everything as it is
+                if (!d.media) { noMedia(); return; }
+                workspaceHasMedia = true;
+                if (typeof hideMediaBanner === "function") hideMediaBanner();
+                notify("success", "Your session is back, including the original file.");
+                if (d.generated) {
                     window._mediaAlive = true;
-                    if (typeof window.checkGenerateProgress === "function") window.checkGenerateProgress();
-                    ["checkMergeProgress", "pollMerge", "checkMerge"].forEach(function (n) {
-                        if (typeof window[n] === "function") { try { window[n](); } catch (err) {} }
-                    });
-                } else banner();
+                    if (typeof window.checkGenerateProgress === "function") { try { window.checkGenerateProgress(); } catch (err) {} }
+                }
             })
-            .catch(banner);
+            .catch(function () {});
     }
     window._reviveProbe = probeAndRevive;
-    var tries = 0;
-    var iv = setInterval(function () {
-        tries++;
-        if (window.currentJobId && document.getElementById("segmentsTable")) { clearInterval(iv); setTimeout(probeAndRevive, 600); }
-        else if (tries > 20) clearInterval(iv);
-    }, 500);
 })();
 
 

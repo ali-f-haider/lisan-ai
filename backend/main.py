@@ -785,7 +785,7 @@ def user_info(request: Request):
         if sub_prof:
             subscription_status = sub_prof.get("subscription_status") or "none"
 
-        result = {"name": display_name, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
+        result = {"name": display_name, "uid": user_id, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
                   "subscription_status": subscription_status}
         if subscription_status == "active":
             # Which plan, when it renews/ends, and whether it's been cancelled
@@ -3773,6 +3773,16 @@ def generate_progress(request: Request, job_id: str = ""):
     if _g:
         return _g
     return _public_progress(jobs_progress.get(f"generate_{job_id}", {"status": "not_found"}))
+
+@app.get("/api/job_status")
+def job_status(request: Request, job_id: str = ""):
+    """For the main page when it restores a saved session: is the original media of
+    this job still on the server, and was its Arabic audio already generated?"""
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
+    return {"media": resolve_job_audio(job_id) is not None,
+            "generated": (OUTPUT_DIR / f"{job_id}_final_dubbed.mp3").exists()}
 
 @app.get("/api/progress/{job_id}")
 def progress(job_id: str, request: Request):
