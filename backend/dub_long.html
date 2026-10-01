@@ -736,9 +736,12 @@ function applyConfigText() {
     $("lipResLabel").textContent = T.lipResLabel;
     $("lipResNote").textContent = T.lipResNote;
   } else {
+    // lip-sync is switched off for long videos: the whole question is hidden, the answer is always "without"
     $("lipAskNote").textContent = T.lipUnavailable;
     $("lipYes").disabled = true; $("lipYes").checked = false; $("lipNo").checked = true; $("lipYesWrap").classList.add("off");
+    $("lipAsk").style.display = "none";
   }
+  if (lc.available) $("lipAsk").style.display = "";
   syncLipResBox();
 }
 

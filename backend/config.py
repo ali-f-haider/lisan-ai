@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.74.1"
+APP_VERSION = "1.75.0"
 
 
 def _load_env():
@@ -125,6 +125,16 @@ DASHSCOPE_SG_WORKSPACE_ID = os.environ.get("DASHSCOPE_SG_WORKSPACE_ID", "")
 # up. /api/lipsync checks this flag and refuses the request while it's
 # off. Set back to False if Wan 3.0 turns out to be unreliable in practice.
 LIPSYNC_ENABLED = True
+
+# 2026-10-02 (Ali): lip-sync is offered for SHORT dubs only, and only as an ALPHA feature.
+# Real tests on long dubs showed it was not reliable (the picture often came back unchanged
+# or altered), so Dub Long Video has no lip-sync option for now. The long-dub lip-sync code is
+# all still in place; set this to True to bring the option back.
+LIPSYNC_LONG_ENABLED = False
+
+# Step 7's optional reference photos are switched off for now (set True to bring them back:
+# the upload box in index.html, the /api/lipsync/reference-images endpoint and the Wan 3.0 call).
+LIPSYNC_REF_IMAGES_ENABLED = False
 
 # Lip-sync output resolution, chosen by the user. Alibaba bills Wan 3.0 per second at
 # 480P : 720P : 1080P = 1 : 2 : 4, so the credit price follows the same ratio. The admin's

@@ -4650,7 +4650,7 @@ window.cleanOldClones = function () {
         ["Message", "الرسالة"],
         ["Send Message", "إرسال الرسالة"],
         // Step 7: Lip-Sync (VEED Lip Sync 2.0 via fal.ai)
-        ["Step 7: Lip-Sync (Premium)", "الخطوة 7: مزامنة الشفاه (مميزة)"],
+        ["Step 7: Lip-Sync (Alpha)", "الخطوة 7: مزامنة الشفاه (ألفا)"],
         ["🎭 Lip-Sync Video", "🎭 مزامنة الشفاه"]
     ];
     // Any note/paragraph whose text is broken up by inline tags (<strong>,
@@ -4705,6 +4705,14 @@ window.cleanOldClones = function () {
             // are never touched.
             en: '<strong>📤 Use your own voice clip:</strong> pick a speaker and upload an MP3/WAV clip (max 20 s) where that person speaks most of the time. The clip is not analyzed — the dominant voice in it is copied, so music or other voices in it will reduce quality.',
             ar: '<strong>📤 استخدم مقطع صوتك الخاص:</strong> اختر متحدثًا وارفع مقطع MP3/WAV (بحد أقصى 20 ثانية) يتحدث فيه ذلك الشخص معظم الوقت. المقطع لا يُحلَّل — يُنسخ الصوت الغالب فيه، لذا فإن وجود موسيقى أو أصوات أخرى فيه سيقلل الجودة.'
+        },
+        lipsyncAlphaChoiceNote: {
+            en: '⚠️ <strong>Alpha version:</strong> lip-sync is still experimental and may show unexpected results — the picture may change, or the mouth movements may not match the Arabic well. You use it at your own responsibility.',
+            ar: '⚠️ <strong>نسخة ألفا:</strong> مزامنة الشفاه ما زالت تجريبية وقد تظهر نتائج غير متوقعة — فقد تتغير الصورة أو لا تتطابق حركة الشفاه مع العربية جيدًا. تستخدمها على مسؤوليتك الخاصة.'
+        },
+        lipsyncAlphaNote: {
+            en: '⚠️ <strong>Alpha version:</strong> lip-sync is still experimental and may show unexpected results — the picture may change, or the mouth movements may not match the Arabic well. You use it at your own responsibility.',
+            ar: '⚠️ <strong>نسخة ألفا:</strong> مزامنة الشفاه ما زالت تجريبية وقد تظهر نتائج غير متوقعة — فقد تتغير الصورة أو لا تتطابق حركة الشفاه مع العربية جيدًا. تستخدمها على مسؤوليتك الخاصة.'
         },
         lipsyncNote: {
             // Contains an inline <strong id="lipsyncRateNote"> that
@@ -5095,6 +5103,8 @@ window.cleanOldClones = function () {
             // by renderLipsyncChoiceNote()'s definition).
             if (typeof renderLipsyncChoiceNote === "function") renderLipsyncChoiceNote();
             if (typeof renderLipsyncRes === "function") renderLipsyncRes();
+            // the language swap above puts the banner's own placeholder rate back: show the real one again
+            if (typeof updateBadges === "function") updateBadges();
         } catch (e) { console.error("applyLang:", e); }
     }
     window.applyLang = applyLang;
@@ -6323,7 +6333,7 @@ window.cleanOldClones = function () {
         { id: "speakerVoicesSection", label: "4 · Speaker Voices" },
         { id: "generateSection", label: "5 · Generate Audio" },
         { id: "resultSection", label: "6 · Final Result" },
-        { id: "lipsyncSection", label: "7 · Lip-Sync" }
+        { id: "lipsyncSection", label: "7 · Lip-Sync (Alpha)" }
     ];
 
     var widget = document.createElement("div");

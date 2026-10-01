@@ -59,9 +59,10 @@
             <div id="lipsyncChoiceSection" style="margin:8px 0 0 0;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0;">
                     <input type="checkbox" id="lipsyncWantedCheckbox" onchange="onLipsyncChoiceChanged(this)">
-                    <span id="lipsyncChoiceLabel">Also generate a lip-synced video</span>
+                    <span id="lipsyncChoiceLabel">Also generate a lip-synced video</span> <span class="alpha-badge" style="background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.5px;margin-inline-start:6px;vertical-align:middle;">ALPHA</span>
                 </label>
                 <p class="note" id="lipsyncChoiceNote" style="margin:6px 0 0 0;border:none;background:none;padding:0;font-size:12px;">Checked: the dubbed part can be <strong>4-15 seconds</strong>. Unchecked: <strong>4-30 seconds</strong>. With a longer video you choose which part.</p>
+                <p class="note" id="lipsyncAlphaChoiceNote" style="margin:8px 0 0 0;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:8px;padding:8px 10px;font-size:12.5px;">⚠️ <strong>Alpha version:</strong> lip-sync is still experimental and may show unexpected results — the picture may change, or the mouth movements may not match the Arabic well. You use it at your own responsibility.</p>
             </div>
             <div id="step1UploadRow" style="display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:8px;">
                 <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">
@@ -253,18 +254,12 @@
 </div>
 
 <div id="lipsyncSection" class="card hidden">
-    <h3>Step 7: Lip-Sync (Premium)</h3>
+    <h3><span id="lipsyncStepTitle">Step 7: Lip-Sync (Alpha)</span> <span class="alpha-badge" style="background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.5px;margin-inline-start:6px;vertical-align:middle;">ALPHA</span></h3>
+    <p class="note" id="lipsyncAlphaNote" style="margin:0 0 10px 0;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:8px;padding:8px 10px;font-size:12.5px;">⚠️ <strong>Alpha version:</strong> lip-sync is still experimental and may show unexpected results — the picture may change, or the mouth movements may not match the Arabic well. You use it at your own responsibility.</p>
     <p class="note" id="lipsyncNote">Matches the mouth movements in your video to the new Arabic audio, using advanced AI. This re-processes your final dubbed video and costs <strong id="lipsyncRateNote">10</strong> credits per second of video. <strong id="lipsyncTimeNote">This can take up to about 15 minutes -- please keep this tab open and be patient.</strong></p>
     <div class="note" id="lipsyncResWrap" style="margin-bottom:10px;">
         <label for="lipsyncRes" id="lipsyncResLabel" style="font-weight:600;margin-right:8px;">Lip-sync resolution:</label>
         <select id="lipsyncRes" onchange="onLipsyncResChange()" style="width:auto;max-width:100%;"><option value="480P">480p</option><option value="720P" selected>720p</option><option value="1080P">1080p</option></select>
-    </div>
-    <div class="note" id="lipsyncRefImagesWrap" style="margin-bottom:10px;">
-        <label for="lipsyncRefImages" style="font-weight:600;display:block;margin-bottom:4px;" id="lipsyncRefImagesLabel">Reference photos (optional):</label>
-        <p class="note" style="margin:0 0 6px;" id="lipsyncRefImagesHint">Upload up to 5 clear photos of the speaker(s)' faces to help the AI keep their exact appearance. Not required.</p>
-        <input type="file" id="lipsyncRefImages" class="hidden" accept="image/png,image/jpeg,image/webp" multiple onchange="onLipsyncRefImagesSelected(this)">
-        <label for="lipsyncRefImages" class="file-upload-area" style="margin-top:0;">Choose File</label>
-        <div class="note" id="lipsyncRefImagesList" style="margin-top:4px;"></div>
     </div>
     <button class="green" id="lipsyncButton" onclick="runLipsync()">🎭 Lip-Sync Video <span id="lipsyncCostNote"></span></button>
     <div id="lipsyncProgress" class="hidden">

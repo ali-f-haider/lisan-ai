@@ -13,7 +13,7 @@ from pathlib import Path
 import urllib3
 
 import r2_backup
-from config import OUTPUT_DIR, LIPSYNC_TEST_MODE, APP_VERSION
+from config import OUTPUT_DIR, LIPSYNC_TEST_MODE, APP_VERSION, LIPSYNC_REF_IMAGES_ENABLED
 from app_state import jobs_progress
 from user_errors import friendly_error as _friendly_error, UserError, GENERIC as _GENERIC
 from ffmpeg_utils import (
@@ -602,7 +602,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                 _veed_lipsync(upload_path, dubbed_audio, fal_key, raw_video, jobs_progress[key])
             elif provider == "wan3":
                 if not dashscope_key: raise UserError(_LS_DOWN)
-                ref_images = job_reference_images(job_id)
+                ref_images = job_reference_images(job_id) if LIPSYNC_REF_IMAGES_ENABLED else []
                 _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id, ref_images, resolution)
             else:
                 if not eleven_key: raise UserError(_LS_DOWN)

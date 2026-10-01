@@ -779,7 +779,7 @@ def redo_project(job, uid):
             "warnings": [], "stated_speakers": job.get("stated_speakers", 2),
             "speaker_list": json.loads(json.dumps(job.get("speaker_list") or [])),
             "detected_speakers": job.get("detected_speakers", 0),
-            "lipsync": json.loads(json.dumps(job.get("lipsync") or {"wanted": False})),
+            "lipsync": (json.loads(json.dumps(job.get("lipsync") or {"wanted": False})) if lipsync_available() else {"wanted": False}),
             "media_fp": fp, "analysis": an, "parked_at": _now(), "redo_of": job["id"],
             "terms_accepted": job.get("terms_accepted"),
         }
@@ -2331,7 +2331,7 @@ def lipsync_available():
     try:
         import config
         import r2_backup
-        return bool(config.LIPSYNC_ENABLED and not config.LIPSYNC_TEST_MODE
+        return bool(config.LIPSYNC_ENABLED and config.LIPSYNC_LONG_ENABLED and not config.LIPSYNC_TEST_MODE
                     and config.DASHSCOPE_API_KEY and config.DASHSCOPE_WORKSPACE_ID
                     and r2_backup._enabled())
     except Exception:

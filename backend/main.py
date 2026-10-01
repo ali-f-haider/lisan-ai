@@ -23,7 +23,7 @@ from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, INWORLD_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
                     LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION,
-                    SITE_GATE_PASSWORD, lipsync_res, lipsync_rate, lipsync_rates)
+                    SITE_GATE_PASSWORD, lipsync_res, lipsync_rate, lipsync_rates, LIPSYNC_REF_IMAGES_ENABLED)
 import app_state
 from app_state import jobs_progress, usage_bucket
 from models import Segment
@@ -4261,6 +4261,8 @@ LIPSYNC_REF_IMAGE_MAX_BYTES = 20 * 1024 * 1024
 
 @app.post("/api/lipsync/reference-images")
 async def lipsync_reference_images(request: Request, job_id: str = Form(...), files: List[UploadFile] = File(...)):
+    if not LIPSYNC_REF_IMAGES_ENABLED:
+        return JSONResponse({"error": "Reference photos are not available at the moment."}, status_code=410)
     if not LIPSYNC_ENABLED:
         return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
