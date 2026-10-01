@@ -514,7 +514,7 @@ def _site_gate_ok(request: Request) -> bool:
     if not _site_gate_active():
         return True  # gate disabled (env var unset, or admin switched it off)
     cookie = request.cookies.get(SITE_GATE_COOKIE, "")
-    return bool(cookie) and hmac.compare_digest(cookie, _site_gate_token())
+    return bool(cookie) and _safe_eq(cookie, _site_gate_token())
 
 PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
@@ -618,6 +618,15 @@ LOGIN_WINDOW_SEC = 300  # 5 minutes
 _contact_attempts: Dict[str, List[float]] = {}
 CONTACT_MAX_ATTEMPTS = 5
 CONTACT_WINDOW_SEC = 3600  # 1 hour
+
+def _safe_eq(a, b) -> bool:
+    """Constant-time string compare that never raises. hmac.compare_digest
+    throws TypeError ("comparing strings with non-ASCII characters is not
+    supported") when either side has a non-ASCII character -- e.g. an
+    Arabic-keyboard slip typed into a password box -- which turned a wrong
+    password into a 500 error. Comparing the UTF-8 bytes avoids that."""
+    return hmac.compare_digest(str(a).encode("utf-8"), str(b).encode("utf-8"))
+
 
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for", "")
@@ -848,7 +857,7 @@ def auth_check(request: Request):
 def login_legacy(req: LoginRequest, response: Response, request: Request):
     if _login_rate_limited(request):
         return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
-    if APP_PASSWORD and hmac.compare_digest(str(req.password), str(APP_PASSWORD)):
+    if APP_PASSWORD and _safe_eq(req.password, APP_PASSWORD):
         tok = secrets.token_hex(32)
         _sessions.add(tok)
         _persist_session(tok, None)
@@ -862,7 +871,7 @@ def login_legacy(req: LoginRequest, response: Response, request: Request):
 def site_gate_submit(req: LoginRequest, response: Response, request: Request):
     if _login_rate_limited(request):
         return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
-    if SITE_GATE_PASSWORD and hmac.compare_digest(str(req.password), str(SITE_GATE_PASSWORD)):
+    if SITE_GATE_PASSWORD and _safe_eq(req.password, SITE_GATE_PASSWORD):
         response.set_cookie(SITE_GATE_COOKIE, _site_gate_token(), httponly=True, max_age=86400 * 30, samesite="lax", secure=_cookie_secure(request))
         return {"ok": True}
     _record_login_fail(request)
@@ -5876,7 +5885,7 @@ def admin_login(req: AdminLoginRequest, request: Request):
     _admin_fail_all[:] = [t for t in _admin_fail_all if _now - t < 600]
     if len(_admin_fail_all) >= 30:
         return JSONResponse({"error": "Too many attempts. Try again in a few minutes."}, status_code=429)
-    if not hmac.compare_digest(str(code), str(ADMIN_PASSWORD)):
+    if not _safe_eq(code, ADMIN_PASSWORD):
         _record_login_fail(request)
         _admin_fail_all.append(_now)
         print(f"[security] wrong admin code from {_client_ip(request)}")
