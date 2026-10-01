@@ -493,6 +493,8 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
 
         progress["generation_id"] = task_id
         progress["percent"] = 20
+        progress["seed"] = wan_seed
+        progress["resolution"] = wan_resolution
         print(f"[lipsync] job {job_id} wan task {task_id} seed={wan_seed} resolution={wan_resolution}")
         _record_lipsync_run(job_id, task_id, wan_seed, wan_resolution, len(image_media))
 

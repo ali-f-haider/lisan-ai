@@ -341,6 +341,7 @@ button.btn-success:hover { background: #15803d; }
           <button class="btn" onclick="loadLongDubLog()">Search</button>
           <button class="btn" onclick="ldLogToday()" title="Only today (UTC)">Today</button>
           <button class="btn" onclick="ldLogClear()" title="Clear the search and the dates">Clear</button>
+          <button class="btn" onclick="downloadLipDebug()" title="Type a job id (or click a job in the table), then download the picture + sound sent to the lip-sync engine for each clip, and what it returned (kept 7 days)">Lip-sync files (zip)</button>
         </div>
         <p class="muted" id="ldLogNote"></p>
         <table>
@@ -919,10 +920,26 @@ async function loadLongDubLog() {
   let html = '';
   (r.data.events || []).forEach(e => {
     const t = String(e.created_at || '').replace('T', ' ').slice(0, 19);
-    html += `<tr><td>${escapeHtml(t)}</td><td title="${escapeHtml(e.job_id)}">${escapeHtml(String(e.job_id).slice(0, 8))}…</td><td>${escapeHtml(e.step)}</td>` +
+    html += `<tr><td>${escapeHtml(t)}</td><td title="${escapeHtml(e.job_id)} (click to put this id in the search box)" style="cursor:pointer" onclick="document.getElementById('ldLogQuery').value='${escapeHtml(e.job_id)}'">${escapeHtml(String(e.job_id).slice(0, 8))}…</td><td>${escapeHtml(e.step)}</td>` +
       `<td style="color:${col[e.status] || '#64748b'};font-weight:700">${escapeHtml(e.status)}</td><td>${e.credits == null ? '' : e.credits}</td><td>${escapeHtml(e.detail || '')}</td></tr>`;
   });
   document.getElementById('ldLogTable').innerHTML = html || '<tr><td colspan="6" class="muted">No events found.</td></tr>';
+}
+
+async function downloadLipDebug() {
+  const q = (document.getElementById('ldLogQuery').value || '').trim();
+  const note = document.getElementById('ldLogNote');
+  if (!/^[0-9a-fA-F-]{8,36}$/.test(q)) { note.textContent = 'Type a job id (at least 8 characters) in the search box, or click a job in the table, then press this button.'; return; }
+  note.textContent = 'Preparing the files...';
+  const res = await fetch('/api/admin/lipdebug/' + encodeURIComponent(q), { headers: { 'X-Admin-Token': ADMIN_TOKEN } });
+  if (res.status === 401) { sessionStorage.removeItem('adminToken'); location.reload(); return; }
+  if (!res.ok) { let m = 'Could not get the files.'; try { m = (await res.json()).error || m; } catch (e) {} note.textContent = m; return; }
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'lipsync_' + q.slice(0, 8) + '.zip';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  note.textContent = 'Downloaded.';
 }
 
 async function loadHealth() {

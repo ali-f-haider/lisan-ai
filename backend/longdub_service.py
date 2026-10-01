@@ -2604,6 +2604,87 @@ def _encode_engine_output(raw, f0, f1, fps, w, h, out, fix=None):
     os.replace(tmp, out)
 
 
+# ---- what was sent to the lip-sync engine and what it sent back, kept for a week so a bad clip can be examined
+LIPDBG_DIR = DATA_DIR / "lipdebug"
+LIPDBG_KEEP_DAYS = 7
+LIPDBG_MAX_BYTES = 250 * 1024 * 1024        # per project; beyond that nothing more is kept for it
+
+
+def _lipdebug_cleanup():
+    try:
+        if not LIPDBG_DIR.exists():
+            return
+        old = time.time() - LIPDBG_KEEP_DAYS * 86400
+        for dd in LIPDBG_DIR.iterdir():
+            try:
+                if dd.is_dir() and dd.stat().st_mtime < old:
+                    shutil.rmtree(dd, ignore_errors=True)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _lipdebug_dir(job_id):
+    d = LIPDBG_DIR / job_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _lipdebug_room(d):
+    try:
+        return sum(f.stat().st_size for f in d.iterdir() if f.is_file()) < LIPDBG_MAX_BYTES
+    except Exception:
+        return False
+
+
+def _brief_media(path):
+    """One line about a media file: size/rate/length of its picture, length of its sound, and how loud and how silent the sound is."""
+    out = []
+    try:
+        pr = json.loads(subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate,duration:format=duration",
+             "-of", "json", str(path)], timeout=60).decode() or "{}")
+        v = next((x for x in pr.get("streams", []) if x.get("codec_type") == "video"), None)
+        a = next((x for x in pr.get("streams", []) if x.get("codec_type") == "audio"), None)
+        if v:
+            fr = v.get("avg_frame_rate") or ""
+            try:
+                n, dn = fr.split("/"); fr = f"{float(n) / float(dn):.2f}"
+            except Exception:
+                pass
+            out.append(f"picture {v.get('width')}x{v.get('height')} {fr}fps {float(v.get('duration') or (pr.get('format') or {}).get('duration') or 0):.2f}s")
+        else:
+            out.append("no picture")
+        if a:
+            out.append(f"sound {a.get('codec_name')} {float(a.get('duration') or (pr.get('format') or {}).get('duration') or 0):.2f}s")
+        else:
+            out.append("no sound track")
+        if a:
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af", "volumedetect,silencedetect=noise=-40dB:d=0.3",
+                                "-f", "null", "-"], capture_output=True, timeout=120).stderr.decode(errors="ignore")
+            mean = re.search(r"mean_volume:\s*(-?[\d.]+) dB", r)
+            mx = re.search(r"max_volume:\s*(-?[\d.]+) dB", r)
+            sil = 0.0
+            first_sound, last_sound = None, None
+            starts = [float(x) for x in re.findall(r"silence_start:\s*(-?[\d.]+)", r)]
+            ends = [(float(x), float(y)) for x, y in re.findall(r"silence_end:\s*(-?[\d.]+)\s*\|\s*silence_duration:\s*([\d.]+)", r)]
+            sil = sum(d for _, d in ends)
+            dur = float(a.get("duration") or (pr.get("format") or {}).get("duration") or 0)
+            if starts and starts[-1] > 0 and len(starts) > len(ends):
+                sil += max(0.0, dur - starts[-1])
+            if ends and (not starts or starts[0] <= 0.05):
+                first_sound = ends[0][0]
+            if starts and len(starts) > len(ends):
+                last_sound = starts[-1]
+            out.append(f"level mean {mean.group(1) if mean else '?'} dB, peak {mx.group(1) if mx else '?'} dB, silent {sil:.1f}s"
+                       + (f", sound starts at {first_sound:.1f}s" if first_sound is not None else "")
+                       + (f", sound ends at {last_sound:.1f}s" if last_sound is not None else ""))
+    except Exception as ex:
+        out.append(f"(could not be examined: {ex})")
+    return "; ".join(out)
+
+
 def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag, res=None):
     """Lip-sync one clip. Returns (task_id, None) on success, (task_id, error)
     on failure. Runs in a worker thread and never touches the job dict."""
@@ -2624,6 +2705,19 @@ def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag, res=None):
                                      "-threads", "2", "-movflags", "+faststart", str(inp)])
             ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-ss", f"{t0:.6f}", "-t", f"{dur:.6f}", "-i", str(dub_full),
                                      "-ac", "2", "-ar", "44100", "-codec:a", "libmp3lame", "-q:a", "2", str(aud)])
+        # keep exactly what the engine is given, and describe it in the project's record
+        kept_dir = None
+        try:
+            kept_dir = _lipdebug_dir(job["id"])
+            if _lipdebug_room(kept_dir):
+                shutil.copy2(inp, kept_dir / f"{tag}_in_video.mp4")
+                shutil.copy2(aud, kept_dir / f"{tag}_in_audio.mp3")
+            else:
+                kept_dir = None
+            _ev(job, "lipsync_input", "info", f"clip {int(tag[1:]) + 1}: asked {res or 'automatic'}; VIDEO sent: {_brief_media(inp)} | AUDIO sent: {_brief_media(aud)}")
+        except Exception as ex:
+            kept_dir = None
+            print(f"[longdub] could not keep the clip inputs: {ex}")
         last = None
         for wait in LIPSYNC_RETRY_WAITS:
             if wait:
@@ -2644,6 +2738,21 @@ def _engine_clip(job, src, dub_full, f0, f1, fps, w, h, work, tag, res=None):
             return prog.get("generation_id"), last
         if not raw.exists() or raw.stat().st_size < 1000:
             return prog.get("generation_id"), Exception("the engine returned no picture")
+        try:
+            _ev(job, "lipsync_output", "info", f"clip {int(tag[1:]) + 1}: task={prog.get('generation_id')} seed={prog.get('seed')} resolution={prog.get('resolution')}; "
+                                               f"engine returned: {_brief_media(raw)}")
+            if kept_dir is not None and _lipdebug_room(kept_dir):
+                shutil.copy2(raw, kept_dir / f"{tag}_engine_output.mp4")
+                try:
+                    import lipsync_service as _ls
+                    prompt_ = getattr(_ls, "WAN3_DUB_PROMPT", "")
+                except Exception:
+                    prompt_ = ""
+                (kept_dir / f"{tag}_info.json").write_text(json.dumps({
+                    "task": prog.get("generation_id"), "seed": prog.get("seed"), "resolution": prog.get("resolution"), "asked_resolution": res,
+                    "prompt": prompt_}, ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception as ex:
+            print(f"[longdub] could not keep the engine output: {ex}")
         return prog.get("generation_id"), None
     except Exception as ex:
         return prog.get("generation_id"), ex
@@ -2674,6 +2783,7 @@ def _run_lipsync(job, dub_full, kept, total, d):
     else:
         w, h = int(ls["w"]), int(ls["h"])
         iw, ih = w, h
+    _lipdebug_cleanup()
     n_total = _n_frames(total, fps, ls.get("frames"))
     src = wd / f"src{job['ext']}"
     ldir = d / "lip"

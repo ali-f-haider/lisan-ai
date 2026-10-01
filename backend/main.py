@@ -6356,6 +6356,33 @@ def admin_audit(request: Request):
         rows = []
     return {"audit": rows}
 
+@app.get("/api/admin/lipdebug/{job_id}")
+def admin_lipdebug(job_id: str, request: Request):
+    """The exact files a long dub's lip-sync clips were sent to the engine with (picture + sound) and what the engine
+    returned, as one zip -- kept for 7 days. job_id may be the first characters of the id (8 or more)."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import re as _re
+    import zipfile as _zf
+    from starlette.background import BackgroundTask
+    jid = (job_id or "").strip().lower()
+    if not _re.fullmatch(r"[0-9a-f\-]{8,36}", jid):
+        return JSONResponse({"error": "That is not a job id."}, status_code=400)
+    base = longdub_service.LIPDBG_DIR
+    hits = [d for d in (base.iterdir() if base.exists() else []) if d.is_dir() and d.name.startswith(jid)]
+    if len(hits) != 1:
+        return JSONResponse({"error": "No saved lip-sync files for that job (kept 7 days, and only for jobs run after this feature was added)." if not hits
+                             else "More than one job starts with that; type more characters of the id."}, status_code=404)
+    d = hits[0]
+    tmp = base / f"_{d.name}.zip"
+    with _zf.ZipFile(tmp, "w", compression=_zf.ZIP_STORED) as z:
+        for f in sorted(d.iterdir()):
+            if f.is_file():
+                z.write(f, f.name)
+    return FileResponse(str(tmp), media_type="application/zip", filename=f"lipsync_{d.name[:8]}.zip",
+                        background=BackgroundTask(lambda: tmp.unlink(missing_ok=True)))
+
+
 @app.get("/api/admin/longdub_log")
 def admin_longdub_log(request: Request, q: str = "", limit: int = 300, date_from: str = "", date_to: str = ""):
     """Step-by-step record of Dub Long Video jobs (table long_dub_events) --
