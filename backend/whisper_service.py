@@ -20,6 +20,15 @@ from ffmpeg_utils import (
 from vad_utils import run_vad_timing_checks
 from user_errors import friendly_error
 
+# Diagnostic: which audio-decoding library (PyAV) this server really loaded. A transcription failing with
+# "open() got an unexpected keyword argument 'metadata_errors'" means faster-whisper called an av that is
+# too old / not the real PyAV -- this line in the Railway log at start-up shows which one it is.
+try:
+    import av as _av
+    print(f"[startup] av {getattr(_av, '__version__', '?')} from {getattr(_av, '__file__', '?')}")
+except Exception as _e:
+    print(f"[startup] av could not be imported: {_e}")
+
 # Match the container's 4 vCPUs — prevents thread oversubscription
 # (the "calm CPU but 3-4x slower" bug).
 torch.set_num_threads(4)

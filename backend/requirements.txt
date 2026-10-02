@@ -23,3 +23,5 @@ sentry-sdk>=2.0.0
 boto3>=1.34.0
 fal-client>=1.0.0
 dashscope>=1.27.0
+# audio decoding used by faster-whisper (it needs av.open(..., metadata_errors=...)); pinned so a rebuild cannot pick a different one
+av>=12.3.0,<17
