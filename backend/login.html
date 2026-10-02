@@ -22,6 +22,9 @@ button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radi
 .msg{display:none;font-size:14px;margin:6px 0 12px;white-space:pre-line}
 .msg.ok{color:#2e7d32}.msg.err{color:#c62828}
 .row{display:none;margin:4px 0 12px}
+/* Password-reset link: only the new-password form is shown */
+.card.recovering > *:not(img):not(h1):not(.msg):not(.row){display:none}
+.card.recovering .row{display:block}
 .linklike{background:none;border:none;color:#2563eb;font-weight:600;font-size:13px;padding:0;margin:0 0 14px;width:auto;display:inline-block;cursor:pointer}
 .help{margin-top:18px;font-size:14px}
 .help a{color:#42a5f5;text-decoration:none;font-weight:600}
@@ -33,7 +36,7 @@ button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radi
 <body>
 <div class="card">
   <img src="/logo.png" alt="Lisan AI logo">
-  <h1>Welcome to Lisan AI</h1>
+  <h1 id="cardTitle">Welcome to Lisan AI</h1>
   <input id="email" type="email" placeholder="Email" autocomplete="email">
   <input id="password" type="password" placeholder="Password" autocomplete="current-password">
   <div class="msg" id="formMsg"></div>
@@ -47,7 +50,8 @@ button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radi
   <button class="linklike" onclick="doForgot()">Forgot password?</button>
 
   <div class="row" id="recoveryRow">
-    <input id="newPass" type="password" placeholder="New password">
+    <input id="newPass" type="password" placeholder="New password" autocomplete="new-password">
+    <input id="newPass2" type="password" placeholder="Confirm new password" autocomplete="new-password">
     <button class="primary" onclick="doRecovery()">Set New Password</button>
   </div>
 
@@ -67,7 +71,25 @@ button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radi
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 var sb = null;
-function client(){ if(!sb && window.__SUPABASE_URL) sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || ""); return sb; }
+// Password-reset link: Supabase sends the person back here with type=recovery in the
+// address (or fires PASSWORD_RECOVERY). That visit must show the "new password" form
+// and must NOT log the person in -- so it is read before anything cleans the address.
+var _recoveryLink = /[#&?]type=recovery/.test(location.hash + location.search);
+var _recoveryShown = false;
+function showRecovery(){
+  if(_recoveryShown) return;
+  _recoveryShown = true;
+  var card = document.querySelector(".card"); if(card) card.className += " recovering";
+  var h = document.getElementById("cardTitle"); if(h) h.textContent = "Set a new password";
+  msg("Choose a new password for your account.", "ok");
+}
+function client(){
+  if(!sb && window.__SUPABASE_URL){
+    sb = supabase.createClient(window.__SUPABASE_URL, window.__SUPABASE_KEY || "");
+    sb.auth.onAuthStateChange(function(ev){ if(ev === "PASSWORD_RECOVERY") showRecovery(); });
+  }
+  return sb;
+}
 function msg(t, kind){ var m = document.getElementById("formMsg"); if(!m) return; m.textContent = t || ""; m.className = "msg " + (kind || ""); m.style.display = t ? "block" : "none"; }
 function authMsg(m){
   m = String(m || "");
@@ -100,11 +122,21 @@ function isOAuthReturn(){ return /[?&]code=/.test(location.search) || /access_to
 
 // CALM START: do nothing on a normal visit. Only react to a real Google/OAuth callback.
 window.addEventListener("DOMContentLoaded", async function(){
+  if(/error_code=otp_expired/i.test(location.hash)){
+    cleanUrl();
+    msg("This link has expired or was already used. Use “Forgot password?” to get a new one.", "err");
+    return;
+  }
   if(!isOAuthReturn()) return;
   var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   var s = await c.auth.getSession();
   for(var i=0; i<6 && !(s.data && s.data.session); i++){ await new Promise(function(r){ setTimeout(r,400); }); s = await c.auth.getSession(); }
   cleanUrl();
+  if(_recoveryLink || _recoveryShown){
+    if(s.data && s.data.session){ showRecovery(); }
+    else { msg("This reset link has expired or was already used. Use “Forgot password?” to get a new one.", "err"); }
+    return;
+  }
   if(s.data && s.data.session){ await finishLogin(s.data.session); }
   else { msg("Could not complete social login. Please try again.", "err"); try{ await c.auth.signOut(); }catch(e){} }
 });
@@ -148,11 +180,15 @@ async function doRecovery(){
   var c = client(); if(!c) return;
   var s0 = await c.auth.getSession();
   if(!(s0.data && s0.data.session)){ msg("Recovery session missing or expired — open the link in your reset email again.", "err"); return; }
-  var res = await c.auth.updateUser({ password: document.getElementById("newPass").value });
+  var p1 = document.getElementById("newPass").value, p2 = document.getElementById("newPass2").value;
+  if(!p1){ msg("Please enter a new password.", "err"); return; }
+  if(p1 !== p2){ msg("The two passwords don't match. Please type them again.", "err"); return; }
+  var res = await c.auth.updateUser({ password: p1 });
   if(res.error){ msg(authMsg(res.error.message), "err"); return; }
   msg("Password updated. Logging you in…", "ok");
+  var s1 = await c.auth.getSession();
   _loginAttempted = false;
-  await finishLogin(res.data.session);
+  await finishLogin(s1.data && s1.data.session);
 }
 function socialLogin(p){
   // Same requirement as doSignup() -- Ali's request 2026-09-28: the
