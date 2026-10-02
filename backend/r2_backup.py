@@ -16,6 +16,7 @@ a single file's upload) is logged and swallowed, never raised into the
 caller, so a backup problem can never break the app or the cleanup sweep
 it rides along with.
 """
+import os
 from botocore.exceptions import ClientError, BotoCoreError
 from botocore.config import Config as BotoConfig
 
@@ -165,15 +166,34 @@ def check_reachable():
         return "fail"
 
 
+# Cloudflare R2 has no plan limit and no hard cap: you pay as you go. The only
+# "allowance" is the monthly free tier (10 GB of storage), and beyond it
+# storage is billed at $0.015 per GB-month. The meter on the admin page shows
+# usage against R2_STORAGE_LIMIT_GB (default 10 = the free tier; set the Railway
+# variable to any budget you prefer).
+R2_FREE_GB = 10.0
+R2_PRICE_PER_GB_MONTH = 0.015
+
+
+def _storage_limit_gb():
+    try:
+        v = float(os.environ.get("R2_STORAGE_LIMIT_GB", "") or R2_FREE_GB)
+        return v if v > 0 else R2_FREE_GB
+    except ValueError:
+        return R2_FREE_GB
+
+
 def get_storage_usage():
     """Sums the size of every object currently in the R2 bucket, via a
-    paginated list_objects_v2 walk. This is real, live usage -- but R2's
-    S3-compatible API has no endpoint for the account's *plan limit*, so
-    there's nothing to compute a percentage against here; the admin panel
-    just shows the raw total for Ali to compare against whatever his
-    Cloudflare plan actually allows. Used by /api/admin/service_usage.
+    paginated list_objects_v2 walk, and also per top-level folder
+    (db-backups/, lipsync-tmp/, outputs...). Real, live usage. R2 has no API
+    for a plan limit (there is none), so the percentage is against the free
+    tier / R2_STORAGE_LIMIT_GB (see above) and the estimated bill is storage
+    above the free 10 GB at $0.015 per GB-month. Used by
+    /api/admin/service_usage.
 
-    Returns {"bytes": int, "count": int} or {"error": ...}."""
+    Returns {"bytes", "count", "limit_gb", "free_gb", "percent", "est_usd_month",
+    "by_prefix": [{"prefix","bytes","count"}]} or {"error": ...}."""
     if not _enabled():
         return {"error": "R2 not configured"}
     client = _get_client()
@@ -182,12 +202,28 @@ def get_storage_usage():
     try:
         total_bytes = 0
         count = 0
+        groups = {}
         paginator = client.get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=R2_BUCKET_NAME):
             for obj in page.get("Contents", []):
                 total_bytes += obj["Size"]
                 count += 1
-        return {"bytes": total_bytes, "count": count}
+                key = obj.get("Key") or ""
+                pre = (key.split("/", 1)[0] + "/") if "/" in key else "(top level)"
+                g = groups.setdefault(pre, [0, 0])
+                g[0] += obj["Size"]
+                g[1] += 1
+        limit_gb = _storage_limit_gb()
+        used_gb = total_bytes / 1e9
+        by_prefix = [{"prefix": k, "bytes": v[0], "count": v[1]}
+                     for k, v in sorted(groups.items(), key=lambda kv: -kv[1][0])]
+        return {
+            "bytes": total_bytes, "count": count,
+            "limit_gb": limit_gb, "free_gb": R2_FREE_GB,
+            "percent": round(used_gb / limit_gb * 100, 1),
+            "est_usd_month": round(max(0.0, used_gb - R2_FREE_GB) * R2_PRICE_PER_GB_MONTH, 2),
+            "by_prefix": by_prefix,
+        }
     except (ClientError, BotoCoreError) as e:
         return {"error": str(e)}
     except Exception as e:

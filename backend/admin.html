@@ -500,9 +500,10 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <span class="muted">Current default: 40. Users choose 480p, 720p or 1080p: 480p is charged at half this price and 1080p at double (defaults 20 / 40 / 80), because Alibaba bills about 1 : 2 : 4. A 15-second clip at 720p therefore costs the user 600 credits ($3.60–$6.00).</span>
         </div>
         <p class="muted" id="lipRatesOut" style="margin-bottom:12px;color:#cbd5e1;">—</p>
-        <p class="muted" style="margin-bottom:12px;">Real cost to you: about $0.1153 per second of video at 720p (measured: $1.73 for a 15-second 720p test), roughly half at 480p. At 40 credits a second the margin is about 52–71% depending on the pack the user bought. <strong>Check Alibaba's price again on 1 November 2026:</strong> the 720p price was a promotion until then, and if it rises, raise the price above.</p>
+        <p class="muted" style="margin-bottom:12px;">Real cost to you, taken from your Alibaba bill: Alibaba charges per second of video, $0.0413 at 480p and $0.0825 at 720p, and each second of the user's clip counts about twice (the video that goes in plus the video that comes out). With Alibaba's 30% launch discount (until 1 November 2026) that is about <strong>$0.058 per clip second at 480p and $0.116 at 720p</strong>. <strong>On 1 November the discount ends</strong> and it becomes about $0.083 and $0.165 (43% more). At the default price the margin is about 52–71% now and 31–59% after the discount ends, depending on the pack the user bought (Starter $0.01 per credit, Studio $0.006). Decide before 1 November whether to raise the price above.</p>
         <div class="metric"><div class="label">Est. Alibaba spend this month</div><div class="value" id="suAlibabaUsd">—</div></div>
-        <p class="muted" id="suAlibabaNote" style="margin:6px 0 12px;">Alibaba has no balance API this app can use, so this is an estimate from your own usage log (credits charged ÷ 40 × $0.1153 per second). It becomes approximate if you change the price above or Alibaba changes its prices. The real balance is in the Alibaba Model Studio console.</p>
+        <p class="muted" id="suAlibabaDetail" style="margin:6px 0 4px;color:#cbd5e1;">—</p>
+        <p class="muted" id="suAlibabaNote" style="margin:6px 0 12px;">Alibaba has no balance API this app can use, so this is calculated from your own usage log: for every lip-sync charge it works out the seconds of video at that run's resolution, then applies Alibaba's real prices from your bill (and the 30% discount while it lasts). It only counts runs that were charged to a customer or to you, so a free or failed test may be missing. The real balance is in the Alibaba Model Studio console under Billing → Bill details.</p>
         <button class="btn" onclick="savePricing()">💾 Save lip-sync price</button>
       </div>
 
@@ -550,7 +551,13 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <h3>☁️ Cloudflare R2 — storage &amp; backups</h3>
         <div class="metric"><div class="label">Stored</div><div class="value" id="suR2Bytes">—</div></div>
         <div class="metric"><div class="label">Objects</div><div class="value" id="suR2Count">—</div></div>
-        <p class="muted" id="suR2Note" style="margin:6px 0 12px;">Real live total. Cloudflare does not tell this app your plan's storage limit, so compare it with your R2 plan in the Cloudflare dashboard.</p>
+        <div class="metric"><div class="label">Est. storage bill / month</div><div class="value" id="suR2Cost">—</div></div>
+        <div style="background:#0f172a;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
+          <div id="suR2Bar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+        </div>
+        <p class="muted" id="suR2Pct" style="margin:0 0 6px;color:#cbd5e1;">—</p>
+        <p class="muted" id="suR2Folders" style="margin:0 0 6px;">—</p>
+        <p class="muted" id="suR2Note" style="margin:6px 0 12px;">Cloudflare R2 has no plan limit and never blocks uploads: you pay as you go. The only allowance is the free tier of 10 GB of storage a month; above it, storage costs $0.015 per GB per month (so 100 GB is about $1.35). The bar shows your usage against 10 GB, or against your own budget if you set <code>R2_STORAGE_LIMIT_GB</code> in Railway. Real, live total counted from the bucket.</p>
         <strong>Database backup</strong>
         <p class="muted" id="suDbBackup" style="margin:6px 0;">—</p>
         <p style="margin:6px 0;"><button class="btn" id="dbBackupBtn" onclick="runDbBackupNow()">☁️ Back up now</button></p>
@@ -1407,6 +1414,18 @@ async function loadServiceUsage() {
   // Alibaba (estimate, not live)
   const al = d.alibaba || {};
   document.getElementById('suAlibabaUsd').textContent = al.estimated_usd != null ? '$' + al.estimated_usd.toFixed(2) : '—';
+  {
+    const parts = Object.keys(al.by_resolution || {}).map(k => {
+      const g = al.by_resolution[k];
+      return k.toLowerCase() + ': ' + g.runs + (g.runs === 1 ? ' run, ' : ' runs, ') + Math.round(g.clip_seconds) + ' s of video, $' + g.usd.toFixed(2);
+    });
+    let t = parts.length ? parts.join(' · ') : 'No lip-sync runs this month yet.';
+    if (al.usd_without_promo != null && al.usd_without_promo > al.estimated_usd) {
+      t += '  —  The same usage without the 30% discount would cost $' + al.usd_without_promo.toFixed(2) + ' (that is the price from ' + (al.promo_ends || '1 Nov') + ').';
+    }
+    if (al.runs_unknown_resolution) t += '  (' + al.runs_unknown_resolution + ' run(s) had no resolution recorded and were priced as 720p.)';
+    document.getElementById('suAlibabaDetail').textContent = t;
+  }
 
   // Resend (last-seen only)
   const rs = d.resend || {};
@@ -1419,9 +1438,22 @@ async function loadServiceUsage() {
     document.getElementById('suR2Bytes').textContent = '—';
     document.getElementById('suR2Count').textContent = '—';
     document.getElementById('suR2Note').textContent = 'Unavailable: ' + r2.error;
+    document.getElementById('suR2Cost').textContent = '—'; document.getElementById('suR2Pct').textContent = '—'; document.getElementById('suR2Folders').textContent = '';
+    document.getElementById('suR2Bar').style.width = '0%';
   } else {
-    document.getElementById('suR2Bytes').textContent = _fmtBytes(r2.bytes);
+    const gb = n => (n / 1e9 >= 0.1 ? (n / 1e9).toFixed(2) + ' GB' : (n / 1e6).toFixed(1) + ' MB');
+    document.getElementById('suR2Bytes').textContent = gb(r2.bytes);
     document.getElementById('suR2Count').textContent = r2.count != null ? r2.count.toLocaleString() : '—';
+    document.getElementById('suR2Cost').textContent = r2.est_usd_month != null ? '$' + r2.est_usd_month.toFixed(2) : '—';
+    const pct = r2.percent != null ? r2.percent : 0;
+    const bar = document.getElementById('suR2Bar');
+    bar.style.width = Math.min(100, pct) + '%';
+    bar.style.background = pct >= 100 ? '#dc2626' : (pct >= 75 ? '#f59e0b' : '#16a34a');
+    document.getElementById('suR2Pct').textContent = pct + '% of ' + (r2.limit_gb != null ? r2.limit_gb : 10) + ' GB' +
+      (pct >= 100 ? ' — over the free tier: the extra is billed at $0.015 per GB-month, nothing stops working.' : '');
+    document.getElementById('suR2Folders').textContent = (r2.by_prefix && r2.by_prefix.length)
+      ? 'By folder: ' + r2.by_prefix.map(g => g.prefix + ' ' + gb(g.bytes) + ' (' + g.count.toLocaleString() + ' files)').join(' · ')
+      : '';
   }
 }
 
@@ -1731,10 +1763,11 @@ function bizGrid(tableId, headers, rows, empty) {
 }
 
 // ---------- unit economics: editable assumptions, remembered in this browser ----------
-const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: 0.1153, ld_per_min: 0.02, sd_per_job: 0.01, railway: 20, supabase: 25, other: 10 };
+// Alibaba Wan 3.0 per 720p clip-second: $0.1155 with the 30% launch discount, $0.165 from 1 Nov 2026
+const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: (Date.now() >= Date.UTC(2026, 10, 1) ? 0.165 : 0.1155), ld_per_min: 0.02, sd_per_job: 0.01, railway: 20, supabase: 25, other: 10 };
 const ECON_FIELDS = [
   ['voice_per_m', 'Inworld voice, $ per 1 million characters', 'Published prices looked like $15–35; check your Inworld invoice.'],
-  ['lip_per_sec', 'Lip-sync, $ per second of video (720p)', 'Measured: $0.1153 (Alibaba Wan 3.0). 480p costs about half.'],
+  ['lip_per_sec', 'Lip-sync, $ per second of video (720p)', 'From your Alibaba bill: $0.1155 with the 30% discount (until 1 Nov 2026), $0.165 after. 480p costs half, 1080p about double.'],
   ['ld_per_min', 'Long-dub server time + translation, $ per video minute', 'Estimate from Railway usage prices; compare with your Railway bill.'],
   ['sd_per_job', 'Short-dub server time + translation, $ per job', 'Small: a few seconds of audio.'],
   ['railway', 'Railway, $ per month', 'Fixed plan price (usage on top is covered by the two lines above).'],

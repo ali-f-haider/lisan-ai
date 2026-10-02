@@ -6076,40 +6076,101 @@ def _get_generated_minutes():
     return per_user, month_total
 
 
+# Alibaba Wan 3.0 (wan3.0-video) prices, read from Ali's own Alibaba bill
+# (consumedetailbill CSV, 1-2 Oct 2026). Alibaba bills by "video_duration" seconds,
+# list price per billed second: 480P $0.041256, 720P $0.082513 (exactly 1 : 2).
+# 1080P has not appeared on a bill yet; 1 : 2 : 4 is assumed (= $0.165026).
+# Promotion "Limited-Time Offer: 30% Off Wan3.0-Video": 2026-08-23 -> 2026-11-01 (UTC).
+ALIBABA_PRICE_PER_BILLED_SEC = {"480P": 0.041256, "720P": 0.082513, "1080P": 0.165026}
+ALIBABA_PROMO_START = "2026-08-23"
+ALIBABA_PROMO_END = "2026-11-01"
+ALIBABA_PROMO_DISCOUNT = 0.30
+# Each second of the user's clip is billed about twice (the reference video that goes in
+# plus the video that comes out): Ali's 29.94 s / 720P bill line was a ~15 s clip.
+# If the card on the admin page and the real bill ever drift apart, this is the number to adjust.
+ALIBABA_BILLED_PER_CLIP_SEC = 2.0
+
+
 def _get_lipsync_spend_this_month():
-    """Estimated real-dollar Alibaba/DashScope spend this month, computed
-    from our own credit_spends log rather than a live Alibaba balance API
-    (DashScope has no such endpoint reachable with the API key this app
-    has -- see service_usage_monitor.py's module docstring). Lip-sync is
-    charged at a fixed 40 credits/sec (see _get_pricing_config's comment
-    on lipsyncCredits... the real per-second Alibaba cost that rate was
-    set against is ~$0.1153/sec, confirmed by Ali's own test), so credits
-    charged translates directly back to real spend: credits / 40 * 0.1153.
-    This is an estimate of money already spent, not a "balance remaining"
-    figure -- Alibaba doesn't expose one to this app at all."""
+    """Estimated real-dollar Alibaba spend this month, worked out from our own
+    usage log (credit_spends + lipsync_runs) -- Alibaba has no balance API this
+    app can reach. For every lip-sync charge: clip seconds = credits charged /
+    credits-per-second at that run's resolution; billed seconds = clip seconds x
+    ALIBABA_BILLED_PER_CLIP_SEC; cost = billed seconds x the resolution's list
+    price, less the 30% promotion for runs made while it is active (it ends
+    2026-11-01). Also returns the same usage priced WITHOUT the promotion, which
+    is what this month would cost after it ends. An estimate of money already
+    spent, not a balance."""
     import urllib.request as _ur
+    import urllib.parse as _up
     now = time.gmtime()
     month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
-    url = f"{SUPABASE_URL}/rest/v1/credit_spends?action=eq.lipsync&select=credits,created_at&limit=5000&order=created_at.desc"
     hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
-    try:
-        req = _ur.Request(url, headers=hdrs)
-        with _ur.urlopen(req, timeout=10) as r:
-            rows = json.load(r) or []
-    except Exception:
-        rows = []
-    month_credits = sum(
-        float(row.get("credits") or 0) for row in rows
-        if (row.get("created_at") or "") >= month_start
-    )
-    LIPSYNC_CREDITS_PER_SEC = 40
-    LIPSYNC_COST_PER_SEC_USD = 0.1153
-    seconds = month_credits / LIPSYNC_CREDITS_PER_SEC
-    usd = seconds * LIPSYNC_COST_PER_SEC_USD
+
+    def _rows(table, select, extra=""):
+        out, off = [], 0
+        while off < 20000:
+            url = (f"{SUPABASE_URL}/rest/v1/{table}?select={select}&created_at=gte.{_up.quote(month_start)}"
+                   f"{extra}&order=created_at.asc&limit=1000&offset={off}")
+            try:
+                with _ur.urlopen(_ur.Request(url, headers=hdrs), timeout=10) as r:
+                    chunk = json.load(r) or []
+            except Exception:
+                break
+            out.extend(chunk)
+            if len(chunk) < 1000:
+                break
+            off += 1000
+        return out
+
+    spends = _rows("credit_spends", "credits,created_at,job_id", "&action=eq.lipsync")
+    runs = _rows("lipsync_runs", "job_id,resolution")
+    res_by_job = {}
+    for r in runs:
+        if r.get("job_id") and r.get("resolution"):
+            res_by_job[r["job_id"]] = lipsync_res(r["resolution"])
+    base = float(_get_pricing_config().get("lipsyncCreditsPerSec", 40) or 40)
+    by_res = {}
+    total = list_total = 0.0
+    credits_total = 0.0
+    unknown = 0
+    for row in spends:
+        credits = float(row.get("credits") or 0)
+        if credits <= 0:
+            continue
+        res = res_by_job.get(row.get("job_id"))
+        if res is None:
+            res, unknown = "720P", unknown + 1      # no run record: assume the middle tier
+        rate = lipsync_rate(base, res)
+        if rate <= 0:
+            continue
+        clip_s = credits / rate
+        list_usd = clip_s * ALIBABA_BILLED_PER_CLIP_SEC * ALIBABA_PRICE_PER_BILLED_SEC.get(res, 0.082513)
+        day = (row.get("created_at") or "")[:10]
+        promo = ALIBABA_PROMO_START <= day < ALIBABA_PROMO_END
+        usd = list_usd * (1 - ALIBABA_PROMO_DISCOUNT) if promo else list_usd
+        g = by_res.setdefault(res, {"runs": 0, "clip_seconds": 0.0, "usd": 0.0})
+        g["runs"] += 1
+        g["clip_seconds"] += clip_s
+        g["usd"] += usd
+        total += usd
+        list_total += list_usd
+        credits_total += credits
+    for g in by_res.values():
+        g["clip_seconds"] = round(g["clip_seconds"], 1)
+        g["usd"] = round(g["usd"], 2)
+    secs = sum(g["clip_seconds"] for g in by_res.values())
     return {
-        "credits_this_month": month_credits,
-        "estimated_seconds": round(seconds, 1),
-        "estimated_usd": round(usd, 2),
+        "credits_this_month": credits_total,
+        "estimated_seconds": round(secs, 1),
+        "estimated_usd": round(total, 2),
+        "usd_without_promo": round(list_total, 2),
+        "by_resolution": by_res,
+        "runs": sum(g["runs"] for g in by_res.values()),
+        "runs_unknown_resolution": unknown,
+        "promo_ends": ALIBABA_PROMO_END,
+        "promo_active_now": ALIBABA_PROMO_START <= time.strftime("%Y-%m-%d", now) < ALIBABA_PROMO_END,
+        "billed_per_clip_sec": ALIBABA_BILLED_PER_CLIP_SEC,
     }
 
 
