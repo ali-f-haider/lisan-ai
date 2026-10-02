@@ -5,3 +5,6 @@ __pycache__/
 outputs/
 uploads/
 .env
+.env.local
+.local_data/
+.venv/

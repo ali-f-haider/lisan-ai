@@ -1,0 +1,28 @@
+# Local test settings - copy this file to .env.local and fill it in
+# (values are on the Railway dashboard > your service > Variables).
+# Used ONLY by run_local.bat. Never commit .env.local.
+
+# --- Database / login (this is your LIVE Supabase project) ---
+SUPABASE_URL=
+SUPABASE_SERVICE_KEY=
+SUPABASE_ANON_KEY=
+
+# --- Admin page password (http://localhost:8000/admin) ---
+ADMIN_PASSWORD=
+
+# --- AI services (real calls, real cost) ---
+GEMINI_API_KEY=
+ELEVENLABS_API_KEY=
+INWORLD_API_KEY=
+HF_TOKEN=
+FAL_API_KEY=
+DASHSCOPE_API_KEY=
+DASHSCOPE_REGION=eu-central-1
+DASHSCOPE_WORKSPACE_ID=
+
+# --- Payments: Stripe TEST key only (sk_test_...), or leave empty ---
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+
+# --- Local speed ---
+WHISPER_MODEL=small

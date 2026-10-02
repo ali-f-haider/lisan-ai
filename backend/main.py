@@ -21,7 +21,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, INWORLD_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
-                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY,
+                    RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY, LOCAL_DEV,
                     LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION,
                     SITE_GATE_PASSWORD, lipsync_res, lipsync_rate, lipsync_rates, LIPSYNC_REF_IMAGES_ENABLED, LONGDUB_ALL_TIERS)
 import app_state
@@ -651,6 +651,26 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
+
+# Local test copy only (run_local.bat): an orange strip on every HTML page, so a
+# local window can never be mistaken for the real site -- it talks to the LIVE database.
+if LOCAL_DEV:
+    class _LocalBannerMiddleware(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            resp = await call_next(request)
+            if request.url.path.startswith("/api/") or not resp.headers.get("content-type", "").startswith("text/html"):
+                return resp
+            body = b"".join([c async for c in resp.body_iterator])
+            strip = (b'<div style="position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#f59e0b;'
+                     b'color:#111;font:700 12px system-ui,sans-serif;text-align:center;padding:4px;pointer-events:none">'
+                     b'LOCAL TEST COPY - connected to the LIVE database</div>')
+            i = body.rfind(b"</body>")
+            if i != -1:
+                body = body[:i] + strip + body[i:]
+            new = Response(content=body, status_code=resp.status_code)
+            new.raw_headers = [(k, v) for k, v in resp.raw_headers if k.lower() != b"content-length"] + [(b"content-length", str(len(body)).encode())]
+            return new
+    app.add_middleware(_LocalBannerMiddleware)
 
 # --- Simple in-memory brute-force guard for password-based login endpoints.
 # Resets on process restart and is per-instance (fine for a single Railway
@@ -3358,7 +3378,7 @@ def landing():
     # gets embedded directly into raw HTML/JS below with no escaping, so
     # validating the shape here (rather than trusting whatever is in the
     # DB) is what keeps that safe.
-    if _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga_id):
+    if not LOCAL_DEV and _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga_id):
         snippet = (
             "<!-- Google tag (gtag.js) -->\n"
             f'<script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>\n'
@@ -3414,7 +3434,7 @@ def pricing_page():
     html = (BASE_DIR / "pricing.html").read_text(encoding="utf-8")
     import re as _re
     ga_id = (_get_pricing_config().get("gaMeasurementId") or "").strip()
-    if _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga_id):
+    if not LOCAL_DEV and _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga_id):
         snippet = (
             "<!-- Google tag (gtag.js) -->\n"
             f'<script async src="https://www.googletagmanager.com/gtag/js?id={ga_id}"></script>\n'

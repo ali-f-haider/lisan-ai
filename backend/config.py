@@ -11,8 +11,15 @@ BASE_DIR = Path(__file__).resolve().parent
 APP_VERSION = "1.77.4"
 
 
+# LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
+# sets it, so production behaves exactly as before. In local mode the app reads
+# ONLY .env.local (never the production-style .env) and every side effect that
+# could reach real customers or real accounts is switched off just below.
+LOCAL_DEV = os.environ.get("LOCAL_DEV", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _load_env():
-    env_path = BASE_DIR / ".env"
+    env_path = BASE_DIR / (".env.local" if LOCAL_DEV else ".env")
     if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():
@@ -24,6 +31,25 @@ def _load_env():
 
 
 _load_env()
+
+if LOCAL_DEV:
+    APP_VERSION += "-local"
+    # Production side effects that must never run from a laptop: error reports,
+    # the off-site backup bucket, the Railway/usage monitors, the site gate.
+    for _k in ("SENTRY_DSN", "R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME",
+               "RAILWAY_API_TOKEN", "RAILWAY_SERVICE_ID", "RAILWAY_ENVIRONMENT_ID", "SITE_GATE_PASSWORD"):
+        os.environ[_k] = ""
+    # Real emails to real customers: off unless ALLOW_LOCAL_EMAIL=1 is in .env.local.
+    if os.environ.get("ALLOW_LOCAL_EMAIL", "").strip() != "1":
+        os.environ["RESEND_API_KEY"] = ""
+    # Never charge real cards from a laptop: only Stripe TEST keys are accepted.
+    if os.environ.get("STRIPE_SECRET_KEY", "").startswith(("sk_live", "rk_live")):
+        print("[local] A LIVE Stripe key was found in .env.local -- ignored. Use an sk_test_ key.")
+        os.environ["STRIPE_SECRET_KEY"] = ""
+        os.environ["STRIPE_WEBHOOK_SECRET"] = ""
+    os.environ.setdefault("DATA_DIR", str(BASE_DIR / ".local_data"))
+    os.environ.setdefault("WHISPER_MODEL", "small")   # large-v3 is very slow on a PC without a GPU
+    print("[local] LOCAL_DEV on: reading .env.local only; emails, backups, Sentry and monitors are off.")
 
 DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE_DIR)))
 UPLOAD_DIR = DATA_DIR / "uploads"
