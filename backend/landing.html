@@ -814,9 +814,17 @@ html.js .rv.in{opacity:1;transform:none}
       return r.ok && (ct.indexOf("video") === 0 || ct.indexOf("octet-stream") >= 0);
     }).catch(function () { return false; });
   }
+  // The cover shown before Play: /static/posters/<video file name>.jpg (HowItWorks.mp4 ->
+  // /static/posters/HowItWorks.jpg). To change a cover, replace that picture; if it is missing the
+  // browser simply shows the video's own first frame instead.
+  function posterFor(src) {
+    var base = src.split("/").pop().replace(/\.[a-z0-9]+$/i, "");
+    return "/static/posters/" + base + ".jpg";
+  }
   function newVideo(src) {
     var v = doc.createElement("video");
     v.controls = true; v.preload = "metadata"; v.setAttribute("playsinline", "");
+    v.poster = posterFor(src);
     v.src = src + "#t=0.1";
     return v;
   }
