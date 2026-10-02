@@ -628,7 +628,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
         if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
             return await call_next(request)
-        if not path.startswith("/api/") and path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".mp4", ".webm")):
+        if not path.startswith("/api/") and path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".mp4", ".webm")):
             return await call_next(request)
         if not _is_logged_in(request):
             if path.startswith("/api/"):
