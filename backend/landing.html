@@ -147,7 +147,7 @@ html[data-lang="ar"] .hero h1{max-width:17ch;line-height:1.3;font-size:clamp(36p
 .steps li::before{content:counter(s);position:absolute;inset-inline-start:0;top:0;width:44px;height:44px;border-radius:50%;background:var(--card2);border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--gold);z-index:1}
 .steps li::after{content:"";position:absolute;inset-inline-start:21.5px;top:48px;bottom:4px;width:1px;background:linear-gradient(var(--line2),transparent)}
 .steps li:last-child::after{display:none}
-.steps h3{font-size:20px;margin-bottom:6px}
+.steps h3{font-size:20px;margin:0;min-height:44px;display:flex;align-items:center}
 .steps p{margin:0;color:var(--muted);font-size:15.5px}
 
 /* Demos */
@@ -173,7 +173,9 @@ html[data-lang="ar"] .pcol .lab{letter-spacing:0;font-size:14.5px}
 .feats{list-style:none;margin:0 0 30px;padding:0;display:grid;gap:18px}
 .feats li{display:flex;gap:14px}
 .feats svg{flex:none;width:22px;height:22px;margin-top:3px;color:var(--gold)}
-.feats h3{font-size:17px;margin-bottom:3px;letter-spacing:-.01em}
+.feats h3{font-size:17px;margin:0;letter-spacing:-.01em}
+.feats li{align-items:center}
+.feats svg{margin-top:0}
 .feats p{margin:0;color:var(--muted);font-size:15px}
 .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 28px;padding:0;list-style:none}
 .flow li{font-size:13px;font-weight:600;padding:6px 13px;border-radius:999px;border:1px solid var(--line2);background:rgba(255,255,255,.03);color:var(--muted)}
@@ -420,16 +422,13 @@ html.js .rv.in{opacity:1;transform:none}
       </div>
       <ol class="steps rv">
         <li>
-          <h3><span class="en">Upload your video</span><span class="ar">ارفع الفيديو</span></h3>
-          <p><span class="en">Drop in a video or audio file. We transcribe the English and tell your speakers apart automatically.</span><span class="ar">ارفع ملف فيديو أو صوت. نفرّغ الكلام الإنجليزي ونميّز بين المتحدثين تلقائيًا.</span></p>
+          <h3><span class="en">Upload — we transcribe and tell the speakers apart</span><span class="ar">ارفع الفيديو — نفرّغ الكلام ونميّز المتحدثين</span></h3>
         </li>
         <li>
-          <h3><span class="en">Shape the script and voices</span><span class="ar">اضبط النص والأصوات</span></h3>
-          <p><span class="en">Translate into Arabic, add full diacritics, and give every line a voice and a speaking style. Clone each speaker's voice, or pick a studio voice.</span><span class="ar">ترجم إلى العربية، وأضف التشكيل الكامل، وامنح كل سطر صوتًا وأسلوب كلام. انسخ صوت كل متحدث أو اختر صوتًا من المكتبة.</span></p>
+          <h3><span class="en">Translate, add diacritics, pick a voice and style for every line</span><span class="ar">ترجم وأضف التشكيل واختر صوتًا وأسلوبًا لكل سطر</span></h3>
         </li>
         <li>
-          <h3><span class="en">Generate and finish</span><span class="ar">أنشئ الدبلجة وأنهِ العمل</span></h3>
-          <p><span class="en">Generate the Arabic, fine-tune the timing on a visual timeline, then export the video with the original music and sounds mixed back in.</span><span class="ar">أنشئ الصوت العربي، واضبط التوقيت على خط زمني مرئي، ثم صدّر الفيديو مع إعادة مزج الموسيقى والأصوات الأصلية.</span></p>
+          <h3><span class="en">Generate, fine-tune the timing and export</span><span class="ar">أنشئ الدبلجة واضبط التوقيت وصدّر</span></h3>
         </li>
       </ol>
     </div>
@@ -476,13 +475,13 @@ html.js .rv.in{opacity:1;transform:none}
         </ol>
         <ul class="feats">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-            <div><h3><span class="en">Price and time first</span><span class="ar">السعر والمدة أولًا</span></h3><p><span class="en">Tell us how many people speak and see the price and the time before anything is dubbed. You confirm the exact price before it is charged.</span><span class="ar">أخبرنا كم شخصًا يتحدث لترى السعر والمدة قبل أي دبلجة. وتؤكد السعر الدقيق قبل خصمه.</span></p></div></li>
+            <div><h3><span class="en">See the price and the time before anything is dubbed</span><span class="ar">اطّلع على السعر والمدة قبل أي دبلجة</span></h3></div></li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-            <div><h3><span class="en">Review every line</span><span class="ar">راجع كل سطر</span></h3><p><span class="en">Name the speakers, fix the English or the Arabic, adjust timing, add or remove lines and choose an emotion for each one.</span><span class="ar">سمِّ المتحدثين، وصحّح الإنجليزية أو العربية، واضبط التوقيت، وأضف أسطرًا أو احذفها، واختر المشاعر لكل سطر.</span></p></div></li>
+            <div><h3><span class="en">Review and edit every line</span><span class="ar">راجع كل سطر وعدّله</span></h3></div></li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
-            <div><h3><span class="en">Every speaker's own voice</span><span class="ar">صوت كل متحدث</span></h3><p><span class="en">Each voice is copied from the video for this job only and deleted when it ends.</span><span class="ar">يُنسخ كل صوت من الفيديو لهذه المهمة فقط ويُحذف عند انتهائها.</span></p></div></li>
+            <div><h3><span class="en">Each speaker's own voice, deleted when the job ends</span><span class="ar">صوت كل متحدث، يُحذف عند انتهاء المهمة</span></h3></div></li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
-            <div><h3><span class="en">One finished file</span><span class="ar">ملف واحد جاهز</span></h3><p><span class="en">You receive one dubbed file, with the original music and background sounds mixed back in and the Arabic timed to the speech.</span><span class="ar">تستلم ملفًا مدبلجًا واحدًا، مع إعادة مزج الموسيقى والأصوات الخلفية الأصلية، والعربية متزامنة مع الكلام.</span></p></div></li>
+            <div><h3><span class="en">One finished file, original music mixed back in</span><span class="ar">ملف واحد جاهز مع إعادة مزج الموسيقى الأصلية</span></h3></div></li>
         </ul>
         <div class="cta-row" style="justify-content:flex-start">
           <a class="btn btn-gold" href="/dub-long"><span class="en">Try Dub Long Video</span><span class="ar">جرّب دبلجة فيديو طويل</span><svg class="flip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
