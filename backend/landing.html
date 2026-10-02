@@ -823,9 +823,16 @@ html.js .rv.in{opacity:1;transform:none}
   }
   function newVideo(src) {
     var v = doc.createElement("video");
-    v.controls = true; v.preload = "metadata"; v.setAttribute("playsinline", "");
+    v.controls = true; v.setAttribute("playsinline", "");
     v.poster = posterFor(src);
-    v.src = src + "#t=0.1";
+    // preload "none": nothing of the video is downloaded until Play is pressed, so the browser keeps
+    // showing the cover. (With "metadata" it loads the first frame and swaps the cover for it after a second.)
+    v.preload = "none";
+    v.src = src;
+    // no cover picture on the server? then fall back to the video's own first frame
+    var im = new Image();
+    im.onerror = function () { v.removeAttribute("poster"); v.preload = "metadata"; v.src = src + "#t=0.1"; };
+    im.src = v.poster;
     return v;
   }
   function clearFrame(frame) {
