@@ -192,3 +192,116 @@ def get_storage_usage():
         return {"error": str(e)}
     except Exception as e:
         return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Nightly snapshot of the Supabase tables that hold money / customer records.
+# The file backup above only covers finished video outputs -- without this, a
+# deleted or corrupted Supabase project would take the credit balances, orders
+# and invoices with it. Supabase Pro keeps its own daily backups too; this is
+# a second, independent copy that sits in your own R2 bucket.
+#
+# Session tables (app_sessions, admin_sessions) are deliberately NOT copied:
+# they hold login tokens and are worthless after a restore anyway.
+# ---------------------------------------------------------------------------
+DB_BACKUP_TABLES = (
+    "profiles", "credit_orders", "credit_spends", "credit_audit",
+    "subscription_invoices", "pricing_config", "user_voices",
+    "consent_records", "long_dub_events", "lipsync_runs", "expiry_notices",
+)
+DB_BACKUP_PREFIX = "db-backups/"
+DB_BACKUP_KEEP_DAYS = 30
+_DB_PAGE = 1000
+
+
+def _fetch_table(supabase_url, service_key, table):
+    """All rows of one table via PostgREST, paged. Returns a list or raises."""
+    import json as _json
+    import urllib.request as _rq
+    rows = []
+    offset = 0
+    while True:
+        req = _rq.Request(
+            f"{supabase_url}/rest/v1/{table}?select=*&limit={_DB_PAGE}&offset={offset}",
+            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+        )
+        with _rq.urlopen(req, timeout=60) as r:
+            page = _json.loads(r.read().decode("utf-8"))
+        rows.extend(page)
+        if len(page) < _DB_PAGE:
+            return rows
+        offset += _DB_PAGE
+
+
+def backup_db_tables(supabase_url, service_key):
+    """Once per UTC day: write every table in DB_BACKUP_TABLES to R2 as JSON
+    under db-backups/<date>/<table>.json, then drop snapshots older than
+    DB_BACKUP_KEEP_DAYS. A table that fails is skipped (logged); the day is
+    only marked done when every table succeeded, so a failed day is retried
+    on the next sweep. Never raises."""
+    if not _enabled() or not supabase_url or not service_key:
+        return
+    client = _get_client()
+    if client is None:
+        return
+    import json as _json
+    import datetime as _dt
+    try:
+        today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+        marker = f"{DB_BACKUP_PREFIX}{today}/_complete.json"
+        if _already_backed_up(client, marker):
+            return
+        failed = []
+        counts = {}
+        for table in DB_BACKUP_TABLES:
+            try:
+                rows = _fetch_table(supabase_url, service_key, table)
+                body = _json.dumps(rows, ensure_ascii=False, default=str).encode("utf-8")
+                client.put_object(Bucket=R2_BUCKET_NAME, Key=f"{DB_BACKUP_PREFIX}{today}/{table}.json",
+                                  Body=body, ContentType="application/json")
+                counts[table] = len(rows)
+            except Exception as e:
+                failed.append(table)
+                print(f"[db-backup] {table} failed: {e}")
+        if failed:
+            print(f"[db-backup] incomplete ({', '.join(failed)}); will retry next sweep")
+            return
+        client.put_object(Bucket=R2_BUCKET_NAME, Key=marker,
+                          Body=_json.dumps({"date": today, "rows": counts}).encode("utf-8"),
+                          ContentType="application/json")
+        print(f"[db-backup] saved {sum(counts.values())} rows from {len(counts)} tables for {today}")
+        cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=DB_BACKUP_KEEP_DAYS)).strftime("%Y-%m-%d")
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=DB_BACKUP_PREFIX):
+            for obj in page.get("Contents", []):
+                day = obj["Key"][len(DB_BACKUP_PREFIX):].split("/", 1)[0]
+                if day < cutoff:
+                    client.delete_object(Bucket=R2_BUCKET_NAME, Key=obj["Key"])
+    except Exception as e:
+        print(f"[db-backup] error: {e}")
+
+
+def latest_db_backup():
+    """For the admin Health panel: the newest completed snapshot as
+    {"date": ..., "rows": {...}} or None."""
+    if not _enabled():
+        return None
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        import json as _json
+        days = set()
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=DB_BACKUP_PREFIX, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                days.add(cp["Prefix"][len(DB_BACKUP_PREFIX):].strip("/"))
+        for day in sorted(days, reverse=True):
+            try:
+                o = client.get_object(Bucket=R2_BUCKET_NAME, Key=f"{DB_BACKUP_PREFIX}{day}/_complete.json")
+                return _json.loads(o["Body"].read().decode("utf-8"))
+            except Exception:
+                continue
+    except Exception:
+        return None
+    return None

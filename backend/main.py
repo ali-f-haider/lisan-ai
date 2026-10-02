@@ -3233,6 +3233,10 @@ def _cleanup_worker():
         except Exception as e:
             print("[r2-backup] sweep error:", e)
         try:
+            r2_backup.backup_db_tables(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        except Exception as e:
+            print("[db-backup] sweep error:", e)
+        try:
             now = _time.time()
             short_cutoff = now - CLEANUP_RETENTION_HOURS * 3600
             # One Supabase lookup per distinct uid per sweep, not per file --
@@ -4677,6 +4681,8 @@ def _ld_pricing():
     return {
         "fee": int(_num(cfg.get("transcribeCredits"), 3)),
         "analysis_per_min": _num(cfg.get("longDubAnalysisPerMin"), 2),
+        # flat server-time fee per long dub, paid with the analysis (see longdub_service.compute_estimate)
+        "flat": int(_num(cfg.get("longDubFlatCredits"), 10)),
         "chars_per_credit": int(_num(cfg.get("inworldCharsPerCredit"), 60)) or 60,
         "clone_credits": int(_num(cfg.get("inworldCloneCredits"), 5)),
         "merge_credits": int(_num(cfg.get("mergeCredits"), 1)),
@@ -4828,7 +4834,7 @@ def longdub_config(request: Request):
         "max_min": p["max_min"], "min_sec": longdub_service.MIN_SEC,
         "chunk_bytes": longdub_service.CHUNK_BYTES,
         "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
-        "fee": p["fee"], "analysis_per_min": p["analysis_per_min"],
+        "fee": p["fee"], "analysis_per_min": p["analysis_per_min"], "flat": p["flat"],
         "credits": get_credits(uid), "studio": bool(LONGDUB_ALL_TIERS or _ld_is_studio(uid)),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
         "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
@@ -5808,6 +5814,7 @@ def _get_pricing_config():
         # detection + translating it. Both editable in the admin panel.
         "longDubMaxMin": 10,
         "longDubAnalysisPerMin": 2,
+        "longDubFlatCredits": 10,
         "longDubLipsyncMaxMin": 3,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
@@ -5877,6 +5884,7 @@ def _get_pricing_config():
                 "uiStyle": row.get("ui_style") or defaults["uiStyle"],
                 "longDubMaxMin": row.get("long_dub_max_min") or defaults["longDubMaxMin"],
                 "longDubAnalysisPerMin": defaults["longDubAnalysisPerMin"] if row.get("long_dub_analysis_per_min") is None else row.get("long_dub_analysis_per_min"),
+                "longDubFlatCredits": defaults["longDubFlatCredits"] if row.get("long_dub_flat_credits") is None else row.get("long_dub_flat_credits"),
                 "longDubLipsyncMaxMin": row.get("long_dub_lipsync_max_min") or defaults["longDubLipsyncMaxMin"],
             }
     except Exception as ex:
@@ -5963,6 +5971,17 @@ def _save_pricing_config(config):
                 pass
         except Exception as _ld_ex:
             print(f"[admin] long-dub settings not saved (has the long_dub_* SQL been run?): {_ld_ex}")
+        # The long-dub flat fee also gets its OWN request: its column
+        # (long_dub_flat_credits) may not exist yet, and then only this write fails.
+        try:
+            _ff_body = json.dumps({
+                "id": "singleton",
+                "long_dub_flat_credits": max(0, int(float(config.get("longDubFlatCredits") if config.get("longDubFlatCredits") is not None else 10))),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_ff_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _ff_ex:
+            print(f"[admin] long-dub flat fee not saved (has long_dub_flat_credits been added to pricing_config?): {_ff_ex}")
         # The disk-alert switch also gets its OWN request: if its column hasn't been
         # added yet (see the ALTER TABLE in the release notes), only this write
         # fails and the main save above is unaffected.
@@ -6496,10 +6515,18 @@ def admin_health(request: Request):
     resend_status = "ok" if RESEND_API_KEY else "not_configured"
     r2_status = r2_backup.check_reachable()
     sentry_status = "ok" if SENTRY_INITIALIZED else ("fail" if SENTRY_DSN else "not_configured")
+    inworld = "ok" if INWORLD_API_KEY else "not_configured"
+    # Newest complete nightly copy of the Supabase tables in R2 (see r2_backup.backup_db_tables).
+    db_backup = None
+    if r2_status == "ok":
+        try:
+            db_backup = r2_backup.latest_db_backup()
+        except Exception:
+            db_backup = None
     return {
-        "supabase": supabase, "elevenlabs": eleven, "gemini": gemini,
+        "supabase": supabase, "inworld": inworld, "elevenlabs": eleven, "gemini": gemini,
         "dashscope": dashscope, "stripe": stripe_status, "resend": resend_status,
-        "r2": r2_status, "sentry": sentry_status,
+        "r2": r2_status, "sentry": sentry_status, "db_backup": db_backup,
     }
 
 

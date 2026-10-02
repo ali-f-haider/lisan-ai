@@ -15,8 +15,8 @@ body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; colo
 .login input { width: 100%; padding: 12px; margin: 8px 0; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: #e2e8f0; font-size: 14px; }
 .login button { width: 100%; padding: 12px; background: #f59e0b; color: #000; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 14px; }
 .login button:hover { background: #d97706; }
-.tabbar { display: flex; background: #1e293b; border-bottom: 1px solid #334155; }
-.tab { padding: 14px 24px; cursor: pointer; border-bottom: 2px solid transparent; color: #94a3b8; font-size: 14px; }
+.tabbar { display: flex; flex-wrap: wrap; background: #1e293b; border-bottom: 1px solid #334155; }
+.tab { padding: 14px 18px; cursor: pointer; border-bottom: 2px solid transparent; color: #94a3b8; font-size: 14px; }
 .tab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
 .content { max-width: 1200px; margin: 0 auto; padding: 24px; }
 .panel { display: none; }
@@ -46,6 +46,14 @@ button.btn-success:hover { background: #15803d; }
 .form-group label { display: block; margin-bottom: 4px; color: #94a3b8; font-size: 12px; }
 .search { width: 100%; padding: 10px; margin-bottom: 12px; }
 .muted { color: #64748b; font-size: 12px; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; background: #334155; color: #e2e8f0; vertical-align: middle; margin-left: 6px; }
+.pill.on { background: #166534; color: #dcfce7; }
+.pill.off { background: #7f1d1d; color: #fee2e2; }
+.pill.warn { background: #92400e; color: #fef3c7; }
+.status-chip { font-weight: 700; font-size: 12px; margin-left: 6px; color: #64748b; }
+.off-card { opacity: 0.75; border: 1px dashed #475569; }
+.off-card h3 { color: #94a3b8; }
+code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #fbbf24; }
 .toast { position: fixed; bottom: 20px; right: 20px; background: #16a34a; color: #fff; padding: 12px 20px; border-radius: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
 .toast.error { background: #dc2626; }
 /* Palette for the shared custom message box (/dialogs.js) -- this page has
@@ -69,13 +77,16 @@ button.btn-success:hover { background: #15803d; }
     <div class="tab active" data-tab="overview">📊 Overview</div>
     <div class="tab" data-tab="users">👥 Users</div>
     <div class="tab" data-tab="pricing">💰 Pricing</div>
-    <div class="tab" data-tab="settings">⚙️ Settings</div>
-    <div class="tab" data-tab="audit">📜 Audit Log</div>
-    <div class="tab" data-tab="health">❤️ Health</div>
+    <div class="tab" data-tab="voice">🎙️ Voice (Inworld / ElevenLabs)</div>
+    <div class="tab" data-tab="lipsync">🎬 Lip-Sync (Alibaba)</div>
+    <div class="tab" data-tab="services">🔌 Other Services</div>
+    <div class="tab" data-tab="server">🖥️ Server</div>
+    <div class="tab" data-tab="settings">⚙️ Site Settings</div>
+    <div class="tab" data-tab="audit">📜 Logs</div>
   </div>
   <div class="content">
 
-    <!-- OVERVIEW -->
+    <!-- ===================== OVERVIEW ===================== -->
     <div class="panel active" id="panel-overview">
       <div class="card">
         <h3>📊 Business Metrics</h3>
@@ -84,6 +95,7 @@ button.btn-success:hover { background: #15803d; }
         <div class="metric"><div class="label">Credits Outstanding</div><div class="value" id="mCredits">—</div></div>
         <div class="metric"><div class="label">Revenue (all-time)</div><div class="value" id="mRevenue">—</div></div>
         <div class="metric"><div class="label">Minutes Generated (this month)</div><div class="value" id="mMinutes">—</div></div>
+        <p class="muted" style="margin-top:10px;">"Credits Outstanding" is what customers still hold (permanent + subscription credits). "Minutes Generated" counts short-dub voice audio only.</p>
       </div>
       <div class="card">
         <h3>📈 Recent Jobs (last 24h)</h3>
@@ -94,12 +106,12 @@ button.btn-success:hover { background: #15803d; }
       </div>
     </div>
 
-    <!-- USERS -->
+    <!-- ===================== USERS ===================== -->
     <div class="panel" id="panel-users">
       <div class="card">
         <h3>👥 User Management</h3>
         <input class="search" id="userSearch" placeholder="Search by name, email, or UID..." oninput="loadUsers()">
-        <p class="muted" style="margin-bottom:8px;">"Credits" is the permanent, never-expiring balance (signup bonus, admin grants, one-time packs) -- Grant/Deduct/Set below only ever touch THIS bucket. "Sub. Credits" is a subscriber's separate monthly allowance, which is forfeited and replaced at each renewal (2026-09-27: unused subscription credits no longer roll over) -- it's spent first, automatically, before permanent credits, and isn't editable here.</p>
+        <p class="muted" style="margin-bottom:8px;">"Credits" is the permanent, never-expiring balance (signup bonus, admin grants, one-time packs). Grant / Deduct / Set below only ever change THIS balance. "Sub. Credits" is a subscriber's monthly allowance: it is spent first, is replaced at each renewal (unused subscription credits do not roll over) and cannot be edited here. Every change you make is written to the Logs tab together with your reason.</p>
         <table>
           <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Sub. Credits</th><th>Minutes Generated</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
           <tbody id="usersTable"><tr><td colspan="8" class="muted">Loading...</td></tr></tbody>
@@ -107,92 +119,60 @@ button.btn-success:hover { background: #15803d; }
       </div>
     </div>
 
-    <!-- PRICING -->
+    <!-- ===================== PRICING ===================== -->
     <div class="panel" id="panel-pricing">
       <div class="card">
-        <h3>💰 Pricing Configuration</h3>
-        <p class="muted" style="margin-bottom:16px;">Changes take effect immediately for all new jobs.</p>
+        <h3>💰 General prices &amp; limits</h3>
+        <p class="muted" style="margin-bottom:16px;">What users are charged, independent of which provider does the work. Changes apply immediately to every NEW job. Prices that depend on a provider (voice rates, lip-sync) are on that provider's own tab. 100 credits = $1 in the terms; a pack buyer pays $0.006–$0.01 per credit depending on the pack.</p>
         <div class="form-group">
           <label>Free credits on signup</label>
           <input type="number" id="freeCredits" style="width:120px;" step="50" min="0" max="1000">
-          <span class="muted">Recommended: 150 (enough for 1 minute trial)</span>
+          <span class="muted">Given once to every new account. At the current rates a one-minute dub costs about 25 credits, so 150 credits is roughly five short trials.</span>
         </div>
         <div class="form-group">
-          <label>Minimum credits per job (reserve before processing)</label>
-          <input type="number" id="minReserve" style="width:120px;" step="50" min="0" max="5000">
-          <span class="muted">This blocks Generate Audio entirely below this balance, regardless of what the job would actually cost -- keep it close to a real worst-case job, not a round "safe-sounding" number. Since clips are now capped at 30 seconds (Sept 2026), a reserve sized for a full 1-minute clip (150) is roughly double what's needed; ~75 matches the current cap. Unused reserve is never charged.</span>
+          <label>Minimum balance to start "Generate audio" (credits)</label>
+          <input type="number" id="minReserve" style="width:120px;" step="5" min="0" max="5000">
+          <span class="muted">A safety floor, not a price: a user below this balance cannot press Generate. Nothing extra is charged — only what the job really costs. Short clips are capped at 30 seconds, which costs about 20 credits at the current rates, so 30–40 is plenty. Setting it higher blocks customers who could in fact afford a job.</span>
         </div>
         <div class="form-group">
-          <label>Maximum video length (minutes, 0 = no limit)</label>
-          <input type="number" id="maxVideoMin" style="width:120px;" step="5" min="0" max="240">
-          <span class="muted">Recommended: 60 until you've stress-tested longer</span>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>💵 What Each Step Actually Charges</h3>
-        <p class="muted" style="margin-bottom:16px;">These are the real prices used when a user runs each step — unlike the fields above, changing these directly changes what gets deducted from a user's credits.</p>
-        <div class="form-group">
-          <label>Transcribe (flat credits per job)</label>
+          <label>Transcribe / estimate fee (flat credits per job)</label>
           <input type="number" id="transcribeCredits" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Current default: 3</span>
+          <span class="muted">Current default: 3. Charged for the transcription step of a short dub, and for the estimate of a Dub Long Video (there it counts toward the total, it is not extra).</span>
         </div>
         <div class="form-group">
           <label>Merge video (flat credits per job)</label>
           <input type="number" id="mergeCredits" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Current default: 1</span>
+          <span class="muted">Current default: 1. Charged when the dubbed audio is merged back into the video (short dub Step 6, and the final assembly of a long dub).</span>
         </div>
-        <p class="muted" style="margin-bottom:10px;"><strong>Only the rates for the engine currently selected under 🎙️ Voice Engine (Settings tab) are shown below</strong> — but both engines' rates always matter at the same time: a voice already cloned keeps being charged forever at whichever engine's rate actually created it (see that switch's own note), regardless of which one this toggle is currently showing. Switch the engine there to reveal the other engine's fields here.</p>
-        <div id="pricingElevenlabsFields">
-          <div class="form-group">
-            <label>Generate: characters per credit (ElevenLabs)</label>
-            <input type="number" id="charsPerCredit" style="width:120px;" step="5" min="1" max="1000">
-            <span class="muted">Lower = more expensive (e.g. 30 charges twice as many credits as 60 for the same text)</span>
-          </div>
-          <div class="form-group">
-            <label>Clone / upload custom voice (ElevenLabs, flat credits per action)</label>
-            <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
-            <span class="muted">Current default: 5 — charged for both "Clone Selected Voices" (Step 3.5) and "Upload as this speaker's voice" (Step 4), since both create a new voice via the same paid ElevenLabs quota.</span>
-          </div>
-        </div>
-        <div id="pricingInworldFields" style="display:none">
-          <div class="form-group">
-            <label>Generate: characters per credit (Inworld AI)</label>
-            <input type="number" id="inworldCharsPerCredit" style="width:120px;" step="5" min="1" max="1000">
-            <span class="muted">Same idea as ElevenLabs' rate above, but Inworld's real per-character cost is genuinely different — verify against your actual Inworld billing/invoice once you have real usage data rather than trusting this default.</span>
-          </div>
-          <div class="form-group">
-            <label>Clone / upload custom voice (Inworld AI, flat credits per action)</label>
-            <input type="number" id="inworldCloneCredits" style="width:120px;" step="1" min="0" max="1000">
-            <span class="muted">Inworld doesn't meter cloning the same way ElevenLabs does (rate-limit/storage-slot based, not a hard per-clone fee) — this just sets what YOUR users are charged in credits for the action; adjust freely.</span>
-          </div>
-          <div class="form-group">
-            <label>Inworld slot limit (custom voices your Inworld plan allows)</label>
-            <input type="number" id="inworldSlotLimit" style="width:120px;" step="1" min="1" max="1000000">
-            <span class="muted">Inworld doesn't report this number, so enter your plan's custom-voice slot count here (On-Demand: 100). The Health tab counts your voices against it and emails you at 75% used. Raise it after you upgrade the Inworld plan.</span>
-          </div>
-        </div>
+        <p class="muted" style="margin-bottom:12px;">Fixed in the code, not editable here: a short dub must be 4–30 seconds long (4–15 seconds when lip-sync is used).</p>
+        <button class="btn" onclick="savePricing()">💾 Save general prices</button>
+      </div>
+
+      <div class="card">
+        <h3>🎞️ Dub Long Video — prices &amp; limit</h3>
+        <p class="muted" style="margin-bottom:16px;">Open to all tiers. Lip-sync is switched off for long videos (see the Lip-Sync tab). A long dub is always done with Inworld, whatever engine is selected on the Voice tab. The user sees the whole estimate before anything is charged: estimate fee + analysis + processing fee + voice + one voice clone per speaker + final assembly. Analysis and processing fee are charged when the user accepts; the voice, clones and assembly only after the text has been reviewed and the exact price confirmed.</p>
         <div class="form-group">
-          <label>Dub Long Video: longest video allowed, WITHOUT lip-sync (minutes) — this is the limit that applies now</label>
+          <label>Longest video allowed (whole minutes)</label>
           <input type="number" id="longDubMaxMin" style="width:120px;" step="1" min="1" max="120">
-          <span class="muted">Current default: 10. Whole minutes only, at least 1 (a decimal such as 0.5 is rounded down and then raised to 1). The page /dub-long refuses anything longer, and refuses anything shorter than 20 seconds. Needs the long_dub_max_min column (SQL sent with v1.51.0) to be saved.</span>
+          <span class="muted">Current default: 10. Whole minutes only, at least 1 (a decimal such as 0.5 is rounded down, then raised to 1). The page /dub-long refuses longer videos and also refuses anything shorter than 20 seconds.</span>
         </div>
         <div class="form-group">
-          <label>Dub Long Video: analysis credits per minute of video</label>
+          <label>Analysis (credits per minute of video)</label>
           <input type="number" id="longDubAnalysisPerMin" style="width:120px;" step="0.5" min="0" max="1000">
-          <span class="muted">Current default: 2. Covers transcribing, speaker detection and translating each minute. The estimate also adds the voice cost (from the rates above), the cloning cost for 2 speakers, and the merge fee; the small "estimate fee" is the Transcribe price above and counts toward the total.</span>
+          <span class="muted">Current default: 2. Covers separating voices from background, transcribing, detecting speakers and translating — the heaviest server work (about four seconds of server time per second of video). Rough real cost: $0.01–0.02 per video minute, while 2 credits bring in $0.012–0.02, so this is close to break-even at the cheaper packs; 3 gives a safer margin.</span>
         </div>
         <div class="form-group">
-          <label>Dub Long Video: longest video allowed WITH lip-sync (minutes) <span style="color:#dc2626;font-weight:700;">— lip-sync is switched OFF for long videos (LIPSYNC_LONG_ENABLED = False in config.py); this setting has no effect now</span></label>
-          <input type="number" id="longDubLipsyncMaxMin" style="width:120px;" step="1" min="1" max="120">
-          <span class="muted">Current default: 3. A lip-synced long video is cut into clips of at most 15 seconds and each clip is billed to you by Alibaba (~$0.1153/sec) and takes up to ~15 minutes, a few at a time, so long videos get expensive and slow. Users pay the per-second lip-sync price below, only for the stretches where somebody speaks. Needs the long_dub_lipsync_max_min column (SQL sent with v1.53.0) to be saved.</span>
+          <label>Processing fee (flat credits per video)</label>
+          <input type="number" id="longDubFlatCredits" style="width:120px;" step="1" min="0" max="1000">
+          <span class="muted">Current default: 10 (0 = no fee). The same for a 2-minute and a 40-minute video; it covers the fixed work every long dub causes (loading the speech models, voice separation set-up, final assembly, temporary storage and download traffic), roughly $0.01 of real cost, so 10 credits ($0.06–0.10) leaves a clear margin. Charged together with the analysis when the user accepts the estimate, and refunded with it if the job fails. Needs the column <code>long_dub_flat_credits</code> in the Supabase table pricing_config: run <code>alter table pricing_config add column if not exists long_dub_flat_credits integer;</code> once, otherwise this one value is not saved.</span>
         </div>
-        <div class="form-group">
-          <label>Lip-sync (short dubs only, alpha), 720p price (credits per second of video)</label>
-          <input type="number" id="lipsyncCreditsPerSec" style="width:120px;" step="1" min="0" max="1000">
-          <span class="muted">Users choose 480p / 720p / 1080p. This field is the 720p price; 480p is charged at half of it and 1080p at double (defaults: 20 / 40 / 80). Alibaba bills about 1 : 2 : 4 for 480p : 720p : 1080p, so the margins stay the same at every size. </span><span class="muted">Current default: 40 (= $0.40/sec at 100 credits = $1). Wan 3.0 (Step 7, via Alibaba Model Studio) actually costs this app ~$0.1153/sec (confirmed from a real 15-second 720P test: $1.73), so 40 leaves roughly 52–71% margin depending on which credit pack the user bought — a 1-minute video costs the user 2,400 credits at the default rate.</span>
+        <div class="form-group" style="background:#0f172a;border-radius:6px;padding:12px;">
+          <label style="color:#e2e8f0;">Example: what a long dub costs the customer</label>
+          <span class="muted">Video length (minutes)</span> <input type="number" id="ldExMin" value="10" min="1" max="120" step="1" style="width:80px;" oninput="updateLdExample()">
+          <p id="ldExOut" class="muted" style="margin-top:8px;color:#cbd5e1;">—</p>
+          <p class="muted" style="margin-top:4px;">Voice and clone prices come from the Inworld rates on the Voice tab; the voice part assumes about 1,000 characters of Arabic per minute and 2 speakers (the real price is fixed after the text is reviewed).</p>
         </div>
-        <button class="btn" onclick="savePricing()">💾 Save Pricing Config</button>
+        <button class="btn" onclick="savePricing()">💾 Save long-dub prices</button>
       </div>
 
       <!-- Removed from the visible UI 2026-09-27: the old single flat plan
@@ -211,8 +191,8 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
-        <h3>🎚️ Subscription Tiers</h3>
-        <p class="muted" style="margin-bottom:16px;">This is what /pricing and Stripe checkout actually charge — the single "Pro" plan above is now only a legacy fallback for pre-existing subscribers with no tier tagged on their account. Voice Slots is a persistent cap: how many named cloned voices a subscriber can keep saved at once (frees up when one is deleted). Clones/mo is a SEPARATE, monthly-resetting cap: how many brand-new voice clones that tier allows per billing period, regardless of deletions — leave it blank to not enforce a monthly cap for that tier (still bounded by Voice Slots and our shared ElevenLabs quota). Key is the plan's permanent public ID — used by /pricing and Stripe checkout to identify this tier; renaming the tier is safe and never changes its key.</p>
+        <h3>🎚️ Subscription Tiers (monthly)</h3>
+        <p class="muted" style="margin-bottom:16px;">What /pricing and Stripe checkout actually charge. <strong>Key</strong> is the tier's permanent public ID (used by /pricing and Stripe) — renaming the tier never changes it. <strong>Voice Slots</strong>: how many named cloned voices a subscriber can keep saved at once (frees up when one is deleted). <strong>Clones/mo</strong>: a separate cap on brand-new voice clones per billing month, whatever is deleted; leave blank for no monthly cap (Voice Slots still apply). <strong>Storage</strong>: GB of finished files kept for 30 days. Pre-tier subscribers with no tier on their account fall back to a hidden legacy plan that is kept automatically.</p>
         <table>
           <thead><tr><th>Key</th><th>Name</th><th>Price/mo (USD)</th><th>Credits/mo</th><th>Voice Slots</th><th>Clones/mo</th><th>Storage (GB)</th><th>Actions</th></tr></thead>
           <tbody id="plansTable"><tr><td colspan="8" class="muted">Loading...</td></tr></tbody>
@@ -221,21 +201,233 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
-        <h3>💳 Credit Packs (one-time, pay-once)</h3>
-        <p class="muted" style="font-size:12px;margin-bottom:8px;">Key is the pack's permanent public ID — it's what the landing page, buy modal and Stripe checkout use to identify this pack. Renaming the pack is safe and never changes its key. Leave Key blank on a new pack and it will be generated from the name when you save. Note: a pack buyer's finished videos are now only kept for PAYONCE_OUTPUT_HOURS (48h, set in main.py) — not the full 30 days — since they're not paying to keep the storage running. Only active Monthly Subscription users get the full 30-day retention.</p>
+        <h3>💳 Credit Packs (one-time, pay once)</h3>
+        <p class="muted" style="font-size:12px;margin-bottom:8px;"><strong>Key</strong> is the pack's permanent public ID (landing page, buy window and Stripe checkout use it); renaming the pack never changes it, and a blank Key on a new pack is generated from the name on save. Credits bought in a pack never expire. A pack buyer's finished videos are kept for 48 hours (PAYONCE_OUTPUT_HOURS in main.py), not 30 days — only active subscribers get the 30-day retention.</p>
         <table>
           <thead><tr><th>Key</th><th>Name</th><th>Credits</th><th>Price (USD)</th><th>Bonus %</th><th>Stripe Link</th><th>Actions</th></tr></thead>
           <tbody id="packsTable"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody>
         </table>
         <div style="margin-top:14px;display:flex;gap:10px;"><button class="btn" onclick="addPack()">+ Add Pack</button><button class="btn" onclick="savePricing()" style="background:#2e7d32">💾 Save Packs</button></div>
       </div>
+
+      <div class="card off-card">
+        <h3>🚫 Retired settings <span class="pill off">no longer used</span></h3>
+        <p class="muted" style="margin-bottom:12px;">Kept (greyed out) so the stored value is not lost, but the server no longer reads them.</p>
+        <div class="form-group">
+          <label>Short dub: maximum video length (minutes)</label>
+          <input type="number" id="maxVideoMin" style="width:120px;" disabled>
+          <span class="muted">Not read by the server. Short dubs are limited in the code itself to 30 seconds (15 seconds with lip-sync). Long dubs have their own limit above.</span>
+        </div>
+      </div>
     </div>
 
-    <!-- SETTINGS -->
+    <!-- ===================== VOICE ===================== -->
+    <div class="panel" id="panel-voice">
+      <div class="card">
+        <h3>🎙️ Which engine makes new voices?</h3>
+        <p class="muted" style="margin-bottom:16px;">Decides what a brand-new "Clone voice" or "Upload custom voice" uses for SHORT dubs from now on. A voice that already exists keeps working on the engine that created it — switching never breaks a saved voice, and each voice is charged at the rate of its own engine. Dub Long Video always uses Inworld. Inworld needs <code>INWORLD_API_KEY</code> in Railway; ElevenLabs needs <code>ELEVENLABS_API_KEY</code>. Cancel the ElevenLabs plan only after no saved voice depends on it.</p>
+        <div class="form-group">
+          <label style="display:block;margin-bottom:6px;">Engine for new clones &amp; generation</label>
+          <select id="voiceEngine" style="max-width:300px;" onchange="updateEngineFieldVisibility()">
+            <option value="inworld">Inworld AI (recommended)</option>
+            <option value="elevenlabs">ElevenLabs (legacy)</option>
+          </select>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save voice engine</button>
+      </div>
+
+      <div class="card" id="cardInworld">
+        <h3>Inworld AI <span class="pill" id="pillInworld">—</span> <span class="status-chip" data-status="inworld">—</span></h3>
+        <p class="muted" style="margin-bottom:16px;">Used for: voice cloning and Arabic speech in Dub Long Video (always) and in short dubs (when selected above). Inworld bills by characters of speech; this page cannot read its invoice, so compare the rates below with a real Inworld invoice after a few jobs. Published prices seemed to be roughly $15–35 per million characters, far below what these rates charge.</p>
+        <div class="form-group">
+          <label>Generate: characters per credit</label>
+          <input type="number" id="inworldCharsPerCredit" style="width:120px;" step="5" min="1" max="1000">
+          <span class="muted">Current default: 60. Lower = more expensive for the user (30 charges twice as many credits as 60 for the same text). 60 characters per credit = $100–$166 per million characters at the pack prices.</span>
+        </div>
+        <div class="form-group">
+          <label>Clone / upload custom voice (flat credits per action)</label>
+          <input type="number" id="inworldCloneCredits" style="width:120px;" step="1" min="0" max="1000">
+          <span class="muted">Current default: 5. Inworld has no per-clone fee (it limits the number of stored voices instead), so this only sets what your users pay. Charged for "Clone Selected Voices" and "Upload as this speaker's voice" in short dubs, and once per speaker in a long dub.</span>
+        </div>
+        <div class="form-group">
+          <label>Inworld slot limit (custom voices your Inworld plan allows)</label>
+          <input type="number" id="inworldSlotLimit" style="width:120px;" step="1" min="1" max="1000000">
+          <span class="muted">Inworld does not report this number, so enter your plan's custom-voice slot count (On-Demand: 100). The usage bar below counts your voices against it and you get an e-mail at 75% used. Raise it after you upgrade the Inworld plan.</span>
+        </div>
+        <div class="metric"><div class="label">Custom voice slots</div><div class="value" id="suInworldVoices">—</div></div>
+        <div style="background:#0f172a;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
+          <div id="suInworldBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+        </div>
+        <p class="muted" id="suInworldNote" style="margin:0 0 12px;font-size:0.85em;">—</p>
+        <button class="btn" onclick="savePricing()">💾 Save Inworld settings</button>
+      </div>
+
+      <div class="card" id="cardEleven">
+        <h3>ElevenLabs <span class="pill" id="pillEleven">—</span> <span class="status-chip" data-status="elevenlabs">—</span></h3>
+        <p class="muted" style="margin-bottom:16px;">Legacy engine. Only needed while saved voices created on ElevenLabs still exist, or if you select it above. If you stop paying for ElevenLabs, those old voices stop working. Its rates stay active because an old voice is charged at ElevenLabs' rate for as long as it exists.</p>
+        <div class="form-group">
+          <label>Generate: characters per credit</label>
+          <input type="number" id="charsPerCredit" style="width:120px;" step="5" min="1" max="1000">
+          <span class="muted">Current default: 60. Lower = more expensive.</span>
+        </div>
+        <div class="form-group">
+          <label>Clone / upload custom voice (flat credits per action)</label>
+          <input type="number" id="cloneCredits" style="width:120px;" step="1" min="0" max="1000">
+          <span class="muted">Current default: 5. Charged for "Clone Selected Voices" and "Upload as this speaker's voice", since both use ElevenLabs' paid voice-creation quota.</span>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="elevenAlertsEnabled" style="width:auto;vertical-align:middle;"> Send ElevenLabs quota alert e-mails (character / voice-cloning limits)</label>
+          <span class="muted">Turning it off stops the e-mail only; the numbers below stay live. Takes effect at the next check (about every 20 minutes).</span>
+        </div>
+        <div style="margin-top:6px;"><strong>Usage</strong></div>
+        <div class="metric"><div class="label">Used</div><div class="value" id="suElevenUsed">—</div></div>
+        <div class="metric"><div class="label">Limit</div><div class="value" id="suElevenLimit">—</div></div>
+        <div class="metric"><div class="label">% Used</div><div class="value" id="suElevenPercent">—</div></div>
+        <div style="background:#0f172a;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
+          <div id="suElevenBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+        </div>
+        <p class="muted" id="suElevenNote" style="margin:0;">—</p>
+        <div style="margin-top:10px;">
+          <div class="metric"><div class="label">Cloned voice slots</div><div class="value" id="suElevenVoices">—</div></div>
+          <div style="background:#0f172a;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
+            <div id="suElevenVoiceBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+          </div>
+          <p class="muted" id="suElevenVoiceNote" style="margin:0;font-size:0.85em;">Cloning a new voice fails once this reaches the limit, even with character quota left. A live snapshot: voices are deleted when a job is done with them.</p>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="metric"><div class="label">Voice cloning credits</div><div class="value" id="suElevenCloneOps">—</div></div>
+          <div style="background:#0f172a;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
+            <div id="suElevenCloneOpsBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+          </div>
+          <p class="muted" id="suElevenCloneOpsNote" style="margin:0;font-size:0.85em;">ElevenLabs' own monthly quota for creating voices — the answer to "how many clones do I have left". It does NOT free up when a voice is deleted, only at your next billing-cycle reset, so it can run out while the slots above look empty.</p>
+        </div>
+        <div style="margin-top:14px;"><button class="btn" onclick="savePricing()">💾 Save ElevenLabs settings</button></div>
+      </div>
+    </div>
+
+    <!-- ===================== LIP-SYNC ===================== -->
+    <div class="panel" id="panel-lipsync">
+      <div class="card">
+        <h3>🎬 Lip-sync — Alibaba Wan 3.0 <span class="pill warn">ALPHA</span> <span class="status-chip" data-status="dashscope">—</span></h3>
+        <p class="muted" style="margin-bottom:16px;">The only lip-sync provider is Alibaba Model Studio's Wan 3.0 (<code>wan3.0-video</code>). VEED and Sync Labs are no longer used. Offered for short dubs only (4–15 seconds), marked Alpha on the site and in the terms. The sign-in check above only tells you the keys are set — Alibaba has no free test call. Needs <code>DASHSCOPE_API_KEY</code> and <code>DASHSCOPE_WORKSPACE_ID</code> in Railway, plus Cloudflare R2 (used for temporary files).</p>
+        <div class="form-group">
+          <label>Lip-sync price at 720p (credits per second of video)</label>
+          <input type="number" id="lipsyncCreditsPerSec" style="width:120px;" step="1" min="0" max="1000" oninput="updateLipRates()">
+          <span class="muted">Current default: 40. Users choose 480p, 720p or 1080p: 480p is charged at half this price and 1080p at double (defaults 20 / 40 / 80), because Alibaba bills about 1 : 2 : 4. A 15-second clip at 720p therefore costs the user 600 credits ($3.60–$6.00).</span>
+        </div>
+        <p class="muted" id="lipRatesOut" style="margin-bottom:12px;color:#cbd5e1;">—</p>
+        <p class="muted" style="margin-bottom:12px;">Real cost to you: about $0.1153 per second of video at 720p (measured: $1.73 for a 15-second 720p test), roughly half at 480p. At 40 credits a second the margin is about 52–71% depending on the pack the user bought. <strong>Check Alibaba's price again on 1 November 2026:</strong> the 720p price was a promotion until then, and if it rises, raise the price above.</p>
+        <div class="metric"><div class="label">Est. Alibaba spend this month</div><div class="value" id="suAlibabaUsd">—</div></div>
+        <p class="muted" id="suAlibabaNote" style="margin:6px 0 12px;">Alibaba has no balance API this app can use, so this is an estimate from your own usage log (credits charged ÷ 40 × $0.1153 per second). It becomes approximate if you change the price above or Alibaba changes its prices. The real balance is in the Alibaba Model Studio console.</p>
+        <button class="btn" onclick="savePricing()">💾 Save lip-sync price</button>
+      </div>
+
+      <div class="card off-card">
+        <h3>🚫 Switched off <span class="pill off">not active</span></h3>
+        <div class="form-group">
+          <label>Dub Long Video: longest video WITH lip-sync (minutes)</label>
+          <input type="number" id="longDubLipsyncMaxMin" style="width:120px;" disabled>
+          <span class="muted">No effect. Lip-sync for long videos was switched off because the results were not reliable (<code>LIPSYNC_LONG_ENABLED = False</code> in config.py; the code is kept). To bring it back, set that flag to True — then this limit applies again. Needs the column long_dub_lipsync_max_min.</span>
+        </div>
+        <div class="form-group">
+          <label>Reference photos for lip-sync</label>
+          <span class="muted">Off (<code>LIPSYNC_REF_IMAGES_ENABLED = False</code> in config.py). Users cannot add photos in Step 7.</span>
+        </div>
+        <div class="form-group">
+          <label>VEED / Sync Labs</label>
+          <span class="muted">Retired. The server ignores any other provider in a request, so only Wan 3.0 can be used.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== OTHER SERVICES ===================== -->
+    <div class="panel" id="panel-services">
+      <div class="card">
+        <h3>🔌 Providers — who does what</h3>
+        <p class="muted" style="margin-bottom:12px;">Green = working. Amber = not configured (may be intentional). Red = configured but not responding — that one needs attention. For most providers "OK" only means the key is present; only Supabase, Stripe and Cloudflare R2 are really called.</p>
+        <table>
+          <thead><tr><th>Provider</th><th>Used for</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td>Railway</td><td>Hosting the app (server, disk volume) — see the Server tab</td><td><span class="status-chip" id="hServer" data-status="server">—</span></td></tr>
+            <tr><td>Supabase</td><td>Database (users, credits, orders) and sign-in</td><td><span class="status-chip" data-status="supabase">—</span></td></tr>
+            <tr><td>Stripe</td><td>Payments: credit packs and subscriptions</td><td><span class="status-chip" data-status="stripe">—</span></td></tr>
+            <tr><td>Inworld AI</td><td>Voices and Arabic speech — Voice tab</td><td><span class="status-chip" data-status="inworld">—</span></td></tr>
+            <tr><td>ElevenLabs (legacy)</td><td>Old saved voices, optional engine — Voice tab</td><td><span class="status-chip" data-status="elevenlabs">—</span></td></tr>
+            <tr><td>Alibaba (Wan 3.0)</td><td>Lip-sync — Lip-Sync tab</td><td><span class="status-chip" data-status="dashscope">—</span></td></tr>
+            <tr><td>Google Gemini</td><td>Translation to Arabic and text checks</td><td><span class="status-chip" data-status="gemini">—</span></td></tr>
+            <tr><td>Resend</td><td>E-mail: contact form, file-expiry notices, job e-mails, alerts</td><td><span class="status-chip" data-status="resend">—</span></td></tr>
+            <tr><td>Cloudflare R2</td><td>Backup of finished videos and database, temporary lip-sync files</td><td><span class="status-chip" data-status="r2">—</span></td></tr>
+            <tr><td>Sentry</td><td>Automatic error reports</td><td><span class="status-chip" data-status="sentry">—</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h3>☁️ Cloudflare R2 — storage &amp; backups</h3>
+        <div class="metric"><div class="label">Stored</div><div class="value" id="suR2Bytes">—</div></div>
+        <div class="metric"><div class="label">Objects</div><div class="value" id="suR2Count">—</div></div>
+        <p class="muted" id="suR2Note" style="margin:6px 0 12px;">Real live total. Cloudflare does not tell this app your plan's storage limit, so compare it with your R2 plan in the Cloudflare dashboard.</p>
+        <strong>Database backup</strong>
+        <p class="muted" id="suDbBackup" style="margin:6px 0;">—</p>
+        <p class="muted">Once a day the server copies the Supabase tables with customer and money records (profiles, orders, credit history, invoices, pricing, voices, consents, logs) into the R2 folder <code>db-backups/</code> and keeps 30 days. Login sessions are deliberately not copied. This is a second copy next to Supabase's own backups (Pro plan). Finished videos are backed up to R2 as well.</p>
+      </div>
+
+      <div class="card">
+        <h3>✉️ Resend — e-mail</h3>
+        <div class="metric"><div class="label">Used this month</div><div class="value" id="suResendUsed">—</div></div>
+        <p class="muted" id="suResendNote" style="margin:6px 0 0;">Resend has no quota-check endpoint, so this is the count reported by the last e-mail actually sent (contact form or file-expiry notice), not a live reading. It resets when the server restarts.</p>
+      </div>
+    </div>
+
+    <!-- ===================== SERVER ===================== -->
+    <div class="panel" id="panel-server">
+      <div class="card">
+        <h3>💾 Server Storage (disk volume)</h3>
+        <div class="metric"><div class="label">Used</div><div class="value" id="sUsed">—</div></div>
+        <div class="metric"><div class="label">Free</div><div class="value" id="sFree">—</div></div>
+        <div class="metric"><div class="label">Total</div><div class="value" id="sTotal">—</div></div>
+        <div class="metric"><div class="label">% Used</div><div class="value" id="sPercent">—</div></div>
+        <div style="background:#0f172a;border-radius:8px;height:14px;margin:14px 0 8px;overflow:hidden;">
+          <div id="sBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+        </div>
+        <p class="muted" id="sFinalOutputs">—</p>
+        <p class="muted" id="sBreakdown">—</p>
+        <p class="muted" id="sGuard">—</p>
+      </div>
+      <div class="card">
+        <h3>📈 Railway Memory (RAM)</h3>
+        <div class="metric"><div class="label">Used</div><div class="value" id="rmUsed">—</div></div>
+        <div class="metric"><div class="label">Limit</div><div class="value" id="rmLimit">—</div></div>
+        <div class="metric"><div class="label">% Used</div><div class="value" id="rmPercent">—</div></div>
+        <div style="background:#0f172a;border-radius:8px;height:14px;margin:14px 0 8px;overflow:hidden;">
+          <div id="rmBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
+        </div>
+        <p class="muted" id="rmNote">—</p>
+      </div>
+      <div class="card">
+        <h3>🔔 Server alert e-mails</h3>
+        <p class="muted" style="margin-bottom:16px;">Background monitors e-mail you when something runs high. Turning one off stops that e-mail only — the numbers on this tab stay live. Each takes effect at the monitor's next check (about every 20 minutes). (The ElevenLabs alert is on the Voice tab, the Inworld alert is always on.)</p>
+        <div class="form-group">
+          <label><input type="checkbox" id="railwayAlertsEnabled" style="width:auto;vertical-align:middle;"> Railway memory alerts (RAM is nearly full)</label>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" id="diskAlertsEnabled" style="width:auto;vertical-align:middle;"> Disk-space alerts (the server volume is getting full)</label>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save alert settings</button>
+      </div>
+      <div class="card">
+        <h3>🧠 Memory Diagnostic</h3>
+        <p class="muted" style="margin-bottom:12px;">Click any time, also while memory looks high, to see what the container's memory really holds: real application memory versus reclaimable Linux page cache (files the system cached and frees by itself when needed — not a leak). Added during the September 2026 memory investigation; safe to ignore otherwise.</p>
+        <button class="btn" onclick="loadMemDiag()">🔍 Check memory now</button>
+        <pre id="memDiagOut" style="margin-top:12px;white-space:pre-wrap;font-size:0.85em;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;max-height:400px;overflow:auto;">Click "Check memory now" to run.</pre>
+      </div>
+    </div>
+
+    <!-- ===================== SITE SETTINGS ===================== -->
     <div class="panel" id="panel-settings">
       <div class="card">
         <h3>🛠️ Planned Maintenance Banner</h3>
-        <p class="muted" style="margin-bottom:16px;">Before you update the site (every update restarts the server for a short time), tell users when it may be unavailable. A yellow bar appears at the top of every page, from the moment you save until the "To" time, with the times shown in each visitor's own time zone. Work still running when the server restarts has to be started again, so pick a quiet time. The notice survives the restart and disappears by itself after the "To" time.</p>
+        <p class="muted" style="margin-bottom:16px;">Every update restarts the server for a short time. Use this to tell users in advance: a yellow bar appears at the top of every page from the moment you save until the "To" time, with times shown in each visitor's own time zone. Work still running at the restart has to be started again, so pick a quiet time. The notice survives the restart and disappears by itself after the "To" time.</p>
         <div class="form-group">
           <label><input type="checkbox" id="maintEnabled" style="width:auto;vertical-align:middle;"> Show the maintenance banner</label>
         </div>
@@ -259,31 +451,17 @@ button.btn-success:hover { background: #15803d; }
 
       <div class="card">
         <h3>🔒 Site Access Gate</h3>
-        <p class="muted" style="margin-bottom:16px;">A password wall in front of the ENTIRE site — landing page, login, everything — for while the product is still being tested. Random visitors see an "Under Construction" message instead of the real site; testers with the access code get straight in. The actual password only lives in Railway's <code>SITE_GATE_PASSWORD</code> environment variable (never shown here) — this switch just turns enforcement of it on or off. Leave <code>SITE_GATE_PASSWORD</code> unset in Railway and this switch does nothing either way.</p>
+        <p class="muted" style="margin-bottom:16px;">A password wall in front of the ENTIRE site (landing page, login, everything) while the product is being tested: visitors see an "Under Construction" message, testers with the access code get in. <strong>Turn this off before you launch.</strong> The password itself lives only in Railway's <code>SITE_GATE_PASSWORD</code> variable (never shown here); this switch only turns the check on or off. If that variable is not set, the gate does nothing either way.</p>
         <div class="form-group">
           <label><input type="checkbox" id="siteGateEnabled" style="width:auto;vertical-align:middle;"> Enable the access gate</label>
-          <span class="muted">Takes effect within ~20 seconds of saving. Turn this off any time to instantly reopen the site without touching Railway.</span>
+          <span class="muted">Takes effect within about 20 seconds of saving, and can be switched off instantly without touching Railway.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Gate Setting</button>
       </div>
 
       <div class="card">
-        <h3>🎙️ Voice Engine</h3>
-        <p class="muted" style="margin-bottom:16px;">Which engine powers voice cloning AND generation for every NEW clone from now on. A voice already cloned keeps working forever on whichever engine actually created it — switching this never breaks an existing saved voice, it only decides what a brand-new "Clone Voice" or "Upload Custom Voice" call uses going forward. Inworld needs <code>INWORLD_API_KEY</code> set in Railway before selecting it here.</p>
-        <div class="form-group">
-          <label style="display:block;margin-bottom:6px;">Engine for new clones &amp; generation</label>
-          <select id="voiceEngine" style="max-width:260px;" onchange="updateEngineFieldVisibility()">
-            <option value="elevenlabs">ElevenLabs (default)</option>
-            <option value="inworld">Inworld AI</option>
-          </select>
-          <span class="muted">Also decides which engine's rate fields are shown under 💵 What Each Step Actually Charges (Pricing tab).</span>
-        </div>
-        <button class="btn" onclick="savePricing()">💾 Save Voice Engine</button>
-      </div>
-
-      <div class="card">
         <h3>🎨 App Appearance</h3>
-        <p class="muted" style="margin-bottom:16px;">Which visual style the main app workspace (/app) and account page (/account) use. "New" is the ElevenLabs-inspired redesign -- purely cosmetic, nothing functional changes, and switching back to Classic is instant and fully reversible (no data or settings are affected either way). Takes effect for a user on their next page load.</p>
+        <p class="muted" style="margin-bottom:16px;">The visual style of the main workspace (/app) and the account page (/account). "New" is the ElevenLabs-inspired redesign. Purely cosmetic: no data or settings change, and switching back is instant. Takes effect on a user's next page load.</p>
         <div class="form-group">
           <label style="display:block;margin-bottom:6px;">UI style</label>
           <select id="uiStyle" style="max-width:260px;">
@@ -295,37 +473,21 @@ button.btn-success:hover { background: #15803d; }
       </div>
 
       <div class="card">
-        <h3>🔔 Automatic Alert Emails</h3>
-        <p class="muted" style="margin-bottom:16px;">Two independent background monitors email you when something is running high. Turning either off stops that email only — polling keeps running and the Health tab below still shows live numbers either way, so you lose nothing by checking there instead of your inbox. Mainly useful if these emails are eating into your Resend account's free send quota.</p>
-        <div class="form-group">
-          <label><input type="checkbox" id="elevenAlertsEnabled" style="width:auto;vertical-align:middle;"> Send ElevenLabs quota alerts (character / voice-cloning limits)</label>
-        </div>
-        <div class="form-group">
-          <label><input type="checkbox" id="railwayAlertsEnabled" style="width:auto;vertical-align:middle;"> Send Railway memory alerts</label>
-        </div>
-        <div class="form-group">
-          <label><input type="checkbox" id="diskAlertsEnabled" style="width:auto;vertical-align:middle;"> Send disk-space alerts (the server volume is getting full)</label>
-          <span class="muted">Each takes effect on that monitor's next poll (every ~20 minutes), not instantly.</span>
-        </div>
-        <button class="btn" onclick="savePricing()">💾 Save Alert Settings</button>
-      </div>
-
-      <div class="card">
         <h3>📊 Analytics</h3>
         <div class="form-group">
           <label>Google Analytics 4 Measurement ID</label>
           <input type="text" id="gaMeasurementId" style="width:220px;" placeholder="G-XXXXXXXXXX">
-          <span class="muted">Paste either the bare ID (like G-XXXXXXXXXX) or the whole install snippet Google gives you — either works, we pull the ID out automatically. Turns on visitor tracking on the public landing page (lisanai.org). Leave blank to keep it off. Get a free ID at analytics.google.com.</span>
+          <span class="muted">Paste the bare ID (G-XXXXXXXXXX) or the whole snippet Google gives you; the ID is extracted automatically. Turns on visitor tracking on the public landing page. Leave blank to keep it off. Free ID at analytics.google.com. Mention it in your privacy policy if you switch it on.</span>
         </div>
         <button class="btn" onclick="savePricing()">💾 Save Analytics Setting</button>
       </div>
     </div>
 
-    <!-- AUDIT -->
+    <!-- ===================== LOGS ===================== -->
     <div class="panel" id="panel-audit">
       <div class="card">
         <h3>📜 Credit Adjustments Audit Log</h3>
-        <p class="muted" style="margin-bottom:12px;">All manual credit grants/deductions by admin are logged here.</p>
+        <p class="muted" style="margin-bottom:12px;">Every manual credit grant, deduction or "Set" done by an admin (Users tab), with the reason typed at the time. The newest 100 are shown.</p>
         <table>
           <thead><tr><th>Time</th><th>Admin</th><th>Target User</th><th>Delta</th><th>Reason</th></tr></thead>
           <tbody id="auditTable"><tr><td colspan="5" class="muted">Loading...</td></tr></tbody>
@@ -333,7 +495,7 @@ button.btn-success:hover { background: #15803d; }
       </div>
       <div class="card">
         <h3>🎞️ Dub Long Video — job log</h3>
-        <p class="muted" style="margin-bottom:12px;">Every step of every long dub (upload, estimate, terms accepted, each analysis and dubbing step, charges, refunds, voice deletion, emails) with success or failure. Search by job id (or its first characters) or by the user's email; leave empty for the newest events.</p>
+        <p class="muted" style="margin-bottom:12px;">Every step of every long dub (upload, estimate, terms accepted, each analysis and dubbing step, charges, refunds, voice deletion, e-mails) with success or failure. Search by job id (or its first characters) or by the user's e-mail; leave empty for the newest events. Click a job id in the table to put it in the search box.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <input type="text" id="ldLogQuery" placeholder="job id or user email" style="max-width:340px;">
           <label class="muted" style="display:flex;align-items:center;gap:6px;">From <input type="date" id="ldLogFrom" style="max-width:160px;"></label>
@@ -341,116 +503,13 @@ button.btn-success:hover { background: #15803d; }
           <button class="btn" onclick="loadLongDubLog()">Search</button>
           <button class="btn" onclick="ldLogToday()" title="Only today (UTC)">Today</button>
           <button class="btn" onclick="ldLogClear()" title="Clear the search and the dates">Clear</button>
-          <button class="btn" onclick="downloadLipDebug()" title="Type a job id (or click a job in the table), then download the picture + sound sent to the lip-sync engine for each clip, and what it returned (kept 7 days)">Lip-sync files (zip)</button>
+          <button class="btn" onclick="downloadLipDebug()" title="Only for old jobs made with lip-sync: the picture and sound sent to the lip-sync engine for each clip, and what it returned (kept 7 days)">Lip-sync files (zip)</button>
         </div>
         <p class="muted" id="ldLogNote"></p>
         <table>
           <thead><tr><th>Time (UTC)</th><th>Job</th><th>Step</th><th>Result</th><th>Credits</th><th>Details</th></tr></thead>
           <tbody id="ldLogTable"><tr><td colspan="6" class="muted">Press Search.</td></tr></tbody>
         </table>
-      </div>
-    </div>
-
-    <!-- HEALTH -->
-    <div class="panel" id="panel-health">
-      <div class="card">
-        <h3>❤️ System Health</h3>
-        <div class="metric"><div class="label">Server Status</div><div class="value" id="hServer">—</div></div>
-        <div class="metric"><div class="label">Supabase</div><div class="value" id="hSupabase">—</div></div>
-        <div class="metric"><div class="label">ElevenLabs</div><div class="value" id="hEleven">—</div></div>
-        <div class="metric"><div class="label">Gemini</div><div class="value" id="hGemini">—</div></div>
-        <div class="metric"><div class="label">DashScope (Alibaba)</div><div class="value" id="hDashscope">—</div></div>
-        <div class="metric"><div class="label">Stripe</div><div class="value" id="hStripe">—</div></div>
-        <div class="metric"><div class="label">Resend</div><div class="value" id="hResend">—</div></div>
-        <div class="metric"><div class="label">Cloudflare R2</div><div class="value" id="hR2">—</div></div>
-        <div class="metric"><div class="label">Sentry</div><div class="value" id="hSentry">—</div></div>
-        <p class="muted" style="margin-top:10px;">Amber = not configured (may be intentional). Red = configured but not responding -- that one needs attention.</p>
-      </div>
-      <div class="card">
-        <h3>💾 Server Storage</h3>
-        <div class="metric"><div class="label">Used</div><div class="value" id="sUsed">—</div></div>
-        <div class="metric"><div class="label">Free</div><div class="value" id="sFree">—</div></div>
-        <div class="metric"><div class="label">Total</div><div class="value" id="sTotal">—</div></div>
-        <div class="metric"><div class="label">% Used</div><div class="value" id="sPercent">—</div></div>
-        <div style="background:#1e293b;border-radius:8px;height:14px;margin:14px 0 8px;overflow:hidden;">
-          <div id="sBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
-        </div>
-        <p class="muted" id="sFinalOutputs">—</p>
-        <p class="muted" id="sBreakdown">—</p>
-        <p class="muted" id="sGuard">—</p>
-      </div>
-      <div class="card">
-        <h3>🔌 Service Usage</h3>
-        <p class="muted" style="margin-bottom:12px;">What each third-party service is actually using right now, so you can see which one needs a plan/credit top-up before a user hits an error. Not all of these have a real "remaining balance" API -- see the note under each one.</p>
-
-        <div style="margin-bottom:16px;">
-          <strong>ElevenLabs (voice generation)</strong>
-          <div class="metric"><div class="label">Used</div><div class="value" id="suElevenUsed">—</div></div>
-          <div class="metric"><div class="label">Limit</div><div class="value" id="suElevenLimit">—</div></div>
-          <div class="metric"><div class="label">% Used</div><div class="value" id="suElevenPercent">—</div></div>
-          <div style="background:#1e293b;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
-            <div id="suElevenBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
-          </div>
-          <p class="muted" id="suElevenNote" style="margin:0;">—</p>
-          <div style="margin-top:10px;">
-            <div class="metric"><div class="label">Cloned voice slots</div><div class="value" id="suElevenVoices">—</div></div>
-            <div style="background:#1e293b;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
-              <div id="suElevenVoiceBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
-            </div>
-            <p class="muted" id="suElevenVoiceNote" style="margin:0;font-size:0.85em;">Cloning a new speaker's voice fails once this hits the limit, even with character quota left. This is a live snapshot, not cumulative -- the app deletes each cloned voice once a job is done with it, so this number stays low even after heavy use.</p>
-          </div>
-          <div style="margin-top:10px;">
-            <div class="metric"><div class="label">Voice cloning credits</div><div class="value" id="suElevenCloneOps">—</div></div>
-            <div style="background:#1e293b;border-radius:8px;height:10px;margin:6px 0 4px;overflow:hidden;">
-              <div id="suElevenCloneOpsBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
-            </div>
-            <p class="muted" id="suElevenCloneOpsNote" style="margin:0;font-size:0.85em;">This is ElevenLabs' real monthly quota for creating/editing voices -- and it's the one that answers "how many clones do I have left." Unlike the voice slots above, it does NOT free up when a cloned voice is deleted, only on your next billing-cycle reset -- so this can hit its limit even while the slots above look nearly empty.</p>
-          </div>
-        </div>
-
-        <div style="margin-bottom:16px;">
-          <strong>Inworld AI (voice cloning storage)</strong>
-          <div class="metric"><div class="label">Custom voice slots</div><div class="value" id="suInworldVoices">—</div></div>
-          <div style="background:#1e293b;border-radius:8px;height:14px;margin:10px 0 6px;overflow:hidden;">
-            <div id="suInworldBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
-          </div>
-          <p class="muted" id="suInworldNote" style="margin:0;font-size:0.85em;">—</p>
-        </div>
-
-        <div style="margin-bottom:16px;">
-          <strong>Alibaba / DashScope (lip-sync, Step 7)</strong>
-          <div class="metric"><div class="label">Est. spend this month</div><div class="value" id="suAlibabaUsd">—</div></div>
-          <p class="muted" id="suAlibabaNote" style="margin:0;">Alibaba has no "remaining balance" API reachable with the current key -- this is an estimate computed from your own lip-sync usage logs (credits charged ÷ 40 × $0.1153/sec), not a live balance. Check the actual balance in the Alibaba Model Studio console.</p>
-        </div>
-
-        <div style="margin-bottom:16px;">
-          <strong>Resend (email)</strong>
-          <div class="metric"><div class="label">Used this month</div><div class="value" id="suResendUsed">—</div></div>
-          <p class="muted" id="suResendNote" style="margin:0;">Resend has no quota-check endpoint -- this is the count from the last email actually sent (contact form or file-expiry notice), not a live reading.</p>
-        </div>
-
-        <div>
-          <strong>Cloudflare R2 (file storage)</strong>
-          <div class="metric"><div class="label">Stored</div><div class="value" id="suR2Bytes">—</div></div>
-          <div class="metric"><div class="label">Objects</div><div class="value" id="suR2Count">—</div></div>
-          <p class="muted" id="suR2Note" style="margin:0;">Real live total. Cloudflare's API doesn't expose your plan's storage limit here, so compare this against your actual R2 plan in the Cloudflare dashboard.</p>
-        </div>
-      </div>
-      <div class="card">
-        <h3>📈 Railway Memory</h3>
-        <div class="metric"><div class="label">Used</div><div class="value" id="rmUsed">—</div></div>
-        <div class="metric"><div class="label">Limit</div><div class="value" id="rmLimit">—</div></div>
-        <div class="metric"><div class="label">% Used</div><div class="value" id="rmPercent">—</div></div>
-        <div style="background:#1e293b;border-radius:8px;height:14px;margin:14px 0 8px;overflow:hidden;">
-          <div id="rmBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
-        </div>
-        <p class="muted" id="rmNote">—</p>
-      </div>
-      <div class="card">
-        <h3>🧠 Memory Diagnostic <span class="muted" style="font-weight:normal;font-size:0.8em;">(temporary -- Sept 2026 investigation)</span></h3>
-        <p class="muted" style="margin-bottom:12px;">Click any time -- including right now, while the plateau is sitting there -- to see a real breakdown of what the container's memory is actually holding: real application memory vs. reclaimable Linux page cache (the OS caching model/library files it already read, which isn't a leak and gets freed automatically if something else needs the RAM).</p>
-        <button class="btn" onclick="loadMemDiag()">🔍 Check memory now</button>
-        <pre id="memDiagOut" style="margin-top:12px;white-space:pre-wrap;font-size:0.85em;background:#0f172a;color:#e2e8f0;padding:12px;border-radius:8px;max-height:400px;overflow:auto;">Click "Check memory now" to run.</pre>
       </div>
     </div>
 
@@ -669,23 +728,67 @@ function slugifyPackKey(name) {
 }
 
 function updateEngineFieldVisibility() {
-  // Shows only the currently-selected engine's rate fields under 💵 What
-  // Each Step Actually Charges -- called on page load (after loadPricing
-  // sets the select's value) and on the Voice Engine select's own onchange.
-  // Purely a display toggle -- both engines' saved values are always kept
-  // and sent on every save regardless of which is visible right now.
+  // Voice tab: marks which engine new clones use. Both engines' rate fields
+  // are always visible (each on its own card) and always saved.
   const sel = document.getElementById('voiceEngine');
-  const isInworld = sel && sel.value === 'inworld';
-  const el = document.getElementById('pricingElevenlabsFields');
-  const il = document.getElementById('pricingInworldFields');
-  if (el) el.style.display = isInworld ? 'none' : '';
-  if (il) il.style.display = isInworld ? '' : 'none';
+  const isInworld = !sel || sel.value === 'inworld';
+  const set = (id, on) => { const el = document.getElementById(id); if (!el) return; el.textContent = on ? 'USED FOR NEW CLONES' : 'not selected for new clones'; el.className = 'pill ' + (on ? 'on' : ''); };
+  set('pillInworld', isInworld);
+  set('pillEleven', !isInworld);
+  const ci = document.getElementById('cardInworld'), ce = document.getElementById('cardEleven');
+  if (ci) ci.style.opacity = isInworld ? '1' : '0.85';
+  if (ce) ce.style.opacity = isInworld ? '0.85' : '1';
 }
 
+// Price per credit the customer really pays: from the cheapest to the dearest credit pack.
+function packRateRange() {
+  const rates = [];
+  document.querySelectorAll('#packsTable tr').forEach(tr => {
+    const inp = tr.querySelectorAll('input');
+    if (inp.length < 6) return;
+    const c = parseFloat(inp[2].value), p = parseFloat(inp[3].value);
+    if (c > 0 && p > 0) rates.push(p / c);
+  });
+  if (!rates.length) return { lo: 0.006, hi: 0.01 };
+  return { lo: Math.min(...rates), hi: Math.max(...rates) };
+}
+function usd(n) { return '$' + n.toFixed(n < 1 ? 3 : 2); }
+
+function updateLdExample() {
+  const out = document.getElementById('ldExOut');
+  if (!out) return;
+  const g = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? 0 : v; };
+  const min = Math.max(0.5, g('ldExMin') || 10);
+  const fee = g('transcribeCredits'), analysis = Math.ceil(min * g('longDubAnalysisPerMin')), flat = g('longDubFlatCredits');
+  const cpc = Math.max(1, g('inworldCharsPerCredit') || 60);
+  const voice = Math.ceil(min * 1000 / cpc), clones = 2 * g('inworldCloneCredits'), merge = Math.max(1, g('mergeCredits'));
+  const total = fee + analysis + flat + voice + clones + merge;
+  const r = packRateRange();
+  out.textContent = 'A ' + min + '-minute video: estimate fee ' + fee + ' + analysis ' + analysis + ' + processing fee ' + flat + ' + voice ≈ ' + voice +
+    ' + 2 voice clones ' + clones + ' + final assembly ' + merge + ' = ≈ ' + total + ' credits (' + usd(total * r.lo) + ' – ' + usd(total * r.hi) + ' depending on the credit pack).';
+}
+
+function updateLipRates() {
+  const out = document.getElementById('lipRatesOut');
+  if (!out) return;
+  const p = parseFloat(document.getElementById('lipsyncCreditsPerSec')?.value) || 0;
+  const r = packRateRange();
+  const line = (label, f) => label + ': ' + (p * f) + ' credits/sec (' + usd(p * f * r.lo) + ' – ' + usd(p * f * r.hi) + ' per second)';
+  out.textContent = line('480p', 0.5) + '  ·  ' + line('720p', 1) + '  ·  ' + line('1080p', 2);
+}
+
+document.addEventListener('input', e => {
+  const id = e.target && e.target.id;
+  if (['ldExMin', 'transcribeCredits', 'mergeCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'inworldCharsPerCredit', 'inworldCloneCredits'].includes(id)) updateLdExample();
+  if (e.target && e.target.closest && e.target.closest('#packsTable')) { updateLdExample(); updateLipRates(); }
+});
+
+let pricingLoaded = false;
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
-  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','longDubMaxMin','longDubAnalysisPerMin','longDubLipsyncMaxMin','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
+  pricingLoaded = true;
+  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','longDubMaxMin','longDubAnalysisPerMin','longDubFlatCredits','longDubLipsyncMaxMin','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   // Checkbox, not a text/number field -- .checked, not .value, and defaults
@@ -730,9 +833,12 @@ async function loadPricing() {
     </tr>`;
   });
   document.getElementById('plansTable').innerHTML = planHtml || '<tr><td colspan="8" class="muted">No tiers</td></tr>';
+  updateLdExample(); updateLipRates();
 }
 
 async function savePricing() {
+  // Every Save button saves ALL settings at once, so never save before the current values have been loaded.
+  if (!pricingLoaded) { toast('The current settings have not loaded yet — please reload the page.', true); return; }
   // Build packs fresh from the input fields (don't trust cached state)
   const packs = [];
   const seenKeys = {};
@@ -811,6 +917,7 @@ async function savePricing() {
     inworldCloneCredits: parseInt(document.getElementById('inworldCloneCredits')?.value || '5'),
     inworldSlotLimit: parseInt(document.getElementById('inworldSlotLimit')?.value || '100') || 100,
     longDubMaxMin: parseInt(document.getElementById('longDubMaxMin')?.value || '10') || 10,
+    longDubFlatCredits: (function(){ const v = parseInt(document.getElementById('longDubFlatCredits')?.value); return isNaN(v) ? 10 : Math.max(0, v); })(),
     longDubLipsyncMaxMin: parseInt(document.getElementById('longDubLipsyncMaxMin')?.value || '3') || 3,
     longDubAnalysisPerMin: (function(){ const v = parseFloat(document.getElementById('longDubAnalysisPerMin')?.value); return isNaN(v) ? 2 : v; })(),
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
@@ -946,21 +1053,39 @@ async function loadHealth() {
   const r = await api('/api/admin/health');
   if (!r.ok) return;
   const map = { ok: '#16a34a', fail: '#dc2626', not_configured: '#f59e0b', '?': '#64748b' };
-  const setStatus = (id, val) => {
-    const el = document.getElementById(id);
-    el.textContent = (val || '?').toUpperCase();
-    el.style.color = map[val] || '#dc2626';
+  // A provider's status can be shown in more than one place (its own tab and the Other Services table).
+  const setStatus = (key, val) => {
+    document.querySelectorAll('[data-status="' + key + '"]').forEach(el => {
+      el.textContent = (val || '?').toUpperCase().replace('_', ' ');
+      el.style.color = map[val] || '#dc2626';
+    });
   };
-  document.getElementById('hServer').textContent = '✓ OK';
-  document.getElementById('hServer').style.color = '#16a34a';
-  setStatus('hSupabase', r.data.supabase);
-  setStatus('hEleven', r.data.elevenlabs);
-  setStatus('hGemini', r.data.gemini);
-  setStatus('hDashscope', r.data.dashscope);
-  setStatus('hStripe', r.data.stripe);
-  setStatus('hResend', r.data.resend);
-  setStatus('hR2', r.data.r2);
-  setStatus('hSentry', r.data.sentry);
+  setStatus('server', 'ok');
+  const srv = document.getElementById('hServer'); if (srv) srv.textContent = '✓ OK';
+  setStatus('supabase', r.data.supabase);
+  setStatus('inworld', r.data.inworld);
+  setStatus('elevenlabs', r.data.elevenlabs);
+  setStatus('gemini', r.data.gemini);
+  setStatus('dashscope', r.data.dashscope);
+  setStatus('stripe', r.data.stripe);
+  setStatus('resend', r.data.resend);
+  setStatus('r2', r.data.r2);
+  setStatus('sentry', r.data.sentry);
+  const bk = document.getElementById('suDbBackup');
+  if (bk) {
+    const b = r.data.db_backup;
+    if (b && b.date) {
+      const rows = b.rows ? Object.values(b.rows).reduce((a, n) => a + n, 0) : 0;
+      bk.textContent = 'Last complete database backup: ' + b.date + ' (' + rows.toLocaleString() + ' rows from ' + (b.rows ? Object.keys(b.rows).length : 0) + ' tables).';
+      bk.style.color = '#16a34a';
+    } else if (r.data.r2 === 'ok') {
+      bk.textContent = 'No complete database backup found yet. The first one is made within about 15 minutes after the server starts with R2 and Supabase configured; if this stays empty after a day, check the server log for "[db-backup]".';
+      bk.style.color = '#f59e0b';
+    } else {
+      bk.textContent = 'Not possible: Cloudflare R2 is not reachable or not configured.';
+      bk.style.color = '#dc2626';
+    }
+  }
 }
 
 async function loadStorage() {

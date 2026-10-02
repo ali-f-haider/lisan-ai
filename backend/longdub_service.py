@@ -85,7 +85,7 @@ SAMPLE_RATE = 44100
 MAX_SPEAKERS = 8
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
-TERMS_VERSION = "2026-10-03"
+TERMS_VERSION = "2026-10-03-flat"
 
 # Time estimates: how many seconds of work per second of video, until real
 # measurements from finished jobs replace these (see _record_speed).
@@ -356,6 +356,9 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None)
     runs. cfg = Hooks.pricing():
       fee               -- small fixed charge for producing this estimate
       analysis_per_min  -- transcribe + speaker detection + translate, per minute
+      flat              -- flat processing fee per long dub (server time: the same
+                           for a 2-minute and a 40-minute video), charged together
+                           with the analysis when the user accepts
       chars_per_credit  -- text-to-speech rate
       clone_credits     -- per cloned speaker voice
       merge_credits     -- final assembly
@@ -368,6 +371,7 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None)
     speakers = max(1, min(MAX_SPEAKERS, int(speakers or 2)))
     fee = int(cfg.get("fee", 3))
     analysis = int(math.ceil(minutes * float(cfg.get("analysis_per_min", 2))))
+    flat = max(0, int(cfg.get("flat", 0) or 0))
     cpc = max(1, int(cfg.get("chars_per_credit", 60)))
     voice = int(math.ceil(minutes * EST_CHARS_PER_MIN / cpc))
     clone_each = int(cfg.get("clone_credits", 5))
@@ -375,9 +379,9 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None)
     merge = max(1, int(cfg.get("merge_credits", 1)))
     per_sec = _lip_rate(cfg, lip_res)
     lip = int(math.ceil(max(0.0, float(duration_sec)) * per_sec)) if lipsync else 0
-    total = fee + analysis + voice + clones + merge + lip
+    total = fee + analysis + flat + voice + clones + merge + lip
     return {
-        "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "voice": voice,
+        "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "voice": voice,
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
         "speakers": speakers, "assumed_speakers": speakers,
         "lipsync_wanted": bool(lipsync), "lipsync": lip, "lipsync_per_sec": per_sec if lipsync else 0,
@@ -644,7 +648,11 @@ def accept(job, uid, agreed=False):
     if not agreed:
         return False, ("Please tick the box to confirm you have read the terms of this offer.", 400)
     est = job["estimate"]
-    need_now = est["analysis"]
+    # The flat processing fee is paid together with the analysis (that is when
+    # most of the server work happens) and is booked under paid["analysis"], so
+    # refunds and the "already paid" line treat it like the rest of that part.
+    # Estimates made before the flat fee existed have no "flat" key (= 0).
+    need_now = int(est["analysis"]) + int(est.get("flat", 0) or 0)
     bal = Hooks.get_credits(uid)
     # He must be able to cover the whole estimate (minus what he already paid)
     # to proceed -- the exact voice cost is confirmed later after editing.

@@ -324,6 +324,7 @@ var T = {
     estLipRow: "Lip-sync (highest possible price)", estLipSub: function (perSec) { return perSec + " credits per second, only for the parts where somebody speaks. The exact price is shown before dubbing."; },
     estFeeRow: "Estimate fee (already paid)", estFeeSub: "Counts toward the total",
     estAnalysisRow: "Transcribe, detect speakers and translate", estAnalysisSub: "Charged when you accept",
+    estFlatRow: "Processing fee", estFlatSub: "Flat fee per video, charged when you accept",
     estVoiceRow: "Arabic voice generation (about)", estVoiceSub: "Final price is calculated from your edited text",
     estCloneRow: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; }, estCloneSub: "Charged for each speaker whose voice is cloned",
     estMergeRow: "Final assembly", estMergeSub: "",
@@ -335,7 +336,7 @@ var T = {
     },
     estBalance: function (b) { return "Your balance: " + b + " credits"; },
     estAlready: function (n) { return "You have already paid " + n + " credits for this estimate — it counts toward the total."; },
-    estNow: function (n) { return "If you accept, " + n + " credits are charged now for the analysis. The rest is charged only after you review the text and confirm the exact price."; },
+    estNow: function (n) { return "If you accept, " + n + " credits are charged now for the analysis and processing. The rest is charged only after you review the text and confirm the exact price."; },
     estDeclineNote: "If you don't accept, that is all you pay.",
     termsHeading: "What you get, and the conditions",
     terms: function (e) {
@@ -421,7 +422,7 @@ var T = {
     priceTashkeel: function (n) { return "✍️ Tashkeel was added to " + n + " line" + (n === 1 ? "" : "s") + " that had none. Check the lines above and the new price."; },
     priceLines: function (n, chars) { return n + " lines · " + chars + " characters of Arabic"; },
     priceVoice: "Arabic voice generation", priceClones: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; },
-    priceMerge: "Final assembly", priceDue: "To pay now", priceAlready: function (n) { return "Already paid (estimate + analysis): " + n; },
+    priceMerge: "Final assembly", priceDue: "To pay now", priceAlready: function (n) { return "Already paid (estimate, analysis and processing): " + n; },
     priceLipRow: function (l) { return "Lip-sync: " + l.clips + " clip" + (l.clips === 1 ? "" : "s") + ", " + l.seconds + " s × " + l.per_sec + (l.resolution ? " · " + l.resolution.replace("P", "p") : ""); },
     priceLipShort: function (n) { return "ℹ️ " + n + " very short speaking moment(s) between clips cannot be lip-synced and keep the original picture."; },
     priceLipNone: "ℹ️ No stretch of speech is long enough to be lip-synced, so nothing is charged for lip-sync.",
@@ -521,6 +522,7 @@ var T = {
     estLipRow: "مزامنة الشفاه (أعلى سعر ممكن)", estLipSub: function (perSec) { return perSec + " رصيد لكل ثانية، فقط للمقاطع التي يتحدث فيها أحد. يظهر السعر الدقيق قبل بدء الدبلجة."; },
     estFeeRow: "رسم التقدير (مدفوع)", estFeeSub: "يُحتسب من الإجمالي",
     estAnalysisRow: "التفريغ وتحديد المتحدثين والترجمة", estAnalysisSub: "يُخصم عند الموافقة",
+    estFlatRow: "رسم المعالجة", estFlatSub: "رسم ثابت لكل فيديو، يُخصم عند الموافقة",
     estVoiceRow: "توليد الصوت العربي (تقريباً)", estVoiceSub: "السعر النهائي يُحسب من النص بعد تعديلك",
     estCloneRow: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; }, estCloneSub: "يُحتسب لكل متحدث يُستنسخ صوته",
     estMergeRow: "التجميع النهائي", estMergeSub: "",
@@ -532,7 +534,7 @@ var T = {
     },
     estBalance: function (b) { return "رصيدك: " + b + " رصيد"; },
     estAlready: function (n) { return "دفعت مسبقاً " + n + " رصيد لهذا التقدير — ويُحتسب من الإجمالي."; },
-    estNow: function (n) { return "عند الموافقة يُخصم " + n + " رصيد الآن للتحليل. والباقي لا يُخصم إلا بعد أن تراجع النص وتؤكد السعر النهائي."; },
+    estNow: function (n) { return "عند الموافقة يُخصم " + n + " رصيد الآن للتحليل والمعالجة. والباقي لا يُخصم إلا بعد أن تراجع النص وتؤكد السعر النهائي."; },
     estDeclineNote: "إذا لم توافق فهذا كل ما تدفعه.",
     termsHeading: "ماذا تحصل عليه، والشروط",
     terms: function (e) {
@@ -618,7 +620,7 @@ var T = {
     priceTashkeel: function (n) { return "✍️ أُضيف التشكيل إلى " + n + " سطراً لم يكن فيه تشكيل. راجع الأسطر أعلاه والسعر الجديد."; },
     priceLines: function (n, chars) { return n + " سطر · " + chars + " حرفاً عربياً"; },
     priceVoice: "توليد الصوت العربي", priceClones: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; },
-    priceMerge: "التجميع النهائي", priceDue: "المطلوب الآن", priceAlready: function (n) { return "المدفوع مسبقاً (التقدير + التحليل): " + n; },
+    priceMerge: "التجميع النهائي", priceDue: "المطلوب الآن", priceAlready: function (n) { return "المدفوع مسبقاً (التقدير + التحليل + المعالجة): " + n; },
     priceLipRow: function (l) { return "مزامنة الشفاه: " + l.clips + " مقطعاً، " + l.seconds + " ث × " + l.per_sec + (l.resolution ? " · " + l.resolution.replace("P", "p") : ""); },
     priceLipShort: function (n) { return "ℹ️ " + n + " لحظة كلام قصيرة جداً بين المقاطع لا يمكن مزامنة شفاهها وتبقى بالصورة الأصلية."; },
     priceLipNone: "ℹ️ لا توجد فترة كلام طويلة بما يكفي لمزامنة الشفاه، فلا يُحتسب شيء لمزامنة الشفاه.",
@@ -978,6 +980,7 @@ function renderEstimate(j) {
   h += '<table class="ld-table">';
   h += row(T.estFeeRow, T.estFeeSub, e.fee);
   h += row(T.estAnalysisRow, T.estAnalysisSub, e.analysis);
+  if (e.flat) h += row(T.estFlatRow, T.estFlatSub, e.flat);
   h += row(T.estVoiceRow, T.estVoiceSub, "≈ " + e.voice);
   h += row(T.estCloneRow(n, e.clone_each), T.estCloneSub, e.clones);
   if (lipOn) h += row(T.estLipRow, T.estLipSub(e.lipsync_per_sec), "≤ " + e.lipsync);
@@ -988,7 +991,7 @@ function renderEstimate(j) {
   if (e.times) h += "<p class='ld-times'>" + esc(T.estTimes(e.times)) + "</p>";
   h += "<p style='font-weight:600;'>" + esc(bal === null || bal === undefined ? "" : T.estBalance(bal)) + "</p>";
   if (paid) h += "<p class='note'>" + esc(T.estAlready(paid)) + " " + esc(T.estDeclineNote) + "</p>";
-  h += "<p class='note'>" + esc(T.estNow(e.analysis || 0)) + "</p>";
+  h += "<p class='note'>" + esc(T.estNow((e.analysis || 0) + (e.flat || 0))) + "</p>";
   h += '<div class="ld-terms"><h4>' + esc(T.termsHeading) + "</h4><ul>" + T.terms(e).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
        '<label class="ld-agree"><input type="checkbox" id="agreeBox"><span>' + esc(T.agree) + "</span></label></div>";
   if (short) h += "<p class='ld-err'>" + esc(T.notEnough(remaining, bal)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
