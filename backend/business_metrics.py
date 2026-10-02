@@ -23,6 +23,8 @@ import time
 import urllib.parse
 import urllib.request
 
+import alibaba_cost
+
 PAGE = 1000
 MAX_ROWS = 30000          # per table; "truncated" is reported when hit
 STRIPE_MAX_CHARGES = 3000
@@ -82,7 +84,7 @@ class _Fetcher:
         self.warnings = []
         self.truncated = []
 
-    def rows(self, table, select="*", params="", order="created_at.desc", cap=MAX_ROWS):
+    def rows(self, table, select="*", params="", order="created_at.desc", cap=MAX_ROWS, soft=False):
         if not self.url or not self.key:
             self.warnings.append(f"{table}: Supabase is not configured")
             return []
@@ -98,6 +100,8 @@ class _Fetcher:
                 with urllib.request.urlopen(req, timeout=25) as r:
                     page = json.load(r) or []
             except Exception as e:
+                if soft:                         # optional columns: the caller retries without them
+                    return None
                 if ordered and offset == 0:      # a table without that column: read it unordered
                     ordered = False
                     continue
@@ -219,7 +223,9 @@ def compute(ctx, days=30):
     spends = f.rows("credit_spends", select="uid,action,credits,generated_seconds,created_at,job_id", params=gte)
     steps_in = ",".join(("upload_started", "terms_accepted", "dub_confirmed", "output_saved") + LONGDUB_CORE_STEPS)
     events = f.rows("long_dub_events", select="job_id,step,status,created_at", params=gte + f"&step=in.({steps_in})")
-    lip_runs = f.rows("lipsync_runs", select="status,resolution,created_at", params=gte)
+    lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at,billed_seconds", params=gte, soft=True)
+    if lip_runs is None:                      # the billed_seconds column has not been added yet
+        lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at", params=gte)
 
     if p_start is None:                       # all time: from the first thing we know about
         firsts = [_day(r.get("created_at")) for r in profiles + orders + invoices + spends if _day(r.get("created_at"))]
@@ -550,7 +556,13 @@ def compute(ctx, days=30):
     analysis_rows = action_count_p.get("long_dub_analysis", 0)
     ld_minutes = max(0.0, action_credits_p.get("long_dub_analysis", 0) - analysis_rows * flat) / analysis_rate if analysis_rate > 0 else 0.0
     lip_rate = _num(pricing.get("lipsyncCreditsPerSec"), 40) or 40
+    lip_est = alibaba_cost.estimate([r for r in spends if r.get("action") == "lipsync"], lip_runs, lip_rate,
+                                    start_day=ps, end_day=pe, today=now.strftime("%Y-%m-%d"))
     cost_inputs = {
+        "lipsync_usd": lip_est["estimated_usd"],
+        "lipsync_usd_without_promo": lip_est["usd_without_promo"],
+        "lipsync_runs": lip_est["runs"],
+        "lipsync_runs_assumed": lip_est["runs_assumed"],
         "voice_chars": round(action_credits_p.get("generate", 0) * cpc + ld_voice_credits * iw_cpc),
         "lipsync_seconds": round(action_credits_p.get("lipsync", 0) / lip_rate, 1),
         "longdub_minutes": round(ld_minutes, 1),

@@ -12,6 +12,7 @@ from pathlib import Path
 
 import urllib3
 
+import alibaba_cost
 import r2_backup
 from config import OUTPUT_DIR, LIPSYNC_TEST_MODE, APP_VERSION, LIPSYNC_REF_IMAGES_ENABLED
 from app_state import jobs_progress
@@ -362,11 +363,30 @@ def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
 # Second half of the run record: once Wan reports the outcome, mark the row
 # (matched by Wan's task id) succeeded / failed / canceled / timed_out and
 # keep the failure text. Same best-effort rule as above -- never raises.
-def _update_lipsync_run(task_id, status, error=None):
+def _update_lipsync_run(task_id, status, error=None, usage=None):
     supabase_url = os.environ.get("SUPABASE_URL", "")
     service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
     if not supabase_url or not service_key or not task_id:
         return
+    # What Alibaba says it billed for this task (the finished task's `usage`), kept in
+    # lipsync_runs.billed_seconds so the admin cost estimate uses real numbers. Its own
+    # request: if that column has not been added yet, only this part fails.
+    if usage:
+        billed = alibaba_cost.billed_seconds_from_usage(usage)
+        print(f"[lipsync] task {task_id} usage={json.dumps(usage)[:300]} billed_seconds={billed}")
+        if billed:
+            try:
+                req = urllib.request.Request(
+                    f"{supabase_url}/rest/v1/lipsync_runs?task_id=eq.{urllib.parse.quote(str(task_id), safe='')}",
+                    data=json.dumps({"billed_seconds": billed}).encode("utf-8"),
+                    headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+                             "Content-Type": "application/json", "Prefer": "return=minimal"},
+                    method="PATCH",
+                )
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+            except Exception as e:
+                print(f"[lipsync] could not save billed_seconds for task {task_id} (column added?): {e}")
     try:
         patch = {"status": status, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         if error:
@@ -520,7 +540,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
                 progress["message"] = "Lip-sync is waiting to start..." if status == "PENDING" else "Lip-sync is in progress..."
             if status == "SUCCEEDED":
                 video_url_out = output.get("video_url")
-                _update_lipsync_run(task_id, "succeeded")
+                _update_lipsync_run(task_id, "succeeded", usage=st.get("usage"))
                 break
             if status in ("FAILED", "CANCELED", "UNKNOWN"):
                 _update_lipsync_run(task_id, status.lower(), json.dumps(output))

@@ -503,7 +503,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <p class="muted" style="margin-bottom:12px;">Real cost to you, taken from your Alibaba bill: Alibaba charges per second of video, $0.0413 at 480p and $0.0825 at 720p, and each second of the user's clip counts about twice (the video that goes in plus the video that comes out). With Alibaba's 30% launch discount (until 1 November 2026) that is about <strong>$0.058 per clip second at 480p and $0.116 at 720p</strong>. <strong>On 1 November the discount ends</strong> and it becomes about $0.083 and $0.165 (43% more). At the default price the margin is about 52–71% now and 31–59% after the discount ends, depending on the pack the user bought (Starter $0.01 per credit, Studio $0.006). Decide before 1 November whether to raise the price above.</p>
         <div class="metric"><div class="label">Est. Alibaba spend this month</div><div class="value" id="suAlibabaUsd">—</div></div>
         <p class="muted" id="suAlibabaDetail" style="margin:6px 0 4px;color:#cbd5e1;">—</p>
-        <p class="muted" id="suAlibabaNote" style="margin:6px 0 12px;">Alibaba has no balance API this app can use, so this is calculated from your own usage log: for every lip-sync charge it works out the seconds of video at that run's resolution, then applies Alibaba's real prices from your bill (and the 30% discount while it lasts). It only counts runs that were charged to a customer or to you, so a free or failed test may be missing. The real balance is in the Alibaba Model Studio console under Billing → Bill details.</p>
+        <p class="muted" id="suAlibabaNote" style="margin:6px 0 12px;">Alibaba has no balance API this app can use, so this is calculated from your own records: every Alibaba run is counted (whether or not a customer was charged, so your own tests are included), priced with Alibaba's real prices from your bill and the 30% discount while it lasts. From now on each finished run also saves the seconds Alibaba bills for it, which makes this exact; for that, run once in Supabase: <code>alter table lipsync_runs add column if not exists billed_seconds numeric;</code> The real balance is in the Alibaba Model Studio console under Billing → Bill details.</p>
         <button class="btn" onclick="savePricing()">💾 Save lip-sync price</button>
       </div>
 
@@ -556,8 +556,9 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <div id="suR2Bar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
         </div>
         <p class="muted" id="suR2Pct" style="margin:0 0 6px;color:#cbd5e1;">—</p>
+        <p style="margin:0 0 8px;color:#e2e8f0;"><strong>The first 10 GB a month is free, then $0.015 per GB-month, and it never stops uploads.</strong></p>
         <p class="muted" id="suR2Folders" style="margin:0 0 6px;">—</p>
-        <p class="muted" id="suR2Note" style="margin:6px 0 12px;">Cloudflare R2 has no plan limit and never blocks uploads: you pay as you go. The only allowance is the free tier of 10 GB of storage a month; above it, storage costs $0.015 per GB per month (so 100 GB is about $1.35). The bar shows your usage against 10 GB, or against your own budget if you set <code>R2_STORAGE_LIMIT_GB</code> in Railway. Real, live total counted from the bucket.</p>
+        <p class="muted" id="suR2Note" style="margin:6px 0 12px;">Cloudflare R2 has no plan limit: you pay as you go (100 GB would be about $1.35 a month). The bar shows your usage against the 10 GB free tier. If you would rather watch your own budget, set <code>R2_STORAGE_LIMIT_GB</code> in Railway (for example 50) and the bar and percentage then use that number instead. It only changes this meter, never what R2 allows or charges. Real, live total counted from the bucket.</p>
         <strong>Database backup</strong>
         <p class="muted" id="suDbBackup" style="margin:6px 0;">—</p>
         <p style="margin:6px 0;"><button class="btn" id="dbBackupBtn" onclick="runDbBackupNow()">☁️ Back up now</button></p>
@@ -1417,13 +1418,17 @@ async function loadServiceUsage() {
   {
     const parts = Object.keys(al.by_resolution || {}).map(k => {
       const g = al.by_resolution[k];
-      return k.toLowerCase() + ': ' + g.runs + (g.runs === 1 ? ' run, ' : ' runs, ') + Math.round(g.clip_seconds) + ' s of video, $' + g.usd.toFixed(2);
+      return k.toLowerCase() + ': ' + g.runs + (g.runs === 1 ? ' run, ' : ' runs, ') + Math.round(g.billed_seconds != null ? g.billed_seconds : g.clip_seconds) + ' billed s, $' + g.usd.toFixed(2);
     });
     let t = parts.length ? parts.join(' · ') : 'No lip-sync runs this month yet.';
     if (al.usd_without_promo != null && al.usd_without_promo > al.estimated_usd) {
       t += '  —  The same usage without the 30% discount would cost $' + al.usd_without_promo.toFixed(2) + ' (that is the price from ' + (al.promo_ends || '1 Nov') + ').';
     }
-    if (al.runs_unknown_resolution) t += '  (' + al.runs_unknown_resolution + ' run(s) had no resolution recorded and were priced as 720p.)';
+    if (al.runs) {
+      t += '  —  ' + al.runs + ' Alibaba runs: ' + (al.runs_from_bill || 0) + ' with the seconds Alibaba itself reported, ' + (al.runs_from_charges || 0) +
+        ' worked out from what customers were charged, ' + (al.runs_assumed || 0) + ' assumed' +
+        (al.runs_assumed ? ' (no customer was charged for them, e.g. your own tests, about $' + (al.assumed_usd || 0).toFixed(2) + ')' : '') + '.';
+    }
     document.getElementById('suAlibabaDetail').textContent = t;
   }
 
@@ -1767,7 +1772,6 @@ function bizGrid(tableId, headers, rows, empty) {
 const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: (Date.now() >= Date.UTC(2026, 10, 1) ? 0.165 : 0.1155), ld_per_min: 0.02, sd_per_job: 0.01, railway: 20, supabase: 25, other: 10 };
 const ECON_FIELDS = [
   ['voice_per_m', 'Inworld voice, $ per 1 million characters', 'Published prices looked like $15–35; check your Inworld invoice.'],
-  ['lip_per_sec', 'Lip-sync, $ per second of video (720p)', 'From your Alibaba bill: $0.1155 with the 30% discount (until 1 Nov 2026), $0.165 after. 480p costs half, 1080p about double.'],
   ['ld_per_min', 'Long-dub server time + translation, $ per video minute', 'Estimate from Railway usage prices; compare with your Railway bill.'],
   ['sd_per_job', 'Short-dub server time + translation, $ per job', 'Small: a few seconds of audio.'],
   ['railway', 'Railway, $ per month', 'Fixed plan price (usage on top is covered by the two lines above).'],
@@ -1804,7 +1808,8 @@ function renderEcon(d) {
 function renderEconTable(d) {
   if (!d) return;
   const a = econLoad(), ci = d.cost_inputs, r = d.revenue.period, cr = d.credits;
-  const voice = ci.voice_chars / 1e6 * a.voice_per_m, lip = ci.lipsync_seconds * a.lip_per_sec;
+  const voice = ci.voice_chars / 1e6 * a.voice_per_m;
+  const lip = ci.lipsync_usd != null ? ci.lipsync_usd : ci.lipsync_seconds * a.lip_per_sec;   // the Alibaba estimate counts every run, charged or not
   const ld = ci.longdub_minutes * a.ld_per_min, sd = ci.shortdub_jobs * a.sd_per_job;
   const stripeFees = d.revenue.source === 'stripe' ? r.fees : ci.stripe_fees_estimate;
   const varCost = voice + lip + ld + sd;
@@ -1816,7 +1821,7 @@ function renderEconTable(d) {
   const rows = [
     ['Net revenue received', bMoney(net, true), { note: d.revenue.source === 'stripe' ? 'after Stripe fees and refunds' : 'estimated from orders; Stripe fees are an estimate' }],
     ['− Voice generation', bMoney(-voice, true), { note: bInt(ci.voice_chars) + ' characters' }],
-    ['− Lip-sync', bMoney(-lip, true), { note: ci.lipsync_seconds + ' seconds of video' }],
+    ['− Lip-sync (Alibaba)', bMoney(-lip, true), { note: ci.lipsync_usd != null ? bInt(ci.lipsync_runs) + ' Alibaba runs, priced from your Alibaba bill' + (ci.lipsync_runs_assumed ? ' (' + ci.lipsync_runs_assumed + ' assumed)' : '') : ci.lipsync_seconds + ' seconds of video' }],
     ['− Long dubs (server + translation)', bMoney(-ld, true), { note: ci.longdub_minutes + ' video minutes in ' + bInt(ci.longdub_jobs) + ' dubs' }],
     ['− Short dubs (server + translation)', bMoney(-sd, true), { note: bInt(ci.shortdub_jobs) + ' jobs' }],
     ['Gross profit', bMoney(gross, true), { total: true, note: net > 0 ? (gross / net * 100).toFixed(0) + '% of net revenue' : '' }],
