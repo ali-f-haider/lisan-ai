@@ -35,6 +35,7 @@ import ffmpeg_utils
 import lipsync_service
 import longdub_service
 import r2_backup
+import business_metrics
 import disk_guard
 import railway_monitor
 import service_usage_monitor
@@ -6142,6 +6143,31 @@ def admin_service_usage(request: Request):
     r2 = r2_backup.get_storage_usage()
     alibaba = _get_lipsync_spend_this_month()
     return {"elevenlabs": eleven, "inworld": inworld, "resend": resend, "r2": r2, "alibaba": alibaba}
+
+
+_biz_cache = {}   # days -> (epoch, result); a Stripe + database read takes a few seconds, so keep it for a minute
+
+
+@app.get("/api/admin/business")
+def admin_business(request: Request, days: int = 30, refresh: int = 0):
+    """Everything the admin Business tab shows (see business_metrics.py). days = 7 / 30 / 90 / 365, 0 = all time."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    days = days if days in (7, 30, 90, 365, 0) else 30
+    hit = _biz_cache.get(days)
+    if hit and not refresh and _time.time() - hit[0] < 60:
+        return hit[1]
+    try:
+        res = business_metrics.compute({
+            "sb_url": SUPABASE_URL, "sb_key": SUPABASE_SERVICE_KEY,
+            "stripe_key": STRIPE_SECRET_KEY, "stripe_mod": stripe,
+            "pricing": _get_pricing_config(),
+        }, days)
+    except Exception as ex:
+        print(f"[admin] business metrics failed: {type(ex).__name__}: {ex}")
+        return JSONResponse({"error": f"{type(ex).__name__}: {ex}"[:300]}, status_code=500)
+    _biz_cache[days] = (_time.time(), res)
+    return res
 
 
 @app.get("/api/admin/overview")
