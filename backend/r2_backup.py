@@ -233,25 +233,32 @@ def _fetch_table(supabase_url, service_key, table):
         offset += _DB_PAGE
 
 
-def backup_db_tables(supabase_url, service_key):
+def backup_db_tables(supabase_url, service_key, force=False):
     """Once per UTC day: write every table in DB_BACKUP_TABLES to R2 as JSON
     under db-backups/<date>/<table>.json, then drop snapshots older than
     DB_BACKUP_KEEP_DAYS. A table that fails is skipped (logged); the day is
     only marked done when every table succeeded, so a failed day is retried
-    on the next sweep. Never raises."""
-    if not _enabled() or not supabase_url or not service_key:
-        return
+    on the next sweep. force=True redoes today's copy even if it is already
+    complete (the admin "Back up now" button). Never raises.
+
+    Returns a small dict for the admin page: {"status": "done" | "already_done" |
+    "incomplete" | "not_configured" | "error", "date", "rows": {table: n},
+    "failed": {table: reason}, "message"}."""
+    if not _enabled():
+        return {"status": "not_configured", "message": "Cloudflare R2 is not configured."}
+    if not supabase_url or not service_key:
+        return {"status": "not_configured", "message": "Supabase is not configured."}
     client = _get_client()
     if client is None:
-        return
+        return {"status": "error", "message": "Could not create the R2 client."}
     import json as _json
     import datetime as _dt
     try:
         today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
         marker = f"{DB_BACKUP_PREFIX}{today}/_complete.json"
-        if _already_backed_up(client, marker):
-            return
-        failed = []
+        if not force and _already_backed_up(client, marker):
+            return {"status": "already_done", "date": today, "message": "Today's backup is already complete."}
+        failed = {}
         counts = {}
         for table in DB_BACKUP_TABLES:
             try:
@@ -261,11 +268,17 @@ def backup_db_tables(supabase_url, service_key):
                                   Body=body, ContentType="application/json")
                 counts[table] = len(rows)
             except Exception as e:
-                failed.append(table)
-                print(f"[db-backup] {table} failed: {e}")
+                reason = str(e)
+                try:                      # Supabase's own explanation (e.g. "relation does not exist")
+                    reason += " | " + e.read().decode("utf-8", "replace")[:200]
+                except Exception:
+                    pass
+                failed[table] = reason[:300]
+                print(f"[db-backup] {table} failed: {reason[:300]}")
         if failed:
             print(f"[db-backup] incomplete ({', '.join(failed)}); will retry next sweep")
-            return
+            return {"status": "incomplete", "date": today, "rows": counts, "failed": failed,
+                    "message": "Some tables could not be copied."}
         client.put_object(Bucket=R2_BUCKET_NAME, Key=marker,
                           Body=_json.dumps({"date": today, "rows": counts}).encode("utf-8"),
                           ContentType="application/json")
@@ -277,8 +290,10 @@ def backup_db_tables(supabase_url, service_key):
                 day = obj["Key"][len(DB_BACKUP_PREFIX):].split("/", 1)[0]
                 if day < cutoff:
                     client.delete_object(Bucket=R2_BUCKET_NAME, Key=obj["Key"])
+        return {"status": "done", "date": today, "rows": counts, "failed": {}, "message": "Backup complete."}
     except Exception as e:
         print(f"[db-backup] error: {e}")
+        return {"status": "error", "message": str(e)[:300]}
 
 
 def latest_db_backup():

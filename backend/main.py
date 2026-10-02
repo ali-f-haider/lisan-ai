@@ -3226,6 +3226,12 @@ _last_expiry_check = 0.0
 
 def _cleanup_worker():
     global _last_expiry_check
+    # First database backup about 2 minutes after start-up (then once a day, checked every sweep).
+    _time.sleep(120)
+    try:
+        r2_backup.backup_db_tables(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    except Exception as e:
+        print("[db-backup] first run error:", e)
     while True:
         _time.sleep(CLEANUP_INTERVAL_MIN * 60)
         try:
@@ -6463,6 +6469,15 @@ def admin_longdub_log(request: Request, q: str = "", limit: int = 300, date_from
         return {"events": [], "note": f"Could not read the log (has the long_dub_events SQL been run?): {_http_error_detail(ex)}"}
     events.reverse()
     return {"events": events, "note": note}
+
+@app.post("/api/admin/db_backup_now")
+def admin_db_backup_now(request: Request):
+    """Admin "Back up now" button: copies the Supabase tables to R2 right away (even if today's copy exists)
+    and reports, table by table, what worked -- so a problem is visible here instead of only in the server log."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return r2_backup.backup_db_tables(SUPABASE_URL, SUPABASE_SERVICE_KEY, force=True)
+
 
 @app.get("/api/admin/health")
 def admin_health(request: Request):

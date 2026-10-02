@@ -369,7 +369,9 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <p class="muted" id="suR2Note" style="margin:6px 0 12px;">Real live total. Cloudflare does not tell this app your plan's storage limit, so compare it with your R2 plan in the Cloudflare dashboard.</p>
         <strong>Database backup</strong>
         <p class="muted" id="suDbBackup" style="margin:6px 0;">—</p>
-        <p class="muted">Once a day the server copies the Supabase tables with customer and money records (profiles, orders, credit history, invoices, pricing, voices, consents, logs) into the R2 folder <code>db-backups/</code> and keeps 30 days. Login sessions are deliberately not copied. This is a second copy next to Supabase's own backups (Pro plan). Finished videos are backed up to R2 as well.</p>
+        <p style="margin:6px 0;"><button class="btn" id="dbBackupBtn" onclick="runDbBackupNow()">☁️ Back up now</button></p>
+        <p class="muted" id="dbBackupResult" style="margin:6px 0;white-space:pre-wrap;"></p>
+        <p class="muted">Once a day (and once after every server start) the server copies the Supabase tables with customer and money records (profiles, orders, credit history, invoices, pricing, voices, consents, logs) into the R2 folder <code>db-backups/</code> and keeps 30 days. Login sessions are deliberately not copied. This is a second copy next to Supabase's own backups (Pro plan). Finished videos are backed up to R2 as well.</p>
       </div>
 
       <div class="card">
@@ -1079,13 +1081,32 @@ async function loadHealth() {
       bk.textContent = 'Last complete database backup: ' + b.date + ' (' + rows.toLocaleString() + ' rows from ' + (b.rows ? Object.keys(b.rows).length : 0) + ' tables).';
       bk.style.color = '#16a34a';
     } else if (r.data.r2 === 'ok') {
-      bk.textContent = 'No complete database backup found yet. The first one is made within about 15 minutes after the server starts with R2 and Supabase configured; if this stays empty after a day, check the server log for "[db-backup]".';
+      bk.textContent = 'No complete database backup found yet. The first one is made about 2 minutes after the server starts (R2 and Supabase must be configured). Press "Back up now" below to make one immediately — if a table cannot be copied, the reason is shown right under the button.';
       bk.style.color = '#f59e0b';
     } else {
       bk.textContent = 'Not possible: Cloudflare R2 is not reachable or not configured.';
       bk.style.color = '#dc2626';
     }
   }
+}
+
+async function runDbBackupNow() {
+  const btn = document.getElementById('dbBackupBtn'), out = document.getElementById('dbBackupResult');
+  btn.disabled = true; out.style.color = '#cbd5e1'; out.textContent = 'Copying the tables to R2 …';
+  const r = await api('/api/admin/db_backup_now', { method: 'POST', body: '{}' });
+  btn.disabled = false;
+  const d = r.data || {};
+  if (!r.ok) { out.style.color = '#dc2626'; out.textContent = 'Failed: ' + (d.error || 'unknown error'); return; }
+  const rows = d.rows ? Object.entries(d.rows).map(([t, n]) => t + ': ' + n).join('\n') : '';
+  if (d.status === 'done') {
+    out.style.color = '#16a34a';
+    out.textContent = '✓ Backup complete for ' + d.date + '.\n' + rows;
+  } else {
+    out.style.color = '#dc2626';
+    const failed = d.failed ? Object.entries(d.failed).map(([t, why]) => '✗ ' + t + ' — ' + why).join('\n') : '';
+    out.textContent = (d.message || d.status || 'Not completed') + (failed ? '\n' + failed : '') + (rows ? '\n\nCopied fine:\n' + rows : '');
+  }
+  loadHealth();
 }
 
 async function loadStorage() {
