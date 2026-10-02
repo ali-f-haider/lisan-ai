@@ -173,9 +173,9 @@ button.btn-success:hover { background: #15803d; }
           </div>
         </div>
         <div class="form-group">
-          <label>Dub Long Video: longest video allowed (minutes)</label>
+          <label>Dub Long Video: longest video allowed, WITHOUT lip-sync (minutes) — this is the limit that applies now</label>
           <input type="number" id="longDubMaxMin" style="width:120px;" step="1" min="1" max="120">
-          <span class="muted">Current default: 10. The page /dub-long refuses anything longer. Needs the long_dub_max_min column (SQL sent with v1.51.0) to be saved.</span>
+          <span class="muted">Current default: 10. Whole minutes only, at least 1 (a decimal such as 0.5 is rounded down and then raised to 1). The page /dub-long refuses anything longer, and refuses anything shorter than 20 seconds. Needs the long_dub_max_min column (SQL sent with v1.51.0) to be saved.</span>
         </div>
         <div class="form-group">
           <label>Dub Long Video: analysis credits per minute of video</label>

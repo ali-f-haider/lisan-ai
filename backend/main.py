@@ -4355,7 +4355,8 @@ def lipsync(req: LipSyncRequest, request: Request):
                                               "message": "Preparing...", "error": None,
                                               "result": None, "generation_id": None}
     threading.Thread(target=lipsync_service.lipsync_worker,
-                     args=(req.job_id, req.provider, req.model, ELEVENLABS_API_KEY, req.sync_key, FAL_API_KEY,
+                     # only Wan 3.0 is used: whatever provider/model/key a caller puts in the request body is ignored
+                     args=(req.job_id, "wan3", "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, res),
                      daemon=True).start()
     return {"status": "started", "resolution": res, "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
