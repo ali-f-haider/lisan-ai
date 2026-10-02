@@ -527,7 +527,7 @@ def _site_gate_ok(request: Request) -> bool:
     return bool(cookie) and _safe_eq(cookie, _site_gate_token())
 
 PUBLIC_PATHS = frozenset([
-    "/", "/pricing", "/login", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
+    "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
     "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact",
     "/api/account/delete"
@@ -5615,6 +5615,43 @@ def public_terms_page():
     from fastapi.responses import FileResponse
     import os
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
+
+
+# --- SEARCH ENGINES: robots.txt + sitemap.xml ---------------------------------
+# Public pages are listed for Google; the app, the admin pages, the API and the
+# login/gate pages are not. SITE_URL (Railway variable) overrides the address.
+SITE_URL = (os.environ.get("SITE_URL") or "https://lisanai.org").rstrip("/")
+SITEMAP_PAGES = ["/", "/pricing", "/help", "/privacy", "/terms"]
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    from fastapi.responses import PlainTextResponse
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "Disallow: /admin\n"
+        "Disallow: /app$\n"
+        "Disallow: /app/\n"
+        "Disallow: /account\n"
+        "Disallow: /auth/\n"
+        "Disallow: /gate\n"
+        "Disallow: /debug-keys\n"
+        "\n"
+        f"Sitemap: {SITE_URL}/sitemap.xml\n"
+    )
+    return PlainTextResponse(body, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    from fastapi.responses import Response
+    urls = "".join(f"  <url><loc>{SITE_URL}{p}</loc></url>\n" for p in SITEMAP_PAGES)
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls + '</urlset>\n')
+    return Response(xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
+
     
     # ============================================================
 # ADMIN ROUTES — protected by APP_PASSWORD env var
