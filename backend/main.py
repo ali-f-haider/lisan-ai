@@ -3377,6 +3377,7 @@ def _gemini_text(prompt: str):
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
                 data = json.load(r)
+            resource_meter.add_api_usd(resource_meter.gemini_usd(data))      # its price goes onto the job being measured
             txt = data["candidates"][0]["content"]["parts"][0]["text"]
             if txt:
                 return txt
@@ -4096,6 +4097,7 @@ def delete_my_voice(voice_row_id: str, request: Request):
     return {"ok": True}
 
 @app.post("/api/translate")
+@resource_meter.metered("shortdub_translate", lambda req, *a, **k: getattr(req, "job_id", ""))
 def translate(req: TranslateRequest, request: Request):
     if _rate_limited(request, "translate", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
@@ -4128,6 +4130,7 @@ def emotions_progress(job_id: str, request: Request):
     return _public_progress(jobs_progress.get(f"emotions_{job_id}", {"status": "not_found"}))
 
 @app.post("/api/tashkeel")
+@resource_meter.metered("shortdub_tashkeel", lambda req, *a, **k: (req.items[0].job_id if getattr(req, "items", None) and getattr(req.items[0], "job_id", None) else ""))
 def tashkeel(req: TashkeelRequest, request: Request):
     if _rate_limited(request, "tashkeel", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)

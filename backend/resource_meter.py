@@ -210,7 +210,31 @@ _started = False
 _active = 0                          # jobs being measured right now (cache is never trimmed while one runs)
 _meters = []                         # JobMeters running right now
 _meters_lock = threading.Lock()
+_tl = threading.local()              # the JobMeter(s) started by this thread (a provider call inside it adds its price to the top one)
+GEMINI_IN_USD_PER_M = _env_float("GEMINI_IN_USD_PER_M", 0.30)      # gemini-2.5-flash, the model every call uses first
+GEMINI_OUT_USD_PER_M = _env_float("GEMINI_OUT_USD_PER_M", 2.50)    # answer AND thinking tokens are both billed at this rate
 _trim = {"runs": 0, "freed_gb_total": 0.0, "last_ts": None, "last_freed_gb": None, "last_files": 0}
+
+
+def gemini_usd(data):
+    """Price in dollars of one Gemini answer, from its own usageMetadata (prompt, answer and thinking tokens)."""
+    try:
+        u = (data or {}).get("usageMetadata") or {}
+        tin = int(u.get("promptTokenCount", 0) or 0)
+        tout = int(u.get("candidatesTokenCount", 0) or 0) + int(u.get("thoughtsTokenCount", 0) or 0)
+        return tin / 1e6 * GEMINI_IN_USD_PER_M + tout / 1e6 * GEMINI_OUT_USD_PER_M
+    except Exception:
+        return 0.0
+
+
+def add_api_usd(usd):
+    """A provider call (Gemini) made while a job is being measured adds its price to that job's record."""
+    try:
+        st = getattr(_tl, "stack", None)
+        if st and usd:
+            st[-1].api_usd += float(usd)
+    except Exception:
+        pass
 
 
 def set_stage(job_id, stage):
@@ -377,10 +401,15 @@ class JobMeter:
         self.share_gb_min = 0.0
         self.cpu_share_sec = 0.0
         self._cpu_last = None
+        self.api_usd = 0.0               # what providers (Gemini) charged for the calls made inside this job
 
     def __enter__(self):
         global _active
         try:
+            if not hasattr(_tl, "stack"):
+                _tl.stack = []
+            _tl.stack.append(self)
+            self._on_stack = True
             if ENABLED:
                 _active += 1
                 self._counted = True
@@ -442,6 +471,12 @@ class JobMeter:
 
     def __exit__(self, *exc):
         global _active
+        if getattr(self, "_on_stack", False):
+            self._on_stack = False
+            try:
+                _tl.stack.remove(self)
+            except Exception:
+                pass
         if getattr(self, "_counted", False):
             self._counted = False
             with _meters_lock:
@@ -470,10 +505,12 @@ class JobMeter:
                     "sec": round(secs, 1), "start_gb": round(self.start_gb or 0.0, 2), "peak_gb": round(self.peak, 2),
                     "gb_min": round(self.gb_min, 2), "extra_gb_min": round(self.extra_gb_min, 2),
                     "cpu_min": round(cpu_min, 2), "usd": round(usd, 5), "usd_full": round(usd_full, 5),
-                    "steps": steps, "ok": exc[0] is None}
+                    "api_usd": round(self.api_usd, 6), "steps": steps, "ok": exc[0] is None}
                 self.result["text"] = (f"{self.kind}: {secs / 60:.1f} min, memory {self.result['start_gb']:.1f} -> peak {self.result['peak_gb']:.1f} GB, "
                                        f"{self.extra_gb_min:.1f} GB-min above the start, {cpu_min:.1f} vCPU-min, "
                                        f"Railway cost about ${usd:.4f} added by this job, ${usd_full:.4f} with its share of the memory the server held meanwhile")
+                if self.api_usd:
+                    self.result["text"] += f"; Gemini charged about ${self.api_usd:.4f} for the calls it made"
                 if len(steps) > 1 or (steps and "work" not in steps):
                     top = sorted(steps.items(), key=lambda kv: -kv[1]["usd_full"])
                     self.result["text"] += ". Steps (minutes, GB peak, $ added / $ with share): " + "; ".join(
@@ -553,11 +590,12 @@ def period_stats(start_day, end_day):
         d = str(j.get("ts", ""))[:10]
         if not (start_day <= d <= end_day):
             continue
-        e = jobs.setdefault(j.get("kind", "?"), {"n": 0, "total_usd": 0.0, "total_usd_full": 0.0, "total_sec": 0.0, "steps": {}})
+        e = jobs.setdefault(j.get("kind", "?"), {"n": 0, "total_usd": 0.0, "total_usd_full": 0.0, "total_sec": 0.0, "total_api": 0.0, "steps": {}})
         e["n"] += 1
         e["total_usd"] += float(j.get("usd", 0.0))
         e["total_usd_full"] += float(j.get("usd_full", j.get("usd", 0.0)))
         e["total_sec"] += float(j.get("sec", 0.0))
+        e["total_api"] += float(j.get("api_usd", 0.0))
         jobs_usd += float(j.get("usd", 0.0))
         for name, v in (j.get("steps") or {}).items():
             t = e["steps"].setdefault(name, {"usd": 0.0, "usd_full": 0.0, "sec": 0.0, "peak_gb": 0.0})
@@ -570,6 +608,8 @@ def period_stats(start_day, end_day):
         e["avg_usd"] = round(e["total_usd"] / n, 5)
         e["avg_usd_full"] = round(e["total_usd_full"] / n, 5)
         e["avg_sec"] = round(e["total_sec"] / n, 1)
+        e["avg_api_usd"] = round(e["total_api"] / n, 5)
+        e.pop("total_api", None)
         e["total_usd"] = round(e["total_usd"], 4)
         e["total_usd_full"] = round(e["total_usd_full"], 4)
         e.pop("total_sec", None)

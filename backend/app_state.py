@@ -23,14 +23,6 @@ def usage_bucket(job_id: str) -> dict:
             "gemini_out": 0,
             "gemini_thoughts": 0,
             "eleven_chars": 0,
-            # Inworld-generated characters, tracked SEPARATELY from
-            # eleven_chars above (added 2026-09-27) so a job that mixes
-            # ElevenLabs and Inworld speakers (each voice keeps using
-            # whichever engine created it) can be charged at each engine's
-            # own admin-configured rate rather than one shared rate -- see
-            # main.py's _watch_and_deduct(). eleven_service.py's Inworld
-            # branch writes here instead of eleven_chars.
-            "inworld_chars": 0,
             "audio_sec": 0.0,
         }
     return USAGE[key]
@@ -45,3 +37,8 @@ def record_gemini(job_id: str, data):
     b["gemini_in"] += int(u.get("promptTokenCount", 0) or 0)
     b["gemini_out"] += int(u.get("candidatesTokenCount", 0) or 0)
     b["gemini_thoughts"] += int(u.get("thoughtsTokenCount", 0) or 0)
+    try:
+        import resource_meter
+        resource_meter.add_api_usd(resource_meter.gemini_usd(data))
+    except Exception:
+        pass
