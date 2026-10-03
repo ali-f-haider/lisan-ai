@@ -333,6 +333,19 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
 
     <!-- ===================== PRICING ===================== -->
     <div class="panel" id="panel-pricing">
+      <div class="card" id="priceCheckCard">
+        <h3>🧮 Price check — what each step costs you vs what the customer pays</h3>
+        <p class="muted" style="margin-bottom:10px;">Cost = measured on the server (Railway, per job) or from the prices on the Economics page (Inworld voice, lip-sync, Gemini). "Multiple" = what the customer pays divided by what it costs you (at the cheapest and the dearest credit pack). Fixed monthly costs are <b>not</b> in these numbers. Nothing here is saved until you press a Save button below.</p>
+        <div class="form-group" style="margin-bottom:8px;">
+          <label>Raise the prices by a factor of</label>
+          <input type="number" id="pcFactor" value="5" min="1" max="20" step="0.5" style="width:90px;">
+          <button class="btn-sm" onclick="pcFill()">Fill the price fields below with these values</button>
+          <button class="btn-sm" onclick="pcReload()" title="Put the saved values back into the fields">Undo (reload saved values)</button>
+          <span class="muted">Lip-sync is not changed. After filling, check the fields, then press Save on each card (the example under Dub Long Video shows the new total).</span>
+        </div>
+        <div style="overflow-x:auto;"><table class="biz-table" id="pcTable"></table></div>
+        <p class="muted" id="pcNote" style="margin-top:8px;"></p>
+      </div>
       <div class="card">
         <h3>💰 General prices &amp; limits</h3>
         <p class="muted" style="margin-bottom:16px;">What users are charged, independent of which provider does the work. Changes apply immediately to every NEW job. Prices that depend on a provider (voice rates, lip-sync) are on that provider's own tab. 100 credits = $1 in the terms; a pack buyer pays $0.006–$0.01 per credit depending on the pack.</p>
@@ -993,6 +1006,78 @@ document.addEventListener('input', e => {
   if (e.target && e.target.closest && e.target.closest('#packsTable')) { updateLdExample(); updateLipRates(); }
 });
 
+
+// ---- price check: cost vs price per step, and "raise all prices by a factor" (lip-sync excluded) ----
+let PC_MEASURED = null;
+const pcUsd = n => n == null ? '—' : '$' + (n < 0.01 ? n.toFixed(4) : n < 1 ? n.toFixed(3) : n.toFixed(2));
+const pcNum = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? 0 : v; };
+let PC_BASE = {};                                    // the SAVED values, taken when the prices load: every "raise by a factor" starts from these, so pressing Fill twice never compounds
+const PC_IDS = ['transcribeCredits', 'mergeCredits', 'inworldCharsPerCredit', 'inworldCloneCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'charsPerCredit', 'cloneCredits', 'lipsyncCreditsPerSec'];
+const pcBase = id => (PC_BASE[id] != null ? PC_BASE[id] : pcNum(id));
+function pcJob(kind) {
+  const j = PC_MEASURED && PC_MEASURED.cycle && PC_MEASURED.cycle.jobs && PC_MEASURED.cycle.jobs[kind];
+  return j && j.n ? (j.avg_usd_full != null ? j.avg_usd_full : j.avg_usd) : null;
+}
+function pcRows() {
+  const a = econLoad();
+  const sceneUsd = a.scene_per_job;
+  const dubFlat = pcJob('longdub_dub');
+  const sum = (x, y) => (x == null && y == null) ? null : (x || 0) + (y || 0);
+  // kind 'credits': price = value; kind 'chars': value = characters per credit, price per 1000 characters = 1000 / value
+  return [
+    { id: 'transcribeCredits', label: 'Transcription / estimate (per video)', kind: 'credits', cost: pcJob('shortdub_transcribe'), basis: 'measured, short dub transcription on the server' },
+    { id: 'mergeCredits', label: 'Merge into video (per job)', kind: 'credits', cost: pcJob('shortdub_merge'), basis: 'measured on the server' },
+    { id: 'inworldCharsPerCredit', label: 'Voice, Inworld (per 1,000 characters)', kind: 'chars', cost: a.voice_per_m / 1000, basis: 'Inworld price on the Economics page ($' + a.voice_per_m + ' per million characters)' },
+    { id: 'inworldCloneCredits', label: 'Voice clone, Inworld (per voice)', kind: 'credits', cost: null, basis: 'Inworld\'s clone price is not tracked (the server part is tiny)' },
+    { id: 'longDubAnalysisPerMin', label: 'Long dub analysis (per video minute)', kind: 'credits', cost: a.ld_per_min, basis: 'assumed $' + a.ld_per_min + ' per video minute (Economics page) until per-minute cost is measured' },
+    { id: 'longDubFlatCredits', label: 'Long dub processing fee (per video)', kind: 'credits', cost: sum(dubFlat, sceneUsd), basis: 'measured dubbing step + Gemini scene check' },
+    { id: 'charsPerCredit', label: 'Voice, ElevenLabs (per 1,000 characters)', kind: 'chars', cost: null, basis: 'ElevenLabs cost is not tracked here' },
+    { id: 'cloneCredits', label: 'Voice clone, ElevenLabs (per voice)', kind: 'credits', cost: null, basis: 'ElevenLabs cost is not tracked here' },
+  ];
+}
+function pcNew(row, f) {
+  const v = pcBase(row.id);
+  if (row.kind === 'chars') return Math.max(1, Math.round(v / f));
+  if (row.id === 'longDubAnalysisPerMin') return Math.round(v * f * 2) / 2;
+  return v > 0 ? Math.max(1, Math.round(v * f)) : 0;
+}
+async function renderPriceCheck() {
+  const t = document.getElementById('pcTable');
+  if (!t) return;
+  if (!PC_MEASURED) { try { const r = await api('/api/admin/resource_usage'); PC_MEASURED = r.ok ? (r.data || {}) : {}; } catch (e) { PC_MEASURED = {}; } }
+  const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 5), r = packRateRange(), a = econLoad();
+  const priceOf = (row, v) => row.kind === 'chars' ? (v > 0 ? 1000 / v : 0) : v;               // credits for one unit
+  const range = c => pcUsd(c * r.lo) + ' – ' + pcUsd(c * r.hi);
+  const mult = (row, v) => (row.cost && row.cost > 0 && priceOf(row, v) > 0) ? (priceOf(row, v) * r.lo / row.cost).toFixed(1) + '× – ' + (priceOf(row, v) * r.hi / row.cost).toFixed(1) + '×' : '—';
+  let h = '<tr><th>Step</th><th>Your cost</th><th>Saved price (credits)</th><th>Customer pays (saved)</th><th>Multiple (saved)</th><th>New value ×' + f + '</th><th>Customer pays</th><th>Multiple after</th></tr>';
+  pcRows().forEach(row => {
+    const cur = pcBase(row.id), nv = pcNew(row, f);
+    const curTxt = row.kind === 'chars' ? (cur + ' chars per credit (' + (1000 / (cur || 1)).toFixed(1) + ' credits per 1,000)') : cur + '';
+    const newTxt = row.kind === 'chars' ? (nv + ' chars per credit (' + (1000 / (nv || 1)).toFixed(1) + ' credits per 1,000)') : nv + '';
+    h += '<tr><td>' + row.label + '<br><small class="muted">' + row.basis + '</small></td><td>' + pcUsd(row.cost) + '</td><td>' + curTxt + '</td><td>' + range(priceOf(row, cur)) + '</td><td>' + mult(row, cur) + '</td><td><b>' + newTxt + '</b></td><td>' + range(priceOf(row, nv)) + '</td><td>' + mult(row, nv) + '</td></tr>';
+  });
+  const lip = pcBase('lipsyncCreditsPerSec'), lc = a.lip_per_sec;
+  h += '<tr><td>Lip-sync, 720p (per second of video)<br><small class="muted">Alibaba price on the Economics page — <b>not changed</b></small></td><td>' + pcUsd(lc) + '</td><td>' + lip + ' credits per second</td><td>' + range(lip) + '</td><td>' + (lc > 0 && lip > 0 ? (lip * r.lo / lc).toFixed(1) + '× – ' + (lip * r.hi / lc).toFixed(1) + '×' : '—') + '</td><td>unchanged</td><td>—</td><td>—</td></tr>';
+  t.innerHTML = h;
+  const un = pcRows().filter(x => x.cost == null).length;
+  document.getElementById('pcNote').textContent = 'Credit value used: ' + usd(r.lo) + ' – ' + usd(r.hi) + ' per credit (cheapest and dearest pack). ' + (un ? un + ' step(s) have no cost yet (not measured on the live server yet, or not tracked). ' : '') + 'With the new values a customer gets about ' + (100 / f).toFixed(0) + '% as much for the same money, since pack and subscription credit amounts are not changed here.';
+}
+function pcFill() {
+  if (!pricingLoaded) { toast('The saved prices have not loaded yet — reload the page.', true); return; }
+  const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 5);
+  const vals = {};
+  pcRows().forEach(row => { vals[row.id] = pcNew(row, f); });             // all from the CURRENT field values, then written together
+  Object.keys(vals).forEach(id => { const el = document.getElementById(id); if (el) { el.value = vals[id]; el.dispatchEvent(new Event('input', { bubbles: true })); } });
+  toast('Fields filled with ×' + f + ' prices (lip-sync unchanged). Check them, then press Save.');
+  renderPriceCheck();
+}
+async function pcReload() { await loadPricing(); toast('Saved values loaded back into the fields.'); }
+document.addEventListener('input', e => {
+  const id = e.target && e.target.id;
+  if (id === 'pcFactor') renderPriceCheck();
+  if (e.target && e.target.closest && e.target.closest('#packsTable')) renderPriceCheck();
+});
+
 let pricingLoaded = false;
 async function loadPricing() {
   const r = await api('/api/admin/pricing');
@@ -1044,6 +1129,8 @@ async function loadPricing() {
   });
   document.getElementById('plansTable').innerHTML = planHtml || '<tr><td colspan="8" class="muted">No tiers</td></tr>';
   updateLdExample(); updateLipRates();
+  PC_BASE = {}; PC_IDS.forEach(id => { PC_BASE[id] = pcNum(id); });
+  renderPriceCheck();
 }
 
 async function savePricing() {
