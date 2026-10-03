@@ -40,6 +40,7 @@ import alibaba_cost
 import disk_guard
 import railway_monitor
 import resource_meter
+import assistant_service
 import service_usage_monitor
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
@@ -543,7 +544,7 @@ def _site_gate_ok(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
-    "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact",
+    "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant",
     "/api/account/delete"
 , "/help.html", "/admin"])
 
@@ -3511,6 +3512,10 @@ def app_js():
 def dialogs_js():
     return FileResponse(BASE_DIR / "dialogs.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
+@app.get("/chat.js")
+def chat_js():
+    return FileResponse(BASE_DIR / "chat.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
 @app.get("/styles.css")
 def styles():
     return FileResponse(BASE_DIR / "styles.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
@@ -5945,6 +5950,8 @@ def _get_pricing_config():
         # Parallel jobs, gated by memory (see whisper_service.CONC): max jobs at once, real memory one job can reach (GB),
         # the ceiling as % of the server's memory limit, and the limit itself in GB (0 = read it from the container).
         "concurrency": {"max": 2, "needGb": 5.0, "pct": 80, "limitGb": 0},
+        # The AI helper (chat box): on/off, the whole site's daily spending cap in dollars, daily messages per signed-in user / per guest.
+        "assistant": {"enabled": True, "dailyBudgetUsd": 2.0, "userDailyMsgs": 60, "guestDailyMsgs": 15},
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -6017,6 +6024,7 @@ def _get_pricing_config():
                 "longDubLipsyncMaxMin": row.get("long_dub_lipsync_max_min") or defaults["longDubLipsyncMaxMin"],
                 "geminiCreditsPerCent": _gemini_cpc(row.get("gemini_credits_per_cent")),
                 "concurrency": _conc_cfg(row.get("concurrency")),
+                "assistant": _assistant_cfg(row.get("assistant")),
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
@@ -6041,6 +6049,32 @@ def _conc_cfg(v):
             "pct": num("pct", 30, 95, 80), "limitGb": num("limitGb", 0, 256, 0)}
 
 
+def _assistant_cfg(v):
+    """The AI helper's admin settings (a dict or JSON text), each value kept inside a safe range."""
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            v = None
+    v = v if isinstance(v, dict) else {}
+
+    def num(k, lo, hi, d):
+        try:
+            x = float(v.get(k))
+        except (TypeError, ValueError):
+            return d
+        return min(hi, max(lo, x)) if x == x else d
+    return {"enabled": bool(v.get("enabled", True)), "dailyBudgetUsd": num("dailyBudgetUsd", 0, 1000, 2.0),
+            "userDailyMsgs": int(num("userDailyMsgs", 1, 1000, 60)), "guestDailyMsgs": int(num("guestDailyMsgs", 0, 1000, 15))}
+
+
+def _apply_assistant(cfg=None):
+    try:
+        assistant_service.set_settings(_assistant_cfg(cfg if cfg is not None else _get_pricing_config().get("assistant")))
+    except Exception as ex:
+        print(f"[assistant] could not apply the settings: {ex}")
+
+
 def _apply_concurrency(cfg=None):
     """Hands the admin's parallel-job settings to the queue. Never raises."""
     try:
@@ -6053,6 +6087,7 @@ def _concurrency_refresher():
     while True:
         _time.sleep(60)
         _apply_concurrency()
+        _apply_assistant()
 
 
 def _gemini_cpc(v):
@@ -6177,6 +6212,16 @@ def _save_pricing_config(config):
                 pass
         except Exception as _gc_ex:
             print(f"[admin] Gemini price factor not saved (has gemini_credits_per_cent been added to pricing_config?): {_gc_ex}")
+        # The AI helper's settings in their own request too (one JSON column, see the SQL in the admin page).
+        try:
+            _as_body = json.dumps({
+                "id": "singleton",
+                "assistant": _assistant_cfg(config.get("assistant")),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_as_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _as_ex:
+            print(f"[admin] AI helper settings not saved (has the assistant column been added to pricing_config?): {_as_ex}")
         # Parallel-job settings in their own request too (one JSON column, see the SQL in the admin page).
         try:
             _cc_body = json.dumps({
@@ -6206,6 +6251,8 @@ def _save_pricing_config(config):
 # Parallel-job settings: applied once at start-up and then every minute (and right after the admin saves).
 # Placed after _get_pricing_config / _save_pricing_config so everything they use already exists.
 _apply_concurrency()
+assistant_service.set_key(GEMINI_API_KEY)
+_apply_assistant()
 threading.Thread(target=_concurrency_refresher, daemon=True, name="concurrency-refresh").start()
 
 _admin_fail_all: List[float] = []
@@ -6585,6 +6632,7 @@ async def admin_save_pricing(request: Request):
     ok, err = _save_pricing_config(body)
     if ok:
         _apply_concurrency(body.get("concurrency"))
+        _apply_assistant(body.get("assistant"))
     # Surface the real reason to the admin panel instead of a bare "ok:
     # false" -- previously a failed save just showed "unknown error" since
     # nothing but the server logs ever saw the actual exception.
@@ -7233,6 +7281,180 @@ def billing_packs_dynamic():
         },
         "subscriptionPlans": _plans_for_public_display(cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS),
     }, headers={"Cache-Control": "no-cache"})
+
+# ==================== AI HELPER (chat box) ====================
+# The chat widget (chat.js) posts here. The model only ever receives: the Help page text, the facts in
+# assistant_service.py, the current prices (built below from the admin settings) and, for a signed-in visitor,
+# a summary of THAT visitor's own account built here from their own user id. See assistant_service.py.
+
+def _assistant_pricing_text():
+    cfg = _get_pricing_config()
+    L = ["1 credit is worth about 1 US cent at the standard rate (packs and subscriptions can make a credit cheaper)."]
+    try:
+        for p in (cfg.get("packs") or DEFAULT_PACKS):
+            if isinstance(p, dict):
+                L.append(f"Credit pack \"{p.get('name') or p.get('key')}\": {p.get('credits')} credits for ${p.get('price_usd', p.get('price', '?'))} (pay once).")
+    except Exception:
+        pass
+    try:
+        for p in _plans_for_public_display(cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS):
+            if isinstance(p, dict):
+                extra = f", up to {p.get('clones_per_month')} new voice clones a month" if p.get("clones_per_month") else ""
+                L.append(f"Monthly plan \"{p.get('name')}\": ${p.get('price_usd')} a month, {p.get('credits_per_month')} credits each month "
+                         f"(unused monthly credits do not roll over), {p.get('voice_slots')} saved voices{extra}, {p.get('storage_gb')} GB of file storage, "
+                         "files kept 30 days.")
+        L.append(f"Without a subscription finished files are kept {PAYONCE_OUTPUT_HOURS} hours and the storage is {PAYONCE_STORAGE_GB} GB.")
+    except Exception:
+        pass
+    try:
+        eng = "inworld" if cfg.get("voiceEngine") == "inworld" else "elevenlabs"
+        cpc = cfg.get("inworldCharsPerCredit" if eng == "inworld" else "charsPerCredit", 60)
+        clone = cfg.get("inworldCloneCredits" if eng == "inworld" else "cloneCredits", 5)
+        L.append(f"Short dub (video up to 30 seconds): Start (transcribe) = {cfg.get('transcribeCredits', 3)} credits. Generate Arabic Audio = "
+                 f"1 credit per {cpc} characters of Arabic text (at least 1 credit) plus the small AI cost of translation, tashkeel and emotions "
+                 f"(shown on the buttons). Merge into video = {cfg.get('mergeCredits', 1)} credit(s). Cloning a voice = {clone} credits. "
+                 "The exact price of each button is printed on the button itself.")
+        r = lipsync_rates(cfg.get("lipsyncCreditsPerSec", 10))
+        L.append("Lip-sync video (alpha): credits per second of video: " + ", ".join(f"{k} = {v}" for k, v in r.items()) + ".")
+    except Exception:
+        pass
+    try:
+        p = _ld_pricing()
+        L.append(f"Long dub: videos up to {p['max_min']:g} minutes; analysis {p['analysis_per_min']:g} credits per minute of video plus a flat {p['flat']} credits "
+                 f"(shown as the estimate before the user accepts); then the dub itself is priced on the lines and voices and shown before accepting; "
+                 f"lip-sync for long dubs up to {p['lipsync_max_min']:g} minutes.")
+    except Exception:
+        pass
+    return "\n".join(L)
+
+
+_assistant_acct_cache = {}
+
+
+def _assistant_account_text(uid, job_id=""):
+    """A plain-text summary of THIS user's account. Everything is looked up with this user's id only."""
+    now = time.time()
+    ck = (uid, job_id or "")
+    c = _assistant_acct_cache.get(ck)
+    if c and now - c[0] < 20:
+        return c[1]
+    L = []
+    try:
+        cr = get_credits(uid)
+        L.append(f"Credits balance now: {cr if cr is not None else 'unknown'}.")
+    except Exception:
+        pass
+    sub_active = False
+    try:
+        prof = _read_subscription_profile(uid) or {}
+        st = prof.get("subscription_status") or "none"
+        if st == "active":
+            sub_active = True
+            plan = _get_subscription_plan(prof.get("subscription_plan_key") or "") or {}
+            end = str(prof.get("subscription_current_period_end") or "")[:10]
+            L.append(f"Subscription: active, plan \"{plan.get('name')}\", renews/ends on {end or 'unknown'}"
+                     + (", set to CANCEL at the end of the period" if prof.get("subscription_cancel_at_period_end") else "") + ".")
+        else:
+            L.append(f"Subscription: none active (status: {st}).")
+    except Exception:
+        pass
+    try:
+        import urllib.request as _ur
+        url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=action,credits,job_id,created_at&order=created_at.desc&limit=12"
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        with _ur.urlopen(_ur.Request(url, headers=hdrs), timeout=8) as r:
+            rows = json.load(r)
+        if rows:
+            L.append("Recent credit history (newest first; negative = given back):")
+            for x in rows:
+                L.append(f"- {str(x.get('created_at') or '')[:16].replace('T', ' ')} UTC: {x.get('action')} {x.get('credits')} credits"
+                         + (f" (job {str(x.get('job_id'))[:8]})" if x.get("job_id") else ""))
+    except Exception as ex:
+        print("[assistant] history lookup failed:", ex)
+    try:
+        jobs = longdub_service.list_jobs_for_uid(uid)[:6]
+        if jobs:
+            L.append("Long-dub projects (newest first):")
+            for j in jobs:
+                v = longdub_service.public_view(j)
+                s = f"- \"{v.get('name') or v.get('filename')}\": status {v.get('status')}"
+                if v.get("stage"):
+                    s += f", stage {v.get('stage')}"
+                if v.get("percent") is not None and v.get("status") not in ("done", "error"):
+                    s += f", {v.get('percent')}%"
+                if v.get("message"):
+                    s += f", message: {str(v.get('message'))[:160]}"
+                if v.get("error"):
+                    s += f", error: {str(v.get('error'))[:200]}"
+                if v.get("duration"):
+                    s += f", length {round(float(v['duration']))} s"
+                L.append(s)
+    except Exception as ex:
+        print("[assistant] long-dub lookup failed:", ex)
+    try:
+        ids = _user_job_ids(uid)
+        if ids is not None:
+            files = []
+            for jid in ids:
+                for kind, suf in _MY_JOB_FILE_SUFFIXES.items():
+                    p = OUTPUT_DIR / f"{jid}{suf}"
+                    if p.exists():
+                        age_h = (now - p.stat().st_mtime) / 3600
+                        keep_h = CLEANUP_FINAL_OUTPUT_DAYS * 24 if sub_active else PAYONCE_OUTPUT_HOURS
+                        files.append(f"- {kind} file of job {jid[:8]}, {_fmt_storage(p.stat().st_size)}, deleted automatically in about {max(0, round(keep_h - age_h))} hours")
+            sm = _storage_summary(uid, ids)
+            if sm:
+                L.append(f"Saved files: {len(files)}; storage used {_fmt_storage(sm['used_bytes'])} of {_fmt_storage(sm['quota_bytes'])}"
+                         + (" (FULL: delete finished files on the Account page before saving new ones)" if sm["full"] else "") + ".")
+            L += files[:10]
+    except Exception as ex:
+        print("[assistant] files lookup failed:", ex)
+    try:
+        if job_id and _JOB_ID_RE.fullmatch(str(job_id)):
+            uid_owner = _job_owner.get(job_id)
+            ok = (str(uid_owner) == str(uid)) if uid_owner else _job_belongs_to_uid(uid, job_id)
+            if ok:
+                for label, key in (("Short dub on screen", job_id), ("Audio generation for it", f"generate_{job_id}")):
+                    d = _public_progress(jobs_progress.get(key))
+                    if isinstance(d, dict):
+                        L.append(f"{label}: status {d.get('status')}, {d.get('percent', d.get('progress', ''))}%, message: {str(d.get('message') or d.get('error') or '')[:200]}")
+    except Exception as ex:
+        print("[assistant] job lookup failed:", ex)
+    text = "\n".join(L)[:5000]
+    if len(_assistant_acct_cache) > 500:
+        _assistant_acct_cache.clear()
+    _assistant_acct_cache[ck] = (now, text)
+    return text
+
+
+class AssistantRequest(BaseModel):
+    messages: list = []
+    lang: str = ""
+    page: str = ""
+    job_id: str = ""
+
+
+@app.post("/api/assistant")
+def assistant_chat(req: AssistantRequest, request: Request):
+    """One question to the AI helper. Open to visitors who are not signed in (they get help only, no account data)."""
+    if _rate_limited(request, "assistant", 20, 600):
+        return JSONResponse({"ok": False, "answer": "You are sending messages too fast. Please wait a minute.", "support": False}, status_code=429)
+    contents = assistant_service.clean_messages(req.messages)
+    if not contents:
+        return JSONResponse({"ok": False, "answer": "", "support": False}, status_code=400)
+    uid = _current_uid(request)
+    key = f"u:{uid}" if uid else f"g:{_client_ip(request)}"
+    acct = _assistant_account_text(uid, (req.job_id or "")[:40]) if uid else ""
+    out = assistant_service.handle(contents, _assistant_pricing_text(), acct, bool(uid), key, uid, (req.lang or "")[:5], (req.page or "")[:60])
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/admin/assistant")
+def admin_assistant(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"today": assistant_service.today(), "settings": assistant_service.SETTINGS, "log": assistant_service.recent_log(150)}
+
 
 @app.post("/api/contact")
 def contact_form(req: ContactRequest, request: Request):

@@ -385,6 +385,19 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           </div>
           <p id="concInfo" class="muted" style="margin-top:8px;color:#cbd5e1;">—</p>
         </div>
+        <div class="form-group" style="background:#0f172a;border-radius:6px;padding:12px;">
+          <label style="color:#e2e8f0;">AI helper (the chat box on the site)</label>
+          <span class="muted">Visitors can ask the chat box how Lisan AI works, what things cost and, when signed in, what is going on with their own account (credits, charges, jobs, files). It can only answer; it cannot change anything. Each message costs about 0.1&ndash;0.3 US cents of Gemini. Saved with the Save button; the server picks it up within a minute. Needs the column <code>assistant</code>: run <code>alter table pricing_config add column if not exists assistant jsonb;</code> once, otherwise these four values are not saved (the defaults stay in force).</span>
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;">
+            <label style="font-weight:normal;"><input type="checkbox" id="asstEnabled" checked> Helper switched on</label>
+            <label style="font-weight:normal;">Most it may spend per day (US $, whole site)<br><input type="number" id="asstBudget" style="width:110px;" step="0.5" min="0" max="1000"></label>
+            <label style="font-weight:normal;">Messages per signed-in user per day<br><input type="number" id="asstUser" style="width:110px;" step="5" min="1" max="1000"></label>
+            <label style="font-weight:normal;">Messages per visitor not signed in, per day<br><input type="number" id="asstGuest" style="width:110px;" step="5" min="0" max="1000"></label>
+          </div>
+          <p id="asstToday" class="muted" style="margin-top:8px;color:#cbd5e1;">—</p>
+          <button class="btn" type="button" onclick="loadAssistantLog()" style="margin-top:6px;">Show what people asked</button>
+          <div id="asstLog" style="margin-top:8px;max-height:340px;overflow:auto;font-size:13px;"></div>
+        </div>
         <p class="muted" style="margin-bottom:12px;">Fixed in the code, not editable here: a short dub must be 4–30 seconds long (4–15 seconds when lip-sync is used).</p>
         <button class="btn" onclick="savePricing()">💾 Save general prices</button>
       </div>
@@ -1010,6 +1023,32 @@ function updateLdExample() {
 }
 
 let CONC_LIVE = null;
+async function loadAssistantToday() {
+  const out = document.getElementById('asstToday'); if (!out) return;
+  try {
+    const r = await api('/api/admin/assistant'); if (!r.ok) { out.textContent = 'Could not read today\'s numbers.'; return; }
+    const t = r.data.today || {};
+    out.textContent = 'Today (UTC day ' + (t.day || '?') + '): ' + (t.msgs || 0) + ' messages from ' + (t.people || 0) + ' people, about $' + (t.usd || 0).toFixed(4) + ' of the $' + (t.budget_usd || 0) + ' daily limit.' + (t.enabled === false ? ' The helper is switched OFF.' : '');
+  } catch (e) { out.textContent = 'Could not read today\'s numbers.'; }
+}
+async function loadAssistantLog() {
+  const box = document.getElementById('asstLog'); if (!box) return;
+  box.textContent = 'Loading…';
+  const r = await api('/api/admin/assistant');
+  box.textContent = '';
+  if (!r.ok) { box.textContent = 'Could not load.'; return; }
+  const rows = r.data.log || [];
+  if (!rows.length) { box.textContent = 'Nothing asked yet (the log is kept on the server disk; it is cleared when the server is rebuilt).'; return; }
+  rows.forEach(x => {
+    const d = document.createElement('div');
+    d.style.cssText = 'border-bottom:1px solid #334155;padding:6px 0;';
+    const h = document.createElement('div'); h.className = 'muted';
+    h.textContent = (x.ts || '').replace('T', ' ') + ' UTC · ' + (x.guest ? 'visitor' : 'user ' + (x.uid || '')) + ' · ' + (x.page || '') + (x.support ? ' · offered support' : '') + ' · $' + (x.usd || 0);
+    const q = document.createElement('div'); q.textContent = 'Q: ' + (x.q || ''); q.style.fontWeight = '600';
+    const a = document.createElement('div'); a.textContent = 'A: ' + (x.a || ''); a.style.color = '#cbd5e1';
+    d.appendChild(h); d.appendChild(q); d.appendChild(a); box.appendChild(d);
+  });
+}
 async function loadConcInfo() {
   try { const r = await api('/api/admin/resource_usage'); CONC_LIVE = r.ok ? (r.data || null) : null; } catch (e) { CONC_LIVE = null; }
   updateConcInfo();
@@ -1161,6 +1200,10 @@ async function loadPricing() {
   { const c = r.data.concurrency || {}; const set = (id, v, d) => { const e = document.getElementById(id); if (e) e.value = (v === undefined || v === null) ? d : v; };
     set('concMax', c.max, 2); set('concNeed', c.needGb, 5); set('concPct', c.pct, 80); set('concLimit', c.limitGb, 0); }
   loadConcInfo();
+  { const a = r.data.assistant || {}; const e1 = document.getElementById('asstEnabled'); if (e1) e1.checked = a.enabled !== false;
+    const sv = (id, v, d) => { const e = document.getElementById(id); if (e) e.value = (v === undefined || v === null) ? d : v; };
+    sv('asstBudget', a.dailyBudgetUsd, 2); sv('asstUser', a.userDailyMsgs, 60); sv('asstGuest', a.guestDailyMsgs, 15); }
+  loadAssistantToday();
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
   document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
   document.getElementById('railwayAlertsEnabled').checked = r.data.railwayAlertsEnabled !== false;
@@ -1292,6 +1335,8 @@ async function savePricing() {
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
     concurrency: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
       return { max: Math.round(n('concMax', 2, 1, 4)), needGb: n('concNeed', 5, 1, 20), pct: n('concPct', 80, 30, 95), limitGb: n('concLimit', 0, 0, 256) }; })(),
+    assistant: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
+      return { enabled: !!document.getElementById('asstEnabled')?.checked, dailyBudgetUsd: n('asstBudget', 2, 0, 1000), userDailyMsgs: Math.round(n('asstUser', 60, 1, 1000)), guestDailyMsgs: Math.round(n('asstGuest', 15, 0, 1000)) }; })(),
     geminiCreditsPerCent: (function(){ const v = parseFloat(document.getElementById('geminiCreditsPerCent')?.value); return isNaN(v) || v <= 0 ? 1 : Math.min(100, Math.max(0.1, v)); })(),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
