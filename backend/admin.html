@@ -369,6 +369,11 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <input type="number" id="mergeCredits" style="width:120px;" step="1" min="0" max="1000">
           <span class="muted">Current default: 1. Charged when the dubbed audio is merged back into the video (short dub Step 6, and the final assembly of a long dub).</span>
         </div>
+        <div class="form-group">
+          <label>Gemini steps: credits per cent of Gemini cost</label>
+          <input type="number" id="geminiCreditsPerCent" style="width:120px;" step="0.5" min="0.1" max="100">
+          <span class="muted">Current default: 1. This sets the price of Translate, Add Tashkeel and Detect Emotions (the number on each button), and the Gemini part of the Generate charge. The app measures what Gemini will cost in cents and charges this many credits per cent: 1 = one credit per cent, 5 = five credits per cent. For a typical 30-line, 90-second video the buttons show about 1, 2 and 2 credits at 1, and about 4, 8 and 8 at 5. Between 0.1 and 100. Needs the column <code>gemini_credits_per_cent</code> in the Supabase table pricing_config: run <code>alter table pricing_config add column if not exists gemini_credits_per_cent numeric;</code> once, otherwise this one value is not saved. Use the Price check card to see the effect on your margin.</span>
+        </div>
         <p class="muted" style="margin-bottom:12px;">Fixed in the code, not editable here: a short dub must be 4–30 seconds long (4–15 seconds when lip-sync is used).</p>
         <button class="btn" onclick="savePricing()">💾 Save general prices</button>
       </div>
@@ -1012,7 +1017,7 @@ let PC_MEASURED = null;
 const pcUsd = n => n == null ? '—' : '$' + (n < 0.01 ? n.toFixed(4) : n < 1 ? n.toFixed(3) : n.toFixed(2));
 const pcNum = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? 0 : v; };
 let PC_BASE = {};                                    // the SAVED values, taken when the prices load: every "raise by a factor" starts from these, so pressing Fill twice never compounds
-const PC_IDS = ['transcribeCredits', 'mergeCredits', 'inworldCharsPerCredit', 'inworldCloneCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'charsPerCredit', 'cloneCredits', 'lipsyncCreditsPerSec'];
+const PC_IDS = ['transcribeCredits', 'mergeCredits', 'inworldCharsPerCredit', 'inworldCloneCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'charsPerCredit', 'cloneCredits', 'lipsyncCreditsPerSec', 'geminiCreditsPerCent'];
 const pcBase = id => (PC_BASE[id] != null ? PC_BASE[id] : pcNum(id));
 function pcJob(kind) {
   const j = PC_MEASURED && PC_MEASURED.cycle && PC_MEASURED.cycle.jobs && PC_MEASURED.cycle.jobs[kind];
@@ -1026,13 +1031,13 @@ function pcCostWithApi(kind) {
 // The credits the buttons show: app.js turns its own estimate of the Gemini cost into credits, 1 credit per cent (CREDIT_USD = 0.01).
 // Same formulas as translateEstimateUsd / tashkeelEstimateUsd / emotionsEstimateUsd in app.js, for a typical video.
 const PC_TYPICAL = { lines: 30, sec: 90, textChars: 60, arChars: 60 };
-function pcBadge(step) {
+function pcBadge(step, mult) {
   const T = PC_TYPICAL, IN = 0.30, OUT = 2.50;
   let usd = 0;
   if (step === 'translate') { const tokIn = Math.ceil((T.lines * (T.textChars + 25) + 700) / 4), tokOut = Math.ceil(T.lines * T.arChars / 3) + 2000; usd = tokIn / 1e6 * IN + tokOut / 1e6 * OUT; }
   else if (step === 'tashkeel') { usd = (Math.ceil(T.lines * T.arChars * 3) + 400) / 1e6 * OUT; }
   else { const tok = Math.ceil(T.sec * 258) + T.lines * 100; usd = tok / 1e6 * IN + Math.ceil(tok * 0.1) / 1e6 * OUT; }
-  return Math.max(0, Math.ceil(usd / 0.01));
+  return Math.max(0, Math.ceil(usd * (mult > 0 ? mult : 1) / 0.01));
 }
 function pcRows() {
   const a = econLoad();
@@ -1042,9 +1047,9 @@ function pcRows() {
   // kind 'credits': price = value; kind 'chars': value = characters per credit, price per 1000 characters = 1000 / value
   return [
     { id: 'transcribeCredits', label: 'Start button: transcription (per video)', kind: 'credits', cost: pcJob('shortdub_transcribe'), basis: 'measured on the server: extract audio, separate voices, detect speakers, transcribe, what Start runs' },
-    { id: 'translateStep', badge: 'translate', label: 'Translate to Arabic (per use)', kind: 'credits', fixed: true, cost: pcCostWithApi('shortdub_translate') != null ? pcCostWithApi('shortdub_translate') : a.translate_per_job, basis: pcCostWithApi('shortdub_translate') != null ? 'measured: Gemini charge (prompt, answer and thinking tokens) plus server' : 'estimate for a 30-line video (about 1,900 tokens in, 3,400 out at Gemini Flash prices) until the live server has measured translations' },
-    { id: 'tashkeelStep', badge: 'tashkeel', label: 'Tashkeel, vowel marks (per use)', kind: 'credits', fixed: true, cost: pcCostWithApi('shortdub_tashkeel') != null ? pcCostWithApi('shortdub_tashkeel') : a.tashkeel_per_job, basis: pcCostWithApi('shortdub_tashkeel') != null ? 'measured: Gemini charge plus server' : 'estimate for a 30-line video until the live server has measured tashkeel runs' },
-    { id: 'emotionsStep', badge: 'emotions', label: 'Detect emotions from voice (per use)', kind: 'credits', fixed: true, cost: pcCostWithApi('shortdub_emotions') != null ? pcCostWithApi('shortdub_emotions') : a.emotions_per_job, basis: pcCostWithApi('shortdub_emotions') != null ? 'measured: Gemini listens to every line (audio, answer and thinking tokens) plus server' : 'estimate for a 30-line video (Gemini listens to each line) until the live server has measured runs' },
+    { id: 'geminiCreditsPerCent', gem: true, badge: 'translate', label: 'Translate to Arabic (per use)', kind: 'credits', cost: pcCostWithApi('shortdub_translate') != null ? pcCostWithApi('shortdub_translate') : a.translate_per_job, basis: pcCostWithApi('shortdub_translate') != null ? 'measured: Gemini charge (prompt, answer and thinking tokens) plus server' : 'estimate for a 30-line video (about 1,900 tokens in, 3,400 out at Gemini Flash prices) until the live server has measured translations' },
+    { id: 'geminiCreditsPerCent', gem: true, badge: 'tashkeel', label: 'Tashkeel, vowel marks (per use)', kind: 'credits', cost: pcCostWithApi('shortdub_tashkeel') != null ? pcCostWithApi('shortdub_tashkeel') : a.tashkeel_per_job, basis: pcCostWithApi('shortdub_tashkeel') != null ? 'measured: Gemini charge plus server' : 'estimate for a 30-line video until the live server has measured tashkeel runs' },
+    { id: 'geminiCreditsPerCent', gem: true, badge: 'emotions', label: 'Detect emotions from voice (per use)', kind: 'credits', cost: pcCostWithApi('shortdub_emotions') != null ? pcCostWithApi('shortdub_emotions') : a.emotions_per_job, basis: pcCostWithApi('shortdub_emotions') != null ? 'measured: Gemini listens to every line (audio, answer and thinking tokens) plus server' : 'estimate for a 30-line video (Gemini listens to each line) until the live server has measured runs' },
     { id: 'mergeCredits', label: 'Merge into video (per job)', kind: 'credits', cost: pcJob('shortdub_merge') != null ? pcJob('shortdub_merge') : a.merge_per_job, basis: pcJob('shortdub_merge') != null ? 'measured on the live server' : 'estimate from a test run (30 s clip: about 3 s, 0.2 GB) until the live server has measured merges' },
     { id: 'inworldCharsPerCredit', label: 'Voice, Inworld (per 1,000 characters)', kind: 'chars', cost: a.voice_per_m / 1000, basis: '$' + a.voice_per_m + ' per million characters (Economics page; Inworld lists TTS-2 on-demand at $25, cheaper on their paid plans)' },
     { id: 'inworldCloneCredits', label: 'Voice clone, Inworld (per voice)', kind: 'credits', cost: pcJob('shortdub_clone') != null ? pcJob('shortdub_clone') : 0, free: true, basis: 'Inworld: "Cloning is free. You pay only for the speech you generate." (inworld.ai/voice-cloning); only the tiny server part is yours' },
@@ -1055,7 +1060,7 @@ function pcRows() {
   ];
 }
 function pcNew(row, f) {
-  if (row.fixed) return null;
+  if (row.gem) { const v = pcBase('geminiCreditsPerCent') || 1; return Math.round(Math.min(100, v * f) * 10) / 10; }
   const v = pcBase(row.id);
   if (row.kind === 'chars') return Math.max(1, Math.round(v / f));
   if (row.id === 'longDubAnalysisPerMin') return Math.round(v * f * 2) / 2;
@@ -1071,10 +1076,11 @@ async function renderPriceCheck() {
   const mult = (row, v) => row.free ? 'no provider cost' : (row.cost && row.cost > 0 && priceOf(row, v) > 0) ? (priceOf(row, v) * r.lo / row.cost).toFixed(1) + '× – ' + (priceOf(row, v) * r.hi / row.cost).toFixed(1) + '×' : '—';
   let h = '<tr><th>Step</th><th>Your cost</th><th>Saved price (credits)</th><th>Customer pays (saved)</th><th>Multiple (saved)</th><th>New value ×' + f + '</th><th>Customer pays</th><th>Multiple after</th></tr>';
   pcRows().forEach(row => {
-    if (row.fixed) {
-      const cr = pcBadge(row.badge);
-      const m = row.cost > 0 && cr > 0 ? (cr * r.lo / row.cost).toFixed(1) + '× – ' + (cr * r.hi / row.cost).toFixed(1) + '×' : '—';
-      h += '<tr><td>' + row.label + '<br><small class="muted">' + row.basis + '</small></td><td>' + pcUsd(row.cost) + '</td><td>' + cr + ' credit' + (cr === 1 ? '' : 's') + '<br><small class="muted">what the button shows for a ' + PC_TYPICAL.lines + '-line, ' + PC_TYPICAL.sec + '-second video</small></td><td>' + range(cr) + '</td><td>' + m + '</td><td class="muted">unchanged: the button charges 1 credit per cent of Gemini cost (set in app.js, no field here)</td><td>—</td><td>—</td></tr>';
+    if (row.gem) {
+      const cur = pcBase('geminiCreditsPerCent') || 1, nv = pcNew(row, f), cr = pcBadge(row.badge, cur), cr2 = pcBadge(row.badge, nv);
+      const mm = c => row.cost > 0 && c > 0 ? (c * r.lo / row.cost).toFixed(1) + '× – ' + (c * r.hi / row.cost).toFixed(1) + '×' : '—';
+      const cut = c => c + ' credit' + (c === 1 ? '' : 's');
+      h += '<tr><td>' + row.label + '<br><small class="muted">' + row.basis + '</small></td><td>' + pcUsd(row.cost) + '</td><td>' + cut(cr) + '<br><small class="muted">button price for a ' + PC_TYPICAL.lines + '-line, ' + PC_TYPICAL.sec + '-second video, at ' + cur + ' credit(s) per cent of Gemini cost</small></td><td>' + range(cr) + '</td><td>' + mm(cr) + '</td><td><b>' + cut(cr2) + '</b><br><small class="muted">at ' + nv + ' credits per cent (one field for all three steps)</small></td><td>' + range(cr2) + '</td><td>' + mm(cr2) + '</td></tr>';
       return;
     }
     const cur = pcBase(row.id), nv = pcNew(row, f);
@@ -1086,14 +1092,14 @@ async function renderPriceCheck() {
   h += '<tr><td>Lip-sync, 720p (per second of video)<br><small class="muted">Alibaba price on the Economics page — <b>not changed</b></small></td><td>' + pcUsd(lc) + '</td><td>' + lip + ' credits per second</td><td>' + range(lip) + '</td><td>' + (lc > 0 && lip > 0 ? (lip * r.lo / lc).toFixed(1) + '× – ' + (lip * r.hi / lc).toFixed(1) + '×' : '—') + '</td><td>unchanged</td><td>—</td><td>—</td></tr>';
   t.innerHTML = h;
   const un = pcRows().filter(x => x.cost == null).length;
-  const freeSum = pcRows().filter(x => x.fixed).reduce((t, x) => t + (x.cost || 0), 0), freeCr = pcRows().filter(x => x.fixed).reduce((t, x) => t + pcBadge(x.badge), 0);
+  const gemBase = pcBase('geminiCreditsPerCent') || 1, freeSum = pcRows().filter(x => x.gem).reduce((t, x) => t + (x.cost || 0), 0), freeCr = pcRows().filter(x => x.gem).reduce((t, x) => t + pcBadge(x.badge, gemBase), 0);
   document.getElementById('pcNote').textContent = 'Credit value used: ' + usd(r.lo) + ' – ' + usd(r.hi) + ' per credit (cheapest and dearest pack). ' + (un ? un + ' step(s) have no cost yet (not measured on the live server yet, or not tracked). ' : '') + 'Translate, tashkeel and detect emotions show ' + freeCr + ' credits together on their buttons for a typical video (' + pcUsd(freeCr * r.lo) + ' – ' + pcUsd(freeCr * r.hi) + ') and cost you about ' + pcUsd(freeSum) + '. ' + 'With the new values a customer gets about ' + (100 / f).toFixed(0) + '% as much for the same money, since pack and subscription credit amounts are not changed here.';
 }
 function pcFill() {
   if (!pricingLoaded) { toast('The saved prices have not loaded yet — reload the page.', true); return; }
   const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 5);
   const vals = {};
-  pcRows().forEach(row => { if (!row.fixed) vals[row.id] = pcNew(row, f); });             // all from the CURRENT field values, then written together
+  pcRows().forEach(row => { vals[row.id] = pcNew(row, f); });             // all from the CURRENT field values, then written together
   Object.keys(vals).forEach(id => { const el = document.getElementById(id); if (el) { el.value = vals[id]; el.dispatchEvent(new Event('input', { bubbles: true })); } });
   toast('Fields filled with ×' + f + ' prices (lip-sync unchanged). Check them, then press Save.');
   renderPriceCheck();
@@ -1110,7 +1116,7 @@ async function loadPricing() {
   const r = await api('/api/admin/pricing');
   if (!r.ok) return;
   pricingLoaded = true;
-  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','longDubMaxMin','longDubAnalysisPerMin','longDubFlatCredits','longDubLipsyncMaxMin','lipsyncCreditsPerSec','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
+  ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','longDubMaxMin','longDubAnalysisPerMin','longDubFlatCredits','longDubLipsyncMaxMin','lipsyncCreditsPerSec','geminiCreditsPerCent','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
   });
   // Checkbox, not a text/number field -- .checked, not .value, and defaults
@@ -1245,6 +1251,7 @@ async function savePricing() {
     longDubLipsyncMaxMin: parseInt(document.getElementById('longDubLipsyncMaxMin')?.value || '3') || 3,
     longDubAnalysisPerMin: (function(){ const v = parseFloat(document.getElementById('longDubAnalysisPerMin')?.value); return isNaN(v) ? 2 : v; })(),
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
+    geminiCreditsPerCent: (function(){ const v = parseFloat(document.getElementById('geminiCreditsPerCent')?.value); return isNaN(v) || v <= 0 ? 1 : Math.min(100, Math.max(0.1, v)); })(),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
     subscriptionName: (document.getElementById('subscriptionName')?.value || 'Pro Monthly').trim(),

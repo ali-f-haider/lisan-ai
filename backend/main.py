@@ -1487,7 +1487,7 @@ def _watch_and_deduct(job_id, uid, kind):
             amount = (
                 (math.ceil(eleven_chars / eleven_rate) if eleven_chars else 0)
                 + (math.ceil(inworld_chars / inworld_rate) if inworld_chars else 0)
-                + max(1, math.ceil(gemini_usd / 0.01))
+                + max(1, math.ceil(gemini_usd * _gemini_cpc(cfg.get("geminiCreditsPerCent")) / 0.01))
             )
 
         # Duration (seconds) of the actual dubbed audio produced by this job —
@@ -5939,6 +5939,9 @@ def _get_pricing_config():
         "longDubAnalysisPerMin": 2,
         "longDubFlatCredits": 10,
         "longDubLipsyncMaxMin": 3,
+        # Credits charged per cent of Gemini cost (translate, emotions and the other Gemini calls of a short dub).
+        # 1 = a credit per cent, as before. Used by the Generate charge and by the button prices (see /api/pricing).
+        "geminiCreditsPerCent": 1.0,
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -6009,10 +6012,20 @@ def _get_pricing_config():
                 "longDubAnalysisPerMin": defaults["longDubAnalysisPerMin"] if row.get("long_dub_analysis_per_min") is None else row.get("long_dub_analysis_per_min"),
                 "longDubFlatCredits": defaults["longDubFlatCredits"] if row.get("long_dub_flat_credits") is None else row.get("long_dub_flat_credits"),
                 "longDubLipsyncMaxMin": row.get("long_dub_lipsync_max_min") or defaults["longDubLipsyncMaxMin"],
+                "geminiCreditsPerCent": _gemini_cpc(row.get("gemini_credits_per_cent")),
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
     return defaults
+
+def _gemini_cpc(v):
+    """Credits per cent of Gemini cost: a number from 0.1 to 100, 1 when missing or unreadable."""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return 1.0
+    return min(100.0, max(0.1, x)) if x == x else 1.0
+
 
 def _save_pricing_config(config):
     """Saves pricing config to DB (upsert — creates the singleton row if it
@@ -6117,6 +6130,16 @@ def _save_pricing_config(config):
                 pass
         except Exception as _da_ex:
             print(f"[admin] disk-alert switch not saved (has disk_alerts_enabled been added to pricing_config?): {_da_ex}")
+        # The Gemini price factor in its own request too: if its column has not been added yet, only this write fails.
+        try:
+            _gc_body = json.dumps({
+                "id": "singleton",
+                "gemini_credits_per_cent": _gemini_cpc(config.get("geminiCreditsPerCent")),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_gc_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _gc_ex:
+            print(f"[admin] Gemini price factor not saved (has gemini_credits_per_cent been added to pricing_config?): {_gc_ex}")
         # ...and the lip-sync length limit in its own request too (its column came later).
         try:
             _ll_body = json.dumps({
@@ -7113,6 +7136,7 @@ def public_pricing():
         "voiceEngine": "v2" if cfg.get("voiceEngine") == "inworld" else "v1",
         "altCharsPerCredit": cfg.get("inworldCharsPerCredit", 60),
         "altCloneCredits": cfg.get("inworldCloneCredits", 5),
+        "geminiCreditsPerCent": _gemini_cpc(cfg.get("geminiCreditsPerCent")),
     }
 
 @app.get("/api/billing/packs")

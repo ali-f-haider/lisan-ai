@@ -87,6 +87,8 @@ function notify(type, msg) {
 	setTimeout(() => { if (div.parentNode) { div.remove(); if (!panel.children.length) panel.style.display = "none"; } }, NOTIFY_AUTO_CLOSE_MS);
 }
 
+// Credits per cent of Gemini cost, set in the admin page (1 = a credit per cent). Applies to Translate, Tashkeel and Emotions.
+function geminiCredits(usd) { return usdToCredits(usd * (window._realPricing.geminiCreditsPerCent || 1)); }
 function usdToCredits(usd) { return Math.max(0, Math.ceil(usd / CREDIT_USD)); }
 function lineCostUsd(text, emotion) { return ((text || "").length + (emotion || "").length + 3) / 1000 * VOICE_USD_PER_1K_CHARS; }
 function translateEstimateUsd() {
@@ -115,7 +117,7 @@ function setBadge(id, credits) {
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
-window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, altCharsPerCredit: 60, altCloneCredits: 5, voiceEngine: "v1", lipsyncCreditsPerSec: 40, lipsyncRates: { "480P": 20, "720P": 40, "1080P": 80 } };
+window._realPricing = { transcribeCredits: 3, mergeCredits: 1, charsPerCredit: 60, cloneCredits: 5, altCharsPerCredit: 60, altCloneCredits: 5, voiceEngine: "v1", lipsyncCreditsPerSec: 40, lipsyncRates: { "480P": 20, "720P": 40, "1080P": 80 }, geminiCreditsPerCent: 1 };
 // ---- Step 7: resolution of the lip-synced video (480p / 720p / 1080p), each with its credits per second.
 function selectedLipsyncRes() {
     var el = document.getElementById("lipsyncRes");
@@ -158,6 +160,7 @@ async function loadRealPricing() {
             if (typeof d.voiceEngine === "string") window._realPricing.voiceEngine = d.voiceEngine;
             if (typeof d.lipsyncCreditsPerSec === "number") window._realPricing.lipsyncCreditsPerSec = d.lipsyncCreditsPerSec;
             if (d.lipsyncRates && typeof d.lipsyncRates === "object") window._realPricing.lipsyncRates = d.lipsyncRates;
+            if (typeof d.geminiCreditsPerCent === "number" && d.geminiCreditsPerCent > 0) window._realPricing.geminiCreditsPerCent = d.geminiCreditsPerCent;
         }
     } catch (e) {}
     updateBadges();
@@ -169,9 +172,9 @@ function updateBadges() {
     setBadge("badgeSBV", 0);
     setBadge("badgeSave", 0);
     setBadge("badgeLoad", 0);
-    setBadge("badgeTranslate", usdToCredits(translateEstimateUsd()));
-    setBadge("badgeTashkeel", usdToCredits(tashkeelEstimateUsd()));
-    setBadge("badgeEmotions", usdToCredits(emotionsEstimateUsd()));
+    setBadge("badgeTranslate", geminiCredits(translateEstimateUsd()));
+    setBadge("badgeTashkeel", geminiCredits(tashkeelEstimateUsd()));
+    setBadge("badgeEmotions", geminiCredits(emotionsEstimateUsd()));
     setBadge("badgeAutoFix", 0);
     // Step 4: Auto-Assign and Browse Voice Library only pick/preview existing
     // studio voices -- no new voice is created, so both are free. Choosing a
