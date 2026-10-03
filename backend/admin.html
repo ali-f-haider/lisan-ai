@@ -394,6 +394,11 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
             <label style="font-weight:normal;">Messages per signed-in user per day<br><input type="number" id="asstUser" style="width:110px;" step="5" min="1" max="1000"></label>
             <label style="font-weight:normal;">Messages per visitor not signed in, per day<br><input type="number" id="asstGuest" style="width:110px;" step="5" min="0" max="1000"></label>
           </div>
+          <div style="margin-top:10px;">
+            <label style="font-weight:normal;color:#e2e8f0;">Teach the helper (your notes: it treats them as the truth and they win over the Help page and everything else)</label>
+            <textarea id="asstNotes" rows="9" maxlength="6000" style="width:100%;box-sizing:border-box;margin-top:4px;" placeholder="One fact per line, in plain words. Examples:&#10;Lip-sync in Dub Long Video is available for videos up to 3 minutes.&#10;Refunds: we do not refund used credits; if a job failed the credits are returned automatically.&#10;If someone asks about dialects: only Modern Standard Arabic for now, Egyptian is planned."></textarea>
+            <span class="muted">Applies within a minute of pressing Save (no deploy needed). Up to 6000 characters. The helper also reads the Help page, the home-page FAQ, the Terms and the Privacy page by itself, so only add what those pages do not say or say wrongly. Do not write secrets here: the text is sent to Gemini with every question.</span>
+          </div>
           <p id="asstToday" class="muted" style="margin-top:8px;color:#cbd5e1;">—</p>
           <button class="btn" type="button" onclick="loadAssistantLog()" style="margin-top:6px;">Show what people asked</button>
           <div id="asstLog" style="margin-top:8px;max-height:340px;overflow:auto;font-size:13px;"></div>
@@ -1046,7 +1051,10 @@ async function loadAssistantLog() {
     h.textContent = (x.ts || '').replace('T', ' ') + ' UTC · ' + (x.guest ? 'visitor' : 'user ' + (x.uid || '')) + ' · ' + (x.page || '') + (x.support ? ' · offered support' : '') + ' · $' + (x.usd || 0);
     const q = document.createElement('div'); q.textContent = 'Q: ' + (x.q || ''); q.style.fontWeight = '600';
     const a = document.createElement('div'); a.textContent = 'A: ' + (x.a || ''); a.style.color = '#cbd5e1';
-    d.appendChild(h); d.appendChild(q); d.appendChild(a); box.appendChild(d);
+    const fix = document.createElement('button'); fix.type = 'button'; fix.className = 'btn'; fix.style.cssText = 'padding:2px 8px;font-size:12px;margin-top:4px;';
+    fix.textContent = 'Wrong or incomplete? Add a note';
+    fix.onclick = () => { const t = document.getElementById('asstNotes'); t.value = (t.value ? t.value.replace(/\s+$/, '') + '\n' : '') + 'When asked: "' + (x.q || '').slice(0, 200) + '" the correct answer is: '; t.focus(); t.scrollIntoView({block: 'center'}); t.setSelectionRange(t.value.length, t.value.length); };
+    d.appendChild(h); d.appendChild(q); d.appendChild(a); d.appendChild(fix); box.appendChild(d);
   });
 }
 async function loadConcInfo() {
@@ -1202,7 +1210,7 @@ async function loadPricing() {
   loadConcInfo();
   { const a = r.data.assistant || {}; const e1 = document.getElementById('asstEnabled'); if (e1) e1.checked = a.enabled !== false;
     const sv = (id, v, d) => { const e = document.getElementById(id); if (e) e.value = (v === undefined || v === null) ? d : v; };
-    sv('asstBudget', a.dailyBudgetUsd, 2); sv('asstUser', a.userDailyMsgs, 60); sv('asstGuest', a.guestDailyMsgs, 15); }
+    sv('asstNotes', a.notes, ''); sv('asstBudget', a.dailyBudgetUsd, 2); sv('asstUser', a.userDailyMsgs, 60); sv('asstGuest', a.guestDailyMsgs, 15); }
   loadAssistantToday();
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
   document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
@@ -1336,7 +1344,7 @@ async function savePricing() {
     concurrency: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
       return { max: Math.round(n('concMax', 2, 1, 4)), needGb: n('concNeed', 5, 1, 20), pct: n('concPct', 80, 30, 95), limitGb: n('concLimit', 0, 0, 256) }; })(),
     assistant: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
-      return { enabled: !!document.getElementById('asstEnabled')?.checked, dailyBudgetUsd: n('asstBudget', 2, 0, 1000), userDailyMsgs: Math.round(n('asstUser', 60, 1, 1000)), guestDailyMsgs: Math.round(n('asstGuest', 15, 0, 1000)) }; })(),
+      return { enabled: !!document.getElementById('asstEnabled')?.checked, dailyBudgetUsd: n('asstBudget', 2, 0, 1000), userDailyMsgs: Math.round(n('asstUser', 60, 1, 1000)), guestDailyMsgs: Math.round(n('asstGuest', 15, 0, 1000)), notes: (document.getElementById('asstNotes')?.value || '').trim().slice(0, 6000) }; })(),
     geminiCreditsPerCent: (function(){ const v = parseFloat(document.getElementById('geminiCreditsPerCent')?.value); return isNaN(v) || v <= 0 ? 1 : Math.min(100, Math.max(0.1, v)); })(),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
