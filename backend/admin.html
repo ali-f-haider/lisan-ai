@@ -1026,9 +1026,9 @@ function pcRows() {
   // kind 'credits': price = value; kind 'chars': value = characters per credit, price per 1000 characters = 1000 / value
   return [
     { id: 'transcribeCredits', label: 'Transcription / estimate (per video)', kind: 'credits', cost: pcJob('shortdub_transcribe'), basis: 'measured, short dub transcription on the server' },
-    { id: 'mergeCredits', label: 'Merge into video (per job)', kind: 'credits', cost: pcJob('shortdub_merge'), basis: 'measured on the server' },
-    { id: 'inworldCharsPerCredit', label: 'Voice, Inworld (per 1,000 characters)', kind: 'chars', cost: a.voice_per_m / 1000, basis: 'Inworld price on the Economics page ($' + a.voice_per_m + ' per million characters)' },
-    { id: 'inworldCloneCredits', label: 'Voice clone, Inworld (per voice)', kind: 'credits', cost: null, basis: 'Inworld\'s clone price is not tracked (the server part is tiny)' },
+    { id: 'mergeCredits', label: 'Merge into video (per job)', kind: 'credits', cost: pcJob('shortdub_merge') != null ? pcJob('shortdub_merge') : a.merge_per_job, basis: pcJob('shortdub_merge') != null ? 'measured on the live server' : 'estimate from a test run (30 s clip: about 3 s, 0.2 GB) until the live server has measured merges' },
+    { id: 'inworldCharsPerCredit', label: 'Voice, Inworld (per 1,000 characters)', kind: 'chars', cost: a.voice_per_m / 1000, basis: '$' + a.voice_per_m + ' per million characters (Economics page; Inworld lists TTS-2 on-demand at $25, cheaper on their paid plans)' },
+    { id: 'inworldCloneCredits', label: 'Voice clone, Inworld (per voice)', kind: 'credits', cost: pcJob('shortdub_clone') != null ? pcJob('shortdub_clone') : 0, free: true, basis: 'Inworld: "Cloning is free. You pay only for the speech you generate." (inworld.ai/voice-cloning); only the tiny server part is yours' },
     { id: 'longDubAnalysisPerMin', label: 'Long dub analysis (per video minute)', kind: 'credits', cost: a.ld_per_min, basis: 'assumed $' + a.ld_per_min + ' per video minute (Economics page) until per-minute cost is measured' },
     { id: 'longDubFlatCredits', label: 'Long dub processing fee (per video)', kind: 'credits', cost: sum(dubFlat, sceneUsd), basis: 'measured dubbing step + Gemini scene check' },
     { id: 'charsPerCredit', label: 'Voice, ElevenLabs (per 1,000 characters)', kind: 'chars', cost: null, basis: 'ElevenLabs cost is not tracked here' },
@@ -1048,7 +1048,7 @@ async function renderPriceCheck() {
   const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 5), r = packRateRange(), a = econLoad();
   const priceOf = (row, v) => row.kind === 'chars' ? (v > 0 ? 1000 / v : 0) : v;               // credits for one unit
   const range = c => pcUsd(c * r.lo) + ' – ' + pcUsd(c * r.hi);
-  const mult = (row, v) => (row.cost && row.cost > 0 && priceOf(row, v) > 0) ? (priceOf(row, v) * r.lo / row.cost).toFixed(1) + '× – ' + (priceOf(row, v) * r.hi / row.cost).toFixed(1) + '×' : '—';
+  const mult = (row, v) => row.free ? 'no provider cost' : (row.cost && row.cost > 0 && priceOf(row, v) > 0) ? (priceOf(row, v) * r.lo / row.cost).toFixed(1) + '× – ' + (priceOf(row, v) * r.hi / row.cost).toFixed(1) + '×' : '—';
   let h = '<tr><th>Step</th><th>Your cost</th><th>Saved price (credits)</th><th>Customer pays (saved)</th><th>Multiple (saved)</th><th>New value ×' + f + '</th><th>Customer pays</th><th>Multiple after</th></tr>';
   pcRows().forEach(row => {
     const cur = pcBase(row.id), nv = pcNew(row, f);
@@ -2165,11 +2165,12 @@ function bizGrid(tableId, headers, rows, empty) {
 
 // ---------- unit economics: editable assumptions, remembered in this browser ----------
 // Alibaba Wan 3.0 per 720p clip-second: $0.1155 with the 30% launch discount, $0.165 from 1 Nov 2026
-const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: (Date.now() >= Date.UTC(2026, 10, 1) ? 0.165 : 0.1155), ld_per_min: 0.02, sd_per_job: 0.01, scene_per_job: 0.005, railway: 20, supabase: 25, other: 10 };
+const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: (Date.now() >= Date.UTC(2026, 10, 1) ? 0.165 : 0.1155), ld_per_min: 0.02, sd_per_job: 0.01, merge_per_job: 0.0002, scene_per_job: 0.005, railway: 20, supabase: 25, other: 10 };
 const ECON_FIELDS = [
   ['voice_per_m', 'Inworld voice, $ per 1 million characters', 'Published prices looked like $15–35; check your Inworld invoice.'],
   ['ld_per_min', 'Long-dub server time + translation, $ per video minute', 'Only used until the server has measured real long dubs (then the measured average per dub is used).'],
   ['sd_per_job', 'Short-dub server time + translation, $ per job', 'Only used until the server has measured real short dubs.'],
+  ['merge_per_job', 'Short-dub merge into video, $ per job', 'Used until the server has measured real merges. Test measurement: a 30-second clip took about 3 seconds and 0.2 GB; on the live server (4 GB held) that is about 2 hundredths of a cent.'],
   ['scene_per_job', 'AI scene check for the room sound (Gemini), $ per dub', 'One Gemini call per short or long dub (about 0.2–1 cent). The real cost of each long dub is in its scene_context log line.'],
   ['railway', 'Railway, $ per month', 'Fixed plan price only. Memory and CPU use is counted above (measured on the server); if your plan already includes a usage credit, lower this.'],
   ['supabase', 'Supabase, $ per month', 'Pro plan.'],
