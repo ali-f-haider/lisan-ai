@@ -74,6 +74,7 @@ import urllib.parse
 from pathlib import Path
 
 from config import OUTPUT_DIR
+from resource_meter import metered as _metered      # measures what each job costs on Railway (see resource_meter.py)
 from user_errors import friendly_error as _friendly_error, UserError
 from ffmpeg_utils import get_media_duration, run_ffmpeg
 from media_paths import resolve_job_audio
@@ -442,6 +443,7 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
     return base64.b64decode(audio_b64)
 
 
+@_metered("shortdub_clone", lambda job_id, *a, **k: job_id)
 def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None) -> dict:
     """Same behavior/shape as eleven_service.clone_voices: extracts the
     cleanest reference clip per speaker from the source video (up to ~20s,

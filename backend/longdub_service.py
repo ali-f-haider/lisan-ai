@@ -1157,6 +1157,11 @@ def _mark(job, stage, percent, message):
     job["percent"] = int(percent)
     job["message"] = message
     try:
+        import resource_meter
+        resource_meter.set_stage(job.get("id"), stage)       # the cost meter splits each job by step
+    except Exception:
+        pass
+    try:
         import app_state
         app_state.last_job_activity = time.time()
     except Exception:

@@ -1598,16 +1598,22 @@ async function loadResourceUsage() {
   const r = await api('/api/admin/resource_usage');
   if (!r.ok || !r.data || r.data.enabled === false) { box.textContent = ''; return; }
   const d = r.data, l = d.last24, c = d.cycle || {}, bits = [];
-  const money = x => '$' + (x < 1 ? x.toFixed(3) : x.toFixed(2));
+  const money = x => '$' + (x < 0.1 ? x.toFixed(4) : x < 1 ? x.toFixed(3) : x.toFixed(2));
   bits.push('<b>Measured inside the server</b> (memory costs about ' + money(d.mem_usd_per_gb_month) + ' per GB per month, around the clock)');
   if (d.now_gb != null) bits.push('Now: ' + d.now_gb + ' GB held' + (d.now_anon_gb != null ? ' (' + d.now_anon_gb + ' GB of it real program memory, the rest is cached files)' : '') + '.');
   if (l) bits.push('Last 24 h (' + l.hours + ' h measured): average ' + l.avg_gb + ' GB, highest ' + l.peak_gb + ' GB, idle floor ' + l.idle_floor_gb + ' GB, which alone costs about ' + money((l.idle_floor_gb || 0) * d.mem_usd_per_gb_month) + ' a month.');
   if (c.hours) bits.push('Billing month from ' + c.start + ': ' + money(c.usage_usd) + ' measured so far over ' + c.hours + ' h' + (c.projected_usd != null ? ', about ' + money(c.projected_usd) + ' projected to ' + c.end : '') + '. Compare with the Railway bill.');
   const ct = d.cache_trim;
   if (ct && ct.enabled) bits.push('Cached-file clean-up: ' + (ct.runs ? ('ran ' + ct.runs + ' time(s) since the last restart, freed ' + (ct.freed_gb_total || 0) + ' GB in total, the last run ' + (ct.last_freed_gb != null ? ct.last_freed_gb + ' GB' : 'nothing measurable') + '. Compare "Now" above with the memory graph in Railway to see whether it lowers what is billed.') : 'not run yet (it runs every 5 minutes when no dubbing is in progress).'));
-  const names = { longdub_analysis: 'long dub analysis', longdub_dub: 'long dub dubbing', shortdub_transcribe: 'short dub transcribe', shortdub_generate: 'short dub voices' };
-  const js = Object.keys(c.jobs || {}).map(k => (names[k] || k) + ': ' + c.jobs[k].n + ' jobs, average ' + money(c.jobs[k].avg_usd));
-  if (js.length) bits.push('Average cost per job this month: ' + js.join('; ') + '.');
+  const names = { longdub_analysis: 'long dub analysis', longdub_dub: 'long dub dubbing', shortdub_transcribe: 'short dub transcription', shortdub_clone: 'short dub voice cloning', shortdub_generate: 'short dub voice generation', shortdub_rebuild: 'short dub rebuild of the MP3', shortdub_merge: 'short dub merge into video' };
+  const stepNames = { extract: 'extracting audio', plan: 'planning', separate: 'separating voices from background', speakers: 'detecting speakers', transcribe: 'transcribing', translate: 'translating', build: 'building', clone: 'cloning voices', speak: 'generating voices', mix: 'mixing', lipsync: 'lip-sync', waiting: 'waiting in the queue', prepare: 'preparing the lines', voices: 'generating voices', finish: 'finishing', review: 'review', work: 'working' };
+  const js = Object.keys(c.jobs || {}).map(k => {
+    const j = c.jobs[k], steps = Object.keys(j.steps || {}).map(n => [n, j.steps[n]]).sort((a, b) => b[1].avg_usd_full - a[1].avg_usd_full);
+    let line = '<b>' + (names[k] || k) + '</b>: ' + j.n + ' job(s), ' + (j.avg_sec ? Math.round(j.avg_sec / 6) / 10 + ' min each, ' : '') + 'average ' + money(j.avg_usd) + ' added by the job, ' + money(j.avg_usd_full != null ? j.avg_usd_full : j.avg_usd) + ' with its share of the memory the server held meanwhile';
+    if (steps.length > 1 || (steps.length === 1 && steps[0][0] !== 'work')) line += '<div style="margin-left:14px;color:var(--muted,#94a3b8)">' + steps.map(x => (stepNames[x[0]] || x[0]) + ': ' + (x[1].avg_sec ? Math.round(x[1].avg_sec / 6) / 10 + ' min, ' : '') + (x[1].peak_gb ? x[1].peak_gb + ' GB peak, ' : '') + money(x[1].avg_usd) + ' / ' + money(x[1].avg_usd_full)).join('<br>') + '</div>';
+    return line;
+  });
+  if (js.length) { bits.push('Average cost per job this month, step by step ("added" = what the job adds on top of what the server holds anyway; "with share" = its share of all the memory held while it ran, which is what Railway bills for that time):'); js.forEach(x => bits.push(x)); }
   box.innerHTML = bits.map(x => '<div>' + x + '</div>').join('');
 }
 

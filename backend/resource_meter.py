@@ -16,6 +16,14 @@ Memory is read from the container's cgroup (the same source as the admin memory 
 Both fall back to the processes visible in the container. Everything here is best effort and never raises into the
 caller: a job is never slowed down or broken by its own measuring.
 
+Per step and with the held memory: while a job runs, every 3 seconds the meter notes which step it is in (long dubs:
+the stage names the app already shows, e.g. separate / speakers / transcribe / translate / clone / speak / mix / lipsync;
+short dub transcription: extract / separate / speakers / transcribe / prepare) and adds the memory and CPU of that
+interval to the step. Two prices are kept for every step and job: "extra" (memory above what the server held before the
+job, plus CPU: what the job adds) and "with its share" (the job's fair share of ALL the memory the server held while it
+ran, split between jobs running at the same time: what Railway really billed for that time). Memory held while nobody
+is dubbing stays a separate fixed cost (see the idle floor), so nothing is counted twice.
+
 Cached files: Linux keeps recently read or written files in memory ("page cache") and the container's memory figure
 counts them, although the program does not need them (they are re-read from disk if ever needed again). On the live
 server about 3 of the 4 GB held were such cached files. If the host bills that figure, they cost money for nothing, so
@@ -200,7 +208,21 @@ class _Hours:
 _hours = _Hours()
 _started = False
 _active = 0                          # jobs being measured right now (cache is never trimmed while one runs)
+_meters = []                         # JobMeters running right now
+_meters_lock = threading.Lock()
 _trim = {"runs": 0, "freed_gb_total": 0.0, "last_ts": None, "last_freed_gb": None, "last_files": 0}
+
+
+def set_stage(job_id, stage):
+    """Tell the meters of this job which step it is in now (cheap, never raises)."""
+    try:
+        jid = str(job_id or "")
+        with _meters_lock:
+            for m in _meters:
+                if m.job_id == jid:
+                    m.stage = str(stage or "")
+    except Exception:
+        pass
 
 
 def _cache_dirs():
@@ -344,11 +366,17 @@ def _compact():
 class JobMeter:
     """with JobMeter("longdub_dub", job_id) as m: ...   (m.result after the block)."""
 
-    def __init__(self, kind, job_id):
+    def __init__(self, kind, job_id, stage_of=None):
         self.kind, self.job_id = kind, str(job_id or "")
         self.result = None
         self._stop = threading.Event()
         self._thread = None
+        self.stage = ""                  # set by set_stage() or read through stage_of(job_id) on every tick
+        self.stage_of = stage_of
+        self.stages = {}
+        self.share_gb_min = 0.0
+        self.cpu_share_sec = 0.0
+        self._cpu_last = None
 
     def __enter__(self):
         global _active
@@ -356,7 +384,10 @@ class JobMeter:
             if ENABLED:
                 _active += 1
                 self._counted = True
+                with _meters_lock:
+                    _meters.append(self)
                 self.t0 = time.time()
+                self._cpu_last = read_cpu_sec()
                 self.start_gb, _ = read_mem()
                 self.cpu0 = read_cpu_sec()
                 self.peak = self.start_gb or 0.0
@@ -374,11 +405,33 @@ class JobMeter:
         used, _ = read_mem()
         if used is None:
             return
-        dt = min(max(now - self._last, 0.0), 60.0) / 60.0
+        dt_sec = min(max(now - self._last, 0.0), 60.0)
+        dt = dt_sec / 60.0
         self._last = now
+        n = max(1, _active)                                  # jobs sharing the server's memory and CPU right now
+        cpu = read_cpu_sec()
+        cpu_d = 0.0
+        if cpu is not None and self._cpu_last is not None and cpu >= self._cpu_last:
+            cpu_d = (cpu - self._cpu_last) / n
+        if cpu is not None:
+            self._cpu_last = cpu
+        extra = max(0.0, used - (self.start_gb or 0.0)) * dt
+        share = used * dt / n
         self.peak = max(self.peak, used)
         self.gb_min += used * dt
-        self.extra_gb_min += max(0.0, used - (self.start_gb or 0.0)) * dt
+        self.extra_gb_min += extra
+        self.share_gb_min += share
+        self.cpu_share_sec += cpu_d
+        try:
+            st = (self.stage_of(self.job_id) if self.stage_of else self.stage) or self.stage or "work"
+        except Exception:
+            st = self.stage or "work"
+        e = self.stages.setdefault(st, {"sec": 0.0, "extra": 0.0, "share": 0.0, "cpu": 0.0, "peak": 0.0})
+        e["sec"] += dt_sec
+        e["extra"] += extra
+        e["share"] += share
+        e["cpu"] += cpu_d
+        e["peak"] = max(e["peak"], used)
 
     def _run(self):
         while not self._stop.wait(JOB_SAMPLE_SEC):
@@ -391,24 +444,40 @@ class JobMeter:
         global _active
         if getattr(self, "_counted", False):
             self._counted = False
+            with _meters_lock:
+                try:
+                    _meters.remove(self)
+                except ValueError:
+                    pass
             _active = max(0, _active - 1)
         try:
             if self._thread is not None:
                 self._stop.set()
                 self._thread.join(timeout=2)
-                self._tick()
+                self._active_fix()
                 secs = time.time() - self.t0
-                cpu1 = read_cpu_sec()
-                cpu_min = max(0.0, (cpu1 - self.cpu0)) / 60.0 if (cpu1 is not None and self.cpu0 is not None) else 0.0
+                cpu_min = self.cpu_share_sec / 60.0
                 usd = self.extra_gb_min * MEM_USD_PER_GB_MIN + cpu_min * CPU_USD_PER_VCPU_MIN
+                usd_full = self.share_gb_min * MEM_USD_PER_GB_MIN + cpu_min * CPU_USD_PER_VCPU_MIN
+                steps = {}
+                for name, e in self.stages.items():
+                    c_min = e["cpu"] / 60.0
+                    steps[name] = {"sec": round(e["sec"], 1), "peak_gb": round(e["peak"], 2),
+                                   "usd": round(e["extra"] * MEM_USD_PER_GB_MIN + c_min * CPU_USD_PER_VCPU_MIN, 5),
+                                   "usd_full": round(e["share"] * MEM_USD_PER_GB_MIN + c_min * CPU_USD_PER_VCPU_MIN, 5)}
                 self.result = {
                     "ts": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"), "kind": self.kind, "job": self.job_id,
                     "sec": round(secs, 1), "start_gb": round(self.start_gb or 0.0, 2), "peak_gb": round(self.peak, 2),
                     "gb_min": round(self.gb_min, 2), "extra_gb_min": round(self.extra_gb_min, 2),
-                    "cpu_min": round(cpu_min, 2), "usd": round(usd, 5), "ok": exc[0] is None}
+                    "cpu_min": round(cpu_min, 2), "usd": round(usd, 5), "usd_full": round(usd_full, 5),
+                    "steps": steps, "ok": exc[0] is None}
                 self.result["text"] = (f"{self.kind}: {secs / 60:.1f} min, memory {self.result['start_gb']:.1f} -> peak {self.result['peak_gb']:.1f} GB, "
                                        f"{self.extra_gb_min:.1f} GB-min above the start, {cpu_min:.1f} vCPU-min, "
-                                       f"Railway cost about ${usd:.4f}")
+                                       f"Railway cost about ${usd:.4f} added by this job, ${usd_full:.4f} with its share of the memory the server held meanwhile")
+                if len(steps) > 1 or (steps and "work" not in steps):
+                    top = sorted(steps.items(), key=lambda kv: -kv[1]["usd_full"])
+                    self.result["text"] += ". Steps (minutes, GB peak, $ added / $ with share): " + "; ".join(
+                        f"{n} {v['sec'] / 60:.1f} min, {v['peak_gb']:.1f} GB, ${v['usd']:.4f} / ${v['usd_full']:.4f}" for n, v in top[:8])
                 with _lock:
                     JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
                     with open(JOBS_FILE, "a", encoding="utf-8") as f:
@@ -418,8 +487,17 @@ class JobMeter:
             print(f"[resource] could not finish measuring {self.kind}: {ex}")
         return False
 
+    def _active_fix(self):
+        """Last measuring step of the job. _active was already lowered, so count this job as one of the sharers once more."""
+        global _active
+        _active += 1
+        try:
+            self._tick()
+        finally:
+            _active = max(0, _active - 1)
 
-def metered(kind, job_id_of, after=None):
+
+def metered(kind, job_id_of, after=None, stage_of=None):
     """Decorator: measure every call of the function as one job. job_id_of(*args, **kwargs) gives the job id.
     after(args, kwargs, result_dict) may log the result (it must not raise; it is wrapped anyway)."""
     def deco(fn):
@@ -431,7 +509,7 @@ def metered(kind, job_id_of, after=None):
                 jid = job_id_of(*a, **k)
             except Exception:
                 jid = ""
-            m = JobMeter(kind, jid)
+            m = JobMeter(kind, jid, stage_of)
             try:
                 with m:
                     return fn(*a, **k)
@@ -475,13 +553,28 @@ def period_stats(start_day, end_day):
         d = str(j.get("ts", ""))[:10]
         if not (start_day <= d <= end_day):
             continue
-        e = jobs.setdefault(j.get("kind", "?"), {"n": 0, "total_usd": 0.0})
+        e = jobs.setdefault(j.get("kind", "?"), {"n": 0, "total_usd": 0.0, "total_usd_full": 0.0, "total_sec": 0.0, "steps": {}})
         e["n"] += 1
         e["total_usd"] += float(j.get("usd", 0.0))
+        e["total_usd_full"] += float(j.get("usd_full", j.get("usd", 0.0)))
+        e["total_sec"] += float(j.get("sec", 0.0))
         jobs_usd += float(j.get("usd", 0.0))
+        for name, v in (j.get("steps") or {}).items():
+            t = e["steps"].setdefault(name, {"usd": 0.0, "usd_full": 0.0, "sec": 0.0, "peak_gb": 0.0})
+            t["usd"] += float(v.get("usd", 0.0))
+            t["usd_full"] += float(v.get("usd_full", 0.0))
+            t["sec"] += float(v.get("sec", 0.0))
+            t["peak_gb"] = max(t["peak_gb"], float(v.get("peak_gb", 0.0)))
     for e in jobs.values():
-        e["avg_usd"] = round(e["total_usd"] / e["n"], 5) if e["n"] else 0.0
+        n = e["n"] or 1
+        e["avg_usd"] = round(e["total_usd"] / n, 5)
+        e["avg_usd_full"] = round(e["total_usd_full"] / n, 5)
+        e["avg_sec"] = round(e["total_sec"] / n, 1)
         e["total_usd"] = round(e["total_usd"], 4)
+        e["total_usd_full"] = round(e["total_usd_full"], 4)
+        e.pop("total_sec", None)
+        e["steps"] = {k: {"avg_usd": round(v["usd"] / n, 5), "avg_usd_full": round(v["usd_full"] / n, 5),
+                          "avg_sec": round(v["sec"] / n, 1), "peak_gb": round(v["peak_gb"], 2)} for k, v in e["steps"].items()}
     idle = max(0.0, usage - jobs_usd) / covered if covered >= 1 else None
     return {"hours": round(covered, 1), "usage_usd": round(usage, 3), "jobs_usd": round(jobs_usd, 3),
             "idle_usd_per_hour": None if idle is None else round(idle, 5), "jobs": jobs}

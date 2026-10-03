@@ -4246,6 +4246,7 @@ def room_profile(job_id: str, request: Request):
         return JSONResponse({"error": "Room sound is not available for this job.", "detail": str(ex)[:160]}, status_code=200)
 
 @app.post("/api/merge_video")
+@resource_meter.metered("shortdub_merge", lambda req, *a, **k: getattr(req, "job_id", ""))
 def merge_video(req: MergeRequest, request: Request):
     if _rate_limited(request, "merge_video", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)

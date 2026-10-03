@@ -511,7 +511,23 @@ def merge_mid_sentence_rows(rows):
     return merged
 
 
-@_metered("shortdub_transcribe", lambda job_id, *a, **k: job_id)
+def _meter_stage(job_id):
+    """Which step the transcription job is in right now (read from the progress text the page shows), for the cost meter."""
+    t = str((jobs_progress.get(job_id) or {}).get("status_text") or "").lower()
+    if "waiting" in t:
+        return "waiting"
+    if "extract" in t:
+        return "extract"
+    if "separat" in t:
+        return "separate"
+    if "speaker" in t:
+        return "speakers"
+    if "transcrib" in t:
+        return "transcribe"
+    return "prepare"
+
+
+@_metered("shortdub_transcribe", lambda job_id, *a, **k: job_id, stage_of=_meter_stage)
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False):
     # Only MAX_CONCURRENT_TRANSCRIPTIONS jobs actually run at once (see
     # _JobQueue above) -- everyone else waits in line here for a slot. Show

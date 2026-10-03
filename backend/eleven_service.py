@@ -324,6 +324,7 @@ def record_gemini(job_id, data):
     b["gemini_out"] += int(u.get("candidatesTokenCount", 0) or 0)
     b["gemini_thoughts"] += int(u.get("thoughtsTokenCount", 0) or 0)
 
+@_metered("shortdub_clone", lambda job_id, *a, **k: job_id)
 def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None) -> dict:
     audio_path = resolve_job_audio(job_id)
     if audio_path is None:
@@ -517,7 +518,12 @@ def _mix_filter_part(input_index, allowed, delay_ms, gdb, trim):
     return (f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},"
             f"asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{input_index - 1}]")
 
-@_metered("shortdub_generate", lambda req, *a, **k: getattr(req, "job_id", ""))
+def _meter_stage_generate(job_id):
+    p = int((jobs_progress.get(f"generate_{job_id}") or {}).get("percent") or 0)
+    return "voices" if p < 90 else "mix"
+
+
+@_metered("shortdub_generate", lambda req, *a, **k: getattr(req, "job_id", ""), stage_of=_meter_stage_generate)
 def generate_worker(req):
     global eleven_client
     global OVERLAP_FLAGS
@@ -971,6 +977,7 @@ def restretch_line(req):
     except Exception as e:
         return {"error": friendly_error(e)}
 
+@_metered("shortdub_rebuild", lambda req, *a, **k: getattr(req, "job_id", ""))
 def remix_with_offsets(req):
     """Rebuild this job's final dubbed audio applying per-segment time offsets AND Step 5.5 volume gains."""
     global OVERLAP_FLAGS
