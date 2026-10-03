@@ -5951,7 +5951,7 @@ def _get_pricing_config():
         # the ceiling as % of the server's memory limit, and the limit itself in GB (0 = read it from the container).
         "concurrency": {"max": 2, "needGb": 5.0, "pct": 80, "limitGb": 0},
         # The AI helper (chat box): on/off, the whole site's daily spending cap in dollars, daily messages per signed-in user / per guest.
-        "assistant": {"enabled": True, "dailyBudgetUsd": 2.0, "userDailyMsgs": 60, "guestDailyMsgs": 15},
+        "assistant": {"enabled": True, "dailyBudgetUsd": 2.0, "userDailyMsgs": 60, "guestDailyMsgs": 15, "notes": ""},
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -6065,7 +6065,8 @@ def _assistant_cfg(v):
             return d
         return min(hi, max(lo, x)) if x == x else d
     return {"enabled": bool(v.get("enabled", True)), "dailyBudgetUsd": num("dailyBudgetUsd", 0, 1000, 2.0),
-            "userDailyMsgs": int(num("userDailyMsgs", 1, 1000, 60)), "guestDailyMsgs": int(num("guestDailyMsgs", 0, 1000, 15))}
+            "userDailyMsgs": int(num("userDailyMsgs", 1, 1000, 60)), "guestDailyMsgs": int(num("guestDailyMsgs", 0, 1000, 15)),
+            "notes": str(v.get("notes") or "").strip()[:6000]}
 
 
 def _apply_assistant(cfg=None):
@@ -7417,7 +7418,7 @@ def _assistant_account_text(uid, job_id=""):
                 for label, key in (("Short dub on screen", job_id), ("Audio generation for it", f"generate_{job_id}")):
                     d = _public_progress(jobs_progress.get(key))
                     if isinstance(d, dict):
-                        L.append(f"{label}: status {d.get('status')}, {d.get('percent', d.get('progress', ''))}%, message: {str(d.get('message') or d.get('error') or '')[:200]}")
+                        L.append(f"{label} (a snapshot taken just now; how long it has stood at this point is NOT known): status {d.get('status')}, {d.get('percent', d.get('progress', ''))}%, message: {str(d.get('message') or d.get('error') or '')[:200]}")
     except Exception as ex:
         print("[assistant] job lookup failed:", ex)
     text = "\n".join(L)[:5000]
