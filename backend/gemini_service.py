@@ -15,6 +15,7 @@ from config import (
 from app_state import jobs_progress, usage_bucket, record_gemini
 from ffmpeg_utils import cut_audio_segment
 from user_errors import friendly_error
+from resource_meter import metered as _metered
 
 
 def normalize_emotion(value):
@@ -304,6 +305,7 @@ def pick_native_candidate(job_id: str, previews: list, api_key: str):
     return best, scores
 
 
+@_metered("shortdub_emotions", lambda job_id, *a, **k: job_id)
 def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments: list):
     """Background worker: listen to each segment and classify its emotion."""
     progress_key = f"emotions_{job_id}"

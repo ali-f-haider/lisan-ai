@@ -212,7 +212,8 @@ _meters = []                         # JobMeters running right now
 _meters_lock = threading.Lock()
 _tl = threading.local()              # the JobMeter(s) started by this thread (a provider call inside it adds its price to the top one)
 GEMINI_IN_USD_PER_M = _env_float("GEMINI_IN_USD_PER_M", 0.30)      # gemini-2.5-flash, the model every call uses first
-GEMINI_OUT_USD_PER_M = _env_float("GEMINI_OUT_USD_PER_M", 2.50)    # answer AND thinking tokens are both billed at this rate
+GEMINI_OUT_USD_PER_M = _env_float("GEMINI_OUT_USD_PER_M", 2.50)
+GEMINI_AUDIO_IN_USD_PER_M = _env_float("GEMINI_AUDIO_IN_USD_PER_M", 1.00)   # audio the model listens to costs more than text    # answer AND thinking tokens are both billed at this rate
 _trim = {"runs": 0, "freed_gb_total": 0.0, "last_ts": None, "last_freed_gb": None, "last_files": 0}
 
 
@@ -222,7 +223,12 @@ def gemini_usd(data):
         u = (data or {}).get("usageMetadata") or {}
         tin = int(u.get("promptTokenCount", 0) or 0)
         tout = int(u.get("candidatesTokenCount", 0) or 0) + int(u.get("thoughtsTokenCount", 0) or 0)
-        return tin / 1e6 * GEMINI_IN_USD_PER_M + tout / 1e6 * GEMINI_OUT_USD_PER_M
+        taud = 0
+        for d in u.get("promptTokensDetails") or []:
+            if str(d.get("modality", "")).upper() == "AUDIO":
+                taud += int(d.get("tokenCount", 0) or 0)
+        taud = min(taud, tin)
+        return (tin - taud) / 1e6 * GEMINI_IN_USD_PER_M + taud / 1e6 * GEMINI_AUDIO_IN_USD_PER_M + tout / 1e6 * GEMINI_OUT_USD_PER_M
     except Exception:
         return 0.0
 
