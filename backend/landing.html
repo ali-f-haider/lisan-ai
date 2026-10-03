@@ -99,6 +99,8 @@ h2{font-size:clamp(28px,4vw,44px)}
 .nav .login.me:hover{color:var(--gold2)}
 .me-av{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:linear-gradient(180deg,#f2cd7d,#dca443);color:#1a1205;font-size:12.5px;font-weight:700;line-height:1}
 .me-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav .login.lo-d{padding:8px 4px;font-size:13.5px;color:var(--dim)}
+.nav .login.lo-d:hover{color:var(--text)}
 .nav .btn{padding:9px 18px;font-size:14.5px;border-radius:10px}
 .burger{display:none;width:40px;height:40px;border:1px solid var(--line2);background:rgba(255,255,255,.03);border-radius:10px;cursor:pointer;align-items:center;justify-content:center}
 .burger svg{width:20px;height:20px}
@@ -299,6 +301,7 @@ html.js .rv.in{opacity:1;transform:none}
   .links a:last-child{border-bottom:0}
   .burger{display:inline-flex}
   .only-m{display:block}
+  .nav .login.lo-d{display:none}
 }
 @media (max-width:720px){
   section{padding:70px 0}
@@ -1086,9 +1089,34 @@ html.js .rv.in{opacity:1;transform:none}
     var en = a.querySelector(":scope > .en"), ar = a.querySelector(":scope > .ar");
     if (en) en.textContent = "Open app"; if (ar) ar.textContent = "افتح التطبيق";
   }
+  function logout(e) {
+    if (e) e.preventDefault();
+    function done() {
+      try {
+        localStorage.removeItem("lisan_workspace_v1");
+        for (var i = localStorage.length - 1; i >= 0; i--) {      // the browser-side login copy, if there is one
+          var k = localStorage.key(i);
+          if (k && /^sb-.*-auth-token/.test(k)) localStorage.removeItem(k);
+        }
+      } catch (x) {}
+      window.location.reload();
+    }
+    fetch("/api/logout", { method: "POST", credentials: "same-origin" }).then(done, done);
+  }
+  function logoutLink(cls) {
+    var a = document.createElement("a"); a.href = "#"; a.className = cls;
+    var en = document.createElement("span"); en.className = "en"; en.textContent = "Log out";
+    var ar = document.createElement("span"); ar.className = "ar"; ar.textContent = "تسجيل الخروج";
+    a.appendChild(en); a.appendChild(ar); a.addEventListener("click", logout);
+    return a;
+  }
   function apply(name) {
     var links = document.querySelectorAll('a[href="/login"]');
     for (var i = 0; i < links.length; i++) { links[i].setAttribute("href", "/app"); words(links[i], name); }
+    // Log out: next to the name on a wide screen, last item of the menu on a small one
+    var desk = document.querySelector(".nav .login"), menu = document.getElementById("navLinks");
+    if (desk && desk.parentNode) desk.parentNode.insertBefore(logoutLink("login lo-d"), desk.nextSibling);
+    if (menu) menu.appendChild(logoutLink("only-m"));
   }
   fetch("/api/me", { credentials: "same-origin", cache: "no-store" })
     .then(function (r) { return r.ok ? r.json() : null; })
