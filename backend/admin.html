@@ -399,6 +399,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <div class="form-group" style="background:#0f172a;border-radius:6px;padding:12px;">
           <label style="color:#e2e8f0;">Example: what a long dub costs the customer</label>
           <span class="muted">Video length (minutes)</span> <input type="number" id="ldExMin" value="10" min="1" max="120" step="1" style="width:80px;" oninput="updateLdExample()">
+          <label style="margin-inline-start:14px;font-weight:normal;"><input type="checkbox" id="ldExLip" onchange="updateLdExample()"> with lip-sync (720p, whole video)</label>
           <p id="ldExOut" class="muted" style="margin-top:8px;color:#cbd5e1;">—</p>
           <p class="muted" style="margin-top:4px;">Voice and clone prices come from the Inworld rates on the Voice tab; the voice part assumes about 1,000 characters of Arabic per minute and 2 speakers (the real price is fixed after the text is reviewed).</p>
         </div>
@@ -990,10 +991,11 @@ function updateLdExample() {
   const fee = g('transcribeCredits'), analysis = Math.ceil(min * g('longDubAnalysisPerMin')), flat = g('longDubFlatCredits');
   const cpc = Math.max(1, g('inworldCharsPerCredit') || 60);
   const voice = Math.ceil(min * 1000 / cpc), clones = 2 * g('inworldCloneCredits'), merge = Math.max(1, g('mergeCredits'));
-  const total = fee + analysis + flat + voice + clones + merge;
+  const lip = document.getElementById('ldExLip')?.checked ? Math.ceil(min * 60 * g('lipsyncCreditsPerSec')) : 0;
+  const total = fee + analysis + flat + voice + clones + merge + lip;
   const r = packRateRange();
   out.textContent = 'A ' + min + '-minute video: estimate fee ' + fee + ' + analysis ' + analysis + ' + processing fee ' + flat + ' + voice ≈ ' + voice +
-    ' + 2 voice clones ' + clones + ' + final assembly ' + merge + ' = ≈ ' + total + ' credits (' + usd(total * r.lo) + ' – ' + usd(total * r.hi) + ' depending on the credit pack).';
+    ' + 2 voice clones ' + clones + ' + final assembly ' + merge + (lip ? ' + lip-sync ' + lip : '') + ' = ≈ ' + total + ' credits (' + usd(total * r.lo) + ' – ' + usd(total * r.hi) + ' depending on the credit pack).';
 }
 
 function updateLipRates() {
@@ -1007,7 +1009,7 @@ function updateLipRates() {
 
 document.addEventListener('input', e => {
   const id = e.target && e.target.id;
-  if (['ldExMin', 'transcribeCredits', 'mergeCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'inworldCharsPerCredit', 'inworldCloneCredits'].includes(id)) updateLdExample();
+  if (['ldExMin', 'transcribeCredits', 'mergeCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'inworldCharsPerCredit', 'inworldCloneCredits', 'lipsyncCreditsPerSec'].includes(id)) updateLdExample();
   if (e.target && e.target.closest && e.target.closest('#packsTable')) { updateLdExample(); updateLipRates(); }
 });
 
