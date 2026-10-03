@@ -39,6 +39,7 @@ import business_metrics
 import alibaba_cost
 import disk_guard
 import railway_monitor
+import resource_meter
 import service_usage_monitor
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 
@@ -67,11 +68,20 @@ try:
     if SENTRY_DSN:
         import sentry_sdk
         from sentry_sdk.integrations.huggingface_hub import HuggingfaceHubIntegration
+        # Sentry attaches the local variables of every frame to an error. Its built-in filter only hides names such
+        # as "password"; the admin login keeps the typed code in a variable called "code", so a mistyped admin code
+        # showed up in plain text in an error report. These names are now hidden too.
+        try:
+            from sentry_sdk.scrubber import EventScrubber, DEFAULT_DENYLIST
+            _scrubber = EventScrubber(denylist=list(DEFAULT_DENYLIST) + ["code", "admin_code", "token", "pin", "otp", "secret", "api_key", "authorization", "cookie"], recursive=True)
+        except Exception:
+            _scrubber = None
         sentry_sdk.init(
             dsn=SENTRY_DSN,
             traces_sample_rate=0.1,
             send_default_pii=False,
             disabled_integrations=[HuggingfaceHubIntegration()],
+            **({"event_scrubber": _scrubber} if _scrubber is not None else {}),
         )
         SENTRY_INITIALIZED = True
 except Exception as _sentry_ex:
@@ -254,6 +264,7 @@ class RemixRequest(_JobIdModel):
     duration_mode: str = "exact"
     overlap_allowed: dict = {}
     dead_space_allowed: dict = {}
+    room: dict = {}      # Step 5.5 "Room sound": {"mode": "auto"|"off"|"manual", "rt60": s, "wet_db": dB}
 
 class MergeRequest(_JobIdModel):
     job_id: str
@@ -419,10 +430,13 @@ def _is_logged_in(request: Request) -> bool:
     if cookie not in _sessions and not _restore_session_from_db(cookie):
         return False
     sb_token = _valid_tokens.get(cookie, "")
-    if sb_token and _verify_supabase_token(sb_token):
-        return True
+    if sb_token:
+        # A session that was created by a real (Supabase) login stands or falls with that login. It must NOT fall
+        # back to the shared-password rule below when the login has expired: that turned an expired customer
+        # session into a logged-in session with no account (shown as "Guest", credits -1) that was never charged.
+        return _verify_supabase_token(sb_token)
     if APP_PASSWORD:
-        return True
+        return True       # a session made with the shared password (no Supabase account behind it)
     return False
 
 # --- Site-wide "private testing" gate (Sept 2026) ---
@@ -1190,6 +1204,20 @@ def _current_uid(request: Request):
         return uid
     except Exception:
         return None
+
+
+def _paid_uid(request: Request):
+    """(uid, None) for a caller that has a real account, otherwise (None, ready 4xx/5xx response).
+    Every step that costs credits (and real money at the AI providers) goes through this: a session without an
+    account -- the shared-password login, or a login the server cannot verify -- is never let through to run it for free."""
+    uid = _current_uid(request)
+    if uid:
+        return uid, None
+    cookie = request.cookies.get("session", "")
+    if cookie and _valid_tokens.get(cookie):
+        # there is an account login but the lookup failed just now (network, Supabase hiccup): nothing was charged
+        return None, JSONResponse({"error": "We couldn't check your account just now. Please try again in a moment."}, status_code=503)
+    return None, JSONResponse({"error": "Please log in with your account to continue."}, status_code=401)
 
 
 # ---- job ownership for the short (Steps 1-7) flow -------------------------------
@@ -3331,6 +3359,7 @@ def _cleanup_worker():
 
 threading.Thread(target=_cleanup_worker, daemon=True).start()
 railway_monitor.start()
+resource_meter.start()
 service_usage_monitor.start()
 disk_guard.start(_is_final_output)
 
@@ -3606,8 +3635,10 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     # actually matters. Same reasoning as the duration cap a few lines below.
     if voice_consent.strip().lower() not in ("true", "1", "yes", "on"):
         return JSONResponse({"error": "You must certify you have the necessary rights or consents for the voices in this file before uploading."}, status_code=400)
-    uid = _current_uid(request)
-    bal = get_credits(uid) if uid else None
+    uid, _no_acct = _paid_uid(request)
+    if _no_acct is not None:
+        return _no_acct
+    bal = get_credits(uid)
     transcribe_cost = int(_get_pricing_config().get("transcribeCredits", 3))
     if bal is not None and bal < transcribe_cost:
         return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use ➕ Buy to get a pack."}, status_code=402)
@@ -3888,7 +3919,9 @@ def clone(req: CloneRequest, request: Request):
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
-    uid = _current_uid(request)
+    uid, _no_acct = _paid_uid(request)
+    if _no_acct is not None:
+        return _no_acct
     # Same speaker-resolution logic as eleven_service.clone_voices itself
     # (empty speakers_to_clone means "every distinct speaker with text") --
     # duplicated here only so the slot/quota gate below knows how many NEW
@@ -4120,8 +4153,10 @@ def generate(req: GenerateRequest, request: Request):
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
-    uid = _current_uid(request)
-    bal = get_credits(uid) if uid else None
+    uid, _no_acct = _paid_uid(request)
+    if _no_acct is not None:
+        return _no_acct
+    bal = get_credits(uid)
     # minReserve (admin-configurable, "💰 Pricing Configuration") is a rough
     # "don't even start" safety floor, not the actual price -- the real
     # per-job cost depends on how much text gets generated and is only known
@@ -4196,6 +4231,20 @@ def remix_audio(req: RemixRequest, request: Request):
         return _g
     return eleven_service.remix_with_offsets(req)
 
+@app.get("/api/room_profile")
+def room_profile(job_id: str, request: Request):
+    """How reverberant the ORIGINAL recording is (measured once, cached), and the room setting currently in use."""
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
+    try:
+        import room_acoustics
+        prof = room_acoustics.profile_for_job(job_id, OUTPUT_DIR)
+        return {"profile": prof, "settings": eleven_service.ROOM_SETTINGS.get(job_id) or {"mode": "auto"},
+                "last": eleven_service.ROOM_LAST.get(job_id), "enabled": bool(room_acoustics.ENABLED)}
+    except Exception as ex:
+        return JSONResponse({"error": "Room sound is not available for this job.", "detail": str(ex)[:160]}, status_code=200)
+
 @app.post("/api/merge_video")
 def merge_video(req: MergeRequest, request: Request):
     if _rate_limited(request, "merge_video", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
@@ -4203,8 +4252,10 @@ def merge_video(req: MergeRequest, request: Request):
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
-    uid = _current_uid(request)
-    bal = get_credits(uid) if uid else None
+    uid, _no_acct = _paid_uid(request)
+    if _no_acct is not None:
+        return _no_acct
+    bal = get_credits(uid)
     merge_cost = int(_get_pricing_config().get("mergeCredits", 1))
     if merge_cost <= 0:
         merge_cost = 1
@@ -4338,7 +4389,9 @@ def lipsync(req: LipSyncRequest, request: Request):
         return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
-    uid = _current_uid(request)
+    uid, _no_acct = _paid_uid(request)
+    if _no_acct is not None:
+        return _no_acct
 
     video_path = find_job_video(req.job_id)
     if video_path is None:
@@ -5230,6 +5283,7 @@ def longdub_preview(job_id: str, request: Request):
 
 class LongDubConfirm(BaseModel):
     expected_due: int = -1
+    room: str = ""
 
 
 @app.post("/api/longdub/{job_id}/confirm")
@@ -5244,7 +5298,7 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     _blk = _storage_block(uid, int(job.get("size") or 0) if _vid else int((job.get("size") or 0) * 0.2))
     if _blk is not None:
         return _blk          # before the dubbing is charged
-    ok, e = longdub_service.confirm(job, uid, body.expected_due)
+    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room)
     if not ok:
         extra = {}
         if e[1] == 409 and job.get("status") == "editing":
@@ -6785,6 +6839,15 @@ def admin_storage(request: Request):
             "alert_email": bool(_disk_alerts_enabled()),
         },
     }
+
+@app.get("/api/admin/resource_usage")
+def admin_resource_usage(request: Request):
+    """What the server really uses and costs on Railway, measured inside the container (see resource_meter.py):
+    memory now, the idle floor and average of the last 24 hours, the billing month so far with a projection, and what
+    each kind of job costs on average. Compare the month figure with the Railway bill."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return resource_meter.summary()
 
 @app.get("/api/admin/railway_memory")
 def admin_railway_memory(request: Request):

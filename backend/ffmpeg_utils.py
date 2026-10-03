@@ -218,15 +218,17 @@ def mute_video_copy(video_path: Path, out_path: Path):
 
 
 def mix_two_audio(main_audio: Path, bg_audio: Path, out_wav: Path,
-                  main_vol: float = 1.0, bg_vol: float = 0.8, extra_audio: Path = None, extra_vol: float = 1.0):
-    """Dubbed voice + background. With extra_audio (the laughter / applause layer) a third track is added."""
+                  main_vol: float = 1.0, bg_vol: float = 1.0, extra_audio: Path = None, extra_vol: float = 1.0):
+    """Dubbed voice + background. With extra_audio (the laughter / applause layer) a third track is added.
+    The background is NOT turned down here (bg_vol=1.0): its level is set beforehand from the ORIGINAL audio
+    (bg_duck.prepare_background). A safety limiter at the end only catches peaks so the sum can never clip."""
     if extra_audio is not None and Path(extra_audio).exists():
         cmd = [
             "ffmpeg", "-y",
             "-i", str(main_audio), "-i", str(bg_audio), "-i", str(extra_audio),
             "-filter_complex",
             f"[0:a]volume={main_vol}[d];[1:a]volume={bg_vol}[b];[2:a]volume={extra_vol}[r];"
-            "[d][b][r]amix=inputs=3:duration=first:normalize=0[out]",
+            "[d][b][r]amix=inputs=3:duration=first:normalize=0[m];[m]alimiter=limit=0.97:level=disabled[out]",
             "-map", "[out]",
             str(out_wav)
         ]
@@ -236,7 +238,7 @@ def mix_two_audio(main_audio: Path, bg_audio: Path, out_wav: Path,
         "ffmpeg", "-y",
         "-i", str(main_audio), "-i", str(bg_audio),
         "-filter_complex",
-        f"[0:a]volume={main_vol}[d];[1:a]volume={bg_vol}[b];[d][b]amix=inputs=2:duration=first:normalize=0[out]",
+        f"[0:a]volume={main_vol}[d];[1:a]volume={bg_vol}[b];[d][b]amix=inputs=2:duration=first:normalize=0[m];[m]alimiter=limit=0.97:level=disabled[out]",
         "-map", "[out]",
         str(out_wav)
     ]
@@ -298,13 +300,15 @@ def detect_silence_gaps(file_path, min_silence_sec: float = 0.6, noise_db: str =
 
 def measure_loudness_db(file_path, start: float = None, duration: float = None):
     """Mean loudness (dB) of a file or a time slice, via ffmpeg volumedetect."""
-    cmd = ["ffmpeg", "-v", "error"]
+    # volumedetect reports its result at the "info" log level: with "-v error" (as this used to be) nothing is printed
+    # and the function always returned None, so no line ever got a measured original level.
+    cmd = ["ffmpeg", "-hide_banner", "-nostats", "-v", "info"]
     if start is not None:
-        cmd += ["-ss", str(start)]
+        cmd += ["-ss", str(max(0.0, float(start)))]
     cmd += ["-i", str(file_path)]
     if duration is not None:
         cmd += ["-t", str(duration)]
-    cmd += ["-af", "volumedetect", "-f", "null", "-"]
+    cmd += ["-vn", "-af", "volumedetect", "-f", "null", "-"]
     try:
         p = subprocess.run(cmd, capture_output=True, text=True)
         import re
@@ -314,3 +318,31 @@ def measure_loudness_db(file_path, start: float = None, duration: float = None):
     except Exception:
         pass
     return None
+
+
+def measure_speech_loudness_db(file_path, start, duration, spans):
+    """Mean loudness (dB) of a time slice counting ONLY the moments where words are spoken (spans = [(start, end)]
+    seconds, the speech map made at transcription). Laughter, applause and music inside the slice are left out.
+    None when the slice holds no spoken moment or on any problem (the caller then uses measure_loudness_db)."""
+    try:
+        import numpy as np
+        t0, t1 = float(start), float(start) + float(duration)
+        inside = [(max(a, t0), min(z, t1)) for a, z in spans if z > t0 and a < t1]
+        inside = [(a, z) for a, z in inside if z - a > 0.05]
+        if not inside:
+            return None
+        rate = 16000
+        p = subprocess.run(["ffmpeg", "-v", "error", "-ss", str(max(0.0, t0)), "-t", str(t1 - t0), "-i", str(file_path),
+                            "-vn", "-ac", "1", "-ar", str(rate), "-f", "f32le", "-"], capture_output=True, timeout=120)
+        x = np.frombuffer(p.stdout, dtype="<f4").astype(np.float64)
+        if x.size < rate // 10:
+            return None
+        keep = np.zeros(x.size, dtype=bool)
+        for a, z in inside:
+            keep[int((a - t0) * rate):int((z - t0) * rate) + 1] = True
+        if keep.sum() < rate // 20:
+            return None
+        ms = float(np.mean(x[keep] ** 2))
+        return 10.0 * float(np.log10(ms + 1e-12))
+    except Exception:
+        return None

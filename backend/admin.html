@@ -53,6 +53,34 @@ button.btn-success:hover { background: #15803d; }
 .status-chip { font-weight: 700; font-size: 12px; margin-left: 6px; color: #64748b; }
 .off-card { opacity: 0.75; border: 1px dashed #475569; }
 .off-card h3 { color: #94a3b8; }
+.ld-toggle { display: inline-flex; border: 1px solid #475569; border-radius: 4px; overflow: hidden; }
+.ld-toggle button { background: #0f172a; color: #94a3b8; border: 0; padding: 8px 14px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.ld-toggle button.on { background: #f59e0b; color: #000; }
+.ld-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+details.ld-job { background: #0f172a; border: 1px solid #334155; border-radius: 8px; margin-bottom: 8px; }
+summary.ld-job-sum { cursor: pointer; padding: 12px 14px; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+summary.ld-job-sum::-webkit-details-marker, summary.ld-step-sum::-webkit-details-marker { display: none; }
+summary.ld-job-sum::before, summary.ld-step-sum::before { content: '▸'; color: #f59e0b; margin-right: 2px; }
+details[open] > summary.ld-job-sum::before, details[open] > summary.ld-step-sum::before { content: '▾'; }
+.ld-jobname { color: #e2e8f0; font-size: 14px; word-break: break-all; }
+.ld-meta { color: #94a3b8; font-size: 12px; }
+.ld-idline { padding: 0 14px 8px 34px; color: #64748b; font-size: 12px; word-break: break-all; }
+.ld-phase { padding: 6px 14px 10px 34px; }
+.ld-phase-title { color: #f59e0b; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin: 6px 0; }
+details.ld-step { border-left: 2px solid #334155; margin-left: 4px; }
+summary.ld-step-sum { cursor: pointer; padding: 5px 8px; list-style: none; display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; font-size: 13px; }
+summary.ld-step-sum:hover { background: #1e293b; }
+.ld-time { color: #64748b; font-variant-numeric: tabular-nums; font-size: 12px; }
+.ld-res { display: inline-block; color: #fff; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 10px; }
+.ld-title { color: #e2e8f0; font-weight: 600; }
+.ld-short { color: #64748b; font-size: 12px; overflow-wrap: anywhere; }
+.ld-body { padding: 6px 10px 12px 22px; }
+.ld-help { color: #94a3b8; font-size: 12px; margin-bottom: 8px; font-style: italic; }
+.ld-grid { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; font-size: 13px; }
+.ld-k { color: #94a3b8; }
+.ld-v { color: #e2e8f0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ld-part { padding: 1px 0; }
+@media (max-width: 640px) { .ld-grid { grid-template-columns: 1fr; } .ld-k { margin-top: 6px; } }
 code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12px; color: #fbbf24; }
 .toast { position: fixed; bottom: 20px; right: 20px; background: #16a34a; color: #fff; padding: 12px 20px; border-radius: 4px; z-index: 1000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
 .toast.error { background: #dc2626; }
@@ -597,6 +625,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <div id="rmBar" style="height:100%;width:0%;background:#16a34a;transition:width 0.3s, background 0.3s;"></div>
         </div>
         <p class="muted" id="rmNote">—</p>
+        <div id="rmMeasured" class="muted" style="margin-top:10px;font-size:13px;line-height:1.5"></div>
       </div>
       <div class="card">
         <h3>🔔 Server alert e-mails</h3>
@@ -697,11 +726,14 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <button class="btn" onclick="loadLongDubLog()">Search</button>
           <button class="btn" onclick="ldLogToday()" title="Only today (UTC)">Today</button>
           <button class="btn" onclick="ldLogClear()" title="Clear the search and the dates">Clear</button>
+          <span class="ld-toggle" title="Switch between the plain table and a tree with one node per long dub"><button type="button" id="ldViewTable" class="on" onclick="setLdView('table')">Table</button><button type="button" id="ldViewTree" onclick="setLdView('tree')">Tree</button></span>
+          <button class="btn" onclick="exportLongDubLog()" title="Save the events matching the search and the dates (up to 1000) as one JSON file, with the server's measured memory/cost summary, to send for analysis">Export JSON</button>
           <button class="btn" onclick="downloadLipDebug()" title="Only for old jobs made with lip-sync: the picture and sound sent to the lip-sync engine for each clip, and what it returned (kept 7 days)">Lip-sync files (zip)</button>
         </div>
         <p class="muted" id="ldLogNote"></p>
+        <div id="ldLogTree" style="display:none"></div>
         <table>
-          <thead><tr><th>Time (UTC)</th><th>Job</th><th>Step</th><th>Result</th><th>Credits</th><th>Details</th></tr></thead>
+          <thead><tr><th>Time (your time)</th><th>Job</th><th>Step</th><th>Result</th><th>Credits</th><th>Details</th></tr></thead>
           <tbody id="ldLogTable"><tr><td colspan="6" class="muted">Press Search.</td></tr></tbody>
         </table>
       </div>
@@ -849,7 +881,7 @@ async function loadUsers() {
       <td>${u.subscription_credits != null ? u.subscription_credits : '—'}</td>
       <td>${(u.minutes_generated ?? 0).toFixed(1)}</td>
       <td>${u.is_guest ? 'Yes' : 'No'}</td>
-      <td>${u.created_at||'—'}</td>
+      <td>${localTs(u.created_at, false) || '—'}</td>
       <td>
         <button class="btn-sm btn-success" onclick="adjustCredits('${u.id}', 1, ${i})">+ Grant</button>
         <button class="btn-sm btn-danger" onclick="adjustCredits('${u.id}', -1, ${i})">− Deduct</button>
@@ -1177,7 +1209,7 @@ async function loadAudit() {
   let html = '';
   r.data.audit.forEach(a => {
     const sign = a.delta > 0 ? '+' : '';
-    html += `<tr><td>${escapeHtml(a.created_at)}</td><td>${escapeHtml(a.admin)}</td><td>${a.target_uid.slice(0,8)}...</td><td style="color:${a.delta>0?'#16a34a':'#dc2626'}">${sign}${a.delta}</td><td>${escapeHtml(a.reason)}</td></tr>`;
+    html += `<tr><td>${escapeHtml(localTs(a.created_at, true))}</td><td>${escapeHtml(a.admin)}</td><td>${a.target_uid.slice(0,8)}...</td><td style="color:${a.delta>0?'#16a34a':'#dc2626'}">${sign}${a.delta}</td><td>${escapeHtml(a.reason)}</td></tr>`;
   });
   document.getElementById('auditTable').innerHTML = html || '<tr><td colspan="5" class="muted">No adjustments yet</td></tr>';
 }
@@ -1193,6 +1225,225 @@ function ldLogClear() {
   loadLongDubLog();
 }
 
+// ---------- Dub Long Video log: human-friendly tree view (one node per long dub) ----------
+const LD_PHASES = ['Upload and price', 'Analysis (reading the video)', 'Dubbing (making the Arabic audio)', 'Lip-sync', 'Changes by the user', 'Other'];
+const LD_STEPS = {
+  upload_started: ['Upload started', 0, 'The customer began uploading the video or audio file.'],
+  upload_finished: ['Upload finished', 0, 'The file arrived on the server and was checked (readable, has an audio track).'],
+  estimate_created: ['Price estimate shown', 0, 'The customer was shown an estimated price.'],
+  estimate_fee_charged: ['Estimate fee charged', 0, 'Credits taken for the analysis.'],
+  terms_accepted: ['Terms accepted', 0, 'The customer accepted the terms for this job.'],
+  accepted: ['Job accepted', 0, 'The job was accepted and queued.'],
+  analysis_started: ['Analysis started', 1, 'The server began reading the video.'],
+  audio_extracted: ['Audio extracted', 1, 'The sound was taken out of the video.'],
+  pieces_planned: ['Video cut into parts', 1, 'Long files are processed in parts to save memory.'],
+  separation: ['Voices separated from background', 1, 'The original voices and the music / ambience were split into two tracks.'],
+  speaker_detection: ['Who speaks when', 1, 'Speaker detection: how many speakers there are and for how long each one speaks.'],
+  language_check: ['Language check', 1, 'Is the speech really English?'],
+  transcription: ['Speech turned into text', 1, 'English transcript with word timing.'],
+  transcript_built: ['Transcript built', 1, 'Words grouped into lines, each with a speaker.'],
+  translation: ['Translated to Arabic', 1, 'Every line translated by Gemini.'],
+  tashkeel: ['Arabic vowel marks added', 1, 'Diacritics (tashkeel) added to the Arabic text.'],
+  analysis_fee_charged: ['Analysis charged', 1, 'Credits taken for the analysis.'],
+  analysis_done: ['Analysis finished', 1, 'The text is ready for the customer to edit.'],
+  analysis_failed: ['Analysis failed', 1, 'The analysis stopped with an error.'],
+  dub_confirmed: ['Dubbing confirmed', 2, 'The customer confirmed the text and started the dubbing.'],
+  dubbing_started: ['Dubbing started', 2, 'The server began making the Arabic audio.'],
+  voice_cloned: ['Voice copied', 2, 'A temporary copy of a speaker\'s voice was made.'],
+  voice_localized: ['Voice given an Arabic accent', 2, 'The copied voice was adapted to an Arabic accent.'],
+  clone_refund: ['Voice copy refunded', 2, 'Credits returned because a voice could not be copied.'],
+  speech_generation: ['Arabic speech generated', 2, 'Every line was spoken by the voice engine.'],
+  line_generation: ['Line generated again', 2, 'One line was generated again.'],
+  line_refund: ['Line refunded', 2, 'Credits returned for a line that failed.'],
+  voice_clean: ['Voices cleaned', 2, 'Noise taken out of the generated speech.'],
+  timeline: ['Timing of the lines', 2, 'How the lines were placed on the video\'s timeline.'],
+  timing_report: ['Timing report', 2, 'Lines that were cut short or sped up to fit.'],
+  background_mute: ['Background: original voices muted', 2, 'The leftover of the original English voice was removed from the background track.'],
+  background_lift: ['Background: level raised', 2, 'The background was made louder where it was too quiet.'],
+  background_duck: ['Background: lowered under speech', 2, 'The background goes down while the dubbed voice speaks.'],
+  background_bed: ['Background: ambience bed', 2, 'A steady ambience layer was built to fill gaps.'],
+  background_levels: ['Background: levels measured', 2, 'Loudness of the background compared to the original.'],
+  background_mix: ['Background: mixed', 2, 'Background and dubbed voices combined.'],
+  background_final: ['Background: final', 2, 'The final background track.'],
+  reactions: ['Laughter and reactions layer', 2, 'Laughter / applause from the original kept under the dub.'],
+  room_sound: ['Room sound (reverb)', 2, 'How much room echo was added so the dub sounds like the original place.'],
+  scene_context: ['Scene check (what kind of place)', 2, 'The AI labelled each stretch of the video (kitchen, hall...) to keep the reverb believable. Shows its cost.'],
+  mix: ['Final mix', 2, 'All lines joined into one audio track.'],
+  resource_use: ['Server cost of this stage', 2, 'Memory and CPU used on Railway for this stage, and what it cost.'],
+  output_saved: ['Finished file saved', 2, 'The dubbed result is ready to download.'],
+  dubbing_done: ['Dubbing finished', 2, 'The Arabic audio is done.'],
+  dubbing_failed: ['Dubbing failed', 2, 'The dubbing stopped with an error.'],
+  voice_deleted: ['Temporary voice deleted', 2, 'The copied voices were removed from the voice engine.'],
+  lipsync: ['Lip-sync', 3, 'Lip-sync run.'],
+  lipsync_input: ['Lip-sync: input prepared', 3, 'The picture and sound sent to the lip-sync engine.'],
+  lipsync_clip: ['Lip-sync: one clip', 3, 'One clip processed by the lip-sync engine.'],
+  lipsync_output: ['Lip-sync: result', 3, 'What the lip-sync engine returned.'],
+  lipsync_resolution: ['Lip-sync: resolution', 3, 'Video size chosen for lip-sync.'],
+  lipsync_refund: ['Lip-sync refunded', 3, 'Credits returned for lip-sync.'],
+  line_rephrase: ['Line rephrased', 4, 'A line was shortened or reworded to fit the time.'],
+  line_rephrased: ['Line rephrased', 4, 'A line was reworded.'],
+  rephrase_refund: ['Rephrase refunded', 4, 'Credits returned for a rephrase.'],
+  line_time_changed: ['Line time changed', 4, 'The customer moved a line.'],
+  line_split: ['Line split', 4, 'One line was cut into two.'],
+  line_inserted: ['Line added', 4, 'The customer added a line.'],
+  line_deleted: ['Line deleted', 4, 'The customer removed a line.'],
+  speakers_updated: ['Speakers edited', 4, 'The customer renamed or merged speakers.'],
+  hand_timed_lines: ['Lines timed by hand', 4, 'Lines whose timing the customer set.'],
+  redo_started: ['Redo started', 4, 'The customer started this project again.'],
+  project_saved: ['Project saved', 4, 'The text was saved for later.'],
+  project_restored: ['Project reopened', 4, 'A saved project was opened again.'],
+  project_redo_created: ['Redo project created', 4, 'A copy of a saved project was made to redo it.'],
+  project_reattach: ['Video re-attached', 4, 'The customer attached the video to a saved project again.'],
+  project_reattach_started: ['Video re-attach started', 4, 'Re-attaching the video began.'],
+  resumed_after_restart: ['Resumed after a restart', 5, 'The server restarted and the job continued from its last checkpoint.'],
+  removed_by_housekeeping: ['Removed by clean-up', 5, 'Old files were deleted automatically.'],
+  deleted_by_user: ['Deleted by the customer', 5, 'The customer deleted the project.'],
+  email_sent: ['E-mail sent', 5, 'An e-mail was sent to the customer.'],
+  job_failed: ['Job failed', 5, 'The job stopped with an error.']
+};
+const LD_RESULT = { ok: ['OK', '#16a34a'], info: ['Info', '#64748b'], skipped: ['Skipped', '#64748b'], partial: ['Partly', '#f59e0b'], failed: ['Failed', '#dc2626'] };
+function ldStepInfo(step) {
+  const s = LD_STEPS[step];
+  if (s) return { title: s[0], phase: s[1], help: s[2] };
+  return { title: String(step || '?').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()), phase: 5, help: '' };
+}
+function ldEl(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function ldDur(sec) { sec = Math.max(0, Math.round(sec)); if (sec < 90) return sec + ' s'; if (sec < 5400) return Math.round(sec / 60) + ' min'; return (sec / 3600).toFixed(1) + ' h'; }
+
+function ldFieldRows(e) {
+  const rows = [
+    ['Time (your time)', localTs(e.created_at, true)],
+    ['Time (UTC, as saved)', String(e.created_at || '')],
+    ['Step', ldStepInfo(e.step).title + '  (technical name: ' + e.step + ')'],
+    ['Result', (LD_RESULT[e.status] || [e.status])[0] + '  (' + e.status + ')'],
+    ['Credits', e.credits == null ? '— (no credits involved)' : String(e.credits)],
+    ['Details', e.detail || '—'],
+    ['Job ID', e.job_id || '—'],
+    ['User ID', e.uid || '—'],
+    ['Record number', e.id == null ? '—' : String(e.id)]
+  ];
+  return rows;
+}
+
+function ldStepNode(e) {
+  const info = ldStepInfo(e.step), res = LD_RESULT[e.status] || [e.status || '?', '#64748b'];
+  const det = ldEl('details', 'ld-step');
+  const sum = ldEl('summary', 'ld-step-sum');
+  sum.appendChild(ldEl('span', 'ld-time', localTs(e.created_at, true).slice(11)));
+  const pill = ldEl('span', 'ld-res', res[0]); pill.style.background = res[1];
+  sum.appendChild(pill);
+  sum.appendChild(ldEl('span', 'ld-title', info.title));
+  const short = String(e.detail || '').replace(/\s+/g, ' ').slice(0, 110);
+  if (short) sum.appendChild(ldEl('span', 'ld-short', short + (String(e.detail).length > 110 ? '…' : '')));
+  det.appendChild(sum);
+  const body = ldEl('div', 'ld-body');
+  if (info.help) body.appendChild(ldEl('div', 'ld-help', info.help));
+  const grid = ldEl('div', 'ld-grid');
+  ldFieldRows(e).forEach(f => {
+    grid.appendChild(ldEl('div', 'ld-k', f[0]));
+    const v = ldEl('div', 'ld-v');
+    if (f[0] === 'Details' && f[1].length > 90 && f[1].indexOf('; ') > 0) {
+      f[1].split('; ').forEach(part => v.appendChild(ldEl('div', 'ld-part', part)));
+    } else v.textContent = f[1];
+    grid.appendChild(v);
+  });
+  body.appendChild(grid);
+  det.appendChild(body);
+  return det;
+}
+
+function ldJobNode(jobId, evs) {
+  evs.sort((a, b) => (a.id || 0) - (b.id || 0) || String(a.created_at).localeCompare(String(b.created_at)));
+  const first = evs[0], last = evs[evs.length - 1];
+  const up = evs.find(x => x.step === 'upload_started');
+  let name = '';
+  if (up) { const m = /file=(.*?)(?: size=|$)/.exec(String(up.detail || '')); if (m) name = m[1]; }
+  const failed = evs.some(x => ['job_failed', 'analysis_failed', 'dubbing_failed'].indexOf(x.step) >= 0);
+  const done = evs.some(x => x.step === 'output_saved' || x.step === 'dubbing_done');
+  const state = failed ? ['Failed', '#dc2626'] : (done ? ['Finished', '#16a34a'] : ['In progress / not finished', '#f59e0b']);
+  let charged = 0, refunded = 0, cost = 0;
+  evs.forEach(x => {
+    if (x.credits != null && !isNaN(+x.credits)) { if (/refund/.test(x.step)) refunded += Math.abs(+x.credits); else charged += +x.credits; }
+    if (x.step === 'resource_use') { const m = /about \$([0-9.]+)/.exec(String(x.detail || '')); if (m) cost += parseFloat(m[1]); }
+  });
+  const sec = (new Date(last.created_at) - new Date(first.created_at)) / 1000;
+  const node = ldEl('details', 'ld-job');
+  const sum = ldEl('summary', 'ld-job-sum');
+  const st = ldEl('span', 'ld-res', state[0]); st.style.background = state[1];
+  sum.appendChild(st);
+  sum.appendChild(ldEl('b', 'ld-jobname', name || ('Long dub ' + String(jobId).slice(0, 8))));
+  sum.appendChild(ldEl('span', 'ld-meta', localTs(first.created_at, false) + '  ·  took ' + ldDur(sec) + '  ·  ' + evs.length + ' steps  ·  credits charged ' + charged + (refunded ? ', refunded ' + refunded : '') + (cost ? '  ·  server cost about $' + cost.toFixed(3) : '')));
+  node.appendChild(sum);
+  const idl = ldEl('div', 'ld-idline');
+  idl.appendChild(document.createTextNode('Job ID: ' + jobId + '  '));
+  const pick = ldEl('button', 'btn-sm', 'Show only this job'); pick.type = 'button';
+  pick.onclick = ev => { ev.preventDefault(); document.getElementById('ldLogQuery').value = jobId; loadLongDubLog(); };
+  idl.appendChild(pick);
+  node.appendChild(idl);
+  LD_PHASES.forEach((title, pi) => {
+    const list = evs.filter(x => ldStepInfo(x.step).phase === pi);
+    if (!list.length) return;
+    const ph = ldEl('div', 'ld-phase');
+    ph.appendChild(ldEl('div', 'ld-phase-title', title + '  (' + list.length + ')'));
+    list.forEach(x => ph.appendChild(ldStepNode(x)));
+    node.appendChild(ph);
+  });
+  return node;
+}
+
+function renderLongDubTree() {
+  const box = document.getElementById('ldLogTree');
+  if (!box) return;
+  box.textContent = '';
+  const evs = window._ldEvents || [];
+  if (!evs.length) { box.appendChild(ldEl('p', 'muted', 'No events found. Press Search.')); return; }
+  const byJob = {};
+  evs.forEach(e => { (byJob[e.job_id || '?'] = byJob[e.job_id || '?'] || []).push(e); });
+  const jobs = Object.keys(byJob).map(id => ({ id, last: byJob[id].reduce((m, x) => Math.max(m, new Date(x.created_at).getTime() || 0), 0) }));
+  jobs.sort((a, b) => b.last - a.last);
+  const bar = ldEl('div', 'ld-bar');
+  const openAll = ldEl('button', 'btn-sm', 'Open all jobs'); openAll.type = 'button';
+  openAll.onclick = () => box.querySelectorAll('details.ld-job').forEach(d => { d.open = true; });
+  const closeAll = ldEl('button', 'btn-sm', 'Close all'); closeAll.type = 'button';
+  closeAll.onclick = () => box.querySelectorAll('details').forEach(d => { d.open = false; });
+  bar.appendChild(openAll); bar.appendChild(closeAll);
+  bar.appendChild(ldEl('span', 'muted', jobs.length + ' long dub' + (jobs.length === 1 ? '' : 's') + ' · newest first · click a job, then a step, to see everything saved about it'));
+  box.appendChild(bar);
+  jobs.forEach(j => box.appendChild(ldJobNode(j.id, byJob[j.id])));
+  if (jobs.length === 1) { const d = box.querySelector('details.ld-job'); if (d) d.open = true; }
+}
+
+function setLdView(mode) {
+  if (mode !== 'tree') mode = 'table';
+  try { localStorage.setItem('ldLogView', mode); } catch (e) {}
+  const tbl = document.getElementById('ldLogTable'), tree = document.getElementById('ldLogTree');
+  const tableEl = tbl ? tbl.closest('table') : null;
+  if (tableEl) tableEl.style.display = mode === 'table' ? '' : 'none';
+  if (tree) tree.style.display = mode === 'tree' ? '' : 'none';
+  const bt = document.getElementById('ldViewTable'), bt2 = document.getElementById('ldViewTree');
+  if (bt) bt.classList.toggle('on', mode === 'table');
+  if (bt2) bt2.classList.toggle('on', mode === 'tree');
+  if (mode === 'tree') renderLongDubTree();
+}
+function ldInitView() {
+  let m = 'table';
+  try { m = localStorage.getItem('ldLogView') || 'table'; } catch (e) {}
+  setLdView(m);
+}
+
+// All times in the database are UTC; show them in the viewer's own time zone.
+function localTs(ts, withSeconds) {
+  if (!ts) return '';
+  let s = String(ts).trim();
+  if (s.length <= 10) return s;
+  s = s.replace(' ', 'T');
+  if (!/(Z|[+-]\d\d(:?\d\d)?)$/i.test(s.slice(10))) s += 'Z';
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(ts);
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + (withSeconds ? ':' + p(d.getSeconds()) : '');
+}
+
 async function loadLongDubLog() {
   const q = (document.getElementById('ldLogQuery').value || '').trim();
   const df = (document.getElementById('ldLogFrom').value || '').trim();
@@ -1204,11 +1455,43 @@ async function loadLongDubLog() {
   const col = { ok: '#16a34a', info: '#64748b', skipped: '#64748b', partial: '#f59e0b', failed: '#dc2626' };
   let html = '';
   (r.data.events || []).forEach(e => {
-    const t = String(e.created_at || '').replace('T', ' ').slice(0, 19);
+    const t = localTs(e.created_at, true);
     html += `<tr><td>${escapeHtml(t)}</td><td title="${escapeHtml(e.job_id)} (click to put this id in the search box)" style="cursor:pointer" onclick="document.getElementById('ldLogQuery').value='${escapeHtml(e.job_id)}'">${escapeHtml(String(e.job_id).slice(0, 8))}…</td><td>${escapeHtml(e.step)}</td>` +
       `<td style="color:${col[e.status] || '#64748b'};font-weight:700">${escapeHtml(e.status)}</td><td>${e.credits == null ? '' : e.credits}</td><td>${escapeHtml(e.detail || '')}</td></tr>`;
   });
   document.getElementById('ldLogTable').innerHTML = html || '<tr><td colspan="6" class="muted">No events found.</td></tr>';
+  window._ldEvents = r.data.events || [];
+  ldInitView();
+}
+
+async function exportLongDubLog() {
+  const q = (document.getElementById('ldLogQuery').value || '').trim();
+  const df = (document.getElementById('ldLogFrom').value || '').trim();
+  const dt = (document.getElementById('ldLogTo').value || '').trim();
+  const note = document.getElementById('ldLogNote');
+  note.textContent = 'Preparing the export...';
+  const r = await api('/api/admin/longdub_log?q=' + encodeURIComponent(q) + '&date_from=' + encodeURIComponent(df) + '&date_to=' + encodeURIComponent(dt) + '&limit=1000');
+  if (!r.ok) { note.textContent = 'Could not load the log.'; return; }
+  let usage = null;
+  try { const u = await api('/api/admin/resource_usage'); if (u.ok) usage = u.data; } catch (e) {}
+  const events = (r.data.events || []).map(e => Object.assign({}, e, { local_time: localTs(e.created_at, true) }));
+  const payload = {
+    exported_at: new Date().toISOString(),
+    time_zone: (Intl.DateTimeFormat().resolvedOptions().timeZone || ''),
+    note: 'created_at is UTC; local_time is in the exporting browser\'s time zone.',
+    filters: { search: q, from: df, to: dt, limit: 1000 },
+    server_message: r.data.note || '',
+    event_count: events.length,
+    server_resource_usage: usage,
+    events: events
+  };
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'lisan-longdub-log-' + (q ? q.replace(/[^0-9a-zA-Z@.-]/g, '').slice(0, 20) + '-' : '') + stamp + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  note.textContent = 'Saved ' + events.length + ' events as a JSON file.' + (events.length >= 1000 ? ' (1000 is the most one export holds: narrow the dates or search for one job.)' : '');
 }
 
 async function downloadLipDebug() {
@@ -1309,7 +1592,25 @@ async function loadStorage() {
   }
 }
 
+async function loadResourceUsage() {
+  const box = document.getElementById('rmMeasured');
+  if (!box) return;
+  const r = await api('/api/admin/resource_usage');
+  if (!r.ok || !r.data || r.data.enabled === false) { box.textContent = ''; return; }
+  const d = r.data, l = d.last24, c = d.cycle || {}, bits = [];
+  const money = x => '$' + (x < 1 ? x.toFixed(3) : x.toFixed(2));
+  bits.push('<b>Measured inside the server</b> (memory costs about ' + money(d.mem_usd_per_gb_month) + ' per GB per month, around the clock)');
+  if (d.now_gb != null) bits.push('Now: ' + d.now_gb + ' GB held' + (d.now_anon_gb != null ? ' (' + d.now_anon_gb + ' GB of it real program memory, the rest is cached files)' : '') + '.');
+  if (l) bits.push('Last 24 h (' + l.hours + ' h measured): average ' + l.avg_gb + ' GB, highest ' + l.peak_gb + ' GB, idle floor ' + l.idle_floor_gb + ' GB, which alone costs about ' + money((l.idle_floor_gb || 0) * d.mem_usd_per_gb_month) + ' a month.');
+  if (c.hours) bits.push('Billing month from ' + c.start + ': ' + money(c.usage_usd) + ' measured so far over ' + c.hours + ' h' + (c.projected_usd != null ? ', about ' + money(c.projected_usd) + ' projected to ' + c.end : '') + '. Compare with the Railway bill.');
+  const names = { longdub_analysis: 'long dub analysis', longdub_dub: 'long dub dubbing', shortdub_transcribe: 'short dub transcribe', shortdub_generate: 'short dub voices' };
+  const js = Object.keys(c.jobs || {}).map(k => (names[k] || k) + ': ' + c.jobs[k].n + ' jobs, average ' + money(c.jobs[k].avg_usd));
+  if (js.length) bits.push('Average cost per job this month: ' + js.join('; ') + '.');
+  box.innerHTML = bits.map(x => '<div>' + x + '</div>').join('');
+}
+
 async function loadRailwayMemory() {
+  loadResourceUsage();
   const r = await api('/api/admin/railway_memory');
   if (!r.ok) return;
   const d = r.data;
@@ -1769,12 +2070,13 @@ function bizGrid(tableId, headers, rows, empty) {
 
 // ---------- unit economics: editable assumptions, remembered in this browser ----------
 // Alibaba Wan 3.0 per 720p clip-second: $0.1155 with the 30% launch discount, $0.165 from 1 Nov 2026
-const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: (Date.now() >= Date.UTC(2026, 10, 1) ? 0.165 : 0.1155), ld_per_min: 0.02, sd_per_job: 0.01, railway: 20, supabase: 25, other: 10 };
+const ECON_DEFAULTS = { voice_per_m: 25, lip_per_sec: (Date.now() >= Date.UTC(2026, 10, 1) ? 0.165 : 0.1155), ld_per_min: 0.02, sd_per_job: 0.01, scene_per_job: 0.005, railway: 20, supabase: 25, other: 10 };
 const ECON_FIELDS = [
   ['voice_per_m', 'Inworld voice, $ per 1 million characters', 'Published prices looked like $15–35; check your Inworld invoice.'],
-  ['ld_per_min', 'Long-dub server time + translation, $ per video minute', 'Estimate from Railway usage prices; compare with your Railway bill.'],
-  ['sd_per_job', 'Short-dub server time + translation, $ per job', 'Small: a few seconds of audio.'],
-  ['railway', 'Railway, $ per month', 'Fixed plan price (usage on top is covered by the two lines above).'],
+  ['ld_per_min', 'Long-dub server time + translation, $ per video minute', 'Only used until the server has measured real long dubs (then the measured average per dub is used).'],
+  ['sd_per_job', 'Short-dub server time + translation, $ per job', 'Only used until the server has measured real short dubs.'],
+  ['scene_per_job', 'AI scene check for the room sound (Gemini), $ per dub', 'One Gemini call per short or long dub (about 0.2–1 cent). The real cost of each long dub is in its scene_context log line.'],
+  ['railway', 'Railway, $ per month', 'Fixed plan price only. Memory and CPU use is counted above (measured on the server); if your plan already includes a usage credit, lower this.'],
   ['supabase', 'Supabase, $ per month', 'Pro plan.'],
   ['other', 'Domain, e-mail, monitoring, $ per month', 'Everything else that is paid monthly.'],
 ];
@@ -1794,7 +2096,7 @@ function renderEcon(d) {
     ECON_FIELDS.forEach(f => {
       const row = bEl('div', 'assume-row'), lab = bEl('div');
       lab.appendChild(document.createTextNode(f[1])); lab.appendChild(bEl('small', null, f[2]));
-      const inp = bEl('input'); inp.type = 'number'; inp.step = f[0] === 'lip_per_sec' ? '0.001' : '0.01'; inp.min = '0'; inp.id = 'assume_' + f[0];
+      const inp = bEl('input'); inp.type = 'number'; inp.step = (f[0] === 'lip_per_sec' || f[0] === 'scene_per_job') ? '0.001' : '0.01'; inp.min = '0'; inp.id = 'assume_' + f[0];
       inp.addEventListener('input', () => { const v = econLoad(); const x = parseFloat(inp.value); if (isFinite(x) && x >= 0) { v[f[0]] = x; econSave(v); } renderEconTable(BIZ.data); });
       row.appendChild(lab); row.appendChild(inp); box.appendChild(row);
     });
@@ -1810,9 +2112,19 @@ function renderEconTable(d) {
   const a = econLoad(), ci = d.cost_inputs, r = d.revenue.period, cr = d.credits;
   const voice = ci.voice_chars / 1e6 * a.voice_per_m;
   const lip = ci.lipsync_usd != null ? ci.lipsync_usd : ci.lipsync_seconds * a.lip_per_sec;   // the Alibaba estimate counts every run, charged or not
-  const ld = ci.longdub_minutes * a.ld_per_min, sd = ci.shortdub_jobs * a.sd_per_job;
+  // the server measures its own Railway use (memory held above the start of each job, CPU) -- prefer that to the guessed prices
+  const m = ci.measured || {}, mj = m.jobs || {};
+  const avg = k => (mj[k] && mj[k].n) ? mj[k].avg_usd : null;
+  const haveLd = avg('longdub_analysis') != null || avg('longdub_dub') != null;
+  const haveSd = avg('shortdub_transcribe') != null || avg('shortdub_generate') != null;
+  const ldM = haveLd ? ci.longdub_jobs * ((avg('longdub_analysis') || 0) + (avg('longdub_dub') || 0)) : null;
+  const sdM = haveSd ? ci.shortdub_jobs * ((avg('shortdub_transcribe') || 0) + (avg('shortdub_generate') || 0)) : null;
+  const idleM = (m.idle_usd_per_hour != null && m.hours >= 6) ? m.idle_usd_per_hour * ci.period_days * 24 : null;
+  const ld = ldM != null ? ldM : ci.longdub_minutes * a.ld_per_min, sd = sdM != null ? sdM : ci.shortdub_jobs * a.sd_per_job;
+  const scene = (ci.shortdub_jobs + ci.longdub_jobs) * a.scene_per_job;
   const stripeFees = d.revenue.source === 'stripe' ? r.fees : ci.stripe_fees_estimate;
-  const varCost = voice + lip + ld + sd;
+  const idle = idleM != null ? idleM : 0;
+  const varCost = voice + lip + ld + sd + scene + idle;
   const fixed = (a.railway + a.supabase + a.other) * ci.period_days / 30;
   const net = r.net;                                         // after Stripe fees and refunds
   const gross = net - varCost, op = gross - fixed;
@@ -1822,8 +2134,10 @@ function renderEconTable(d) {
     ['Net revenue received', bMoney(net, true), { note: d.revenue.source === 'stripe' ? 'after Stripe fees and refunds' : 'estimated from orders; Stripe fees are an estimate' }],
     ['− Voice generation', bMoney(-voice, true), { note: bInt(ci.voice_chars) + ' characters' }],
     ['− Lip-sync (Alibaba)', bMoney(-lip, true), { note: ci.lipsync_usd != null ? bInt(ci.lipsync_runs) + ' Alibaba runs, priced from your Alibaba bill' + (ci.lipsync_runs_assumed ? ' (' + ci.lipsync_runs_assumed + ' assumed)' : '') : ci.lipsync_seconds + ' seconds of video' }],
-    ['− Long dubs (server + translation)', bMoney(-ld, true), { note: ci.longdub_minutes + ' video minutes in ' + bInt(ci.longdub_jobs) + ' dubs' }],
-    ['− Short dubs (server + translation)', bMoney(-sd, true), { note: bInt(ci.shortdub_jobs) + ' jobs' }],
+    ['− Long dubs (server + translation)', bMoney(-ld, true), { note: ci.longdub_minutes + ' video minutes in ' + bInt(ci.longdub_jobs) + ' dubs' + (ldM != null ? ' — Railway part measured on the server' : ' — estimated') }],
+    ['− Short dubs (server + translation)', bMoney(-sd, true), { note: bInt(ci.shortdub_jobs) + ' jobs' + (sdM != null ? ' — Railway part measured on the server' : ' — estimated') }],
+    ['− Server memory held between jobs (measured)', bMoney(-idle, true), { note: idleM != null ? 'about ' + bMoney(m.idle_usd_per_hour * 24 * 30, true) + ' a month, measured over ' + m.hours + ' h' : 'not measured yet' }],
+    ['− AI scene check (Gemini, room sound)', bMoney(-scene, true), { note: bInt(ci.shortdub_jobs + ci.longdub_jobs) + ' dubs × $' + a.scene_per_job }],
     ['Gross profit', bMoney(gross, true), { total: true, note: net > 0 ? (gross / net * 100).toFixed(0) + '% of net revenue' : '' }],
     ['− Fixed costs for ' + ci.period_days + ' days', bMoney(-fixed, true), { note: bMoney(a.railway + a.supabase + a.other, true) + ' per month' }],
     ['Result for the period', bMoney(op, true), { total: true }],
@@ -1982,10 +2296,10 @@ function renderBusiness(d) {
   // people / tables
   bizGrid('topTable', [{ t: 'Customer' }, { t: 'Credits bought', num: 1 }, { t: 'Credits used', num: 1 }, { t: 'Balance', num: 1 }, { t: 'Plan' }, { t: 'Last active' }],
     d.top_customers.map(t => [(t.name ? t.name + ' · ' : '') + (t.email || t.id.slice(0, 8)), bInt(t.purchased_credits), bInt(t.spent_credits), bInt(t.balance), t.subscriber ? 'Subscriber' : '—', t.last_active || '—']), 'No purchases or usage in this period.');
-  const shortTs = ts => String(ts || '').replace('T', ' ').slice(0, 16);
-  bizGrid('purchTable', [{ t: 'Time (UTC)' }, { t: 'Customer' }, { t: 'Product' }, { t: 'List price', num: 1 }],
+  const shortTs = ts => localTs(ts, false);
+  bizGrid('purchTable', [{ t: 'Time (your time)' }, { t: 'Customer' }, { t: 'Product' }, { t: 'List price', num: 1 }],
     d.recent_purchases.map(p => [shortTs(p.ts), p.who, p.kind + ' · ' + p.name, bMoney(p.usd, true)]), 'No purchases yet.');
-  bizGrid('actTable', [{ t: 'Time (UTC)' }, { t: 'Customer' }, { t: 'Action' }, { t: 'Credits', num: 1 }],
+  bizGrid('actTable', [{ t: 'Time (your time)' }, { t: 'Customer' }, { t: 'Action' }, { t: 'Credits', num: 1 }],
     d.recent_activity.map(a => [shortTs(a.ts), a.who, a.action.replace(/_/g, ' '), bInt(a.credits)]), 'No activity yet.');
 }
 

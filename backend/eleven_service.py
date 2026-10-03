@@ -9,15 +9,26 @@ from elevenlabs.client import ElevenLabs
 import inworld_service
 from config import OUTPUT_DIR
 from app_state import jobs_progress, usage_bucket
+from resource_meter import metered as _metered      # measures what each job costs on Railway (see resource_meter.py)
 from ffmpeg_utils import (
     get_media_duration,
     run_ffmpeg,
     cut_audio_segment,
     concat_audio_files,
     measure_loudness_db,
+    measure_speech_loudness_db,
 )
-from media_paths import resolve_job_audio
+from media_paths import resolve_job_audio, resolve_job_speech, job_speech_spans
 from user_errors import friendly_error as _friendly_error, UserError
+
+def _orig_level_db(src, spans, start, duration):
+    """Loudness of the original speaker in a line's time window: only the moments with spoken words count (laughter,
+    applause and music in the window do not); falls back to the whole window when the speech map is not available."""
+    v = None
+    if spans:
+        v = measure_speech_loudness_db(str(src), start, duration, spans)
+    return v if v is not None else measure_loudness_db(str(src), start, duration)
+
 
 eleven_client = None
 # ElevenLabs TTS model used for every real generation call below (Arabic
@@ -33,8 +44,59 @@ eleven_client = None
 # across the file.
 TTS_MODEL_ID = "eleven_v4"
 USER_GAINS = {}
+ROOM_LAST = {}       # job_id -> what the room step did the last time the final MP3 was built
+ROOM_SETTINGS = {}   # job_id -> {"mode": "auto"|"off"|"manual", "rt60": s, "wet_db": dB, "trim_db": dB (Auto only: louder/quieter than measured)}  (Step 5.5 "Room sound")
 OVERLAP_FLAGS = {}  # segment_id -> True: this line may be talked over (intruders not faded)  # job_id -> {segment_id: extra dB from Step 5.5 sliders}
 DEAD_SPACE_FLAGS = {}  # segment_id -> True: this line may stretch into the silent gap before the next line's original start (or, for the last line, to the end of the audio) instead of fading at its own original end
+
+def _apply_room(job_id, output_file, items=None, segments=None):
+    """Gives every line of the finished (dry) Arabic mix the room it was spoken in, measured phrase by phrase from the
+    ORIGINAL recording (see room_acoustics.py: rooms are detected, grouped, and each group gets its own reverb).
+    items = the lines that were mixed ({"sid", "start", "end", "allowed_duration", optional "orig_mid"}).
+    segments = the job's lines with their English text (for the scene check: what kind of place is each stretch in, see
+    scene_context.py; it only ever limits the measured reverb).
+    The dry mix is kept as <job>_final_dry.mp3 so changing the setting never stacks one room on top of another.
+    Never raises; on any problem the dry mix stays as it is.  Returns a small dict for the response."""
+    try:
+        import room_acoustics
+        import shutil
+        output_file = Path(output_file)
+        dry = OUTPUT_DIR / f"{job_id}_final_dry.mp3"
+        shutil.copyfile(output_file, dry)
+        lines = []
+        for it in (items or []):
+            t0 = float(it["start"])
+            t1 = t0 + float(it.get("allowed_duration") or it.get("duration") or 0.0) + 0.1
+            mid = it.get("orig_mid")
+            if mid is None:
+                mid = (float(it["start"]) + float(it.get("end", it["start"]))) / 2.0
+            lines.append({"sid": it.get("sid", ""), "t0": t0, "t1": t1, "orig_mid": float(mid)})
+        settings = dict(ROOM_SETTINGS.get(job_id) or {"mode": "auto"})
+        scene_info = None
+        if str(settings.get("mode") or "auto").lower() == "auto":
+            try:
+                import scene_context
+                if scene_context.ENABLED and segments:
+                    from config import GEMINI_API_KEY
+                    from media_paths import find_job_video
+                    rows = [{"start": float(s.start), "end": float(s.end), "text": s.text} for s in segments if (getattr(s, "text", "") or "").strip()]
+                    scene_info = scene_context.scenes_for_job(job_id, OUTPUT_DIR, rows, GEMINI_API_KEY, video_path=find_job_video(job_id))
+                    if scene_info is not None:
+                        settings["scenes"] = scene_info["scenes"]
+            except Exception as ex_sc:
+                print(f"[room] {job_id}: scene check skipped ({ex_sc})")
+        res = room_acoustics.apply_to_file(job_id, dry, output_file, settings, OUTPUT_DIR, lines=lines)
+        print(f"[room] {job_id}: {res.get('why')}" + (f" | scene: {scene_info['summary']}" if scene_info else ""))
+        out = {"applied": bool(res.get("applied")), "why": res.get("why", ""), "profile": res.get("profile"),
+               "assignment": res.get("assignment") or {}}
+        if scene_info is not None:
+            out["scene"] = str(scene_info.get("summary") or "")[:400]
+            out["scene_cost_usd"] = float(scene_info.get("cost_usd") or 0.0)
+        ROOM_LAST[job_id] = {"applied": out["applied"], "why": out["why"], "assignment": out["assignment"]}
+        return out
+    except Exception as ex:
+        print(f"[room] {job_id}: skipped ({ex})")
+        return {"applied": False, "why": f"skipped ({ex})"[:160]}
 
 def friendly_error(e):
     # Shown to the customer: the real error goes to the server log, the customer gets a plain sentence.
@@ -455,6 +517,7 @@ def _mix_filter_part(input_index, allowed, delay_ms, gdb, trim):
     return (f"[{input_index}]{vol}aformat=channel_layouts=stereo,atrim=0:{allowed:.3f},"
             f"asetpts=PTS-STARTPTS,adelay={delay_ms}|{delay_ms},apad[a{input_index - 1}]")
 
+@_metered("shortdub_generate", lambda req, *a, **k: getattr(req, "job_id", ""))
 def generate_worker(req):
     global eleven_client
     global OVERLAP_FLAGS
@@ -475,7 +538,8 @@ def generate_worker(req):
         sorted_segments = sorted(req.segments, key=lambda s: s.start)
         generated_files = []
         lines_meta = []
-        src_for_loudness = resolve_job_audio(req.job_id)
+        src_for_loudness = resolve_job_speech(req.job_id)
+        spans_for_loudness = job_speech_spans(req.job_id)
         # Wipe line files from any previous job so stale audio can never leak in
         for stale in OUTPUT_DIR.glob("*_stretched.*"):
             try:
@@ -584,7 +648,7 @@ def generate_worker(req):
             auto_gain = 0.0
             try:
                 if src_for_loudness is not None:
-                    orig_db = measure_loudness_db(str(src_for_loudness), seg.start, target_duration)
+                    orig_db = _orig_level_db(src_for_loudness, spans_for_loudness, seg.start, target_duration)
                 dub_db = measure_loudness_db(str(stretched_path))
                 if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
                     auto_gain = max(-10.0, min(10.0, orig_db - dub_db))
@@ -666,6 +730,7 @@ def generate_worker(req):
         filter_complex = ";".join(filter_parts)
         output_file = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
         run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
+        _room = _apply_room(req.job_id, output_file, adjusted_files, sorted_segments)
         warning_count = sum(1 for f in adjusted_files if f.get("tempo_warning"))
         result = {"status": "success", "output_folder": str(OUTPUT_DIR), "final_file": str(output_file),
                   "segments_generated": len(adjusted_files), "tempo_warnings": warning_count,
@@ -677,7 +742,8 @@ def generate_worker(req):
                   # directly (it normally does, and charges each engine's
                   # own rate separately -- this is just the display/fallback
                   # total, not what's actually charged).
-                  "eleven_credits_used": bucket["eleven_chars"] + bucket["inworld_chars"], "lines": lines_meta}
+                  "eleven_credits_used": bucket["eleven_chars"] + bucket["inworld_chars"], "lines": lines_meta,
+                  "room": _room}
         jobs_progress[_pk].update({"status": "done", "percent": 100, "result": result, "error": None})
     except Exception as e:
         jobs_progress[_pk] = {"status": "error", "percent": 0, "error": friendly_error(e), "result": None}
@@ -751,8 +817,25 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     filter_complex = ";".join(filter_parts)
     output_file = OUTPUT_DIR / f"{job_id}_final_dubbed.mp3"
     run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
+    _apply_room(job_id, output_file, adjusted, segs)
     return {"segments_generated": len(adjusted), "duration_cuts": cuts,
             "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}
+
+def _measure_line_loudness(job_id, seg, stretched, target_duration):
+    """Loudness of the ORIGINAL speaker over this line's window vs. the freshly
+    built Arabic line (mean dB, ffmpeg volumedetect) -- what the Step 5.5
+    sliders are anchored to. Returns None if it can't be measured."""
+    try:
+        src = resolve_job_speech(job_id)
+        orig_db = _orig_level_db(src, job_speech_spans(job_id), seg.start, target_duration) if src else None
+        dub_db = measure_loudness_db(str(stretched))
+        ok = orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60
+        return {"segment_id": seg.segment_id,
+                "orig_db": round(orig_db, 1) if orig_db is not None else None,
+                "dub_db": round(dub_db, 1) if dub_db is not None else None,
+                "auto_gain_db": round(max(-10.0, min(10.0, orig_db - dub_db)), 1) if ok else 0.0}
+    except Exception:
+        return None
 
 def regenerate_line(req):
     """Re-speak ONE segment with TTS, stretch it into its window, volume-match it, then rebuild the mix."""
@@ -819,19 +902,15 @@ def regenerate_line(req):
         cmd += ["-acodec", "pcm_s16le", str(stretched)]
         run_ffmpeg(cmd)
         # Volume-match the re-spoken line to the original vocal slice (mix-time gain)
-        try:
-            src = resolve_job_audio(req.job_id)
-            orig_db = measure_loudness_db(str(src), seg.start, target_duration) if src else None
-            dub_db = measure_loudness_db(str(stretched))
-            if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
-                USER_GAINS.setdefault(req.job_id, {})[seg.segment_id] = round(max(-10.0, min(10.0, orig_db - dub_db)), 1)
-        except Exception:
-            pass
+        line_info = _measure_line_loudness(req.job_id, seg, stretched, target_duration)
+        if line_info and line_info.get("orig_db") is not None and line_info.get("dub_db") is not None:
+            USER_GAINS.setdefault(req.job_id, {})[seg.segment_id] = line_info["auto_gain_db"]
         mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None))
         return {"status": "success",
                 "stretched_duration": round(get_media_duration(stretched), 2),
                 "target": round(target_duration, 2),
                 "tempo_warning": warning,
+                "line": line_info,
                 "mix": mix}
     except Exception as e:
         return {"error": friendly_error(e)}
@@ -879,11 +958,15 @@ def restretch_line(req):
             cmd += ["-filter:a", f"atempo={tempo:.6f}"]
         cmd += ["-acodec", "pcm_s16le", str(stretched)]
         run_ffmpeg(cmd)
+        # Refresh this line's measured loudness for the Step 5.5 sliders; the
+        # user's current gain for the line is deliberately left untouched.
+        line_info = _measure_line_loudness(req.job_id, seg, stretched, target_duration)
         mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None))
         return {"status": "success",
                 "stretched_duration": round(get_media_duration(stretched), 2),
                 "target": round(target_duration, 2),
                 "tempo_warning": warning,
+                "line": line_info,
                 "mix": mix}
     except Exception as e:
         return {"error": friendly_error(e)}
@@ -897,7 +980,25 @@ def remix_with_offsets(req):
     try:
         gains = dict(getattr(req, "gains", None) or {})
         if gains:
-            USER_GAINS[req.job_id] = {k: float(v) for k, v in gains.items()}
+            # MERGE (not replace): a partial payload must never wipe the other lines' gains
+            _ug = USER_GAINS.setdefault(req.job_id, {})
+            for _k, _v in gains.items():
+                try:
+                    _ug[_k] = float(_v)
+                except (TypeError, ValueError):
+                    pass
+        _rm = getattr(req, "room", None)
+        if isinstance(_rm, dict) and _rm:
+            _mode = str(_rm.get("mode") or "auto").lower()
+            if _mode not in ("auto", "off", "manual"):
+                _mode = "auto"
+            _clean = {"mode": _mode}
+            for _k in ("rt60", "wet_db", "trim_db"):
+                try:
+                    _clean[_k] = float(_rm.get(_k))
+                except (TypeError, ValueError):
+                    pass
+            ROOM_SETTINGS[req.job_id] = _clean
         active = dict(USER_GAINS.get(req.job_id or "", {}))
         segs = sorted([s for s in req.segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
         items = []
@@ -909,7 +1010,8 @@ def remix_with_offsets(req):
                 continue
             off = float((req.offsets or {}).get(s.segment_id, 0.0) or 0.0)
             items.append({"file": sp.name, "sid": s.segment_id, "start": max(0.0, s.start + off),
-                          "end": s.end + off, "duration": get_media_duration(sp)})
+                          "end": s.end + off, "duration": get_media_duration(sp),
+                          "orig_mid": (s.start + s.end) / 2.0})
         if not items:
             return {"error": "Generate the Arabic audio first, then try again."}
         max_segment_end = max(i["end"] for i in items)
@@ -963,8 +1065,9 @@ def remix_with_offsets(req):
         filter_complex = ";".join(filter_parts)
         output_file = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
         run_ffmpeg(["ffmpeg", "-y"] + inputs + ["-filter_complex", filter_complex, "-map", "[out]", "-t", str(final_duration), str(output_file)])
+        _room = _apply_room(req.job_id, output_file, adjusted, segs)
         return {"status": "success", "segments_generated": len(adjusted), "duration_cuts": cuts,
-                "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}
+                "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids, "room": _room}
     except Exception as e:
         return {"error": friendly_error(e)}
 

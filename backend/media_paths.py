@@ -25,6 +25,35 @@ def resolve_job_audio(job_id):
     return find_job_video(job_id)
 
 
+def resolve_job_speech(job_id):
+    """What the ORIGINAL speakers sound like without music or ambience: the separated voices of the job when they
+    exist, otherwise the original audio. Used to measure how loud each original line was."""
+    try:
+        bg = job_background_audio(job_id)
+        if bg is not None:
+            v = bg.parent / "vocals.wav"
+            if v.exists() and v.stat().st_size > 1000:
+                return v
+    except Exception:
+        pass
+    return resolve_job_audio(job_id)
+
+
+def job_speech_spans(job_id):
+    """[(start, end)] seconds of every recognised spoken word of the job (written at transcription), or None."""
+    try:
+        import json
+        bg = job_background_audio(job_id)
+        if bg is None:
+            return None
+        f = bg.parent / "speech_spans.json"
+        if not f.exists():
+            return None
+        return [(float(x[0]), float(x[1])) for x in json.loads(f.read_text(encoding="utf-8"))]
+    except Exception:
+        return None
+
+
 def job_background_audio(job_id):
     cands = sorted(UPLOAD_DIR.glob(f"{_e(job_id)}_separated/**/no_vocals.wav"))
     if not cands:

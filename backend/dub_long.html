@@ -53,6 +53,8 @@
   .ld-lipres { margin: 10px 0 4px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
   .ld-lipres select { padding: 6px 8px; font-size: 14px; width: auto; max-width: 100%; }
   .ld-lipres.hidden { display: none; }
+  .ld-room { margin: 12px 0 2px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+  .ld-room select { padding: 6px 8px; font-size: 14px; width: auto; max-width: 100%; }
   .ld-lipask .ld-radio { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; cursor: pointer; font-size: 14px; line-height: 1.5; }
   .ld-lipask .ld-radio input { width: auto; margin-top: 4px; flex: none; }
   .ld-lipask .ld-radio.off { opacity: .55; cursor: not-allowed; }
@@ -430,6 +432,12 @@ var T = {
     priceTime: function (a, b, lip) { return "⏱ Dubbing " + (lip ? "with lip-sync " : "") + "takes about " + a + "–" + b + " minutes; we email you when the file is ready."; },
     priceNoArabic: function (n) { return "⚠️ " + n + " line(s) have English but no Arabic. They will be left silent in the dubbed file."; },
     priceSpeakers: "Speakers that will be cloned:",
+    roomLabel: "Room sound:",
+    roomAuto: "Match the original (recommended)",
+    roomLighter: "A little lighter",
+    roomMuch: "Much lighter",
+    roomNone: "None (dry voice)",
+    roomNote: "The echo of the original room is measured and added to the Arabic voice. If the original sounds quite dry, choose a lighter option.",
     confirmRecap: "By confirming you accept: the cloned voices are deleted after the job, and you receive one file (the dubbed video or audio).",
     confirmRecapLip: " A lip-sync clip that cannot be processed is refunded and keeps the original picture; the lip-synced parts are AI-generated and can differ slightly from your original.",
     confirmBtn: function (n) { return "Confirm and start dubbing — " + n + " credits"; },
@@ -628,6 +636,12 @@ var T = {
     priceTime: function (a, b, lip) { return "⏱ تستغرق الدبلجة " + (lip ? "مع مزامنة الشفاه " : "") + "نحو " + a + "–" + b + " دقيقة؛ سنراسلك عندما يجهز الملف."; },
     priceNoArabic: function (n) { return "⚠️ " + n + " سطر فيه إنجليزي بلا عربي. سيُترك صامتاً في الملف المدبلج."; },
     priceSpeakers: "المتحدثون الذين ستُستنسخ أصواتهم:",
+    roomLabel: "صوت المكان:",
+    roomAuto: "مطابقة الأصل (موصى به)",
+    roomLighter: "أخفّ قليلاً",
+    roomMuch: "أخفّ بكثير",
+    roomNone: "بدون (صوت جاف)",
+    roomNote: "يُقاس صدى المكان في التسجيل الأصلي ويُضاف إلى الصوت العربي. إذا كان الأصل يبدو جافاً فاختر خياراً أخفّ.",
     confirmRecap: "بالتأكيد أنت توافق على: حذف الأصوات المستنسَخة بعد انتهاء العملية، وحصولك على ملف واحد (الفيديو أو الصوت المدبلج).",
     confirmRecapLip: " والمقطع الذي تتعذر مزامنة شفاهه يُعاد ثمنه ويحتفظ بالصورة الأصلية؛ وأجزاء مزامنة الشفاه يولّدها الذكاء الاصطناعي وقد تختلف قليلاً عن الأصل.",
     confirmBtn: function (n) { return "تأكيد وبدء الدبلجة — " + n + " رصيد"; },
@@ -1966,6 +1980,7 @@ window.addEventListener("pagehide", function () { if (Object.keys(dirty).length)
 window.addEventListener("beforeunload", function (e) { if (uploading) { e.preventDefault(); e.returnValue = ""; } });
 
 // ---- confirm step
+var roomPref = "auto";
 function renderConfirm() {
   var a = $("confirmArea"); if (!a) return;
   var h = '<div class="ld-terms" style="margin-top:22px;"><h4>' + esc(T.confirmHeading) + "</h4>";
@@ -1990,6 +2005,10 @@ function renderConfirm() {
     if (lastErr) h += "<p class='ld-err'>" + esc(lastErr) + "</p>";
     var short = p.credits !== null && p.credits !== undefined && p.credits < p.due;
     if (short) h += "<p class='ld-err'>" + esc(T.notEnough(p.due, p.credits)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
+    h += '<div class="ld-room"><label for="roomPref">' + esc(T.roomLabel) + '</label><select id="roomPref">' +
+         [["auto", T.roomAuto], ["lighter", T.roomLighter], ["much_lighter", T.roomMuch], ["off", T.roomNone]].map(function (o) {
+           return '<option value="' + o[0] + '"' + (roomPref === o[0] ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") +
+         "</select></div><p class='note' style='margin-top:2px;'>" + esc(T.roomNote) + "</p>";
     h += "<p class='note'>" + esc(T.confirmRecap + (p.lipsync && p.lipsync.clips ? T.confirmRecapLip : "")) + "</p>";
     var noFile = cur && cur.media_present === false;
     if (noFile) h += "<div class='ld-warn'>" + esc(T.needFileToDub) + "</div>";
@@ -2000,6 +2019,7 @@ function renderConfirm() {
   a.innerHTML = h;
   var b;
   if ((b = $("btnPrice"))) b.onclick = loadPrice;
+  var rp = $("roomPref"); if (rp) rp.onchange = function () { roomPref = rp.value; };
   var pr = $("priceLipRes"); if (pr) pr.onchange = function () { changeLipRes(pr, function () { loadPrice(true); }); };
   if ((b = $("btnConfirm"))) b.onclick = doConfirm;
   if ((b = $("btnDelete2"))) b.onclick = onDelete;
@@ -2034,7 +2054,7 @@ function doConfirm() {
   ask.then(function (yes) {
     if (!yes) return;
     var b = $("btnConfirm"); if (b) b.disabled = true;
-    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due }); }).then(function (r) {
+    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref }); }).then(function (r) {
       if (!r.ok) {
         lastErr = r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr);
         if (r.status === 409 && r.data.price) {

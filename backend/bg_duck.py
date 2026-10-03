@@ -44,6 +44,8 @@ MAKEUP_MAX_DB = _env_float("BG_MAKEUP_MAX_DB", 20.0)   # most the separated back
 MAKEUP_MIN_DB = 3.0            # a smaller difference is left alone
 MAKEUP_MIN_PAUSE_SEC = 5.0     # needs at least this much silence between the voices to compare levels
 MAKEUP_FLOOR_DB = -80.0        # a background this silent in the pauses holds nothing to raise
+LEAK_MAX_DB = _env_float("BG_LEAK_MAX_DB", 3.0)   # a background that is this much louder while people speak than in the pauses holds
+                                                  # traces of the voices ("shadows"): it is NOT raised, that would only make them audible
 QUIET_BG_DB = -50.0     # background this quiet while people speak (mean power): never lowered
 LOUD_BG_DB = -34.0      # ...and from this level up it is lowered by the full depth (in between: in proportion)
 
@@ -336,6 +338,34 @@ def _pause_mean_db(path, pauses, af=None):
     return _db(p[mask].mean()) if mask.sum() >= 100 else None
 
 
+def speech_leak_db(background, pauses):
+    """How much louder (dB, mean power) the separated background is while people speak than inside the pauses.
+    A clean background (music, ambience) has about the same level in both; traces of the voices that the separator
+    left behind make it clearly louder while someone talks. None when it cannot be told."""
+    try:
+        b = _frame_power_db(background)
+        n = b.size
+        if n < 200:
+            return None
+        pause = np.zeros(n, dtype=bool)
+        edge = np.zeros(n, dtype=bool)
+        for (a, z) in pauses or []:
+            i0, i1 = int(float(a) / FRAME_SEC), int(float(z) / FRAME_SEC)
+            if i1 > i0:
+                edge[max(0, i0):min(n, i1)] = True
+            j0, j1 = int((float(a) + 0.15) / FRAME_SEC), int((float(z) - 0.15) / FRAME_SEC)
+            if j1 > j0:
+                pause[max(0, j0):min(n, j1)] = True
+        speech = ~edge
+        k = int(0.15 / FRAME_SEC)           # keep away from the edges of the speech too
+        speech = np.convolve(speech.astype(float), np.ones(2 * k + 1), mode="same") >= (2 * k + 1) - 0.5
+        if pause.sum() < 100 or speech.sum() < 100:
+            return None
+        return float(_db(b[speech].mean()) - _db(b[pause].mean()))
+    except Exception:
+        return None
+
+
 def makeup_gain(original, background, pauses, max_db=None, mix_filter=None, min_db=None):
     """How many dB the separated background must be raised so that, in the pauses of the voices
     (where the original holds only music and ambience), it is as loud as the original there.
@@ -362,6 +392,10 @@ def makeup_gain(original, background, pauses, max_db=None, mix_filter=None, min_
         diff = o - b_after
         if diff < mn:
             return 0.0, f"already within {diff:.1f} dB of the original in the pauses"
+        leak = speech_leak_db(background, pauses)
+        if leak is not None and leak >= LEAK_MAX_DB:
+            return 0.0, (f"not raised: the separated background is {leak:.1f} dB louder while people speak than in the pauses "
+                         f"(it holds traces of the voices; raising it would only make them audible)")
         g = round(min(diff, mx), 1)
         return g, (f"raised {g:g} dB (in the pauses: original {o} dB, separated background {b} dB"
                    + (f", {b_after} dB after the mix filter" if b_after != b else "")
@@ -386,6 +420,200 @@ def lift_background(bg_path, out_path, gain_db):
         return True
     except Exception:
         return False
+    finally:
+        try:
+            if part.exists():
+                part.unlink()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------- muting the background while the original voices speak
+#
+# The separator never removes the voices completely: a faint copy of every English phrase stays in the separated
+# background ("the shadow of the original voice"). While the original speaker talks, the dubbed Arabic voice is
+# there anyway, so the background is simply silenced for exactly those stretches (with short fades) and comes back
+# in the pauses. BG_MUTE: "auto" (default) = only when the background holds such a copy (it is louder while people
+# speak than in the pauses) or is so quiet then that only the copy could be left; "always"; "off".
+
+MUTE_MODE = os.environ.get("BG_MUTE", "auto").strip().lower()
+MUTE_LEAK_DB = _env_float("BG_MUTE_LEAK_DB", 1.5)   # auto: muted when the background is this much louder during speech than in the pauses
+MUTE_QUIET_DB = -45.0          # auto: ...or when it is quieter than this during speech (nothing worth keeping there)
+MUTE_PRE_SEC = 0.10            # silence starts a little before the first word
+MUTE_POST_SEC = 0.30           # ...and ends a little after the last one (the room tail of the original voice)
+MUTE_BRIDGE_SEC = 0.60         # a gap shorter than this between two phrases does not bring the background back
+MUTE_FADE_DOWN_SEC = 0.025     # time constants of the gain: going silent / coming back
+MUTE_FADE_UP_SEC = 0.10
+MUTE_VOICE_FLOOR_DB = -45.0    # separated voices quieter than this are the room, not a voice
+MUTE_MIN_SPEECH_SEC = 0.5      # less speech than this in the whole video: nothing to mute
+
+
+def speech_mute_mask(spans, n_frames):
+    """Boolean per 10 ms frame: True where the background is to be silent. spans = [(start, end)] seconds of the words."""
+    m = np.zeros(n_frames, dtype=bool)
+    for a, z in merge_spans(spans, gap=MUTE_BRIDGE_SEC):
+        i0 = int((a - MUTE_PRE_SEC) / FRAME_SEC)
+        i1 = int((z + MUTE_POST_SEC) / FRAME_SEC) + 1
+        if i1 > 0 and i0 < n_frames:
+            m[max(0, i0):min(n_frames, i1)] = True
+    return m
+
+
+def _extend_with_voice_onsets(mask, levels_db):
+    """Adds to `mask` the frames where the separated voices are clearly audible and that touch (within MUTE_PRE/POST
+    reach) a stretch already in the mask. Loud noise far from any word is not taken."""
+    from scipy.ndimage import label, binary_dilation
+
+    n = mask.size
+    lv = levels_db[:n]
+    if lv.size < n:
+        lv = np.concatenate([lv, np.full(n - lv.size, -120.0)])
+    inside = lv[mask & (lv > -70.0)]
+    if inside.size < 50:
+        return mask
+    thr = max(MUTE_VOICE_FLOOR_DB, float(np.percentile(inside, 95)) - 28.0)
+    cand = lv > thr
+    reach = int(round(0.5 / FRAME_SEC))
+    near = binary_dilation(mask, structure=np.ones(2 * reach + 1, dtype=bool))
+    lab, k = label(cand | mask)
+    if k == 0:
+        return mask
+    keep = np.unique(lab[near & cand]) if (near & cand).any() else np.array([], dtype=int)
+    keep = keep[keep > 0]
+    ext = np.isin(lab, keep) & cand
+    out = mask | ext
+    # a little room tail after what was added
+    post = int(round(0.15 / FRAME_SEC))
+    out = binary_dilation(out, structure=np.concatenate([np.zeros(post, dtype=bool), np.ones(post + 1, dtype=bool)]))
+    return out
+
+
+def mute_gain_curve(mask):
+    """Gain (1 = untouched, 0 = silent) per 10 ms from the mask, with short fades (never a click)."""
+    target = np.where(mask, 0.0, 1.0)
+    a_up = 1.0 - np.exp(-FRAME_SEC / MUTE_FADE_UP_SEC)
+    a_dn = 1.0 - np.exp(-FRAME_SEC / MUTE_FADE_DOWN_SEC)
+    g = np.empty_like(target)
+    cur = 1.0
+    for i in range(target.size):
+        t = target[i]
+        cur += (t - cur) * (a_up if t > cur else a_dn)
+        g[i] = cur
+    return g
+
+
+def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None):
+    """Writes `out_path` (16-bit stereo WAV, 44.1 kHz) = the background silenced while the original voices speak.
+    spans = [(start, end)] of the spoken words (the speech map written at transcription); without it the loudness of
+    the separated voices is followed instead. Returns {"muted": bool, "reason": str, "share": share of the time silenced,
+    "leak_db", "speech_db"}; "muted" is False when nothing was done (the caller then keeps the background). Never raises."""
+    info = {"muted": False, "reason": "", "share": None, "leak_db": None, "speech_db": None}
+    out_path = Path(out_path)
+    part = out_path.with_name(out_path.name + ".part.wav")
+    try:
+        mode = (MUTE_MODE if mode is None else str(mode)).strip().lower()
+        if mode not in ("auto", "always"):
+            info["reason"] = "switched off"
+            return info
+        bg_path = Path(bg_path)
+        if not bg_path.exists() or bg_path.stat().st_size < 1000:
+            info["reason"] = "no background file"
+            return info
+        bgp = _frame_power_db(bg_path)
+        n = bgp.size
+        if n < 200:
+            info["reason"] = "background too short"
+            return info
+        if spans:
+            mask = speech_mute_mask(spans, n)
+            src = "speech map"
+            if vocals_path is not None and Path(vocals_path).exists():
+                # the map starts at the first recognised word: soft starts, breaths and word ends are in the separated
+                # voices a little earlier / later. Take them in when they are connected to a spoken stretch.
+                try:
+                    mask = _extend_with_voice_onsets(mask, _voice_levels_db(vocals_path))
+                    src = "speech map and separated voices"
+                except Exception:
+                    pass
+        elif vocals_path is not None and Path(vocals_path).exists():
+            _g, _s, grown = speech_gain_curve(_voice_levels_db(vocals_path), 60.0)
+            mask = np.zeros(n, dtype=bool)
+            k = min(n, grown.size)
+            mask[:k] = grown[:k]
+            src = "voice loudness"
+        else:
+            info["reason"] = "no speech map and no separated voices to follow"
+            return info
+        share = float(mask.mean())
+        info["share"] = round(share, 3)
+        if float(mask.sum()) * FRAME_SEC < MUTE_MIN_SPEECH_SEC:
+            info["reason"] = "no speech found in the original"
+            return info
+        # does the background hold a copy of the voices? (louder while people speak than in the pauses)
+        k = int(0.15 / FRAME_SEC)
+        near = np.convolve(mask.astype(float), np.ones(2 * k + 1), mode="same") > 0.5     # speech and its surroundings
+        inner = np.convolve((~mask).astype(float), np.ones(2 * k + 1), mode="same") < 0.5   # well inside speech
+        far = ~near
+        lvl_speech = _db(bgp[inner].mean()) if inner.sum() >= 100 else None
+        lvl_pause = _db(bgp[far].mean()) if far.sum() >= 100 else None
+        info["speech_db"] = None if lvl_speech is None else round(lvl_speech, 1)
+        if lvl_speech is not None and lvl_pause is not None:
+            info["leak_db"] = round(lvl_speech - lvl_pause, 1)
+        if mode == "auto":
+            leaky = info["leak_db"] is not None and info["leak_db"] >= MUTE_LEAK_DB
+            quiet = lvl_speech is not None and lvl_speech < MUTE_QUIET_DB
+            if not (leaky or quiet):
+                info["reason"] = ("not needed: the background is not louder while people speak"
+                                  + (f" ({info['leak_db']:+.1f} dB) " if info["leak_db"] is not None else " ")
+                                  + "so it holds no copy of the voices")
+                return info
+        gain = mute_gain_curve(mask)
+        centers = (np.arange(gain.size) + 0.5) * (HOP * RATE / ANALYSIS_RATE)
+        dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(bg_path), "-vn", "-ac", str(CH), "-ar", str(RATE),
+                                "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", str(CH), "-i", "-",
+                                "-c:a", "pcm_s16le", str(part)], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        pos, left, fb = 0, b"", 4 * CH
+        try:
+            while True:
+                buf = dec.stdout.read(CHUNK * fb)
+                if not buf:
+                    break
+                buf = left + buf
+                m_ = (len(buf) // fb) * fb
+                left = buf[m_:]
+                if not m_:
+                    continue
+                x = np.frombuffer(buf[:m_], dtype="<f4").reshape(-1, CH).astype(np.float64)
+                g = np.interp(np.arange(pos, pos + x.shape[0]), centers, gain)[:, None]
+                enc.stdin.write(np.clip(x * g, -1.0, 1.0).astype("<f4").tobytes())
+                pos += x.shape[0]
+        finally:
+            try:
+                dec.stdout.close()
+            except Exception:
+                pass
+            dec.wait()
+            try:
+                enc.stdin.close()
+            except Exception:
+                pass
+            enc.wait()
+        if dec.returncode not in (0, None) or enc.returncode != 0 or pos == 0 or not part.exists() or part.stat().st_size < 1000:
+            raise RuntimeError("ffmpeg failed while muting the background")
+        os.replace(part, out_path)
+        info["muted"] = True
+        why = ("holds a copy of the voices" if (info["leak_db"] is not None and info["leak_db"] >= MUTE_LEAK_DB)
+               else "nothing but a faint copy of the voices is left in it" if mode == "auto" else "always on")
+        info["reason"] = (f"silenced while the original voices speak ({share * 100:.0f}% of the time, from the {src}); "
+                          f"{why}"
+                          + (f": {info['speech_db']} dB while people speak, {info['leak_db']:+.1f} dB against the pauses"
+                             if info["speech_db"] is not None and info["leak_db"] is not None else ""))
+        return info
+    except Exception as ex:
+        info["muted"] = False
+        info["reason"] = f"skipped ({ex})"[:200]
+        return info
     finally:
         try:
             if part.exists():
@@ -608,6 +836,7 @@ REACT_POST_SEC = 0.18         # ...and from its end
 REACT_MIN_SEC = 0.35          # shorter sounds are left out
 REACT_BRIDGE_SEC = 0.25       # gaps this short inside one reaction (between two bursts of laughter) are kept
 REACT_REL_DB = 30.0           # quieter than this far under the speech level = not a reaction
+REACT_MIN_MEAN_REL_DB = 22.0   # a stretch whose average is this far under the speech level is a tail or a breath, not a reaction
 REACT_MIN_TOTAL_SEC = 0.8     # less than this in total: not worth adding
 REACT_MAX_SHARE = 0.6         # more than this share of the video would not be audience sound (singing, a wrong speech map)
 REACT_FADE_IN_SEC = 0.08      # fade in
@@ -652,10 +881,14 @@ def reaction_frames(levels_db, spans, min_level_db=None):
     # drop the short ones
     min_len = int(round(REACT_MIN_SEC / FRAME_SEC))
     idx = np.flatnonzero(np.diff(np.concatenate([[0], cand.astype(np.int8), [0]])))
+    dropped = 0
     for i0, i1 in zip(idx[0::2], idx[1::2]):
         if i1 - i0 < min_len:
             cand[i0:i1] = False
-    return cand, speech, {"ref_db": round(ref, 1), "thr_db": round(thr, 1)}
+        elif _db(float(np.mean(10.0 ** (levels_db[i0:i1] / 10.0)))) < ref - REACT_MIN_MEAN_REL_DB:
+            cand[i0:i1] = False       # too faint to be laughter or applause: the tail of a spoken phrase, a breath, a trace of a word
+            dropped += 1
+    return cand, speech, {"ref_db": round(ref, 1), "thr_db": round(thr, 1), "faint_dropped": dropped}
 
 
 def reaction_gain(mask, speech):
@@ -798,7 +1031,7 @@ def build_reaction_layer(vocals_path, spans, dub_path, out_path, gain_db=None, m
 
 # ---------------------------------------------------------------- short dubbing: one call for the whole background
 
-SHORT_MIX_FILTER = "volume=0.8"      # what ffmpeg_utils.mix_two_audio does to the background
+SHORT_MIX_FILTER = "volume=1.0"      # what ffmpeg_utils.mix_two_audio does to the background (nothing: its level comes from the original)
 
 
 def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
@@ -813,10 +1046,12 @@ def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
         ducked = work_dir / f"bg_ducked_{tag}.wav"
         restored = work_dir / f"bg_restored_{tag}.wav"
         lifted = work_dir / f"bg_restored_lifted_{tag}.wav"
-        res["temps"] = [ducked, restored, lifted]
+        muted = work_dir / f"bg_muted_{tag}.wav"
+        res["temps"] = [ducked, restored, lifted, muted]
         vocals_ok = vocals_path is not None and Path(vocals_path).exists()
         # 1. is a steady background sound missing? (needs the pauses between the voices)
         plan, why = None, "not tried"
+        pauses = None
         if BED_ENABLED and vocals_ok and original is not None and Path(original).exists():
             try:
                 import ffmpeg_utils
@@ -827,14 +1062,30 @@ def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
                 plan, why = None, f"skipped ({ex})"[:160]
         else:
             why = "switched off" if not BED_ENABLED else "no original audio or separated voices to compare"
-        # 2. lower the voice range of the separated background while people speak
+        # 2. silence the separated background while the original voices speak (it holds a faint copy of them);
+        #    otherwise (switched off) lower its voice range while people speak
         sep_used = Path(bg_path)
-        if ENABLED and vocals_ok:
+        mute_done = False
+        if vocals_ok:
+            spans_ = None
+            try:
+                import json
+                sf = Path(vocals_path).parent / "speech_spans.json"
+                if sf.exists():
+                    spans_ = [(float(x[0]), float(x[1])) for x in json.loads(sf.read_text(encoding="utf-8"))]
+            except Exception:
+                spans_ = None
+            mres = mute_speech(bg_path, vocals_path, muted, spans=spans_)
+            if mres["muted"] and muted.exists() and muted.stat().st_size > 1000:
+                sep_used, mute_done = muted, True
+                res["muted"] = True
+            res["note"] = "mute: " + str(mres["reason"])
+        if ENABLED and vocals_ok and not mute_done:
             d = duck_background(bg_path, vocals_path, ducked)
             res["ducked"] = bool(d.get("ducked")) and ducked.exists() and ducked.stat().st_size > 1000
             if res["ducked"]:
                 sep_used = ducked
-            res["note"] = "duck: " + str(d.get("reason"))
+            res["note"] += ("; " if res["note"] else "") + "duck: " + str(d.get("reason"))
         res["path"] = sep_used
         # 3. lay the rebuilt sound under the whole video
         if plan:
@@ -850,6 +1101,14 @@ def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
                 res["note"] += "; bed: could not be built (" + info["reason"] + ")"
         else:
             res["note"] += "; bed: not used (" + str(why) + ")"
+            # No bed: set the background's level from the ORIGINAL audio (not a fixed factor). Where the voices
+            # pause, the original holds only music / ambience; raise the separated background until it is as
+            # loud as the original there (never lowered, capped by BG_MAKEUP_MAX_DB, ignored below 1 dB).
+            if pauses and vocals_ok:
+                g, mnote = makeup_gain(original, Path(bg_path), pauses, mix_filter=SHORT_MIX_FILTER, min_db=1.0)
+                if g > 0 and lift_background(sep_used, lifted, g):
+                    res["path"] = lifted
+                res["note"] += f"; level: {mnote}"
         return res
     except Exception as ex:
         res["path"] = Path(bg_path)

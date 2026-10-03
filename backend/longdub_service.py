@@ -38,6 +38,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_KEY
+from resource_meter import metered as _metered      # measures what each job costs on Railway (see resource_meter.py)
 import ffmpeg_utils
 import voice_clean
 import bg_duck
@@ -285,16 +286,28 @@ def _speed_factor(kind):
     of the last real runs on this server once there are at least 2, else the
     built-in default."""
     runs = _load_stats().get(kind) or []
-    ratios = sorted(e / m for m, e in runs if m > 0 and e > 0)
+    ratios = sorted(e / m for m, e in runs if m > 0 and e > 0 and _plausible_speed(kind, e / m))
     if len(ratios) >= 2:
         return ratios[len(ratios) // 2]
     return DEFAULT_SPEED[kind]
+
+
+def _plausible_speed(kind, ratio):
+    """A run that took 8x longer than normal (stalled, paused, machine asleep,
+    waiting on a queue) or 10x shorter (failed early) says nothing about how long
+    the next job will take, so it is ignored both when recording and when
+    reading old stats."""
+    d = DEFAULT_SPEED[kind]
+    return d / 10.0 <= ratio <= d * 8.0
 
 
 def _record_speed(kind, media_sec, elapsed_sec):
     """Remember how long a finished stage really took so future estimates get
     more accurate (last 30 runs kept)."""
     try:
+        if float(media_sec) <= 0 or not _plausible_speed(kind, float(elapsed_sec) / float(media_sec)):
+            print(f"[longdub] not recording unusual {kind} run: {elapsed_sec:.0f}s for {media_sec:.0f}s of media")
+            return
         with _LOCK:
             st = _load_stats()
             runs = st.get(kind) or []
@@ -1338,6 +1351,11 @@ def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
     return result
 
 
+def _log_resource(args, kwargs, res):
+    _ev(args[0], "resource_use", "info", res["text"])
+
+
+@_metered("longdub_analysis", lambda job, *a, **k: job["id"], after=_log_resource)
 def _run_analysis(job):
     """extract audio -> cut pieces -> separate vocals/background per piece ->
     speaker detection (whole file, one pass) -> transcribe per piece ->
@@ -3029,7 +3047,7 @@ def set_lipsync_resolution(job, uid, res):
     return True, None
 
 
-def confirm(job, uid, expected_due):
+def confirm(job, uid, expected_due, room=""):
     """User reviewed everything and accepts the exact price: charge it and
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
@@ -3073,6 +3091,7 @@ def confirm(job, uid, expected_due):
                            "speakers": [s["id"] for s in price["speakers_used"]], "confirmed_at": _now()}
         if lip_plan is not None:
             job["dub_plan"]["lipsync"] = lip_plan
+        job["room_pref"] = room if room in ROOM_CHOICES else "auto"
         job["status"] = "confirmed"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -3087,6 +3106,13 @@ def confirm(job, uid, expected_due):
 
 
 # --------------------------------------------------------------- dubbing
+
+# Room sound choices offered before the dubbing starts: the measured room of the original, with how much of it is
+# kept (the measurement is an estimate from separated voices and can read a little strong on recordings with laughter,
+# music or crowd noise, so the default already takes a few dB off), or none at all.
+ROOM_TRIM_DEFAULT = float(os.environ.get("LONGDUB_ROOM_TRIM_DB", "-4"))
+ROOM_CHOICES = {"auto": ROOM_TRIM_DEFAULT, "lighter": ROOM_TRIM_DEFAULT - 4.0, "much_lighter": ROOM_TRIM_DEFAULT - 8.0, "off": None}
+
 
 DUB_CHUNK_SPAN = 45.0          # seconds of dubbed speech mixed per ffmpeg call
 # The app's "good" stretching values (same as tempo_mode "good" in the normal
@@ -3291,9 +3317,9 @@ def _volume_stats(path):
 
 
 FAINT_BG_MEAN_DB = -50.0     # a separated background this quiet on average is reported to the user
-# what the background goes through on its way into the final video (volume=0.8 is -1.9 dB)
+# what the background goes through on its way into the final video (no fixed cut: its level is set from the ORIGINAL audio beforehand)
 BG_MIX_FILTER = ("highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
-                 "alimiter=limit=0.95,volume=0.8")
+                 "alimiter=limit=0.95,volume=1.0")
 
 
 def _bg_final_event(job, wd, bg_mix, dub_full):
@@ -3553,6 +3579,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
     return best_meta, best_text
 
 
+@_metered("longdub_dub", lambda job, *a, **k: job["id"], after=_log_resource)
 def _run_dubbing(job):
     """confirmed -> per-speaker temporary voice clones -> Arabic speech line by
     line -> fit to timing -> mix in stretches -> join with the background ->
@@ -3808,6 +3835,40 @@ def _run_dubbing(job):
         got = ffmpeg_utils.get_media_duration(dub_full)
         if abs(got - total) > 0.25:
             raise Exception(f"dubbed track length {got:.2f}s does not match the video ({total:.2f}s)")
+        # Room sound: every dubbed line gets the room it was spoken in (measured phrase by phrase from the original's
+        # separated voices, grouped into rooms, one reverb per room). Never fails the dub: on any problem the dry voice stays.
+        try:
+            import room_acoustics
+            if room_acoustics.ENABLED:
+                _mark(job, "mix", 86, "Adding the room sound...")
+                _rl = [{"sid": str(it.get("seg") or ""), "t0": float(it["start"]),
+                        "t1": float(it["start"]) + float(it["allowed"]) + 0.1,
+                        "orig_mid": (float(it["start"]) + float(it["end"])) / 2.0} for it in kept]
+                _room_out = d / "dub_full_room.wav"
+                _pref = job.get("room_pref") if job.get("room_pref") in ROOM_CHOICES else "auto"
+                _room_set = {"mode": "off" if _pref == "off" else "auto", "require_ok": True, "trim_db": ROOM_CHOICES[_pref] or 0.0}
+                try:     # what kind of place is each stretch? (one Gemini call, cached; only ever limits the measurement)
+                    import scene_context
+                    if scene_context.ENABLED and _pref != "off":
+                        _sc = scene_context.scenes_for_job(job["id"], wd, rows_all, GEMINI_API_KEY,
+                                                           video_path=(wd / "preview.mp4") if job.get("has_video") else None, duration=total)
+                        if _sc is not None:
+                            _room_set["scenes"] = _sc["scenes"]
+                            _ev(job, "scene_context", "ok" if _sc["scenes"] else "info", str(_sc["summary"])[:600])
+                except Exception as ex_sc:
+                    print(f"[longdub] scene check skipped: {ex_sc}")
+                if _pref == "off":
+                    _rr = {"applied": False, "why": "no room sound added (you chose None): the Arabic voice stays dry"}
+                else:
+                    _rr = room_acoustics.apply_to_file(job["id"], dub_full, _room_out, _room_set, d, lines=_rl,
+                                                       vocals=wd / "vocals_mono.wav", spans_file=wd / "speech_spans.json", mp3=False)
+                if _rr.get("applied") and _room_out.exists() and _room_out.stat().st_size > 1000:
+                    os.replace(_room_out, dub_full)
+                _ev(job, "room_sound", "ok" if _rr.get("applied") else "info",
+                    (f"[your choice: {_pref}] " if _pref != "auto" else "") + str(_rr.get("why") or "")[:560])
+        except Exception as ex:
+            print(f"[longdub] room sound skipped: {ex}")
+            _ev(job, "room_sound", "info", f"skipped ({ex})"[:300])
         _ev(job, "mix", "ok", f"{len(kept)} lines in {len(chunks)} parts; {sum(1 for x in kept if x['trim'])} trimmed, "
                               f"{sum(1 for x in kept if x['warn'])} at the speed limit")
         # A plain report of the lines the user may want to look at next time.
@@ -3876,10 +3937,23 @@ def _run_dubbing(job):
             if not video_out and bg_info["state"] == "silent" and not bg_info["failed_parts"]:
                 bg_info = None      # a recording with only voices has no background: nothing is missing, nothing to report
         bg_use = bg
+        bg_sep = bg         # the separated background as it is mixed: silenced while the original voices speak (below)
         bed_done = False
         bed_level_ = None
         if bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
             try:
+                # The separator leaves a faint copy of every original phrase in the background (the "shadow" of the
+                # English voice). While the original speaker talks the dubbed voice is there instead: silence the
+                # background for exactly those stretches (only when it holds such a copy, see bg_duck.MUTE_MODE).
+                try:
+                    _sf = wd / "speech_spans.json"
+                    _sp = [(float(x[0]), float(x[1])) for x in json.loads(_sf.read_text(encoding="utf-8"))] if _sf.exists() else None
+                    _mres = bg_duck.mute_speech(bg, wd / "vocals_mono.wav", wd / "background_muted.wav", spans=_sp)
+                    if _mres["muted"]:
+                        bg_sep = bg_use = wd / "background_muted.wav"
+                    _ev(job, "background_mute", "ok" if _mres["muted"] else "info", _mres["reason"])
+                except Exception as _mex:
+                    print(f"[longdub] background mute skipped: {_mex}")
                 pauses_ = []
                 pp_ = wd / "pauses.json"
                 if pp_.exists():
@@ -3889,8 +3963,8 @@ def _run_dubbing(job):
                 # the whole video. Second choice (below): the separated background is simply raised in level.
                 plan_, why_ = bg_duck.plan_ambience_bed(wd / "audio.wav", bg, wd / "vocals_mono.wav", pauses_)
                 if plan_:
-                    sep_used = bg
-                    if bg_duck.ENABLED:
+                    sep_used = bg_sep
+                    if bg_duck.ENABLED and bg_sep is bg:
                         _bdk = bg_duck.duck_background(bg, wd / "vocals_mono.wav", wd / "background_ducked.wav")
                         if _bdk["ducked"]:
                             sep_used = wd / "background_ducked.wav"
@@ -3920,8 +3994,8 @@ def _run_dubbing(job):
                 if not bed_done:
                     # The separator often keeps far less of the room sound than the original had. Raise the
                     # background until, in the pauses of the voices, it is as loud as the original there.
-                    gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_, mix_filter=BG_MIX_FILTER)
-                    if gain_ > 0 and bg_duck.lift_background(bg, wd / "background_lifted.wav", gain_):
+                    gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_, mix_filter=BG_MIX_FILTER, min_db=1.0)
+                    if gain_ > 0 and bg_duck.lift_background(bg_sep, wd / "background_lifted.wav", gain_):
                         bg_use = wd / "background_lifted.wav"
                         l_mean, l_max = _volume_stats(bg_use)
                         if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
@@ -3932,7 +4006,7 @@ def _run_dubbing(job):
             except Exception as ex:
                 print(f"[longdub] background restore skipped: {ex}")
         bg_mix = bg_use
-        if bg.exists() and bg_duck.ENABLED and not bed_done:
+        if bg.exists() and bg_duck.ENABLED and not bed_done and bg_sep is bg:
             # the separated background keeps a faint metallic copy of the original voices:
             # lower its voice range only while the original speakers talk
             _bdk = bg_duck.duck_background(bg_use, wd / "vocals_mono.wav", wd / "background_ducked.wav")
@@ -3999,7 +4073,7 @@ def _run_dubbing(job):
             if react is not None:
                 parts_.append(f"[{k_}:a]volume=1.0[r]")
                 labels_.append("[r]")
-            fc = ";".join(parts_) + ";" + "".join(labels_) + f"amix=inputs={len(labels_)}:duration=first:normalize=0[out]"
+            fc = ";".join(parts_) + ";" + "".join(labels_) + f"amix=inputs={len(labels_)}:duration=first:normalize=0[m];[m]alimiter=limit=0.97:level=disabled[out]"
             cmd_ = ["ffmpeg", "-y"]
             for f_ in ins:
                 cmd_ += ["-i", str(f_)]

@@ -1888,6 +1888,12 @@ async function regenerateLine(i, btn) {
         // clears itself the moment these flags say the issue is gone.
         var _vln = (window._volumeLines || []).find(function (v) { return v.segment_id === seg.segment_id; });
         if (_vln) _vln.tempo_warning = !!data.tempo_warning;
+        if (_vln && data.line) {
+            // fresh take -> fresh measured loudness; slider returns to the auto-matched level for this line
+            _vln.orig_db = data.line.orig_db; _vln.dub_db = data.line.dub_db; _vln.auto_gain_db = data.line.auto_gain_db;
+            window._volumeGains = window._volumeGains || {};
+            window._volumeGains[seg.segment_id] = Number(data.line.auto_gain_db) || 0;
+        }
         if (data.mix && Array.isArray(data.mix.trimmed_segment_ids)) {
             var _trimmedNow = {};
             data.mix.trimmed_segment_ids.forEach(function (sid) { _trimmedNow[sid] = true; });
@@ -1946,6 +1952,10 @@ async function restretchLine(seg) {
         // Time Stretch re-warp too, not just a full re-speak.
         var _vln2 = (window._volumeLines || []).find(function (v) { return v.segment_id === seg.segment_id; });
         if (_vln2) _vln2.tempo_warning = !!data.tempo_warning;
+        if (_vln2 && data.line) {
+            // speed change alters the measured level slightly; keep the user's gain, refresh the numbers
+            _vln2.orig_db = data.line.orig_db; _vln2.dub_db = data.line.dub_db; _vln2.auto_gain_db = data.line.auto_gain_db;
+        }
         if (data.mix && Array.isArray(data.mix.trimmed_segment_ids)) {
             var _trimmedNow2 = {};
             data.mix.trimmed_segment_ids.forEach(function (sid) { _trimmedNow2[sid] = true; });
@@ -2814,6 +2824,21 @@ function renderTimeline() {
     var speakers = [];
     var sSeen = {};
     segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!sSeen[n]) { sSeen[n] = true; speakers.push(n); } });
+    // How long a line really occupies on the timeline: its English estimate, or its generated Arabic audio when that
+    // is SHORTER (the rest of the block is silence, so the next line may start right after the Arabic ends). An Arabic
+    // line that is longer than its block keeps the English estimate, as before.
+    function effTime(sg) {
+        var e = (sg.text || "").length / ENGLISH_CHARS_PER_SEC;
+        var d = ((window._lineDurations || {})[sg.segment_id]) || 0;
+        return Math.max(8 / scale, (d > 0 && d < e) ? d : e);
+    }
+    // Amber outline: the line was moved more than 1 s from where the original was spoken (it may look off against the speaker's mouth).
+    function shiftHint(bx, o, lineNo) {
+        var far = Math.abs(o) > 1.0;
+        bx.style.outline = far ? "2px solid #f59e0b" : "";
+        bx.style.outlineOffset = far ? "-2px" : "";
+        bx.title = "Line " + lineNo + ": drag to shift" + (far ? " (moved " + Math.abs(o).toFixed(1) + " s from the original - may not match the speaker's mouth)" : "");
+    }
     speakers.forEach(function(spk, li) {
         var lane = document.createElement("div");
         lane.style.cssText = "position:relative;height:34px;border-bottom:1px solid #334155;background:" + (li % 2 === 0 ? "#1e293b" : "#1a2332") + ";";
@@ -2831,6 +2856,7 @@ function renderTimeline() {
             box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;";
             box.title = "Line " + (i + 1) + ": drag to shift (" + engLen + " English characters)";
             box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
+            if (Math.abs(off) > 1.0) shiftHint(box, off, i + 1);
             box.onmousedown = function(ev) {
                 if (ev.button !== 0) return;
                 ev.preventDefault();
@@ -2847,13 +2873,13 @@ function renderTimeline() {
                 // (The old version re-checked every neighbour on every mouse move and snapped the block to
                 // the far side of any neighbour it overlapped, after the edge limits had been applied. That
                 // made blocks jump seconds at a time, land in the cut zone, and stay there.)
-                var widthTime = width / scale;
+                var widthTime = effTime(seg);
                 var startPos = seg.start + startOff;
                 var lo = -Infinity, hi = Infinity;
                 segmentsData.forEach(function(nb, idx) {
                     if (idx === i || (nb.speaker || "Speaker 1") !== spk || !(nb.arabic_text || "").trim()) return;
                     var nbStart = nb.start + (segmentOffsets[nb.segment_id] || 0);
-                    var nbWidthTime = Math.max(8 / scale, ((nb.text || "").length) / ENGLISH_CHARS_PER_SEC);
+                    var nbWidthTime = effTime(nb);
                     var nbEnd = nbStart + nbWidthTime;
                     if (nbStart > startPos || (nbStart === startPos && idx > i)) {                // neighbour on the right (the order of the lines is kept)
                         var freeHi = nbStart - widthTime - seg.start;
@@ -2877,6 +2903,7 @@ function renderTimeline() {
                     segmentOffsets[seg.segment_id] = no;
                     box.style.left = Math.max(0, (seg.start + no) * scale) + "px";
                     box.textContent = (i + 1) + " (" + (no > 0 ? "+" : "") + Math.round(no * 1000) + "ms)";
+                    shiftHint(box, no, i + 1);
                 };
                 var up = function() {
                     document.removeEventListener("mousemove", move);
@@ -3981,7 +4008,7 @@ var volOrigAudio = null;
     card.className = "card hidden";
     card.id = "volumeSection";
     card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3>' +
-        '<p class="note" id="volumeMatchNote">Every Arabic line was automatically matched to the volume of the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Generating again resets these adjustments to automatic.</p>' +
+        '<p class="note" id="volumeMatchNote">Each slider shows the loudness (in dB) of that Arabic line. It starts at the level measured from the original speaker\'s voice (see <strong>Original level</strong>), not at zero. Play ▶ a dubbed line, move the slider to make it louder or quieter (live preview), then apply to rebuild the final MP3. Generating again resets the sliders to the original levels.</p>' +
         '<div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style="min-width:130px">Volume</th><th></th></tr></thead><tbody></tbody></table></div>' +
         '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3<span class="badge" id="badgeApplyVolumes"></span></button> ' +
         '<button id="resetVolumesBtn" class="blue">↺ Reset All Sliders</button>';
@@ -4692,8 +4719,8 @@ window.cleanOldClones = function () {
             ar: '📼 <strong>تم تحميل المشروع.</strong> ارفع ملف الصوت أو الفيديو الأصلي المطابق لتفعيل المعاينة، وإعادة النطق، وكشف المشاعر، والإصلاح التلقائي، ودمج الفيديو.'
         },
         volumeMatchNote: {
-            en: 'Every Arabic line was automatically matched to the volume of the original speaker\'s voice (see <strong>Auto</strong> column). Play 🔊 a dubbed line, fine-tune it with the slider (−6…+6 dB, live preview), then apply to rebuild the final MP3. Generating again resets these adjustments to automatic.',
-            ar: 'تمت مطابقة مستوى كل سطر عربي تلقائيًا مع صوت المتحدث الأصلي (انظر عمود <strong>Auto</strong>). شغّل 🔊 السطر المدبلج، واضبطه بالمنزلق (−6...+6 ديسيبل مع معاينة مباشرة)، ثم طبّق لإعادة بناء ملف MP3 النهائي. تكرار توليد الصوت يعيد الإزاحات إلى القيم التلقائية.'
+            en: 'Each slider shows the loudness (in dB) of that Arabic line. It starts at the level measured from the original speaker\'s voice (see <strong>Original level</strong>), not at zero. Play ▶ a dubbed line, move the slider to make it louder or quieter (live preview), then apply to rebuild the final MP3. Generating again resets the sliders to the original levels.',
+            ar: 'يعرض كل منزلق مستوى صوت السطر العربي بالديسيبل. يبدأ من المستوى المقاس في صوت المتحدث الأصلي (انظر عمود <strong>Original level</strong>) وليس من الصفر. شغّل ▶ السطر المدبلج، وحرّك المنزلق لرفع الصوت أو خفضه (مع معاينة مباشرة)، ثم طبّق لإعادة بناء ملف MP3 النهائي. تكرار توليد الصوت يعيد المنزلقات إلى المستويات الأصلية.'
         },
         customVoiceNote: {
             // This note lives inside the same box as a <select>, <input> and
@@ -4797,6 +4824,10 @@ window.cleanOldClones = function () {
         ["kept", "محتفظ به"],
         ["faded / trimmed", "تلاشٍ / تقليم"],
         ["overlap allowed", "يُسمح بالتداخل"],
+        ["Arabic audio length", "مدة الصوت العربي"],
+        ["Arabic audio runs past its slot", "الصوت العربي يتجاوز مدته"],
+        ["blue after the green = silence (Arabic ends early)", "الأزرق بعد الأخضر = صمت (الصوت العربي ينتهي مبكرًا)"],
+        ["moved over 1 s from the original", "أُزيح أكثر من ثانية عن الأصل"],
         ["Also generate a lip-synced video", "أنشئ أيضًا فيديو بمزامنة الشفاه"],
         ["I hereby certify that I have all necessary rights or consents to upload and translate this audio/video, which could result in the cloning of the associated voices.", "أقرّ بأنني أملك جميع الحقوق أو الموافقات اللازمة لرفع هذا الملف الصوتي أو المرئي وترجمته، وهو ما قد يؤدي إلى استنساخ الأصوات المرتبطة به."],
         ["Upload up to 5 clear photos of the speaker(s)' faces to help the AI keep their exact appearance. Not required.", "ارفع حتى 5 صور واضحة لوجوه المتحدثين لمساعدة الذكاء الاصطناعي على الحفاظ على مظهرهم الدقيق. غير مطلوب."]
@@ -5657,7 +5688,7 @@ window.cleanOldClones = function () {
         var thead = document.querySelector("#volumeTable thead");
         if (thead && !thead.dataset.v7) {
             thead.dataset.v7 = "1";
-            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Use silent gap</th><th title='How much this line may be sped up or slowed down to fit its slot'>Speed adjustment</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th></tr>";
+            thead.innerHTML = "<tr><th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; lines overlapping it are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Use silent gap</th><th title='How much this line may be sped up or slowed down to fit its slot'>Speed adjustment</th><th>\u25B6 Orig</th><th>\uD83D\uDD0A Dub</th><th>Original level</th><th style='min-width:130px'>Dub volume</th><th></th></tr>";
         }
         var tbody = document.querySelector("#volumeTable tbody");
         if (!tbody) return;
@@ -5859,7 +5890,7 @@ window.cleanOldClones = function () {
     }
     function fixVolume() {
         var thr = document.querySelector("#volumeTable thead tr");
-        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Use silent gap</th><th title='How much this line may be sped up or slowed down to fit its slot'>Speed adjustment</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style='min-width:130px'>Volume</th><th></th>"; }
+        if (thr && !thr.dataset.v9) { thr.dataset.v9 = "1"; thr.innerHTML = "<th>#</th><th>Speaker</th><th>Line</th><th title='Unchecked = this line may be talked over; intruders are NOT faded'>No overlap</th><th title='Checked = let this line run into the silent gap before the next line (or, for the last line, to the end of the audio) instead of fading at its own original end'>Use silent gap</th><th title='How much this line may be sped up or slowed down to fit its slot'>Speed adjustment</th><th>▶ Orig</th><th>🔊 Dub</th><th>Original level</th><th style='min-width:130px'>Dub volume</th><th></th>"; }
         document.querySelectorAll("#volumeSection strong, #volumeSection span").forEach(function (el) { if (/Master trim/i.test(el.textContent || "")) el.textContent = (el.textContent || "").replace(/Master trim[^\(:]*/i, "Master volume"); });
     }
     function fixStep6() {
@@ -5878,6 +5909,27 @@ window.cleanOldClones = function () {
     function fixDub() {
         var btn = null;
         document.querySelectorAll("#resultSection button, #mergeSection button, #videoResults button, #videoResults a").forEach(function (b) { if (/Dub Another Video/i.test(b.textContent || "")) btn = b; });
+        if (!btn) {
+            // The button lives inside the result area that is rebuilt after a merge and wiped by "Dub Another Video",
+            // so it can be gone while results are showing. Make a fresh one whenever results are on screen.
+            var rsx = document.getElementById("resultSection");
+            if (!rsx || rsx.classList.contains("hidden")) return;
+            btn = document.createElement("button");
+            btn.className = "blue";
+            btn.style.marginTop = "16px";
+            btn.textContent = "\uD83C\uDD95 Dub Another Video";
+            btn.onclick = function () {
+                confirmResetSafe().then(function (ok) {
+                    if (!ok) return;
+                    resetWorkspace();
+                    var fi = document.getElementById("audioFile"); if (fi) fi.value = "";
+                    resetFileLabel();
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                    notify("info", "Workspace cleared. Upload your next video in Step 1.");
+                });
+            };
+            rsx.appendChild(btn);
+        }
         if (!btn) return;
         if (btn.style.background.indexOf("237, 108, 2") === -1 && btn.style.cssText.indexOf("#ed6c02") === -1) btn.style.cssText += ";background:#ed6c02;border-color:#ed6c02;color:#fff;font-weight:700;";
         var row = document.querySelector("#videoResults .download-buttons");
@@ -6534,7 +6586,9 @@ window.cleanOldClones = function () {
             var blockW = b.offsetWidth || Math.max(8, slot * scale);
             var totalPx = Math.max(blockW, dubDur * scale);
             var hasOverflow = (totalPx - blockW) > 1;
-            if (!hasOverflow) totalPx = blockW;
+            // Arabic shorter than the block: the green bar is only as long as the Arabic audio; the blue left over after it is silence.
+            var shortArabic = !hasOverflow && (blockW - dubDur * scale) > 2;
+            if (!hasOverflow) totalPx = shortArabic ? Math.max(3, dubDur * scale) : blockW;
 
             var bar = window._dubOverlayNodes[seg.segment_id];
             if (bar && (!bar.isConnected || bar.parentNode !== lane)) {
@@ -6559,12 +6613,16 @@ window.cleanOldClones = function () {
                 var p1 = Math.max(0, pct - 0.4).toFixed(2), p2 = Math.min(100, pct + 0.4).toFixed(2);
                 bg = "linear-gradient(90deg, rgba(34,197,94,0.35) 0%, rgba(34,197,94,0.35) " + p1 + "%, #15803d " + p1 + "%, #15803d " + p2 + "%, rgba(34,197,94,0.6) " + p2 + "%, rgba(34,197,94,0.6) 100%)";
             } else {
-                bg = "rgba(34,197,94,0.35)";
+                bg = shortArabic ? "rgba(34,197,94,0.55)" : "rgba(34,197,94,0.35)";
             }
             if (bar.style.background !== bg) bar.style.background = bg;
-            var title = hasOverflow
-                ? "Arabic audio: " + dubDur.toFixed(2) + "s — fills its " + slot.toFixed(2) + "s slot and runs " + (dubDur - slot).toFixed(2) + "s past it"
-                : "Arabic audio: " + dubDur.toFixed(2) + "s of a " + slot.toFixed(2) + "s slot";
+            var radStr = shortArabic ? "4px" : "0 4px 4px 0";
+            if (bar.style.borderRadius !== radStr) bar.style.borderRadius = radStr;
+            var title = shortArabic
+                ? "Arabic audio: " + dubDur.toFixed(2) + "s - " + ((blockW / scale) - dubDur).toFixed(2) + "s shorter than the English line. The blue part after it is silent; the next line can be dragged up to the end of the Arabic."
+                : hasOverflow
+                ? "Arabic audio: " + dubDur.toFixed(2) + "s - " + (dubDur - blockW / scale).toFixed(2) + "s longer than the English line (original slot " + slot.toFixed(2) + "s)"
+                : "Arabic audio: " + dubDur.toFixed(2) + "s - fits the English line (original slot " + slot.toFixed(2) + "s)";
             if (bar.title !== title) bar.title = title;
         }
         // Drop overlay bars for segments that no longer qualify (deleted,
@@ -6578,8 +6636,10 @@ window.cleanOldClones = function () {
             var leg = document.createElement("div");
             leg.id = "timelineLegendDub";
             leg.style.cssText = "display:flex;gap:16px;justify-content:flex-end;align-items:center;margin-top:4px;font-size:11px;color:#64748b;";
-            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:16px;height:12px;background:linear-gradient(90deg, rgba(34,197,94,0.55) 0 60%, rgba(34,197,94,0.15) 60% 100%);border:1px solid #15803d;border-radius:3px;display:inline-block;"></span>Arabic audio length (within slot)</span>'
-                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:3px;display:inline-block;"></span>Arabic audio runs past its slot</span>';
+            leg.innerHTML = '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:16px;height:12px;background:linear-gradient(90deg, rgba(34,197,94,0.55) 0 60%, rgba(34,197,94,0.15) 60% 100%);border:1px solid #15803d;border-radius:3px;display:inline-block;"></span>Arabic audio length</span>'
+                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:rgba(34,197,94,0.55);border:1px dashed #15803d;border-radius:3px;display:inline-block;"></span>Arabic audio runs past its slot</span>'
+                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;border:1px dotted #0f172a;border-radius:3px;display:inline-block;"></span>blue after the green = silence (Arabic ends early)</span>'
+                + '<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:12px;height:12px;background:#42a5f5;outline:2px solid #f59e0b;outline-offset:-2px;border-radius:3px;display:inline-block;"></span>moved over 1 s from the original</span>';
             var after = document.getElementById("timelineLegendFinal") || wrap;
             if (after && after.parentNode) after.parentNode.insertBefore(leg, after.nextSibling);
         }
@@ -6821,4 +6881,585 @@ window.cleanOldClones = function () {
             return r;
         };
     }
+})();
+
+
+// ===== STEP 5.5 FINAL: sliders show REAL loudness (dB), start at the ORIGINAL speaker's level =====
+// Internal state stays `window._volumeGains[sid]` = gain (dB) applied to the generated line file
+// (that is what the server mixes). The slider DISPLAYS level = dub_db + gain, so every slider
+// starts at the loudness measured from the original audio (gain = auto_gain_db) instead of 0.
+// This block is last on purpose: it replaces the earlier layered Step 5.5 patches' slider/master/apply logic.
+(function () {
+    var GMAX = 12;
+    function clampG(v) { return Math.max(-GMAX, Math.min(GMAX, v)); }
+    function r1(v) { return Math.round(v * 10) / 10; }
+    function fmtDb(v) { return (v < 0 ? "−" : "") + Math.abs(v).toFixed(1) + " dB"; }
+    function fmtGain(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1) + " dB"; }
+    function gainsMap() { window._volumeGains = window._volumeGains || {}; return window._volumeGains; }
+    function hasDb(ln) { return ln && typeof ln.dub_db === "number" && isFinite(ln.dub_db); }
+    function lineLevel(ln) { return hasDb(ln) ? ln.dub_db + (gainsMap()[ln.segment_id] || 0) : null; }
+    function markDirty() {
+        var btn = document.getElementById("applyVolumesBtn");
+        if (btn && !btn.disabled) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
+    }
+    function applyNode(sid) {
+        var n = (window.VOL_NODES || {})[sid];
+        if (n) n.g.gain.value = Math.pow(10, (gainsMap()[sid] || 0) / 20);
+    }
+    // keep the older code paths from adding a second "master" offset on top
+    window.masterTrimValue = function () { return 0; };
+    window._masterPrev = 0;
+
+    function measurable() { return (window._volumeLines || []).filter(hasDb); }
+    function meanLevel() {
+        var ls = measurable();
+        if (!ls.length) return null;
+        var t = 0; ls.forEach(function (ln) { t += lineLevel(ln); });
+        return t / ls.length;
+    }
+    // Master = the average level of the Arabic lines (dB). When no line could be measured it is a plain
+    // "change all lines by" control (relative mode), so it is never dead.
+    function relMode() { return measurable().length === 0; }
+    function baseGain(ln) { return clampG(Number(ln.auto_gain_db) || 0); }
+    function meanVal() {
+        if (!relMode()) return meanLevel();
+        var all = window._volumeLines || [];
+        if (!all.length) return null;
+        var t = 0; all.forEach(function (ln) { t += (gainsMap()[ln.segment_id] || 0) - baseGain(ln); });
+        return t / all.length;
+    }
+    function meanOrig() {
+        var ls = measurable().filter(function (ln) { return typeof ln.orig_db === "number" && isFinite(ln.orig_db); });
+        if (!ls.length) return null;
+        var t = 0; ls.forEach(function (ln) { t += ln.orig_db; });
+        return t / ls.length;
+    }
+    function atLimit() {
+        return (window._volumeLines || []).some(function (ln) { return Math.abs(gainsMap()[ln.segment_id] || 0) >= GMAX - 0.05; });
+    }
+    function masterLabels() {
+        var lab = document.getElementById("masterTrimLab");
+        var mt = document.getElementById("masterTrim");
+        var m = meanVal();
+        var txt = m === null ? "\u2014" : (relMode() ? fmtGain(r1(m)) : fmtDb(r1(m)));
+        if (lab && lab.textContent !== txt) lab.textContent = txt;      // (this node is observed: no needless writes)
+        if (mt) {
+            var tip = "Overall volume: moves every dubbed line up or down together.";
+            var o = meanOrig();
+            if (relMode()) tip += " The lines could not be measured, so the number is the change from where they started.";
+            else if (m !== null) tip += " Average dub level " + fmtDb(r1(m)) + (o !== null ? "; original speakers " + fmtDb(r1(o)) + " on average (" + fmtGain(r1(m - o)) + ")." : ".");
+            if (atLimit()) tip += " Some lines have reached their \u00B112 dB limit.";
+            mt.title = tip;
+            var th = mt.closest ? mt.closest("th") : null;
+            if (th) th.title = tip;
+        }
+    }
+    window._s55MasterLabels = masterLabels;
+    function syncMaster() {
+        var mt = document.getElementById("masterTrim");
+        if (!mt) return;
+        var all = window._volumeLines || [];
+        if (!all.length) { mt.disabled = true; masterLabels(); return; }
+        mt.disabled = false;
+        mt.step = "0.1";
+        var m = meanVal();
+        if (relMode()) { mt.min = -GMAX; mt.max = GMAX; }
+        else {
+            var ls = measurable(), meanDub = 0; ls.forEach(function (ln) { meanDub += ln.dub_db; }); meanDub /= ls.length;
+            mt.min = r1(meanDub - GMAX); mt.max = r1(meanDub + GMAX);
+        }
+        mt.value = r1(m);
+        masterLabels();
+    }
+    function updateRowUi(ln) {
+        var rg = document.getElementById("volsl_" + ln.segment_id);
+        var lab = document.getElementById("vollab_" + ln.segment_id);
+        var g = gainsMap()[ln.segment_id] || 0;
+        if (hasDb(ln)) {
+            if (rg) rg.value = r1(ln.dub_db + g);
+            if (lab) lab.textContent = fmtDb(ln.dub_db + g);
+        } else {
+            if (rg) rg.value = g;
+            if (lab) lab.textContent = fmtGain(g) + " (rel.)";   // level could not be measured: shown as a change
+        }
+    }
+    window.onVolSlider = function (sid, val) {
+        // `val` is what the slider shows: absolute level when measurable, else a gain
+        var ln = (window._volumeLines || []).find(function (l) { return l.segment_id === sid; }) || {};
+        var g = hasDb(ln) ? clampG(r1(val - ln.dub_db)) : clampG(val);
+        gainsMap()[sid] = g;
+        applyNode(sid);
+        updateRowUi(ln.segment_id ? ln : { segment_id: sid });
+        syncMaster();
+        markDirty();
+    };
+
+    function renameHeaders() {
+        var autoIdx = -1, volIdx = -1;
+        var ths = Array.prototype.slice.call(document.querySelectorAll("#volumeTable thead th"));
+        ths.forEach(function (th, i) {
+            var t = (th.textContent || "").trim();
+            if (t === "Auto" || t === "Original level") { autoIdx = i; if (t !== "Original level") th.textContent = "Original level"; th.title = "Loudness of the original speaker in this line's time window"; }
+            if (th.dataset.s55vol === "1") { volIdx = i; }
+            else if (t === "Volume" || t === "Dub volume") { volIdx = i; if (t !== "Dub volume") th.textContent = "Dub volume"; th.title = "Loudness of the Arabic line. Starts at the original speaker's level."; }
+        });
+        return [autoIdx, volIdx];
+    }
+    // Re-skin the rows the earlier builders produced: "Auto" cell -> original level, slider -> absolute level
+    var _prevBuild = window.buildVolumeTable;
+    window.buildVolumeTable = function (lines) {
+        if (typeof _prevBuild === "function") _prevBuild.apply(this, arguments);
+        try {
+            var table = document.getElementById("volumeTable");
+            if (!table) return;
+            var idx = renameHeaders();
+            var autoIdx = idx[0], volIdx = idx[1];
+            // an earlier layer re-writes the header a moment after a rebuild: rename again afterwards
+            setTimeout(renameHeaders, 0); setTimeout(renameHeaders, 300);
+            if (autoIdx < 0 || volIdx < 0) return;
+            var rows = table.querySelectorAll("tbody tr");
+            (lines || []).forEach(function (ln, i) {
+                var tr = rows[i]; if (!tr) return;
+                var cA = tr.children[autoIdx], cV = tr.children[volIdx], cL = tr.children[volIdx + 1];
+                if (!cA || !cV) return;
+                cA.textContent = (typeof ln.orig_db === "number") ? fmtDb(ln.orig_db) : "—";
+                cA.title = (typeof ln.orig_db === "number") ? "Loudness of the original speaker during this line, measured from the original audio" : "The original loudness could not be measured for this line";
+                cV.innerHTML = "";
+                var rg = document.createElement("input");
+                rg.type = "range"; rg.id = "volsl_" + ln.segment_id; rg.step = "0.1";
+                if (hasDb(ln)) { rg.min = r1(ln.dub_db - GMAX); rg.max = r1(ln.dub_db + GMAX); }
+                else { rg.min = -GMAX; rg.max = GMAX; }
+                rg.oninput = function () { window.onVolSlider(ln.segment_id, parseFloat(rg.value)); };
+                cV.appendChild(rg);
+                if (cL) cL.innerHTML = '<span id="vollab_' + ln.segment_id + '"></span>';
+                updateRowUi(ln);
+            });
+        } catch (e) { if (window.console) console.warn("[volume] re-skin failed", e); }
+    };
+
+    function resetAll() {
+        var g = {};
+        (window._volumeLines || []).forEach(function (ln) { g[ln.segment_id] = clampG(Number(ln.auto_gain_db) || 0); });
+        window._volumeGains = g;
+        window.buildVolumeTable(window._volumeLines || []);
+        Object.keys(window.VOL_NODES || {}).forEach(applyNode);
+        syncMaster();
+    }
+    window.resetVolumesV2 = function () {
+        resetAll();
+        notify("info", "Sliders reset to the levels measured from the original audio.");
+    };
+    window.applyVolumesV2 = function () {
+        if (!currentJobId) { notify("error", "Please upload your video first."); return; }
+        var btn = document.getElementById("applyVolumesBtn");
+        var gains = {};
+        // send EVERY line's gain (server merges, but never rely on a partial payload)
+        (window._volumeLines || []).forEach(function (ln) { gains[ln.segment_id] = clampG(gainsMap()[ln.segment_id] || 0); });
+        btn.disabled = true; btn.textContent = "⏳ Rebuilding...";
+        var offs = {};
+        Object.keys(segmentOffsets).forEach(function (k) { if (Math.abs(segmentOffsets[k]) > 0.001) offs[k] = segmentOffsets[k]; });
+        fetch("/api/remix_audio", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                job_id: currentJobId, segments: segmentsData, offsets: offs, gains: gains,
+                total_duration: totalDuration, duration_mode: document.getElementById("durationMode").value,
+                overlap_allowed: window.overlapAllowed || {}, dead_space_allowed: window.deadSpaceAllowed || {},
+                room: (typeof window.getRoomSettings === "function") ? window.getRoomSettings() : {}
+            })
+        }).then(function (r) { return r.json(); }).then(function (data) {
+            if (!data || data.status !== "success") { notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "server error")); return; }
+            if (typeof window.onRoomApplied === "function") window.onRoomApplied(data.room);
+            var cuts = (data.duration_cuts || 0);
+            notify("success", "Final MP3 rebuilt" + (cuts > 0 ? " — " + cuts + " line(s) still trimmed." : " — no lines were trimmed."));
+            if (Array.isArray(data.trimmed_segment_ids)) {
+                var t = {}; data.trimmed_segment_ids.forEach(function (sid) { t[sid] = true; });
+                (window._volumeLines || []).forEach(function (ln) { ln.trimmed = !!t[ln.segment_id]; });
+                window.buildVolumeTable(window._volumeLines || []);
+            }
+            var au = document.querySelector("#audioResults audio");
+            if (au) { au.pause(); au.src = "/api/download/" + encodeURIComponent(currentJobId || "") + "_final_dubbed.mp3?cache=" + Date.now(); au.load(); }
+        }).catch(function (e) { notify("error", e.message); })
+          .finally(function () { btn.disabled = false; btn.textContent = "🔊 Apply changes & rebuild MP3"; });
+    };
+
+    function bindMasterFinal() {
+        var mt = document.getElementById("masterTrim");
+        if (!mt) return;
+        if (mt.dataset.finalBound !== "1") {
+            var fresh = mt.cloneNode(true);          // drops every earlier handler
+            mt.parentNode.replaceChild(fresh, mt);
+            mt = fresh;
+            mt.dataset.finalBound = "1";
+            mt.oninput = function () {
+                var target = parseFloat(mt.value);
+                var cur = meanVal();
+                if (cur === null || !isFinite(target)) return;
+                var delta = target - cur;
+                if (Math.abs(delta) < 0.001) return;
+                var g = gainsMap();
+                (window._volumeLines || []).forEach(function (ln) {
+                    g[ln.segment_id] = clampG(r1((g[ln.segment_id] || 0) + delta));
+                    applyNode(ln.segment_id);
+                    updateRowUi(ln);
+                });
+                var m = meanVal();
+                if (m !== null && Math.abs(m - target) > 0.05) mt.value = r1(m);     // some lines hit their limit: the slider shows where it really is
+                masterLabels();
+                markDirty();
+            };
+        }
+        var strong = document.querySelector("#masterTrimWrap strong");
+        if (strong) strong.textContent = "🎚️ Overall volume";
+        var ab = document.getElementById("applyVolumesBtn");
+        if (ab) ab.onclick = function () { window.applyVolumesV2(); };
+        var rb = document.getElementById("resetVolumesBtn");
+        if (rb) rb.onclick = function () { window.resetVolumesV2(); };
+    }
+
+    var _prevShow = window.showVolumeSection;
+    window.showVolumeSection = function (lines) {
+        // start every slider at the level measured from the original audio
+        var g = {};
+        (lines || []).forEach(function (ln) { g[ln.segment_id] = clampG(Number(ln.auto_gain_db) || 0); });
+        window._volumeGains = g;
+        if (typeof _prevShow === "function") _prevShow.apply(this, arguments);
+        window._volumeGains = g;                       // earlier layers may have touched it
+        window._volumeLines = lines;
+        window.masterTrimValue = function () { return 0; };
+        window._masterPrev = 0;
+        bindMasterFinal();
+        window.buildVolumeTable(lines);
+        syncMaster();
+    };
+    // when the table is rebuilt for any other reason keep the master readout honest
+    var _build2 = window.buildVolumeTable;
+    window.buildVolumeTable = function () { var r = _build2.apply(this, arguments); try { syncMaster(); } catch (e) {} return r; };
+})();
+
+
+// ===== STEP 5.5: ROOM SOUND =====
+// The original recording's room (hall vs. open air) is measured on the server from the separated voices; the dry
+// Arabic voice gets the same room. "Match original" = the measured room (with an optional correction), "None" = dry,
+// a preset or "Custom" = one room of your own for every line.
+// The setting travels with "Apply changes & rebuild MP3" (the dry mix is kept on the server, so nothing stacks up).
+(function () {
+    var PRESETS = {
+        small: { label: "Small room", rt60: 0.4, wet_db: -27 },
+        room:  { label: "Room", rt60: 0.8, wet_db: -25 },
+        hall:  { label: "Hall", rt60: 1.4, wet_db: -21 },
+        large: { label: "Large hall / church", rt60: 2.2, wet_db: -17 }
+    };
+    var state = { mode: "auto", rt60: 0.8, wet_db: -25, trim_db: 0, profile: null };   // mode: auto | off | small | room | hall | large | custom
+    function $(id) { return document.getElementById(id); }
+    function fmtS(v) { return Number(v).toFixed(2).replace(/0$/, "") + " s"; }
+    function fmtDb(v) { return (v < 0 ? "−" : v > 0 ? "+" : "") + Math.abs(Number(v)).toFixed(0) + " dB"; }
+    function fmtTrim(v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Number(v)).toFixed(0) + " dB"; }
+    function markDirty() {
+        var btn = $("applyVolumesBtn");
+        if (btn && !btn.disabled) btn.textContent = "🔊 Apply changes & rebuild MP3 •";
+    }
+    function roomIndexAt(p, t) {
+        var regs = (p && p.regions) || [];
+        for (var i = 0; i < regs.length; i++) { if (t >= regs[i][0] && t < regs[i][1]) return regs[i][2]; }
+        return regs.length ? regs[regs.length - 1][2] : 0;
+    }
+    function ranges(nums) {
+        var out = [], a = null, b = null;
+        nums.forEach(function (n) {
+            if (a === null) { a = b = n; }
+            else if (n === b + 1) { b = n; }
+            else { out.push(a === b ? "" + a : a + "–" + b); a = b = n; }
+        });
+        if (a !== null) out.push(a === b ? "" + a : a + "–" + b);
+        return out.join(", ");
+    }
+    function describe(p) {
+        var base = describeRooms(p);
+        if (p && p.detail && p.detail.length) {
+            var bits = p.detail.slice(0, 14).map(function (e) {
+                return e.t + " s " + (e.dry ? "dry" : (fmtS(e.rt) + " / " + fmtDb(e.w)));
+            });
+            base += " Phrase ends measured (reverb time / amount): " + bits.join(" · ") + (p.detail.length > 14 ? " …" : "") + ".";
+        }
+        return base;
+    }
+    function describeRooms(p) {
+        if (!p) return "Room could not be measured.";
+        if (!p.ok || !p.groups || !p.groups.length) return "Room could not be measured (" + (p.note || "no data") + ").";
+        var lines = window._volumeLines || [];
+        var members = {};
+        lines.forEach(function (ln, i) {
+            var seg = (typeof segmentsData !== "undefined" ? segmentsData : []).find(function (x) { return x.segment_id === ln.segment_id; });
+            if (!seg) return;
+            var g = roomIndexAt(p, (seg.start + seg.end) / 2);
+            (members[g] = members[g] || []).push(i + 1);
+        });
+        var parts = p.groups.map(function (g, gi) {
+            var what = g.dry ? "dry" : (g.label + ", " + fmtS(g.rt60) + ", " + fmtDb(g.wet_db));
+            var ln = members[gi] ? " — lines " + ranges(members[gi]) : " — no lines";
+            return "Room " + (gi + 1) + ": " + what + ln + (g.confidence === "ok" ? "" : " (few phrases measured — applied softer)");
+        });
+        var head = p.groups.length === 1 ? "1 room detected. " : p.groups.length + " rooms detected. ";
+        if (p.groups.every(function (g) { return g.dry; })) return head + parts.join(" | ") + " — Auto adds nothing.";
+        return head + parts.join(" | ");
+    }
+    function summary() {
+        var m = state.mode, p = state.profile;
+        if (m === "off") return "No room sound is added: the Arabic voice stays dry.";
+        if (m !== "auto") {
+            var nm = PRESETS[m] ? PRESETS[m].label : "Custom room";
+            return "Every line gets: " + nm + " — reverb " + fmtS(state.rt60) + ", amount " + fmtDb(state.wet_db) + ".";
+        }
+        if (!p) return "Measuring the room of the original…";
+        if (!p.ok || !p.groups || !p.groups.length) return "The room of the original could not be measured. Pick a preset below instead.";
+        if (p.groups.every(function (g) { return g.dry; })) return "The original sounds dry (little or no room sound), so nothing is added.";
+        if (p.groups.length > 1) return p.groups.length + " different rooms were found in the original — each line gets the room it was spoken in.";
+        var g = p.groups[0];
+        var amt = g.wet_db + (state.trim_db || 0);
+        return "Detected: " + g.label + " — reverb " + fmtS(g.rt60) + ", amount " + fmtDb(amt) + (state.trim_db ? " (measured " + fmtDb(g.wet_db) + ")" : "")
+            + (g.confidence === "ok" ? "." : ". Only a few phrases could be measured, so this is a rough reading.");
+    }
+    function sync() {
+        var m = $("roomMode"); if (!m) return;
+        var mode = state.mode;
+        m.value = mode;
+        var auto = (mode === "auto"), off = (mode === "off");
+        var ar = $("roomAutoRow"), cr = $("roomCustomRow");
+        if (ar) ar.style.display = auto ? "" : "none";
+        if (cr) cr.style.display = (auto || off) ? "none" : "";
+        $("roomRt").value = state.rt60; $("roomWet").value = state.wet_db;
+        $("roomRtLab").textContent = fmtS(state.rt60);
+        $("roomWetLab").textContent = fmtDb(state.wet_db);
+        $("roomTrim").value = state.trim_db;
+        $("roomTrimLab").textContent = state.trim_db ? fmtTrim(state.trim_db) : "as measured";
+        var sm = $("roomSummary"); if (sm) sm.textContent = summary();
+        var info = $("roomInfo");
+        if (info && !info.dataset.applied) info.textContent = describe(state.profile);
+    }
+    function build() {
+        var card = $("volumeSection");
+        if (!card || $("roomFxWrap")) return;
+        var wrap = document.createElement("div");
+        wrap.id = "roomFxWrap";
+        wrap.className = "s55-block";
+        wrap.innerHTML =
+            '<div class="s55-title">🏛️ Room sound</div>' +
+            '<div class="s55-help">The echo of the space the original was recorded in (a hall sounds different from open air). The same echo can be added to the Arabic voice.</div>' +
+            '<div class="s55-row"><select id="roomMode" title="Room sound for every line">' +
+            '<option value="auto">Match the original (recommended)</option><option value="off">None — dry voice</option>' +
+            '<optgroup label="Choose a room yourself">' +
+            '<option value="small">Small room</option><option value="room">Room</option><option value="hall">Hall</option><option value="large">Large hall / church</option><option value="custom">Custom…</option>' +
+            '</optgroup></select></div>' +
+            '<div class="s55-row" id="roomAutoRow" style="margin-top:8px;"><span class="s55-lab">Adjust the detected amount</span>' +
+            '<span class="s55-end">Less</span><input type="range" id="roomTrim" min="-12" max="12" step="1" value="0" title="Make the detected room quieter or louder">' +
+            '<span class="s55-end">More</span><span id="roomTrimLab" class="s55-val">as measured</span></div>' +
+            '<div id="roomCustomRow" style="margin-top:8px;display:none;">' +
+            '<div class="s55-row"><span class="s55-lab">Reverb time</span><input type="range" id="roomRt" min="0.2" max="3.5" step="0.05" value="0.8"><span id="roomRtLab" class="s55-val">0.8 s</span></div>' +
+            '<div class="s55-row" style="margin-top:4px;"><span class="s55-lab">Amount</span><input type="range" id="roomWet" min="-34" max="-3" step="1" value="-25"><span id="roomWetLab" class="s55-val">−25 dB</span></div>' +
+            '</div>' +
+            '<div id="roomSummary" class="s55-summary"></div>' +
+            '<details class="s55-details"><summary>Measurement details</summary><div id="roomInfo" class="note"></div></details>';
+        var tw = card.querySelector(".table-wrap");
+        if (tw) card.insertBefore(wrap, tw); else card.appendChild(wrap);
+        $("roomMode").onchange = function () {
+            var v = this.value;
+            if (PRESETS[v]) { state.rt60 = PRESETS[v].rt60; state.wet_db = PRESETS[v].wet_db; }
+            else if (v === "custom" && state.mode === "auto" && state.profile && state.profile.ok && state.profile.rt60) {
+                state.rt60 = state.profile.rt60; state.wet_db = state.profile.wet_db;      // start Custom from the measured room
+            }
+            state.mode = v;
+            var inf = $("roomInfo"); if (inf) delete inf.dataset.applied;
+            sync(); markDirty();
+        };
+        function custom() { if (state.mode === "auto" || state.mode === "off" || PRESETS[state.mode]) state.mode = "custom"; }
+        $("roomRt").oninput = function () { custom(); state.rt60 = parseFloat(this.value); sync(); markDirty(); };
+        $("roomWet").oninput = function () { custom(); state.wet_db = parseFloat(this.value); sync(); markDirty(); };
+        $("roomTrim").oninput = function () { state.trim_db = parseFloat(this.value); sync(); markDirty(); };
+    }
+    window.getRoomSettings = function () {
+        if (state.mode === "off") return { mode: "off" };
+        if (state.mode === "auto") return { mode: "auto", trim_db: state.trim_db || 0 };
+        return { mode: "manual", rt60: state.rt60, wet_db: state.wet_db };
+    };
+    window.onRoomApplied = function (room) {
+        var info = $("roomInfo");
+        if (!info || !room) return;
+        info.dataset.applied = "1";
+        if (room.profile) state.profile = room.profile;
+        info.textContent = (state.mode === "auto" ? (room.applied ? "Applied. " : "Nothing added. ") : ((room.applied ? "Applied — " : "Not added — ") + (room.why || "") + ". "))
+            + (state.mode === "off" ? "" : describe(state.profile));
+        var sm = $("roomSummary"); if (sm) sm.textContent = summary();
+    };
+    function presetFor(rt, wet) {
+        for (var k in PRESETS) { if (Math.abs(PRESETS[k].rt60 - rt) < 0.01 && Math.abs(PRESETS[k].wet_db - wet) < 0.6) return k; }
+        return "custom";
+    }
+    function load() {
+        if (typeof currentJobId === "undefined" || !currentJobId) return;
+        fetch("/api/room_profile?job_id=" + encodeURIComponent(currentJobId) + "&t=" + Date.now())
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+                if (!d || d.error) { var i = $("roomInfo"); if (i) i.textContent = "Room sound is not available for this video."; var sm = $("roomSummary"); if (sm) sm.textContent = "Room sound is not available for this video."; return; }
+                state.profile = d.profile || null;
+                var st = d.settings || {};
+                if (typeof st.rt60 === "number") state.rt60 = st.rt60;
+                if (typeof st.wet_db === "number") state.wet_db = st.wet_db;
+                if (typeof st.trim_db === "number") state.trim_db = st.trim_db;
+                state.mode = st.mode === "off" ? "off" : (st.mode === "manual" ? presetFor(state.rt60, state.wet_db) : "auto");
+                var inf = $("roomInfo"); if (inf) delete inf.dataset.applied;
+                sync();
+                if (inf && d.last) {
+                    inf.textContent = (state.mode === "auto" ? (d.last.applied ? "In the current MP3: room added. " : "In the current MP3: no room added. ")
+                        : ("In the current MP3: " + (d.last.why || "") + ". ")) + (state.mode === "off" ? "" : describe(state.profile));
+                    inf.dataset.applied = "1";
+                }
+            }).catch(function () {});
+    }
+    var _prevShow = window.showVolumeSection;
+    window.showVolumeSection = function (lines) {
+        var r = (typeof _prevShow === "function") ? _prevShow.apply(this, arguments) : undefined;
+        build();
+        state.mode = "auto"; state.rt60 = 0.8; state.wet_db = -25; state.trim_db = 0; state.profile = null;
+        sync();
+        load();
+        return r;
+    };
+})();
+
+
+// ===== STEP 5.5: CLEAN LAYOUT =====
+// Pure layout on top of the logic above: a short intro, the room sound block, and the table with the overall-volume
+// slider in the "Dub volume" column header (explained by its tooltip only).
+(function () {
+    var CSS =
+        "#volumeSection .s55-top{margin:12px 0;}" +
+        "#volumeSection .s55-block{border:1px solid var(--border);background:var(--muted-surface);border-radius:10px;padding:12px 14px;margin:0;}" +
+        "#volumeSection .s55-title{font-weight:700;font-size:14px;display:block;margin:0 0 2px;}" +
+        "#volumeSection .s55-help{font-size:12px;color:var(--text-muted);margin:0 0 8px;line-height:1.4;}" +
+        "#volumeSection .s55-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}" +
+        "#volumeSection .s55-row input[type=range]{flex:1 1 130px;min-width:110px;}" +
+        "#volumeSection .s55-row select{flex:1 1 220px;min-width:0;}" +
+        "#volumeSection .s55-lab{font-size:13px;min-width:92px;}" +
+        "#volumeSection .s55-end{font-size:11px;color:var(--text-muted);}" +
+        "#volumeSection .s55-val{min-width:64px;text-align:right;font-size:13px;font-variant-numeric:tabular-nums;}" +
+        "#volumeSection .s55-summary{margin-top:10px;font-size:13px;line-height:1.45;}" +
+        "#volumeSection .s55-details{margin-top:6px;font-size:12px;color:var(--text-muted);}" +
+        "#volumeSection .s55-details summary{cursor:pointer;}" +
+        "#volumeSection .s55-details .note{margin-top:6px;font-size:12px;}" +
+        "#volumeSection #volumeTable th:nth-child(3){width:30%;min-width:150px;}" +
+        "#volumeSection #volumeTable td input[type=range]{min-width:140px;}" +
+        "#volumeSection #volumeTable td:last-child{white-space:nowrap;min-width:125px;}" +
+        "#volumeSection #volumeTable th .s55-th{display:flex;align-items:center;gap:8px;}" +
+        "#volumeSection #volumeTable th .s55-th input[type=range]{min-width:140px;width:140px;margin:0;}" +
+        "#volumeSection #volumeTable th .s55-th .s55-val{text-transform:none;letter-spacing:0;font-weight:600;min-width:58px;text-align:left;}" +
+        "#volumeSection .s55-reset{border:0;background:none;color:var(--primary-light-fg,#3949ab);cursor:pointer;font-size:11px;padding:0;margin-left:6px;}" +
+        "#volumeSection .s55-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;}" +
+        "#volumeSection .s55-dirty{font-size:12px;color:var(--warning,#d97706);display:none;}";
+    function $(id) { return document.getElementById(id); }
+    function style() {
+        if ($("s55Style")) return;
+        var st = document.createElement("style"); st.id = "s55Style"; st.textContent = CSS; document.head.appendChild(st);
+    }
+    var busy = false;
+    function headers() {
+        var table = $("volumeTable"); if (!table) return;
+        Array.prototype.forEach.call(table.querySelectorAll("thead th"), function (th) {
+            var t = (th.textContent || "").trim();
+            if (/^(Original level|Auto)$/.test(t) && !th.title) th.title = "Loudness of the original speaker during this line, measured from the original audio.";
+        });
+        // the overall-volume slider lives in the "Dub volume" header
+        var volTh = table.querySelector("th[data-s55vol='1']");
+        if (!volTh) {
+            Array.prototype.forEach.call(table.querySelectorAll("thead th"), function (th) {
+                if (!volTh && /^(Dub volume|Volume)$/.test((th.textContent || "").trim())) volTh = th;
+            });
+            if (volTh) {
+                volTh.dataset.s55vol = "1";
+                volTh.textContent = "";
+                var box = document.createElement("div"); box.className = "s55-th";
+                var nm = document.createElement("span"); nm.textContent = "Dub volume";
+                box.appendChild(nm);
+                volTh.appendChild(box);
+            }
+        }
+        if (volTh) {
+            var box2 = volTh.querySelector(".s55-th");
+            // an older layer rewrites the whole header row once after the table is built, which detaches the slider:
+            // keep a reference and put it back
+            var keep = window._s55Master = window._s55Master || {};
+            var inp = $("masterTrim") || keep.inp, lab = $("masterTrimLab") || keep.lab;
+            if (inp) keep.inp = inp;
+            if (lab) keep.lab = lab;
+            var moved = false;
+            if (inp && inp.parentNode !== box2) { inp.removeAttribute("style"); box2.appendChild(inp); moved = true; }
+            if (lab && lab.parentNode !== box2) { lab.className = "s55-val"; lab.removeAttribute("style"); box2.appendChild(lab); moved = true; }
+            if (moved && typeof window._s55MasterLabels === "function") window._s55MasterLabels();
+        }
+    }
+    function organise() {
+        var card = $("volumeSection"); if (!card || busy) return;
+        busy = true;
+        try {
+            style();
+            var note = $("volumeMatchNote");
+            if (note) {
+                var t = "Every dubbed line starts at the loudness of the original speaker. Press ▶ to hear a line, drag its slider to make it louder or quieter, then rebuild the MP3.";
+                if (note.textContent !== t) note.textContent = t;
+            }
+            var tw = card.querySelector(".table-wrap");
+            var top = $("s55Top");
+            if (!top && tw) { top = document.createElement("div"); top.id = "s55Top"; top.className = "s55-top"; card.insertBefore(top, tw); }
+            var mw = $("masterTrimWrap");
+            if (mw) mw.style.display = "none";                       // the old master block: its slider now sits in the table header
+            var rw = $("roomFxWrap");
+            if (rw && top && rw.parentNode !== top) top.appendChild(rw);
+            var ab = $("applyVolumesBtn"), rb = $("resetVolumesBtn");
+            if (ab && !$("s55Actions")) {
+                var act = document.createElement("div"); act.id = "s55Actions"; act.className = "s55-actions";
+                ab.parentNode.insertBefore(act, ab);
+                act.appendChild(ab); if (rb) act.appendChild(rb);
+                var dirty = document.createElement("span"); dirty.id = "s55Dirty"; dirty.className = "s55-dirty";
+                dirty.textContent = "Changes not applied yet — press “Apply changes” to rebuild the MP3.";
+                act.appendChild(dirty);
+                new MutationObserver(function () { dirty.style.display = /•/.test(ab.textContent || "") ? "inline" : "none"; })
+                    .observe(ab, { childList: true, characterData: true, subtree: true });
+            }
+            headers();
+            decorate();
+        } catch (e) { if (window.console) console.warn("[step 5.5] layout", e); }
+        busy = false;
+    }
+    function decorate() {
+        var table = $("volumeTable"); if (!table) return;
+        var lines = window._volumeLines || [];
+        Array.prototype.forEach.call(table.querySelectorAll("tbody tr"), function (tr, ri) {
+            var ln = lines[ri]; if (!ln) return;
+            var lab = $("vollab_" + ln.segment_id);
+            if (lab && lab.parentNode && !lab.parentNode.querySelector(".s55-reset")) {
+                var rs = document.createElement("button"); rs.type = "button"; rs.className = "s55-reset"; rs.textContent = "↺ reset"; rs.title = "Put this line back to the level measured from the original";
+                rs.onclick = function () {
+                    var base = Math.max(-12, Math.min(12, Number(ln.auto_gain_db) || 0));
+                    var v = (typeof ln.dub_db === "number") ? ln.dub_db + base : base;
+                    if (typeof window.onVolSlider === "function") window.onVolSlider(ln.segment_id, v);
+                };
+                lab.parentNode.appendChild(rs);
+            }
+        });
+    }
+    // re-apply whenever the table is rebuilt by any of the layers underneath
+    var timer = null;
+    function later() { clearTimeout(timer); timer = setTimeout(organise, 60); }
+    var _prevShow = window.showVolumeSection;
+    window.showVolumeSection = function () {
+        var r = (typeof _prevShow === "function") ? _prevShow.apply(this, arguments) : undefined;
+        organise(); later();
+        try {
+            var card = $("volumeSection");
+            if (card && !card.dataset.s55obs) {
+                card.dataset.s55obs = "1";
+                new MutationObserver(later).observe(card, { childList: true, subtree: true });
+            }
+        } catch (e) {}
+        return r;
+    };
 })();

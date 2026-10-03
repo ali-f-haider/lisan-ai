@@ -24,6 +24,7 @@ import urllib.parse
 import urllib.request
 
 import alibaba_cost
+import resource_meter
 
 PAGE = 1000
 MAX_ROWS = 30000          # per table; "truncated" is reported when hit
@@ -571,6 +572,10 @@ def compute(ctx, days=30):
         "stripe_fees_estimate": round(sum(0.029 * r["gross"] + 0.30 for r in revenue_rows if in_p(r["day"])), 2),
         "period_days": (today - p_start).days + 1,
     }
+    try:      # what the server itself measured of its Railway use (resource_meter.py); the page prefers it to its guessed prices
+        cost_inputs["measured"] = resource_meter.period_stats(ps, pe)
+    except Exception as ex:
+        cost_inputs["measured"] = None
 
     mau, wau, dau = len(active_30), len(active_7), len(active_today)
     return {

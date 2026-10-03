@@ -9,6 +9,7 @@ import torch
 from faster_whisper import WhisperModel
 
 from config import UPLOAD_DIR, WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE
+from resource_meter import metered as _metered      # measures what each job costs on Railway (see resource_meter.py)
 import app_state
 from app_state import jobs_progress, diarization_pipelines
 from ffmpeg_utils import (
@@ -510,6 +511,7 @@ def merge_mid_sentence_rows(rows):
     return merged
 
 
+@_metered("shortdub_transcribe", lambda job_id, *a, **k: job_id)
 def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False):
     # Only MAX_CONCURRENT_TRANSCRIPTIONS jobs actually run at once (see
     # _JobQueue above) -- everyone else waits in line here for a slot. Show
