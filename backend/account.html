@@ -209,7 +209,7 @@
   window._toggleDarkMode = function () { apply(!document.body.classList.contains("dark")); };
   var saved;
   try { saved = localStorage.getItem("lisan_dark_mode"); } catch (e) { saved = null; }
-  apply(saved === "1");
+  apply(saved === null || saved === "1");        // dark unless the person chose light
 })();
 
 // Follows the main app's language choice -- this page has no toggle of its

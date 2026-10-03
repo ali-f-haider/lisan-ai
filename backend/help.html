@@ -7,28 +7,15 @@
 <meta name="description" content="Answers about dubbing English video into Arabic with Lisan AI: voice cloning, credits, long videos, lip-sync, billing and support.">
 <link rel="canonical" href="https://lisanai.org/help">
 <link rel="icon" type="image/png" href="/logo.png">
-<style>
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f9fafb;color:#1f2937;margin:0;line-height:1.65}
-.top{background:#fff;border-bottom:1px solid #e5e7eb;padding:14px 22px;position:sticky;top:0;z-index:5}
-.top a{color:#1a237e;font-weight:700;text-decoration:none}
-.wrap{max-width:860px;margin:0 auto;padding:26px 22px 60px}
-h1{color:#1a237e;font-size:30px;margin:6px 0 2px}
-.sub{color:#6b7280;margin:0 0 14px}
-.langs{display:flex;gap:10px;margin:10px 0 22px}
-.langs button{padding:8px 18px;border-radius:10px;border:1px solid #e5e7eb;background:#fff;font-weight:700;color:#1a237e;cursor:pointer}
-.langs button.on{background:#1a237e;color:#fff;border-color:#1a237e}
-h2{color:#1a237e;font-size:22px;margin:26px 0 12px}
-.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px 20px;margin:0 0 14px;box-shadow:0 2px 8px rgba(0,0,0,.04)}
-.card h3{margin:0 0 8px;color:#1a237e;font-size:16px}
-.card p,.card li{color:#334155;font-size:14.5px}
-.card ul{margin:6px 0 0;padding-left:20px}
-.rtl{direction:rtl;text-align:right}
-.rtl ul{padding-left:0;padding-right:20px}
-</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/site.css">
+<meta name="color-scheme" content="dark">
 </head>
-<body>
-<div class="top"><a href="/">&#8592; Back to App / العودة للتطبيق</a></div>
-<div class="wrap">
+<body class="site">
+<nav class="site-nav"><div class="in"><a class="site-brand" href="/"><img src="/logo.png" alt="">Lisan AI</a><a class="back" href="/">&#8592; Back to App / العودة للتطبيق</a></div></nav>
+<div class="page">
 <h1>Help &amp; FAQ</h1>
 <p class="sub">المساعدة والأسئلة الشائعة</p>
 <div class="langs"><button id="btnEn" class="on" onclick="showLang('en')">English</button><button id="btnAr" onclick="showLang('ar')">العربية</button></div>
@@ -142,11 +129,13 @@ h2{color:#1a237e;font-size:22px;margin:26px 0 12px}
 
 <script>
 function showLang(l){
+  try { localStorage.setItem("lisan_lang", l); } catch (e) {}
   document.getElementById('secEn').style.display = (l === 'en') ? '' : 'none';
   document.getElementById('secAr').style.display = (l === 'ar') ? '' : 'none';
   document.getElementById('btnEn').className = (l === 'en') ? 'on' : '';
   document.getElementById('btnAr').className = (l === 'ar') ? 'on' : '';
 }
+showLang((function () { try { return localStorage.getItem('lisan_lang') === 'ar' ? 'ar' : 'en'; } catch (e) { return 'en'; } })());
 </script>
 <script src="/chat.js"></script>
 </body>

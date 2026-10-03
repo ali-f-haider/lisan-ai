@@ -5262,7 +5262,7 @@ window.cleanOldClones = function () {
     repairCvBox();
     bindCv();
     applyLang(localStorage.getItem("lisan_lang") || "en");
-    applyDarkMode(localStorage.getItem("lisan_dark_mode") === "1");
+    applyDarkMode(localStorage.getItem("lisan_dark_mode") !== "0");     // dark by default; light only when the person chose it
 })();
 
 // ===== No clean button: voice cleanup is automatic only =====
