@@ -1023,6 +1023,17 @@ function pcCostWithApi(kind) {
   const j = PC_MEASURED && PC_MEASURED.cycle && PC_MEASURED.cycle.jobs && PC_MEASURED.cycle.jobs[kind];
   return j && j.n ? (j.avg_usd_full != null ? j.avg_usd_full : j.avg_usd) + (j.avg_api_usd || 0) : null;
 }
+// The credits the buttons show: app.js turns its own estimate of the Gemini cost into credits, 1 credit per cent (CREDIT_USD = 0.01).
+// Same formulas as translateEstimateUsd / tashkeelEstimateUsd / emotionsEstimateUsd in app.js, for a typical video.
+const PC_TYPICAL = { lines: 30, sec: 90, textChars: 60, arChars: 60 };
+function pcBadge(step) {
+  const T = PC_TYPICAL, IN = 0.30, OUT = 2.50;
+  let usd = 0;
+  if (step === 'translate') { const tokIn = Math.ceil((T.lines * (T.textChars + 25) + 700) / 4), tokOut = Math.ceil(T.lines * T.arChars / 3) + 2000; usd = tokIn / 1e6 * IN + tokOut / 1e6 * OUT; }
+  else if (step === 'tashkeel') { usd = (Math.ceil(T.lines * T.arChars * 3) + 400) / 1e6 * OUT; }
+  else { const tok = Math.ceil(T.sec * 258) + T.lines * 100; usd = tok / 1e6 * IN + Math.ceil(tok * 0.1) / 1e6 * OUT; }
+  return Math.max(0, Math.ceil(usd / 0.01));
+}
 function pcRows() {
   const a = econLoad();
   const sceneUsd = a.scene_per_job;
@@ -1031,9 +1042,9 @@ function pcRows() {
   // kind 'credits': price = value; kind 'chars': value = characters per credit, price per 1000 characters = 1000 / value
   return [
     { id: 'transcribeCredits', label: 'Start button: transcription (per video)', kind: 'credits', cost: pcJob('shortdub_transcribe'), basis: 'measured on the server: extract audio, separate voices, detect speakers, transcribe, what Start runs' },
-    { id: 'translateStep', label: 'Translate to Arabic (per use)', kind: 'credits', fixed: 1, cost: pcCostWithApi('shortdub_translate') != null ? pcCostWithApi('shortdub_translate') : a.translate_per_job, basis: pcCostWithApi('shortdub_translate') != null ? 'measured: Gemini charge (prompt, answer and thinking tokens) plus server' : 'estimate for a 30-line video (about 1,900 tokens in, 3,400 out at Gemini Flash prices) until the live server has measured translations' },
-    { id: 'tashkeelStep', label: 'Tashkeel, vowel marks (per use)', kind: 'credits', fixed: 1, cost: pcCostWithApi('shortdub_tashkeel') != null ? pcCostWithApi('shortdub_tashkeel') : a.tashkeel_per_job, basis: pcCostWithApi('shortdub_tashkeel') != null ? 'measured: Gemini charge plus server' : 'estimate for a 30-line video until the live server has measured tashkeel runs' },
-    { id: 'emotionsStep', label: 'Detect emotions from voice (per use)', kind: 'credits', fixed: 1, cost: pcCostWithApi('shortdub_emotions') != null ? pcCostWithApi('shortdub_emotions') : a.emotions_per_job, basis: pcCostWithApi('shortdub_emotions') != null ? 'measured: Gemini listens to every line (audio, answer and thinking tokens) plus server' : 'estimate for a 30-line video (Gemini listens to each line) until the live server has measured runs' },
+    { id: 'translateStep', badge: 'translate', label: 'Translate to Arabic (per use)', kind: 'credits', fixed: true, cost: pcCostWithApi('shortdub_translate') != null ? pcCostWithApi('shortdub_translate') : a.translate_per_job, basis: pcCostWithApi('shortdub_translate') != null ? 'measured: Gemini charge (prompt, answer and thinking tokens) plus server' : 'estimate for a 30-line video (about 1,900 tokens in, 3,400 out at Gemini Flash prices) until the live server has measured translations' },
+    { id: 'tashkeelStep', badge: 'tashkeel', label: 'Tashkeel, vowel marks (per use)', kind: 'credits', fixed: true, cost: pcCostWithApi('shortdub_tashkeel') != null ? pcCostWithApi('shortdub_tashkeel') : a.tashkeel_per_job, basis: pcCostWithApi('shortdub_tashkeel') != null ? 'measured: Gemini charge plus server' : 'estimate for a 30-line video until the live server has measured tashkeel runs' },
+    { id: 'emotionsStep', badge: 'emotions', label: 'Detect emotions from voice (per use)', kind: 'credits', fixed: true, cost: pcCostWithApi('shortdub_emotions') != null ? pcCostWithApi('shortdub_emotions') : a.emotions_per_job, basis: pcCostWithApi('shortdub_emotions') != null ? 'measured: Gemini listens to every line (audio, answer and thinking tokens) plus server' : 'estimate for a 30-line video (Gemini listens to each line) until the live server has measured runs' },
     { id: 'mergeCredits', label: 'Merge into video (per job)', kind: 'credits', cost: pcJob('shortdub_merge') != null ? pcJob('shortdub_merge') : a.merge_per_job, basis: pcJob('shortdub_merge') != null ? 'measured on the live server' : 'estimate from a test run (30 s clip: about 3 s, 0.2 GB) until the live server has measured merges' },
     { id: 'inworldCharsPerCredit', label: 'Voice, Inworld (per 1,000 characters)', kind: 'chars', cost: a.voice_per_m / 1000, basis: '$' + a.voice_per_m + ' per million characters (Economics page; Inworld lists TTS-2 on-demand at $25, cheaper on their paid plans)' },
     { id: 'inworldCloneCredits', label: 'Voice clone, Inworld (per voice)', kind: 'credits', cost: pcJob('shortdub_clone') != null ? pcJob('shortdub_clone') : 0, free: true, basis: 'Inworld: "Cloning is free. You pay only for the speech you generate." (inworld.ai/voice-cloning); only the tiny server part is yours' },
@@ -1061,8 +1072,9 @@ async function renderPriceCheck() {
   let h = '<tr><th>Step</th><th>Your cost</th><th>Saved price (credits)</th><th>Customer pays (saved)</th><th>Multiple (saved)</th><th>New value ×' + f + '</th><th>Customer pays</th><th>Multiple after</th></tr>';
   pcRows().forEach(row => {
     if (row.fixed) {
-      const m = row.cost > 0 ? (row.fixed * r.lo / row.cost).toFixed(1) + '× – ' + (row.fixed * r.hi / row.cost).toFixed(1) + '×' : '—';
-      h += '<tr><td>' + row.label + '<br><small class="muted">' + row.basis + '</small></td><td>' + pcUsd(row.cost) + '</td><td>' + row.fixed + ' credit</td><td>' + range(row.fixed) + '</td><td>' + m + '</td><td class="muted">unchanged (fixed at 1 credit, no price field)</td><td>—</td><td>—</td></tr>';
+      const cr = pcBadge(row.badge);
+      const m = row.cost > 0 && cr > 0 ? (cr * r.lo / row.cost).toFixed(1) + '× – ' + (cr * r.hi / row.cost).toFixed(1) + '×' : '—';
+      h += '<tr><td>' + row.label + '<br><small class="muted">' + row.basis + '</small></td><td>' + pcUsd(row.cost) + '</td><td>' + cr + ' credit' + (cr === 1 ? '' : 's') + '<br><small class="muted">what the button shows for a ' + PC_TYPICAL.lines + '-line, ' + PC_TYPICAL.sec + '-second video</small></td><td>' + range(cr) + '</td><td>' + m + '</td><td class="muted">unchanged: the button charges 1 credit per cent of Gemini cost (set in app.js, no field here)</td><td>—</td><td>—</td></tr>';
       return;
     }
     const cur = pcBase(row.id), nv = pcNew(row, f);
@@ -1074,8 +1086,8 @@ async function renderPriceCheck() {
   h += '<tr><td>Lip-sync, 720p (per second of video)<br><small class="muted">Alibaba price on the Economics page — <b>not changed</b></small></td><td>' + pcUsd(lc) + '</td><td>' + lip + ' credits per second</td><td>' + range(lip) + '</td><td>' + (lc > 0 && lip > 0 ? (lip * r.lo / lc).toFixed(1) + '× – ' + (lip * r.hi / lc).toFixed(1) + '×' : '—') + '</td><td>unchanged</td><td>—</td><td>—</td></tr>';
   t.innerHTML = h;
   const un = pcRows().filter(x => x.cost == null).length;
-  const freeSum = pcRows().filter(x => x.fixed).reduce((t, x) => t + (x.cost || 0), 0), freeN = pcRows().filter(x => x.fixed).length;
-  document.getElementById('pcNote').textContent = 'Credit value used: ' + usd(r.lo) + ' – ' + usd(r.hi) + ' per credit (cheapest and dearest pack). ' + (un ? un + ' step(s) have no cost yet (not measured on the live server yet, or not tracked). ' : '') + 'Translate, tashkeel and detect emotions are 1 credit each (' + pcUsd(freeN * r.lo) + ' – ' + pcUsd(freeN * r.hi) + ' for all ' + freeN + ') and cost you about ' + pcUsd(freeSum) + ' per video together. ' + 'With the new values a customer gets about ' + (100 / f).toFixed(0) + '% as much for the same money, since pack and subscription credit amounts are not changed here.';
+  const freeSum = pcRows().filter(x => x.fixed).reduce((t, x) => t + (x.cost || 0), 0), freeCr = pcRows().filter(x => x.fixed).reduce((t, x) => t + pcBadge(x.badge), 0);
+  document.getElementById('pcNote').textContent = 'Credit value used: ' + usd(r.lo) + ' – ' + usd(r.hi) + ' per credit (cheapest and dearest pack). ' + (un ? un + ' step(s) have no cost yet (not measured on the live server yet, or not tracked). ' : '') + 'Translate, tashkeel and detect emotions show ' + freeCr + ' credits together on their buttons for a typical video (' + pcUsd(freeCr * r.lo) + ' – ' + pcUsd(freeCr * r.hi) + ') and cost you about ' + pcUsd(freeSum) + '. ' + 'With the new values a customer gets about ' + (100 / f).toFixed(0) + '% as much for the same money, since pack and subscription credit amounts are not changed here.';
 }
 function pcFill() {
   if (!pricingLoaded) { toast('The saved prices have not loaded yet — reload the page.', true); return; }
