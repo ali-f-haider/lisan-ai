@@ -15,16 +15,24 @@ diarization_pipelines = {}
 last_job_activity = time.time()
 
 
+class _Usage(dict):
+    """Per-job usage counters. A counter nobody has touched yet reads as 0 instead of raising KeyError."""
+
+    def __missing__(self, key):
+        return 0
+
+
 def usage_bucket(job_id: str) -> dict:
     key = job_id or "session"
     if key not in USAGE:
-        USAGE[key] = {
+        USAGE[key] = _Usage({
             "gemini_in": 0,
             "gemini_out": 0,
             "gemini_thoughts": 0,
             "eleven_chars": 0,
+            "inworld_chars": 0,
             "audio_sec": 0.0,
-        }
+        })
     return USAGE[key]
 
 
