@@ -6,29 +6,30 @@
 <title>Lisan AI — Login</title>
 <meta name="robots" content="noindex,follow">
 <link rel="icon" type="image/png" href="/logo.png">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/site.css">
+<script src="/site.js"></script>
 <style>
 /* Same dark + gold look as the home page (shared colours come from /site.css) */
 body.site{display:flex;align-items:center;justify-content:center;padding:92px 20px 36px}
-.card{position:relative;z-index:1;background:var(--card);border:1px solid var(--line2);border-radius:22px;box-shadow:0 40px 120px -40px rgba(0,0,0,.9);width:520px;max-width:100%;padding:40px 48px;text-align:center}
+.card{position:relative;z-index:1;background:var(--card);border:1px solid var(--line2);border-radius:22px;box-shadow:var(--shadow);width:520px;max-width:100%;padding:40px 48px;text-align:center}
 .card img{height:64px;border-radius:16px;margin-bottom:16px}
 body.site .card h1{font-size:28px;margin:0 0 24px}
 input{width:100%;box-sizing:border-box;padding:14px 16px;margin:0 0 14px;border:1px solid var(--line2);border-radius:10px;background:var(--bg2);color:var(--text);font-size:15px;font-family:inherit}
 input::placeholder{color:var(--dim)}
 input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(230,184,92,.16)}
 button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radius:12px;border:1px solid var(--line2);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--text);transition:transform .18s,box-shadow .18s,background .18s}
-.social{background:rgba(255,255,255,.04)}
-.social:hover{background:rgba(255,255,255,.09)}
+.social{background:var(--fill)}
+.social:hover{background:var(--fill2)}
 .primary{background:linear-gradient(180deg,#f2cd7d,#dca443);color:#1a1205;border-color:transparent;box-shadow:0 8px 28px -8px rgba(230,184,92,.55)}
 .primary:hover{transform:translateY(-1px);box-shadow:0 12px 34px -8px rgba(230,184,92,.7)}
-.secondary{background:rgba(255,255,255,.03)}
-.secondary:hover{background:rgba(255,255,255,.08)}
+.secondary{background:var(--fill)}
+.secondary:hover{background:var(--fill2)}
 .msg{display:none;font-size:14px;margin:6px 0 12px;white-space:pre-line}
-.msg.ok{color:#6ee7a0}.msg.err{color:#ff8a80}
+.msg.ok{color:var(--ok)}.msg.err{color:var(--err)}
 .row{display:none;margin:4px 0 12px}
 /* Password-reset link: only the new-password form is shown */
 .card.recovering > *:not(img):not(h1):not(.msg):not(.row){display:none}

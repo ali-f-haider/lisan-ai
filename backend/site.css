@@ -6,6 +6,8 @@
   --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.16);
   --text:#eef2f8; --body:#c4cddb; --muted:#a0abbd; --dim:#6f7b8f;
   --gold:#e6b85c; --gold2:#f6dc98; --cyan:#62c7ff;
+  --fill:rgba(255,255,255,.04); --fill2:rgba(255,255,255,.09); --fill3:rgba(255,255,255,.12);
+  --ok:#6ee7a0; --err:#ff8a80; --shadow:0 40px 120px -40px rgba(0,0,0,.9); --navbg:rgba(6,8,13,.82);
   --sans:"Inter","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
 }
 html{-webkit-text-size-adjust:100%;color-scheme:dark;background:#06080d}
@@ -19,7 +21,7 @@ body.site a{color:var(--gold);text-decoration:none}
 body.site a:hover{color:var(--gold2);text-decoration:underline}
 
 /* top bar (same as the home page) */
-.site-nav{position:fixed;inset:0 0 auto 0;z-index:50;height:64px;background:rgba(6,8,13,.82);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.site-nav{position:fixed;inset:0 0 auto 0;z-index:50;height:64px;background:var(--navbg);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
 .site-nav .in{max-width:1180px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;gap:16px}
 body.site .site-brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.01em;color:var(--text);text-decoration:none}
 body.site .site-brand:hover{color:var(--text);text-decoration:none}
@@ -36,20 +38,34 @@ body.site p,body.site li{color:var(--body)}
 body.site strong{color:var(--text);font-weight:600}
 body.site ul{padding-inline-start:22px}
 body.site li{margin-bottom:6px}
-body.site code{background:rgba(255,255,255,.07);padding:1px 6px;border-radius:6px;font-size:.92em}
+body.site code{background:var(--fill3);padding:1px 6px;border-radius:6px;font-size:.92em}
 
 /* legal pages (terms, privacy): plain sections */
 body.site .doc h2{padding-bottom:8px;border-bottom:1px solid var(--line)}
 
 /* help page */
-body.site .langs{display:inline-flex;gap:0;margin:8px 0 22px;border:1px solid var(--line2);border-radius:10px;padding:3px;background:rgba(255,255,255,.03)}
+body.site .langs{display:inline-flex;gap:0;margin:8px 0 22px;border:1px solid var(--line2);border-radius:10px;padding:3px;background:var(--fill)}
 body.site .langs button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13.5px;font-weight:600;padding:7px 16px;border-radius:7px;cursor:pointer;line-height:1.3}
-body.site .langs button.on{background:rgba(255,255,255,.12);color:var(--text)}
+body.site .langs button.on{background:var(--fill3);color:var(--text)}
 body.site .page .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px 22px;margin:0 0 14px;box-shadow:none}
 body.site .page .card h3{margin:0 0 8px;color:var(--gold2);font-size:16.5px;font-weight:600;letter-spacing:-.01em;line-height:1.35}
 body.site .page .card p,body.site .page .card li{color:var(--body);font-size:15px}
 body.site .page .card ul{margin:6px 0 0}
 body.site .rtl{direction:rtl;text-align:right}
 body.site .rtl ul{padding-inline-start:22px}
+
+/* Light version: used when the app itself is set to light (see /site.js). Same layout, light colours. */
+html.light{
+  color-scheme:light; background:#f6f7fb;
+  --bg:#f6f7fb; --bg2:#ffffff; --card:#ffffff; --card2:#f1f3f8;
+  --line:rgba(15,23,42,.10); --line2:rgba(15,23,42,.18);
+  --text:#0f1623; --body:#334155; --muted:#5b6678; --dim:#7a8599;
+  --gold:#a8690d; --gold2:#7c4f0c; --cyan:#0b7fb8;
+  --fill:rgba(15,23,42,.04); --fill2:rgba(15,23,42,.08); --fill3:rgba(15,23,42,.09);
+  --ok:#15803d; --err:#c62828; --shadow:0 30px 80px -40px rgba(15,23,42,.35); --navbg:rgba(255,255,255,.86);
+}
+html.light body.site::before{background:
+  radial-gradient(900px 520px at 78% -10%,rgba(230,184,92,.16),transparent 60%),
+  radial-gradient(800px 520px at 12% 0%,rgba(98,199,255,.14),transparent 60%)}
 
 @media (max-width:600px){body.site .page{padding:92px 18px 64px}.site-nav .in{padding:0 18px}}

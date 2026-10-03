@@ -3512,6 +3512,10 @@ def app_js():
 def dialogs_js():
     return FileResponse(BASE_DIR / "dialogs.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
+@app.get("/site.js")
+def site_js():
+    return FileResponse(BASE_DIR / "site.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
 @app.get("/site.css")
 def site_css():
     return FileResponse(BASE_DIR / "site.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
