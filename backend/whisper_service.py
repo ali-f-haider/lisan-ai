@@ -171,6 +171,88 @@ _model_lock = threading.Lock()
 MAX_CONCURRENT_TRANSCRIPTIONS = 1
 
 
+# --- Parallel jobs, gated by memory (settings come from the admin page, see main.py _apply_concurrency) ---
+# The first job always runs at once, exactly as before. A further job may start next to the running ones only when
+# BOTH of these hold: (a) the memory the jobs would need in the worst case still fits under the ceiling, and (b) the
+# server's real program memory right now plus one more job still fits under it. Otherwise it waits in line.
+#   max      -- most jobs that may run at the same time (1 = the old one-at-a-time behaviour)
+#   need_gb  -- real program memory one job can reach (the admin page shows what the meter measured, to tune this)
+#   pct      -- the ceiling, as a share of the server's memory limit
+#   limit_gb -- the server's memory limit; 0 = read it from the container, 8 GB if the container does not say
+CONC = {"max": 2, "need_gb": 5.0, "pct": 80.0, "limit_gb": 0.0}
+CONC_BASE_GB = 1.0              # what the idle server holds as real program memory
+CONC_FALLBACK_LIMIT_GB = 8.0    # used only when the limit can be neither read nor was set by hand
+_conc_note = {"last": ""}
+
+
+def set_concurrency(cfg):
+    """Takes the admin settings (a dict, or JSON text). Anything unusable keeps the safe defaults."""
+    try:
+        if isinstance(cfg, str):
+            cfg = json.loads(cfg)
+        if not isinstance(cfg, dict):
+            return
+        def num(k, lo, hi, d):
+            try:
+                v = float(cfg.get(k))
+            except (TypeError, ValueError):
+                return d
+            return min(hi, max(lo, v)) if v == v else d
+        CONC["max"] = int(num("max", 1, 4, 2))
+        CONC["need_gb"] = num("needGb", 1, 20, 5.0)
+        CONC["pct"] = num("pct", 30, 95, 80.0)
+        CONC["limit_gb"] = num("limitGb", 0, 256, 0.0)
+    except Exception:
+        pass
+
+
+def _conc_limit_gb():
+    if CONC["limit_gb"] > 0:
+        return CONC["limit_gb"], "set by hand"
+    import resource_meter
+    lim = resource_meter.read_limit_gb()
+    if lim:
+        return lim, "read from the container"
+    return CONC_FALLBACK_LIMIT_GB, "assumed (the container does not say)"
+
+
+def queue_state():
+    """For the admin page: what the queue is doing and what the memory rule allows right now."""
+    import resource_meter
+    limit, how = _conc_limit_gb()
+    used, anon = resource_meter.read_mem()
+    budget = limit * CONC["pct"] / 100.0
+    fit = int(max(0, (budget - CONC_BASE_GB) // max(0.5, CONC["need_gb"])))
+    return {"running": _transcribe_queue.running(), "waiting": _transcribe_queue.waiting_count(),
+            "max_set": CONC["max"], "allowed_by_memory": fit, "allowed_now": max(1, min(CONC["max"], fit)),
+            "limit_gb": round(limit, 2), "limit_how": how, "budget_gb": round(budget, 2),
+            "need_gb": CONC["need_gb"], "anon_now_gb": None if anon is None else round(anon, 2),
+            "last_decision": _conc_note["last"]}
+
+
+def _may_start_next(running):
+    """Called with the queue lock held: may one more job start next to `running` jobs that already hold a slot?"""
+    if running <= 0:
+        return True
+    if running >= CONC["max"]:
+        return False
+    try:
+        import resource_meter
+        limit, _how = _conc_limit_gb()
+        budget = limit * CONC["pct"] / 100.0
+        used, anon = resource_meter.read_mem()
+        now = anon if anon is not None else used
+        if now is None:
+            return False
+        worst = CONC_BASE_GB + (running + 1) * CONC["need_gb"]
+        ok = worst <= budget and now + CONC["need_gb"] <= budget
+        _conc_note["last"] = (f"{'started' if ok else 'held back'}: {running} running, worst case {worst:.1f} GB, "
+                              f"real memory now {now:.1f} GB, ceiling {budget:.1f} GB")
+        return ok
+    except Exception:
+        return False
+
+
 class _JobQueue:
     """FIFO wait queue for the transcription concurrency cap above.
 
@@ -193,11 +275,22 @@ class _JobQueue:
         self._waiting = []  # [(job_id, threading.Event), ...] in arrival order
 
     def _try_advance(self):
-        # Caller must already hold self._lock.
-        while self._in_use < self._capacity and self._waiting:
+        # Caller must already hold self._lock. The first `capacity` jobs always start; further ones only when the
+        # memory rule above lets them (first come, first served: only the job at the head of the line is looked at).
+        while self._waiting:
+            if self._in_use >= self._capacity and not _may_start_next(self._in_use):
+                break
             _jid, event = self._waiting.pop(0)
             self._in_use += 1
             event.set()
+
+    def running(self):
+        with self._lock:
+            return self._in_use
+
+    def waiting_count(self):
+        with self._lock:
+            return len(self._waiting)
 
     def ahead_count(self, job_id):
         """How many jobs must finish before this one starts: every job
@@ -228,6 +321,10 @@ class _JobQueue:
             self._waiting.append((job_id, my_event))
             self._try_advance()
         while not my_event.wait(timeout=2.0):
+            with self._lock:
+                self._try_advance()            # the memory rule may have changed since the last look
+            if my_event.is_set():
+                break
             if on_update:
                 on_update(self.ahead_count(job_id))
 
@@ -254,11 +351,16 @@ def _get_model():
         return _model
 
 
+_DIAR_RUN_LOCK = threading.Lock()
+
+
 def _release_model():
     """Drop the loaded Whisper model so its memory is freed once a job's
     transcription step is done -- it isn't needed again until the next
     job requests it via _get_model()."""
     global _model
+    if _transcribe_queue.running() > 1:
+        return          # another job is still using it: the last job to finish frees it
     with _model_lock:
         _model = None
     import gc
@@ -337,7 +439,8 @@ def get_speaker_turns(input_path: str, hf_token: str, speaker_count, min_speaker
     elif min_speakers and int(min_speakers) > 1:
         kwargs["min_speakers"] = int(min_speakers)      # a lower bound only: more may still be found
 
-    result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, **kwargs)
+    with _DIAR_RUN_LOCK:        # one job at a time inside the speaker model (it is shared by token)
+        result = pipeline({"waveform": waveform, "sample_rate": sample_rate}, **kwargs)
     if hasattr(result, "speaker_diarization"):
         diarization = result.speaker_diarization
     elif hasattr(result, "exclusive_speaker_diarization"):

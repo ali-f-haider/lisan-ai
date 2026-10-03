@@ -5942,6 +5942,9 @@ def _get_pricing_config():
         # Credits charged per cent of Gemini cost (translate, emotions and the other Gemini calls of a short dub).
         # 1 = a credit per cent, as before. Used by the Generate charge and by the button prices (see /api/pricing).
         "geminiCreditsPerCent": 1.0,
+        # Parallel jobs, gated by memory (see whisper_service.CONC): max jobs at once, real memory one job can reach (GB),
+        # the ceiling as % of the server's memory limit, and the limit itself in GB (0 = read it from the container).
+        "concurrency": {"max": 2, "needGb": 5.0, "pct": 80, "limitGb": 0},
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -6013,10 +6016,44 @@ def _get_pricing_config():
                 "longDubFlatCredits": defaults["longDubFlatCredits"] if row.get("long_dub_flat_credits") is None else row.get("long_dub_flat_credits"),
                 "longDubLipsyncMaxMin": row.get("long_dub_lipsync_max_min") or defaults["longDubLipsyncMaxMin"],
                 "geminiCreditsPerCent": _gemini_cpc(row.get("gemini_credits_per_cent")),
+                "concurrency": _conc_cfg(row.get("concurrency")),
             }
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
     return defaults
+
+def _conc_cfg(v):
+    """Parallel-job settings from the database (a dict or JSON text), each value kept inside a safe range."""
+    if isinstance(v, str):
+        try:
+            v = json.loads(v)
+        except Exception:
+            v = None
+    v = v if isinstance(v, dict) else {}
+
+    def num(k, lo, hi, d):
+        try:
+            x = float(v.get(k))
+        except (TypeError, ValueError):
+            return d
+        return min(hi, max(lo, x)) if x == x else d
+    return {"max": int(num("max", 1, 4, 2)), "needGb": num("needGb", 1, 20, 5.0),
+            "pct": num("pct", 30, 95, 80), "limitGb": num("limitGb", 0, 256, 0)}
+
+
+def _apply_concurrency(cfg=None):
+    """Hands the admin's parallel-job settings to the queue. Never raises."""
+    try:
+        whisper_service.set_concurrency(_conc_cfg(cfg if cfg is not None else _get_pricing_config().get("concurrency")))
+    except Exception as ex:
+        print(f"[queue] could not apply the parallel-job settings: {ex}")
+
+
+def _concurrency_refresher():
+    while True:
+        _time.sleep(60)
+        _apply_concurrency()
+
 
 def _gemini_cpc(v):
     """Credits per cent of Gemini cost: a number from 0.1 to 100, 1 when missing or unreadable."""
@@ -6140,6 +6177,16 @@ def _save_pricing_config(config):
                 pass
         except Exception as _gc_ex:
             print(f"[admin] Gemini price factor not saved (has gemini_credits_per_cent been added to pricing_config?): {_gc_ex}")
+        # Parallel-job settings in their own request too (one JSON column, see the SQL in the admin page).
+        try:
+            _cc_body = json.dumps({
+                "id": "singleton",
+                "concurrency": _conc_cfg(config.get("concurrency")),
+            }).encode("utf-8")
+            with _ur.urlopen(_ur.Request(url, data=_cc_body, headers=hdrs, method="POST"), timeout=10):
+                pass
+        except Exception as _cc_ex:
+            print(f"[admin] parallel-job settings not saved (has the concurrency column been added to pricing_config?): {_cc_ex}")
         # ...and the lip-sync length limit in its own request too (its column came later).
         try:
             _ll_body = json.dumps({
@@ -6155,6 +6202,11 @@ def _save_pricing_config(config):
         detail = _http_error_detail(ex)
         print(f"[admin] pricing_config save error: {detail}")
         return False, detail
+
+# Parallel-job settings: applied once at start-up and then every minute (and right after the admin saves).
+# Placed after _get_pricing_config / _save_pricing_config so everything they use already exists.
+_apply_concurrency()
+threading.Thread(target=_concurrency_refresher, daemon=True, name="concurrency-refresh").start()
 
 _admin_fail_all: List[float] = []
 
@@ -6531,6 +6583,8 @@ async def admin_save_pricing(request: Request):
     except Exception:
         body = {}
     ok, err = _save_pricing_config(body)
+    if ok:
+        _apply_concurrency(body.get("concurrency"))
     # Surface the real reason to the admin panel instead of a bare "ok:
     # false" -- previously a failed save just showed "unknown error" since
     # nothing but the server logs ever saw the actual exception.
@@ -6874,7 +6928,12 @@ def admin_resource_usage(request: Request):
     each kind of job costs on average. Compare the month figure with the Railway bill."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return resource_meter.summary()
+    out = resource_meter.summary()
+    try:
+        out["queue"] = whisper_service.queue_state()
+    except Exception:
+        out["queue"] = None
+    return out
 
 @app.get("/api/admin/railway_memory")
 def admin_railway_memory(request: Request):

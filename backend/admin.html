@@ -374,6 +374,17 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <input type="number" id="geminiCreditsPerCent" style="width:120px;" step="0.5" min="0.1" max="100">
           <span class="muted">Current default: 1. This sets the price of Translate, Add Tashkeel and Detect Emotions (the number on each button), and the Gemini part of the Generate charge. The app measures what Gemini will cost in cents and charges this many credits per cent: 1 = one credit per cent, 5 = five credits per cent. For a typical 30-line, 90-second video the buttons show about 1, 2 and 2 credits at 1, and about 4, 8 and 8 at 5. Between 0.1 and 100. Needs the column <code>gemini_credits_per_cent</code> in the Supabase table pricing_config: run <code>alter table pricing_config add column if not exists gemini_credits_per_cent numeric;</code> once, otherwise this one value is not saved. Use the Price check card to see the effect on your margin.</span>
         </div>
+        <div class="form-group" style="background:#0f172a;border-radius:6px;padding:12px;">
+          <label style="color:#e2e8f0;">Parallel jobs (several videos at the same time)</label>
+          <span class="muted">With 1 every video waits for the one before it (the old behaviour). With more, a waiting video starts next to the running ones <b>only if the memory fits</b>; otherwise it keeps waiting in line. The rule: the memory the jobs would need in the worst case (1 GB the idle server holds + the number of jobs × GB per job) must stay under the ceiling, and the real memory in use right now plus one more job must too. Applies to short dubs and to the pieces of long dubs. Saved with the Save button; the server picks it up within a minute. Needs the column <code>concurrency</code>: run <code>alter table pricing_config add column if not exists concurrency jsonb;</code> once, otherwise these four values are not saved (the defaults below then stay in force).</span>
+          <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;">
+            <label style="font-weight:normal;">Most jobs at once<br><input type="number" id="concMax" style="width:90px;" step="1" min="1" max="4"></label>
+            <label style="font-weight:normal;">Memory per job (GB)<br><input type="number" id="concNeed" style="width:90px;" step="0.5" min="1" max="20"></label>
+            <label style="font-weight:normal;">Ceiling (% of the limit)<br><input type="number" id="concPct" style="width:90px;" step="5" min="30" max="95"></label>
+            <label style="font-weight:normal;">Server memory limit (GB, 0 = read it)<br><input type="number" id="concLimit" style="width:110px;" step="1" min="0" max="256"></label>
+          </div>
+          <p id="concInfo" class="muted" style="margin-top:8px;color:#cbd5e1;">—</p>
+        </div>
         <p class="muted" style="margin-bottom:12px;">Fixed in the code, not editable here: a short dub must be 4–30 seconds long (4–15 seconds when lip-sync is used).</p>
         <button class="btn" onclick="savePricing()">💾 Save general prices</button>
       </div>
@@ -998,6 +1009,28 @@ function updateLdExample() {
     ' + 2 voice clones ' + clones + ' + final assembly ' + merge + (lip ? ' + lip-sync ' + lip : '') + ' = ≈ ' + total + ' credits (' + usd(total * r.lo) + ' – ' + usd(total * r.hi) + ' depending on the credit pack).';
 }
 
+let CONC_LIVE = null;
+async function loadConcInfo() {
+  try { const r = await api('/api/admin/resource_usage'); CONC_LIVE = r.ok ? (r.data || null) : null; } catch (e) { CONC_LIVE = null; }
+  updateConcInfo();
+}
+function updateConcInfo() {
+  const out = document.getElementById('concInfo');
+  if (!out) return;
+  const g = id => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? 0 : v; };
+  const max = Math.max(1, Math.round(g('concMax') || 1)), need = Math.max(1, g('concNeed') || 5), pct = g('concPct') || 80, setLim = g('concLimit');
+  const q = CONC_LIVE && CONC_LIVE.queue, detected = q ? q.limit_gb : null;
+  const limit = setLim > 0 ? setLim : (detected || 8);
+  const how = setLim > 0 ? 'set by hand' : (q ? q.limit_how : 'assumed 8 GB until the server answers');
+  const budget = limit * pct / 100, fit = Math.max(0, Math.floor((budget - 1) / need)), now = Math.max(1, Math.min(max, fit));
+  let t = 'Memory limit ' + limit.toFixed(1) + ' GB (' + how + '), ceiling ' + budget.toFixed(1) + ' GB. At ' + need + ' GB per job the memory has room for ' + fit + ' job(s) at once, so up to ' + now + ' will run together' + (max > fit ? ' (you allowed ' + max + ', memory only fits ' + fit + ')' : '') + '.';
+  if (q) t += ' Right now: ' + q.running + ' running, ' + q.waiting + ' waiting, ' + (q.anon_now_gb != null ? q.anon_now_gb + ' GB real memory in use. ' : '') + (q.last_decision ? 'Last decision: ' + q.last_decision + '.' : '');
+  const m = CONC_LIVE && CONC_LIVE.cycle && CONC_LIVE.cycle.jobs && CONC_LIVE.cycle.jobs.shortdub_transcribe;
+  if (m && m.peak_anon_gb) t += ' Measured so far: a short-dub transcription reached ' + m.peak_anon_gb + ' GB of real memory in total (the server itself holds about 1 GB of that), so about ' + Math.max(1, Math.ceil(m.peak_anon_gb - 1)) + ' GB per job is what it needs; keep GB per job at or above that.';
+  else t += ' The meter has not measured the real memory of a job yet (it will after the next jobs); until then 5 GB per job is a cautious guess.';
+  out.textContent = t;
+}
+
 function updateLipRates() {
   const out = document.getElementById('lipRatesOut');
   if (!out) return;
@@ -1011,6 +1044,7 @@ document.addEventListener('input', e => {
   const id = e.target && e.target.id;
   if (['ldExMin', 'transcribeCredits', 'mergeCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'inworldCharsPerCredit', 'inworldCloneCredits', 'lipsyncCreditsPerSec'].includes(id)) updateLdExample();
   if (e.target && e.target.closest && e.target.closest('#packsTable')) { updateLdExample(); updateLipRates(); }
+  if (['concMax', 'concNeed', 'concPct', 'concLimit'].includes(id)) updateConcInfo();
 });
 
 
@@ -1124,6 +1158,9 @@ async function loadPricing() {
   // Checkbox, not a text/number field -- .checked, not .value, and defaults
   // to true (matches _get_pricing_config()'s server-side default) if the
   // key isn't present yet (e.g. before the DB column has ever been saved).
+  { const c = r.data.concurrency || {}; const set = (id, v, d) => { const e = document.getElementById(id); if (e) e.value = (v === undefined || v === null) ? d : v; };
+    set('concMax', c.max, 2); set('concNeed', c.needGb, 5); set('concPct', c.pct, 80); set('concLimit', c.limitGb, 0); }
+  loadConcInfo();
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
   document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
   document.getElementById('railwayAlertsEnabled').checked = r.data.railwayAlertsEnabled !== false;
@@ -1253,6 +1290,8 @@ async function savePricing() {
     longDubLipsyncMaxMin: parseInt(document.getElementById('longDubLipsyncMaxMin')?.value || '3') || 3,
     longDubAnalysisPerMin: (function(){ const v = parseFloat(document.getElementById('longDubAnalysisPerMin')?.value); return isNaN(v) ? 2 : v; })(),
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
+    concurrency: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
+      return { max: Math.round(n('concMax', 2, 1, 4)), needGb: n('concNeed', 5, 1, 20), pct: n('concPct', 80, 30, 95), limitGb: n('concLimit', 0, 0, 256) }; })(),
     geminiCreditsPerCent: (function(){ const v = parseFloat(document.getElementById('geminiCreditsPerCent')?.value); return isNaN(v) || v <= 0 ? 1 : Math.min(100, Math.max(0.1, v)); })(),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
@@ -1733,7 +1772,7 @@ async function loadResourceUsage() {
   const js = Object.keys(c.jobs || {}).map(k => {
     const j = c.jobs[k], steps = Object.keys(j.steps || {}).map(n => [n, j.steps[n]]).sort((a, b) => b[1].avg_usd_full - a[1].avg_usd_full);
     let line = '<b>' + (names[k] || k) + '</b>: ' + j.n + ' job(s), ' + (j.avg_sec ? Math.round(j.avg_sec / 6) / 10 + ' min each, ' : '') + 'average ' + money(j.avg_usd) + ' added by the job, ' + money(j.avg_usd_full != null ? j.avg_usd_full : j.avg_usd) + ' with its share of the memory the server held meanwhile' + (j.avg_api_usd ? ', plus ' + money(j.avg_api_usd) + ' charged by Gemini' : '');
-    if (steps.length > 1 || (steps.length === 1 && steps[0][0] !== 'work')) line += '<div style="margin-left:14px;color:var(--muted,#94a3b8)">' + steps.map(x => (stepNames[x[0]] || x[0]) + ': ' + (x[1].avg_sec ? Math.round(x[1].avg_sec / 6) / 10 + ' min, ' : '') + (x[1].peak_gb ? x[1].peak_gb + ' GB peak, ' : '') + money(x[1].avg_usd) + ' / ' + money(x[1].avg_usd_full)).join('<br>') + '</div>';
+    if (steps.length > 1 || (steps.length === 1 && steps[0][0] !== 'work')) line += '<div style="margin-left:14px;color:var(--muted,#94a3b8)">' + steps.map(x => (stepNames[x[0]] || x[0]) + ': ' + (x[1].avg_sec ? Math.round(x[1].avg_sec / 6) / 10 + ' min, ' : '') + (x[1].peak_gb ? x[1].peak_gb + ' GB peak' + (x[1].peak_anon_gb ? ' (' + x[1].peak_anon_gb + ' GB real)' : '') + ', ' : '') + money(x[1].avg_usd) + ' / ' + money(x[1].avg_usd_full)).join('<br>') + '</div>';
     return line;
   });
   if (js.length) { bits.push('Average cost per job this month, step by step ("added" = what the job adds on top of what the server holds anyway; "with share" = its share of all the memory held while it ran, which is what Railway bills for that time):'); js.forEach(x => bits.push(x)); }

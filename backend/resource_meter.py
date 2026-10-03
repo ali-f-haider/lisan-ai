@@ -125,6 +125,24 @@ def read_mem():
         return None, None
 
 
+def read_limit_gb():
+    """The memory ceiling this container really has (GB), or None when the container has none set."""
+    try:
+        with open("/sys/fs/cgroup/memory.max") as f:
+            raw = f.read().strip()
+        if raw != "max":
+            return int(raw) / _GB
+        return None
+    except Exception:
+        pass
+    try:
+        with open("/sys/fs/cgroup/memory/memory.limit_in_bytes") as f:
+            raw = int(f.read().strip())
+        return None if raw > 10 ** 15 else raw / _GB
+    except Exception:
+        return None
+
+
 def read_cpu_sec():
     """Total CPU seconds this container has used since it started, or None."""
     try:
@@ -408,6 +426,7 @@ class JobMeter:
         self.cpu_share_sec = 0.0
         self._cpu_last = None
         self.api_usd = 0.0               # what providers (Gemini) charged for the calls made inside this job
+        self.peak_anon = 0.0             # highest real program memory (without cached files) seen during the job
 
     def __enter__(self):
         global _active
@@ -437,9 +456,11 @@ class JobMeter:
 
     def _tick(self):
         now = time.time()
-        used, _ = read_mem()
+        used, anon = read_mem()
         if used is None:
             return
+        anon_now = anon if anon is not None else used
+        self.peak_anon = max(self.peak_anon, anon_now)
         dt_sec = min(max(now - self._last, 0.0), 60.0)
         dt = dt_sec / 60.0
         self._last = now
@@ -461,12 +482,13 @@ class JobMeter:
             st = (self.stage_of(self.job_id) if self.stage_of else self.stage) or self.stage or "work"
         except Exception:
             st = self.stage or "work"
-        e = self.stages.setdefault(st, {"sec": 0.0, "extra": 0.0, "share": 0.0, "cpu": 0.0, "peak": 0.0})
+        e = self.stages.setdefault(st, {"sec": 0.0, "extra": 0.0, "share": 0.0, "cpu": 0.0, "peak": 0.0, "anon": 0.0})
         e["sec"] += dt_sec
         e["extra"] += extra
         e["share"] += share
         e["cpu"] += cpu_d
         e["peak"] = max(e["peak"], used)
+        e["anon"] = max(e["anon"], anon_now)
 
     def _run(self):
         while not self._stop.wait(JOB_SAMPLE_SEC):
@@ -503,7 +525,7 @@ class JobMeter:
                 steps = {}
                 for name, e in self.stages.items():
                     c_min = e["cpu"] / 60.0
-                    steps[name] = {"sec": round(e["sec"], 1), "peak_gb": round(e["peak"], 2),
+                    steps[name] = {"sec": round(e["sec"], 1), "peak_gb": round(e["peak"], 2), "peak_anon_gb": round(e["anon"], 2),
                                    "usd": round(e["extra"] * MEM_USD_PER_GB_MIN + c_min * CPU_USD_PER_VCPU_MIN, 5),
                                    "usd_full": round(e["share"] * MEM_USD_PER_GB_MIN + c_min * CPU_USD_PER_VCPU_MIN, 5)}
                 self.result = {
@@ -511,8 +533,8 @@ class JobMeter:
                     "sec": round(secs, 1), "start_gb": round(self.start_gb or 0.0, 2), "peak_gb": round(self.peak, 2),
                     "gb_min": round(self.gb_min, 2), "extra_gb_min": round(self.extra_gb_min, 2),
                     "cpu_min": round(cpu_min, 2), "usd": round(usd, 5), "usd_full": round(usd_full, 5),
-                    "api_usd": round(self.api_usd, 6), "steps": steps, "ok": exc[0] is None}
-                self.result["text"] = (f"{self.kind}: {secs / 60:.1f} min, memory {self.result['start_gb']:.1f} -> peak {self.result['peak_gb']:.1f} GB, "
+                    "api_usd": round(self.api_usd, 6), "peak_anon_gb": round(self.peak_anon, 2), "steps": steps, "ok": exc[0] is None}
+                self.result["text"] = (f"{self.kind}: {secs / 60:.1f} min, memory {self.result['start_gb']:.1f} -> peak {self.result['peak_gb']:.1f} GB ({self.peak_anon:.1f} GB of it real program memory), "
                                        f"{self.extra_gb_min:.1f} GB-min above the start, {cpu_min:.1f} vCPU-min, "
                                        f"Railway cost about ${usd:.4f} added by this job, ${usd_full:.4f} with its share of the memory the server held meanwhile")
                 if self.api_usd:
@@ -596,19 +618,21 @@ def period_stats(start_day, end_day):
         d = str(j.get("ts", ""))[:10]
         if not (start_day <= d <= end_day):
             continue
-        e = jobs.setdefault(j.get("kind", "?"), {"n": 0, "total_usd": 0.0, "total_usd_full": 0.0, "total_sec": 0.0, "total_api": 0.0, "steps": {}})
+        e = jobs.setdefault(j.get("kind", "?"), {"n": 0, "total_usd": 0.0, "total_usd_full": 0.0, "total_sec": 0.0, "total_api": 0.0, "peak_anon_gb": 0.0, "steps": {}})
         e["n"] += 1
         e["total_usd"] += float(j.get("usd", 0.0))
         e["total_usd_full"] += float(j.get("usd_full", j.get("usd", 0.0)))
         e["total_sec"] += float(j.get("sec", 0.0))
         e["total_api"] += float(j.get("api_usd", 0.0))
+        e["peak_anon_gb"] = max(e["peak_anon_gb"], float(j.get("peak_anon_gb", 0.0)))
         jobs_usd += float(j.get("usd", 0.0))
         for name, v in (j.get("steps") or {}).items():
-            t = e["steps"].setdefault(name, {"usd": 0.0, "usd_full": 0.0, "sec": 0.0, "peak_gb": 0.0})
+            t = e["steps"].setdefault(name, {"usd": 0.0, "usd_full": 0.0, "sec": 0.0, "peak_gb": 0.0, "peak_anon_gb": 0.0})
             t["usd"] += float(v.get("usd", 0.0))
             t["usd_full"] += float(v.get("usd_full", 0.0))
             t["sec"] += float(v.get("sec", 0.0))
             t["peak_gb"] = max(t["peak_gb"], float(v.get("peak_gb", 0.0)))
+            t["peak_anon_gb"] = max(t["peak_anon_gb"], float(v.get("peak_anon_gb", 0.0)))
     for e in jobs.values():
         n = e["n"] or 1
         e["avg_usd"] = round(e["total_usd"] / n, 5)
@@ -620,7 +644,9 @@ def period_stats(start_day, end_day):
         e["total_usd_full"] = round(e["total_usd_full"], 4)
         e.pop("total_sec", None)
         e["steps"] = {k: {"avg_usd": round(v["usd"] / n, 5), "avg_usd_full": round(v["usd_full"] / n, 5),
-                          "avg_sec": round(v["sec"] / n, 1), "peak_gb": round(v["peak_gb"], 2)} for k, v in e["steps"].items()}
+                          "avg_sec": round(v["sec"] / n, 1), "peak_gb": round(v["peak_gb"], 2),
+                          "peak_anon_gb": round(v["peak_anon_gb"], 2)} for k, v in e["steps"].items()}
+        e["peak_anon_gb"] = round(e["peak_anon_gb"], 2)
     idle = max(0.0, usage - jobs_usd) / covered if covered >= 1 else None
     return {"hours": round(covered, 1), "usage_usd": round(usage, 3), "jobs_usd": round(jobs_usd, 3),
             "idle_usd_per_hour": None if idle is None else round(idle, 5), "jobs": jobs}
@@ -637,6 +663,7 @@ def summary():
     mins_total = sum(float(r.get("min", 0.0)) for r in r24)
     out = {"enabled": ENABLED, "now_gb": None if now_gb is None else round(now_gb, 2),
            "now_anon_gb": None if anon_gb is None else round(anon_gb, 2),
+           "limit_gb": None if read_limit_gb() is None else round(read_limit_gb(), 2),
            "mem_usd_per_gb_month": round(MEM_USD_PER_GB_MIN * 60 * 24 * 30, 2),
            "cache_trim": dict(_trim, enabled=bool(TRIM_CACHE))}
     if r24 and mins_total > 0:
