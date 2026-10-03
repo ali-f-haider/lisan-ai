@@ -95,6 +95,10 @@ h2{font-size:clamp(28px,4vw,44px)}
 .lang button[aria-pressed="true"]{background:rgba(255,255,255,.12);color:var(--text)}
 .nav .login{font-size:14.5px;color:var(--muted);padding:8px 6px}
 .nav .login:hover{color:var(--text)}
+.nav .login.me{display:inline-flex;align-items:center;gap:8px;color:var(--text);font-weight:600;max-width:190px}
+.nav .login.me:hover{color:var(--gold2)}
+.me-av{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:linear-gradient(180deg,#f2cd7d,#dca443);color:#1a1205;font-size:12.5px;font-weight:700;line-height:1}
+.me-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nav .btn{padding:9px 18px;font-size:14.5px;border-radius:10px}
 .burger{display:none;width:40px;height:40px;border:1px solid var(--line2);background:rgba(255,255,255,.03);border-radius:10px;cursor:pointer;align-items:center;justify-content:center}
 .burger svg{width:20px;height:20px}
@@ -309,7 +313,7 @@ html.js .rv.in{opacity:1;transform:none}
   .proof strong{font-size:22px}
   .pair{grid-template-columns:1fr;gap:26px}
   .cards{grid-template-columns:1fr}
-  .nav .login{display:none}
+  .nav .login,.nav .login.me{display:none}
   .nav .wrap{gap:10px}
   .nav-right{gap:8px}
   .nav .btn{padding:8px 13px;font-size:13.5px}
@@ -1056,6 +1060,40 @@ html.js .rv.in{opacity:1;transform:none}
         .then(function () { btn.disabled = false; btn.innerHTML = keep; });
     });
   })();
+})();
+</script>
+<script>
+// Signed in? Then the login links become the person's name (and "Start free" becomes "Open app").
+(function () {
+  "use strict";
+  function words(a, name) {
+    var inNav = a.closest && a.closest(".nav");
+    var gold = a.classList.contains("btn");
+    if (inNav && !gold && name) {                       // desktop link and mobile-menu link: the name
+      var isDesk = a.classList.contains("login");
+      a.textContent = "";
+      if (isDesk) {
+        a.classList.add("me");
+        var av = document.createElement("span"); av.className = "me-av"; av.setAttribute("aria-hidden", "true");
+        av.textContent = Array.from(name)[0].toUpperCase(); a.appendChild(av);
+      }
+      var nm = document.createElement("span"); nm.className = isDesk ? "me-nm" : ""; nm.setAttribute("dir", "auto"); nm.textContent = name;
+      a.appendChild(nm);
+      a.title = name;
+      return;
+    }
+    // buttons and footer link: "Open app" in both languages (keeps any arrow icon)
+    var en = a.querySelector(":scope > .en"), ar = a.querySelector(":scope > .ar");
+    if (en) en.textContent = "Open app"; if (ar) ar.textContent = "افتح التطبيق";
+  }
+  function apply(name) {
+    var links = document.querySelectorAll('a[href="/login"]');
+    for (var i = 0; i < links.length; i++) { links[i].setAttribute("href", "/app"); words(links[i], name); }
+  }
+  fetch("/api/me", { credentials: "same-origin", cache: "no-store" })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) { if (d && d.signed_in) apply(String(d.name || "").trim()); })
+    .catch(function () {});
 })();
 </script>
 <script src="/dialogs.js"></script>

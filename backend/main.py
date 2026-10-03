@@ -543,7 +543,7 @@ def _site_gate_ok(request: Request) -> bool:
 
 PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
-    "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
+    "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
     "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete"
 , "/help.html", "/admin"])
@@ -933,6 +933,51 @@ def auth_check(request: Request):
     if _is_logged_in(request):
         return {"ok": True}
     return JSONResponse({"error": "Not logged in"}, status_code=401)
+
+
+_me_cache = {}   # session cookie -> (display name, expires at); only to spare Supabase a call per landing-page visit
+
+@app.get("/api/me")
+def api_me(request: Request):
+    """Public: who is signed in right now? The landing page uses it to show the person's name instead of the login links.
+    Returns {"signed_in": false} for a visitor, {"signed_in": true, "name": "..."} otherwise (name may be empty for a
+    shared-password session, which has no account behind it). Nothing else about the account is exposed."""
+    hdr = {"Cache-Control": "no-store"}
+    if not _is_logged_in(request):
+        return JSONResponse({"signed_in": False}, headers=hdr)
+    cookie = request.cookies.get("session", "")
+    hit = _me_cache.get(cookie)
+    if hit and hit[1] > time.time():
+        return JSONResponse({"signed_in": True, "name": hit[0]}, headers=hdr)
+    name = ""
+    sb_token = _valid_tokens.get(cookie, "")
+    if sb_token and SUPABASE_URL:
+        try:
+            req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/user", headers={
+                "Authorization": f"Bearer {sb_token}", "apikey": SUPABASE_ANON_KEY})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                u = json.load(r)
+            uid = u.get("id", "")
+            email = u.get("email") or ""
+            name = email.split("@")[0] if email else ""
+            if uid and SUPABASE_SERVICE_KEY:
+                try:
+                    dn_req = urllib.request.Request(
+                        f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=display_name",
+                        headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                    with urllib.request.urlopen(dn_req, timeout=10) as dn_r:
+                        rows = json.load(dn_r)
+                    if rows and rows[0].get("display_name"):
+                        name = rows[0]["display_name"]
+                except Exception:
+                    pass
+        except Exception:
+            name = ""
+    name = str(name or "").strip()[:60]
+    if len(_me_cache) > 2000:
+        _me_cache.clear()
+    _me_cache[cookie] = (name, time.time() + 300)
+    return JSONResponse({"signed_in": True, "name": name}, headers=hdr)
 
 
 @app.post("/api/login")
