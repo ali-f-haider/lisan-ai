@@ -544,7 +544,7 @@ def _site_gate_ok(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/stripe/webhook",
-    "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant",
+    "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete"
 , "/help.html", "/admin"])
 
@@ -7447,6 +7447,24 @@ def assistant_chat(req: AssistantRequest, request: Request):
     key = f"u:{uid}" if uid else f"g:{_client_ip(request)}"
     acct = _assistant_account_text(uid, (req.job_id or "")[:40]) if uid else ""
     out = assistant_service.handle(contents, _assistant_pricing_text(), acct, bool(uid), key, uid, (req.lang or "")[:5], (req.page or "")[:60])
+    if uid:
+        try:
+            out["credits"] = get_credits(uid)
+        except Exception:
+            pass
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/assistant/credits")
+def assistant_credits(request: Request):
+    """The chat box's credit counter: the signed-in visitor's own balance (nothing for guests)."""
+    uid = _current_uid(request)
+    out = {"signed_in": bool(uid), "credits": None}
+    if uid:
+        try:
+            out["credits"] = get_credits(uid)
+        except Exception:
+            pass
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 

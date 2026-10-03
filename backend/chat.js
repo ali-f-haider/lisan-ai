@@ -14,7 +14,7 @@
       thinking: "Thinking\u2026", err: "Something went wrong. Please try again, or write to the team.",
       support: "Send this to support", support_t: "Send to the support team", email: "Your email", note: "What should we know? (optional)",
       send_s: "Send to support", sent: "Sent. The team will reply to your email.", bad_email: "Please enter a valid email address.",
-      fail_s: "Could not send. Please email contact@lisanai.org", clear: "New chat", ai: "AI answers can be wrong. For billing problems write to support."
+      fail_s: "Could not send. Please email contact@lisanai.org", clear: "New chat", bal: "Credits", addc: "Add credits", signin: "Sign in", ai: "AI answers can be wrong. For billing problems write to support."
     },
     ar: {
       title: "\u0645\u0633\u0627\u0639\u062f \u0644\u0633\u0627\u0646", sub: "\u0627\u0633\u0623\u0644\u0646\u064a \u0623\u064a \u0634\u064a\u0621 \u0639\u0646 \u0644\u0633\u0627\u0646", open: "\u0645\u0633\u0627\u0639\u062f\u0629", close: "\u0625\u063a\u0644\u0627\u0642", send: "\u0625\u0631\u0633\u0627\u0644",
@@ -23,7 +23,7 @@
       thinking: "\u062c\u0627\u0631\u064d \u0627\u0644\u062a\u0641\u0643\u064a\u0631\u2026", err: "\u062d\u062f\u062b \u062e\u0637\u0623. \u062d\u0627\u0648\u0644 \u0645\u0631\u0629 \u0623\u062e\u0631\u0649 \u0623\u0648 \u0631\u0627\u0633\u0644 \u0627\u0644\u0641\u0631\u064a\u0642.",
       support: "\u0623\u0631\u0633\u0644 \u0647\u0630\u0627 \u0625\u0644\u0649 \u0627\u0644\u062f\u0639\u0645", support_t: "\u0625\u0631\u0633\u0627\u0644 \u0625\u0644\u0649 \u0641\u0631\u064a\u0642 \u0627\u0644\u062f\u0639\u0645", email: "\u0628\u0631\u064a\u062f\u0643 \u0627\u0644\u0625\u0644\u0643\u062a\u0631\u0648\u0646\u064a", note: "\u0645\u0627 \u0627\u0644\u0630\u064a \u064a\u062c\u0628 \u0623\u0646 \u0646\u0639\u0631\u0641\u0647\u061f (\u0627\u062e\u062a\u064a\u0627\u0631\u064a)",
       send_s: "\u0625\u0631\u0633\u0627\u0644 \u0625\u0644\u0649 \u0627\u0644\u062f\u0639\u0645", sent: "\u062a\u0645 \u0627\u0644\u0625\u0631\u0633\u0627\u0644. \u0633\u064a\u0631\u062f\u0651 \u0639\u0644\u064a\u0643 \u0627\u0644\u0641\u0631\u064a\u0642 \u0639\u0628\u0631 \u0628\u0631\u064a\u062f\u0643.", bad_email: "\u064a\u0631\u062c\u0649 \u0625\u062f\u062e\u0627\u0644 \u0628\u0631\u064a\u062f \u0625\u0644\u0643\u062a\u0631\u0648\u0646\u064a \u0635\u062d\u064a\u062d.",
-      fail_s: "\u062a\u0639\u0630\u0651\u0631 \u0627\u0644\u0625\u0631\u0633\u0627\u0644. \u0631\u0627\u0633\u0644\u0646\u0627 \u0639\u0644\u0649 contact@lisanai.org", clear: "\u0645\u062d\u0627\u062f\u062b\u0629 \u062c\u062f\u064a\u062f\u0629", ai: "\u0642\u062f \u062a\u0643\u0648\u0646 \u0625\u062c\u0627\u0628\u0627\u062a \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a \u062e\u0627\u0637\u0626\u0629. \u0644\u0645\u0634\u0627\u0643\u0644 \u0627\u0644\u062f\u0641\u0639 \u0631\u0627\u0633\u0644 \u0627\u0644\u062f\u0639\u0645."
+      fail_s: "\u062a\u0639\u0630\u0651\u0631 \u0627\u0644\u0625\u0631\u0633\u0627\u0644. \u0631\u0627\u0633\u0644\u0646\u0627 \u0639\u0644\u0649 contact@lisanai.org", clear: "\u0645\u062d\u0627\u062f\u062b\u0629 \u062c\u062f\u064a\u062f\u0629", bal: "\u0627\u0644\u0631\u0635\u064a\u062f", addc: "\u0625\u0636\u0627\u0641\u0629 \u0631\u0635\u064a\u062f", signin: "\u062a\u0633\u062c\u064a\u0644 \u0627\u0644\u062f\u062e\u0648\u0644", ai: "\u0642\u062f \u062a\u0643\u0648\u0646 \u0625\u062c\u0627\u0628\u0627\u062a \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a \u062e\u0627\u0637\u0626\u0629. \u0644\u0645\u0634\u0627\u0643\u0644 \u0627\u0644\u062f\u0641\u0639 \u0631\u0627\u0633\u0644 \u0627\u0644\u062f\u0639\u0645."
     }
   };
 
@@ -49,6 +49,9 @@
     ".lch-head div{flex:1;min-width:0}",
     ".lch-x{background:transparent;border:0;color:#fff;font-size:20px;cursor:pointer;line-height:1;padding:4px 6px;border-radius:6px}",
     ".lch-x:hover{background:rgba(255,255,255,.18)}",
+    ".lch-bal{display:none;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;background:#eff6ff;border-bottom:1px solid #dbeafe;font-size:13px;color:#1e3a8a}",
+    ".lch-bal b{font-size:14px}",
+    ".lch-bal button,.lch-bal a{background:#16a34a;color:#fff;border:0;border-radius:8px;padding:4px 10px;cursor:pointer;font:inherit;font-size:12.5px;text-decoration:none}",
     ".lch-msgs{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;background:#f8fafc}",
     ".lch-m{max-width:86%;padding:8px 11px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}",
     ".lch-bot{background:#fff;border:1px solid #e2e8f0;align-self:flex-start;border-bottom-left-radius:4px}",
@@ -70,6 +73,7 @@
     ".lch-tools{display:flex;justify-content:flex-end;padding:0 12px;background:#f8fafc}",
     ".lch-tools a{font-size:12px;color:#64748b;cursor:pointer;text-decoration:underline}",
     "body.dark .lch-panel{background:#1e293b;color:#e2e8f0;border-color:#334155}",
+    "body.dark .lch-bal{background:#0f172a;border-color:#334155;color:#bae6fd}",
     "body.dark .lch-msgs,body.dark .lch-note,body.dark .lch-tools{background:#0f172a}",
     "body.dark .lch-bot,body.dark .lch-form,body.dark .lch-chip,body.dark .lch-in{background:#1e293b;border-color:#334155;color:#e2e8f0}",
     "body.dark .lch-chip{color:#7dd3fc;border-color:#38bdf8}",
@@ -78,6 +82,7 @@
     "@media (max-width:480px){.lch-panel{right:8px!important;left:8px!important;width:auto;bottom:80px;height:calc(100vh - 100px)}}"
   ].join("\n");
 
+  var balEl, balTxt, balBtn, balLink;
   var root, btn, panel, msgs, input, sendBtn, titleEl, subEl, noteEl, newEl, chipsEl;
   var history = [];            // {role:"user"|"assistant", text}
   var busy = false, lastSupport = false, opened = false;
@@ -113,6 +118,7 @@
     titleEl.textContent = t("title"); subEl.textContent = t("sub"); input.placeholder = t("ph");
     sendBtn.textContent = t("send"); btn.setAttribute("aria-label", t("open")); btn.title = t("open");
     noteEl.textContent = t("ai"); newEl.textContent = t("clear");
+    balBtn.textContent = "+ " + t("addc"); balLink.textContent = t("signin"); showBal();
   }
 
   function addSupportButton() {
@@ -171,10 +177,31 @@
         addMsg("bot", ans);
         lastSupport = !!j.support || !j.answer;
         if (lastSupport) addSupportButton();
+        if (j.credits != null) { credits = j.credits; signedIn = true; balKnown = true; showBal(); }
         save();
       }).catch(function () {
         wait.remove(); history.pop(); addMsg("bot", t("err")); lastSupport = true; addSupportButton();
       }).then(function () { busy = false; sendBtn.disabled = false; input.focus(); });
+  }
+
+  var credits = null, signedIn = false, balKnown = false;
+  function showBal() {
+    if (!balEl) return;
+    if (!balKnown) { balEl.style.display = "none"; return; }
+    balEl.style.display = "flex";
+    if (signedIn && credits != null) {
+      balTxt.textContent = t("bal") + ": "; balTxt.appendChild(el("b", "", String(credits)));
+      balBtn.style.display = ""; balLink.style.display = "none";
+    } else if (signedIn) { balTxt.textContent = ""; balEl.style.display = "none"; }
+    else { balTxt.textContent = ""; balBtn.style.display = "none"; balLink.style.display = ""; }
+  }
+  function loadBal() {
+    fetch("/api/assistant/credits", { credentials: "same-origin", cache: "no-store" }).then(function (r) { return r.json(); })
+      .then(function (j) { balKnown = true; signedIn = !!j.signed_in; credits = (j.credits == null ? null : j.credits); showBal(); }).catch(function () {});
+  }
+  function addCredits() {
+    try { if (typeof openBuyModal === "function") { toggle(false); openBuyModal(); return; } } catch (e) {}
+    window.open("/pricing", "_blank");
   }
 
   function autosize() { input.style.height = "auto"; input.style.height = Math.min(90, input.scrollHeight) + "px"; }
@@ -183,7 +210,7 @@
     opened = on == null ? !opened : on;
     panel.classList.toggle("lch-on", opened);
     btn.style.display = opened && window.innerWidth <= 480 ? "none" : "flex";
-    if (opened) { setTimeout(function () { input.focus(); }, 50); scroll(); }
+    if (opened) { setTimeout(function () { input.focus(); }, 50); scroll(); loadBal(); }
   }
 
   function build() {
@@ -196,6 +223,10 @@
     titleEl = el("b", ""); subEl = el("span", ""); hd.appendChild(titleEl); hd.appendChild(subEl);
     var x = el("button", "lch-x", "\u00d7"); x.type = "button"; x.setAttribute("aria-label", "close"); x.onclick = function () { toggle(false); };
     head.appendChild(hd); head.appendChild(x);
+    balEl = el("div", "lch-bal"); balTxt = el("span", "");
+    balBtn = el("button", "", ""); balBtn.type = "button"; balBtn.onclick = addCredits;
+    balLink = el("a", "", ""); balLink.href = "/login";
+    balEl.appendChild(balTxt); balEl.appendChild(balBtn); balEl.appendChild(balLink);
     msgs = el("div", "lch-msgs"); msgs.setAttribute("aria-live", "polite");
     var tools = el("div", "lch-tools"); newEl = el("a", "", ""); newEl.onclick = function () { history = []; lastSupport = false; store("del", "lisan_chat_v1"); renderAll(); };
     tools.appendChild(newEl);
@@ -207,10 +238,11 @@
     input.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(input.value); } });
     sendBtn.onclick = function () { ask(input.value); };
     inb.appendChild(input); inb.appendChild(sendBtn);
-    [head, msgs, tools, noteEl, inb].forEach(function (n) { panel.appendChild(n); });
+    [head, balEl, msgs, tools, noteEl, inb].forEach(function (n) { panel.appendChild(n); });
     root.appendChild(btn); root.appendChild(panel); document.body.appendChild(root);
     btn.onclick = function () { toggle(); };
     document.addEventListener("keydown", function (e) { if (e.key === "Escape" && opened) toggle(false); });
+    window.addEventListener("focus", function () { if (opened) loadBal(); });
     load(); applyLang(); renderAll();
     // follow a language switch made elsewhere on the page
     var last = lang();
