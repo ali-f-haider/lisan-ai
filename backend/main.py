@@ -34,6 +34,7 @@ import inworld_service
 import ffmpeg_utils
 import lipsync_service
 import longdub_service
+import subs_align
 import r2_backup
 import business_metrics
 import alibaba_cost
@@ -4754,6 +4755,34 @@ except NameError:
 
 
 
+# ===== SUBTITLE FILE -> CORRECTS THE TRANSCRIPT (short dub page; the long dub has its own route above) =====
+class SubsAlignRequest(BaseModel):
+    text: str = ""
+    filename: str = ""
+    mode: str = "auto"
+    add_missed: bool = False
+    segments: List[dict] = []
+
+
+@app.post("/api/subs/align")
+async def subs_align_route(body: SubsAlignRequest, request: Request):
+    """The editor sends its lines and the text of the user's English subtitle file; the answer is the same lines with
+    the subtitle's wording in them (see subs_align.py: matched by the words, so a subtitle of a whole film with another
+    clock works). Nothing is stored and nothing is charged."""
+    if not _current_uid(request) and not _is_logged_in(request):
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if len(body.segments) > 3000 or len(body.text) > subs_align.MAX_CHARS:
+        return JSONResponse({"error": subs_align.reason_message("too_big"), "reason": "too_big"}, status_code=400)
+    ok, info = subs_align.check_file(body.text, body.filename)
+    if not ok:
+        return JSONResponse({"error": subs_align.reason_message(info), "reason": info}, status_code=400)
+    rows = [r for r in body.segments if isinstance(r, dict)]
+    new_rows, rep = await asyncio.to_thread(subs_align.correct_rows, rows, body.text, body.filename, body.mode, body.add_missed)
+    if not rep.get("ok"):
+        return JSONResponse({"error": subs_align.reason_message(rep.get("reason")), "reason": rep.get("reason")}, status_code=400)
+    return {"ok": True, "segments": new_rows, "report": rep}
+
+
 # ===== DUB LONG VIDEO (videos of several minutes; see longdub_service.py) =====
 # Everything heavy lives in longdub_service.py; this block only wires it to
 # this app's credits, e-mail and pricing settings and exposes the routes.
@@ -5072,6 +5101,36 @@ def longdub_project_update(job_id: str, body: LongDubProject, request: Request):
     if err:
         return err
     ok, e = longdub_service.update_project(job, body.name, body.description)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return longdub_service.public_view(job)
+
+
+class LongDubSubtitle(BaseModel):
+    text: str = ""
+    filename: str = ""
+    mode: str = "auto"
+    add_missed: bool = False
+
+
+@app.post("/api/longdub/{job_id}/subtitle")
+def longdub_subtitle_attach(job_id: str, body: LongDubSubtitle, request: Request):
+    """Optional: the English subtitle of this video. Used by the analysis to correct the transcript (see subs_align.py)."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.attach_subtitle(job, body.text, body.filename, body.mode, body.add_missed)
+    if not ok:
+        return JSONResponse({"error": e[0]}, status_code=e[1])
+    return longdub_service.public_view(job)
+
+
+@app.delete("/api/longdub/{job_id}/subtitle")
+def longdub_subtitle_remove(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, e = longdub_service.remove_subtitle(job)
     if not ok:
         return JSONResponse({"error": e[0]}, status_code=e[1])
     return longdub_service.public_view(job)

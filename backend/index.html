@@ -123,7 +123,8 @@
 <div id="editorSection" class="card hidden">
     <h3>Step 2: Edit Segments</h3>
     <button class="blue" onclick="document.getElementById('subsFile').click()">📥 Import SRT/SBV<span class="badge" id="badgeImport"></span></button>
-    <input type="file" id="subsFile" accept=".srt,.sbv" class="hidden" onchange="importSubs(event)">
+    <input type="file" id="subsFile" accept=".srt,.vtt,.sbv,.ass,.ssa" class="hidden" onchange="importSubs(event)">
+    <button class="blue hidden" id="subsUndoBtn" onclick="undoSubs()">↩ Undo subtitle</button>
     <button class="blue" onclick="exportSRT()">📤 SRT<span class="badge" id="badgeSRT"></span></button>
     <button class="blue" onclick="exportSBV()">📤 SBV<span class="badge" id="badgeSBV"></span></button>
     <button class="green" onclick="saveProject()">💾 Save Project<span class="badge" id="badgeSave"></span></button>

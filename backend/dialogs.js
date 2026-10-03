@@ -53,6 +53,14 @@
         ".ld-sel{margin:0 0 10px;font-size:13px;font-weight:600;text-align:center;color:var(--ld-title,var(--primary-fg,#1a237e));}",
         ".ld-mini{display:flex;gap:8px;margin:0 0 12px;}",
         ".ld-mini .ld-btn{padding:7px 10px;font-size:13px;}",
+        ".ld-opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--ld-border,var(--border,#e5e7eb));border-radius:10px;padding:10px 12px;margin:0 0 8px;cursor:pointer;font-size:13px;font-weight:400;line-height:1.45;}",
+        ".ld-opt.ld-on{border-color:var(--ld-primary,var(--primary,#1a237e));}",
+        ".ld-opt input{margin:3px 0 0;flex:none;width:auto;accent-color:var(--ld-primary,var(--primary,#1a237e));}",
+        ".ld-opt b{display:block;font-size:13.5px;font-weight:700;}",
+        ".ld-opt i{display:block;font-style:normal;font-weight:400;opacity:.8;}",
+        ".ld-fname{font-weight:600;word-break:break-all;margin:0 0 8px;font-size:13px;}",
+        ".ld-chk{display:flex;gap:8px;align-items:flex-start;font-size:13px;font-weight:400;line-height:1.45;margin:4px 0 14px;cursor:pointer;}",
+        ".ld-chk input{margin:3px 0 0;flex:none;width:auto;}",
         ".ld-rtl{direction:rtl;text-align:right;}",
         ".ld-rtl .ld-btns{flex-direction:row-reverse;}"
     ].join("\n");
@@ -449,11 +457,158 @@
         });
     }
 
+    // ---- English subtitle file: how should it be used? (short dub + long dub) ----
+    var SUBS_TEXT = {
+        en: { title: "Use this subtitle file",
+              intro: "Lisan AI finds your video's speech inside the subtitle (it can be the subtitle of a whole film), fixes wrong words in the transcript and ignores everything else. The subtitle's wording replaces what the AI heard. How should the lines be written?",
+              autoT: "Smart (recommended)", autoD: "A new line starts where the subtitle shows another speaker (a dash). Everything else follows the AI's own lines.",
+              joinT: "Together", joinD: "Keep the AI's lines as they are. A subtitle that has two lines is written together as one sentence.",
+              linesT: "Separate, one line per subtitle line", linesD: "Every line of the subtitle becomes its own line. Use it when each subtitle line is a different speaker.",
+              add: "Also add subtitle lines the AI didn't hear (only inside your video)",
+              use: "Use this subtitle" },
+        ar: { title: "استخدام ملف الترجمة",
+              intro: "يبحث Lisan AI عن كلام الفيديو داخل ملف الترجمة (ويمكن أن يكون ترجمة فيلم كامل)، ويصحّح الكلمات الخاطئة في النص ويتجاهل كل ما عداه. تحلّ كلمات الترجمة محلّ ما سمعه الذكاء الاصطناعي. كيف تريد كتابة الأسطر؟",
+              autoT: "ذكي (موصى به)", autoD: "يبدأ سطر جديد حيث تُظهر الترجمة متحدثًا آخر (شرطة). وما عدا ذلك يتبع أسطر الذكاء الاصطناعي.",
+              joinT: "معًا", joinD: "تبقى الأسطر كما قسّمها الذكاء الاصطناعي. والترجمة ذات السطرين تُكتب معًا كجملة واحدة.",
+              linesT: "منفصلة، سطر لكل سطر في الترجمة", linesD: "يصبح كل سطر في الترجمة سطرًا مستقلًا. استخدمه عندما يكون كل سطر لمتحدث مختلف.",
+              add: "أضف أيضًا أسطر الترجمة التي لم يسمعها الذكاء الاصطناعي (داخل الفيديو فقط)",
+              use: "استخدم هذه الترجمة" }
+    };
+
+    function showSubtitle(file, opts) {
+        opts = opts || {};
+        return new Promise(function (resolve) {
+            injectStyle();
+            var T = TEXT[isArabic() ? "ar" : "en"], S = SUBS_TEXT[isArabic() ? "ar" : "en"];
+            var previouslyFocused = document.activeElement;
+            var overlay = document.createElement("div");
+            overlay.className = "ld-overlay";
+            var box = document.createElement("div");
+            box.className = "ld-box ld-wide" + (isArabic() ? " ld-rtl" : "");
+            box.setAttribute("role", "dialog");
+            box.setAttribute("aria-modal", "true");
+            var title = document.createElement("h3");
+            title.className = "ld-title";
+            title.textContent = S.title;
+            box.appendChild(title);
+            var fn = document.createElement("p");
+            fn.className = "ld-fname";
+            fn.textContent = (file && file.name) ? String(file.name) : "";
+            box.appendChild(fn);
+            var msg = document.createElement("p");
+            msg.className = "ld-msg";
+            msg.style.marginBottom = "12px";
+            msg.textContent = S.intro;
+            box.appendChild(msg);
+
+            var saved = "auto";
+            try { saved = localStorage.getItem("lisan_subs_mode") || "auto"; } catch (e) {}
+            if (saved !== "auto" && saved !== "join" && saved !== "lines") saved = "auto";
+            var group = "ldsub" + Date.now();
+            var labels = [];
+            [["auto", S.autoT, S.autoD], ["join", S.joinT, S.joinD], ["lines", S.linesT, S.linesD]].forEach(function (o) {
+                var lab = document.createElement("label");
+                lab.className = "ld-opt";
+                var r = document.createElement("input");
+                r.type = "radio"; r.name = group; r.value = o[0]; r.checked = (o[0] === saved);
+                var box2 = document.createElement("span");
+                var b = document.createElement("b"); b.textContent = o[1];
+                var d = document.createElement("i"); d.textContent = o[2];
+                box2.appendChild(b); box2.appendChild(d);
+                lab.appendChild(r); lab.appendChild(box2);
+                box.appendChild(lab);
+                labels.push(lab);
+                r.onchange = refresh;
+            });
+            function refresh() {
+                labels.forEach(function (l) { l.className = "ld-opt" + (l.querySelector("input").checked ? " ld-on" : ""); });
+            }
+            refresh();
+            var addBox = null;
+            if (opts.showAdd) {
+                var cl = document.createElement("label");
+                cl.className = "ld-chk";
+                addBox = document.createElement("input");
+                addBox.type = "checkbox";
+                var ct = document.createElement("span"); ct.textContent = S.add;
+                cl.appendChild(addBox); cl.appendChild(ct);
+                cl.style.marginTop = "6px";
+                box.appendChild(cl);
+            }
+            var btns = document.createElement("div");
+            btns.className = "ld-btns";
+            var cancelBtn = document.createElement("button");
+            cancelBtn.type = "button"; cancelBtn.className = "ld-btn ld-cancel"; cancelBtn.textContent = T.cancel;
+            var okBtn = document.createElement("button");
+            okBtn.type = "button"; okBtn.className = "ld-btn ld-ok"; okBtn.textContent = S.use;
+            btns.appendChild(cancelBtn); btns.appendChild(okBtn);
+            box.appendChild(btns);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+
+            var done = false;
+            function close(result) {
+                if (done) return;
+                done = true;
+                document.removeEventListener("keydown", onKey, true);
+                if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+                try { if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus(); } catch (e) {}
+                resolve(result);
+            }
+            function accept() {
+                var mode = "auto";
+                labels.forEach(function (l) { var i = l.querySelector("input"); if (i.checked) mode = i.value; });
+                try { localStorage.setItem("lisan_subs_mode", mode); } catch (e) {}
+                close({ mode: mode, add_missed: !!(addBox && addBox.checked) });
+            }
+            function dismiss() { close(null); }
+            function onKey(e) {
+                if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); dismiss(); return; }
+                if (e.key === "Tab") {
+                    var f = box.querySelectorAll("input,button");
+                    if (!f.length) return;
+                    var first = f[0], last = f[f.length - 1];
+                    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+                    else if (!box.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+                }
+            }
+            okBtn.onclick = accept;
+            cancelBtn.onclick = dismiss;
+            overlay.addEventListener("mousedown", function (e) { if (e.target === overlay) dismiss(); });
+            document.addEventListener("keydown", onKey, true);
+            setTimeout(function () { try { okBtn.focus(); } catch (e) {} }, 0);
+        });
+    }
+
+    // A subtitle file as text. Most are UTF-8; some come as UTF-16 or old Windows text; all of them are read right.
+    function readSubtitleFile(file) {
+        return new Promise(function (resolve, reject) {
+            var fr = new FileReader();
+            fr.onerror = function () { reject(new Error("read")); };
+            fr.onload = function () {
+                var u8 = new Uint8Array(fr.result), txt = "";
+                try {
+                    if (u8.length >= 2 && u8[0] === 0xFF && u8[1] === 0xFE) txt = new TextDecoder("utf-16le").decode(u8);
+                    else if (u8.length >= 2 && u8[0] === 0xFE && u8[1] === 0xFF) txt = new TextDecoder("utf-16be").decode(u8);
+                    else {
+                        try { txt = new TextDecoder("utf-8", { fatal: true }).decode(u8); }
+                        catch (e2) { txt = new TextDecoder("windows-1252").decode(u8); }
+                    }
+                } catch (e) { reject(e); return; }
+                resolve(txt);
+            };
+            fr.readAsArrayBuffer(file);
+        });
+    }
+
     var api = {
         alert: function (message, opts) { return enqueue(function () { return show("alert", message, opts); }); },
         confirm: function (message, opts) { return enqueue(function () { return show("confirm", message, opts); }); },
         prompt: function (message, opts) { return enqueue(function () { return show("prompt", message, opts); }); },
-        trim: function (file, opts) { return enqueue(function () { return showTrim(file, opts); }); }
+        trim: function (file, opts) { return enqueue(function () { return showTrim(file, opts); }); },
+        subtitle: function (file, opts) { return enqueue(function () { return showSubtitle(file, opts); }); },
+        readSubtitle: readSubtitleFile
     };
     window.LisanDialog = api;
     window.lisanAlert = api.alert;

@@ -313,25 +313,65 @@ function previewRow(i, btn) {
 function secFromStamp(t) { const m = String(t).trim().match(/(\d+):(\d+):(\d+)[,.](\d+)/); if (!m) return 0; return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]) + parseInt(m[4]) / 1000; }
 function parseSRT(text) { const cues = []; text.replace(/\r/g, "").split(/\n\s*\n/).forEach(b => { const lines = b.split("\n").filter(l => l.trim() !== ""); if (lines.length < 2) return; const ti = lines.findIndex(l => l.includes("-->")); if (ti < 0) return; const p = lines[ti].split("-->"); if (p.length < 2) return; cues.push({ start: secFromStamp(p[0]), end: secFromStamp(p[1]), text: lines.slice(ti + 1).join(" ") }); }); return cues; }
 function parseSBV(text) { const cues = []; text.replace(/\r/g, "").split(/\n\s*\n/).forEach(b => { const lines = b.split("\n").filter(l => l.trim() !== ""); if (lines.length < 2) return; const m = lines[0].match(/^([^,]+),([^,]+)$/); if (!m) return; cues.push({ start: secFromStamp(m[1]), end: secFromStamp(m[2]), text: lines.slice(1).join(" ") }); }); return cues; }
-function importSubs(evt) {
-    const f = evt.target.files[0]; if (!f) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-        const cues = f.name.toLowerCase().endsWith(".sbv") ? parseSBV(String(reader.result)) : parseSRT(String(reader.result));
-        if (!cues.length) { notify("error", "No cues found in subtitle file."); return; }
-        let matched = 0, added = 0;
-        cues.forEach((cue, ci) => {
-            const isAr = /[\u0600-\u06FF]/.test(cue.text);
-            let best = null, bestOv = 0;
-            segmentsData.forEach(s => { const ov = Math.min(s.end, cue.end) - Math.max(s.start, cue.start); if (ov > bestOv) { bestOv = ov; best = s; } });
-            if (best && bestOv > 0.3 * (cue.end - cue.start)) { if (isAr) best.arabic_text = cue.text; else best.text = cue.text; matched++; }
-            else { segmentsData.push({ segment_id: "imp_" + Date.now() + "_" + ci, start: Number(cue.start.toFixed(2)), end: Number(cue.end.toFixed(2)), speaker: "Speaker 1", gender: "male", emotion: "neutral", text: isAr ? "" : cue.text, arabic_text: isAr ? cue.text : "", locked: false }); added++; }
-        });
-        segmentsData.sort((a, b) => a.start - b.start);
+// Import the English subtitle of this video (see subs_align.py on the server). The words of the subtitle are matched
+// with the words of the transcript, so a subtitle of a whole film, or one on another clock, works: only the part that
+// belongs to this video is used and the rest is ignored. The subtitle's wording replaces what the AI heard.
+function subsText(en, ar) { return window.currentLang === "ar" ? ar : en; }
+const SUBS_REASON_AR = {
+    empty: "ملف الترجمة فارغ.",
+    too_big: "ملف الترجمة كبير جدًا. يجب أن يكون ملف ترجمة عاديًا لفيلم أو فيديو واحد.",
+    no_cues: "لا يبدو هذا ملف ترجمة. اختر ملفًا بصيغة ‎.srt أو ‎.vtt أو ‎.sbv أو ‎.ass.",
+    arabic: "هذه الترجمة بالعربية. اختر الترجمة الإنجليزية لنفس الفيديو.",
+    no_match: "لم نجد كلام هذا الفيديو في ملف الترجمة، لذلك لم يتغير شيء. تأكد أنه الترجمة الإنجليزية لنفس الفيديو."
+};
+async function importSubs(evt) {
+    const f = evt.target.files[0]; evt.target.value = "";
+    if (!f) return;
+    if (!segmentsData.length) { notify("error", subsText("There are no lines yet. Transcribe your video first, then import the subtitle.", "لا توجد أسطر بعد. فرّغ الفيديو أولًا ثم استورد الترجمة.")); return; }
+    let text = "";
+    try { text = await LisanDialog.readSubtitle(f); }
+    catch (e) { notify("error", subsText("We couldn't read that file.", "تعذّرت قراءة هذا الملف.")); return; }
+    const choice = await LisanDialog.subtitle(f, { showAdd: true });
+    if (!choice) return;
+    notify("info", subsText("Matching the subtitle with your transcript...", "جارٍ مطابقة الترجمة مع النص..."));
+    let res, data;
+    try {
+        res = await fetch("/api/subs/align", { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: text, filename: f.name, mode: choice.mode, add_missed: choice.add_missed, segments: segmentsData }) });
+        data = await res.json();
+    } catch (e) { notify("error", subsText("The connection failed. Please try again.", "فشل الاتصال. حاول مرة أخرى.")); return; }
+    if (!res.ok || !data || !data.ok) {
+        const why = (data && data.reason) || "";
+        notify("error", window.currentLang === "ar" && SUBS_REASON_AR[why] ? SUBS_REASON_AR[why] : ((data && data.error) || subsText("We couldn't use this subtitle file.", "تعذّر استخدام ملف الترجمة هذا.")));
+        return;
+    }
+    window._subsUndo = JSON.parse(JSON.stringify(segmentsData));
+    segmentsData = data.segments;
+    segmentsData.sort((a, b) => a.start - b.start);
+    renderTable();
+    const u = document.getElementById("subsUndoBtn"); if (u) u.classList.remove("hidden");
+    const r = data.report || {};
+    const en = [], ar = [];
+    en.push((r.changed || 0) + " line(s) corrected from the subtitle"); ar.push("صُحّح " + (r.changed || 0) + " سطرًا من الترجمة");
+    if (r.split) { en.push(r.split + " extra line(s) made from lines with more than one speaker"); ar.push("أُنشئ " + r.split + " سطرًا إضافيًا من أسطر فيها أكثر من متحدث"); }
+    if (r.added) { en.push(r.added + " line(s) the AI hadn't heard were added"); ar.push("أُضيف " + r.added + " سطرًا لم يسمعه الذكاء الاصطناعي"); }
+    let msgEn = "Subtitle used: " + en.join(", ") + ".", msgAr = "تم استخدام الترجمة: " + ar.join("، ") + ".";
+    if (r.unmatched) { msgEn += " " + r.unmatched + " line(s) found no match and were left as they were."; msgAr += " " + r.unmatched + " سطرًا لم يجد مطابقة فبقي كما هو."; }
+    if (r.locked_skipped) { msgEn += " " + r.locked_skipped + " locked line(s) were not touched."; msgAr += " لم تُمَسّ " + r.locked_skipped + " أسطر مقفلة."; }
+    if (r.missed && !r.added) { msgEn += " " + r.missed + " subtitle line(s) inside your video had no speech in the transcript (tick \"add\" next time to bring them in)."; msgAr += " " + r.missed + " سطرًا من الترجمة داخل الفيديو ليس له كلام في النص (فعّل خيار الإضافة المرة القادمة)."; }
+    if (r.ignored_cues > 0) { msgEn += " " + r.ignored_cues + " subtitle line(s) outside your video were ignored."; msgAr += " تم تجاهل " + r.ignored_cues + " سطرًا من الترجمة خارج الفيديو."; }
+    if (r.arabic_stale) { msgEn += " " + r.arabic_stale + " of the corrected line(s) already had an Arabic translation: press Auto Translate to update them."; msgAr += " " + r.arabic_stale + " من الأسطر المصحّحة لها ترجمة عربية سابقة: اضغط الترجمة التلقائية لتحديثها."; }
+    notify("success", subsText(msgEn, msgAr));
+}
+function undoSubs() {
+    if (!window._subsUndo) return;
+    const run = () => {
+        segmentsData = window._subsUndo; window._subsUndo = null;
         renderTable();
-        notify("success", `Subtitle import: ${matched} line(s) updated, ${added} line(s) added.`);
+        const u = document.getElementById("subsUndoBtn"); if (u) u.classList.add("hidden");
+        notify("success", subsText("The subtitle import was undone.", "تم التراجع عن استيراد الترجمة."));
     };
-    reader.readAsText(f); evt.target.value = "";
+    LisanDialog.confirm(subsText("Undo the subtitle import? Any changes you made to the lines since then will be lost.", "التراجع عن استيراد الترجمة؟ ستضيع أي تعديلات أجريتها على الأسطر منذ ذلك الحين."), { okText: subsText("Undo", "تراجع") }).then(ok => { if (ok) run(); });
 }
 function fmtSRT(sec) { sec = Math.max(0, sec); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60), ms = Math.round((sec - Math.floor(sec)) * 1000); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${String(ms).padStart(3, "0")}`; }
 function fmtSBV(sec) { sec = Math.max(0, sec); const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = Math.floor(sec % 60), ms = Math.round((sec - Math.floor(sec)) * 1000); return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms).padStart(3, "0")}`; }
@@ -4640,6 +4680,7 @@ window.cleanOldClones = function () {
         ["Detect Emotions from Voice", "كشف المشاعر من الصوت"],
         ["✨ Auto-Fix Timing", "✨ إصلاح التوقيت تلقائيًا"],
         ["📥 Import SRT/SBV", "📥 استيراد SRT/SBV"],
+        ["↩ Undo subtitle", "↩ تراجع عن الترجمة"],
         ["💾 Save Project", "💾 حفظ المشروع"],
         ["📂 Load Project", "📂 تحميل المشروع"],
         ["Prepare Voice Cloning", "تحضير استنساخ الصوت"],

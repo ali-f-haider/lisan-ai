@@ -43,6 +43,7 @@ import ffmpeg_utils
 import voice_clean
 import bg_duck
 import lang_check
+import subs_align
 
 LONG_DIR = DATA_DIR / "longjobs"
 LONG_DIR.mkdir(parents=True, exist_ok=True)
@@ -239,7 +240,7 @@ PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "messag
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
                  "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
-                 "media_present", "restoring", "parked_at", "redo_of")
+                 "media_present", "restoring", "parked_at", "redo_of", "subtitle")
 
 
 def result_file(job):
@@ -1593,6 +1594,7 @@ def _run_analysis(job):
         if len(rows) > MAX_SEGMENTS:
             _fail(job, "This video has too much speech to dub in one go. Please split it into shorter videos.", "analysis")
             return
+        rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
         _init_speakers(job, rows)
         _write_segments(job, rows)
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
@@ -1641,6 +1643,10 @@ def _run_analysis(job):
                 pass
         job["speakers"] = [sp["name"] for sp in job["speaker_list"]]
         job["n_segments"] = len(rows)
+        try:
+            _subs_path(job).unlink()          # used (or not usable): the subtitle text is not kept
+        except Exception:
+            pass
         job["status"] = "editing"
         _mark(job, "review", 100, "Ready for you to review.")
         _save(job)
@@ -1663,6 +1669,91 @@ def _run_analysis(job):
             _save(job)
             return
         _fail(job, "We couldn't finish preparing this video. Please try again, or try another file", "analysis")
+
+
+# ------------------------------------------------------------- subtitle file (optional)
+#
+# The user may add the English subtitle of the video. After the speech has been
+# transcribed and BEFORE the translation, the subtitle's wording is put into
+# the transcript's lines (see subs_align.py), so the Arabic is made from the
+# corrected English. The subtitle may belong to a whole film while the video is
+# only a few minutes of it: the matching is done by the words, everything
+# outside the video is ignored. If nothing matches, the transcript stays as it
+# was and the user is told. It costs nothing.
+
+def _subs_path(job):
+    return job_dir(job["id"]) / "subs.txt"
+
+
+def attach_subtitle(job, text, filename, mode="auto", add_missed=False):
+    """Save the user's subtitle for this project (before the estimate is accepted).
+    Returns (True, None) or (False, (message, http_status))."""
+    if job.get("status") not in ("uploading", "estimated"):
+        return False, ("A subtitle file can only be added before you accept the estimate.", 409)
+    text = str(text or "")
+    ok, info = subs_align.check_file(text, filename)
+    if not ok:
+        return False, (subs_align.reason_message(info), 400)
+    mode = mode if mode in subs_align.MODES else "auto"
+    p = _subs_path(job)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, p)
+    with _lock_for(job["id"]):
+        job["subtitle"] = {"name": str(filename or "subtitle")[:120], "mode": mode, "add_missed": bool(add_missed), "cues": int(info)}
+    _save(job)
+    _ev(job, "subtitle_attached", "ok", f"{job['subtitle']['name']} cues={info} mode={mode} add_missed={bool(add_missed)}")
+    return True, None
+
+
+def remove_subtitle(job):
+    if job.get("status") not in ("uploading", "estimated"):
+        return False, ("A subtitle file can only be removed before you accept the estimate.", 409)
+    try:
+        _subs_path(job).unlink()
+    except Exception:
+        pass
+    with _lock_for(job["id"]):
+        job.pop("subtitle", None)
+    _save(job)
+    _ev(job, "subtitle_removed", "ok", "")
+    return True, None
+
+
+def _apply_subtitle(job, rows):
+    """Called by the analysis between 'build the lines' and 'translate'. Returns the rows to go on with.
+    Never fails the job: a subtitle that can't be used just leaves the transcript as it is."""
+    sub = job.get("subtitle")
+    if not sub:
+        return rows
+    p = _subs_path(job)
+    if not p.exists():
+        return rows
+    try:
+        text = p.read_text(encoding="utf-8")
+        new_rows, rep = subs_align.correct_rows(rows, text, sub.get("name", ""), mode=sub.get("mode", "auto"),
+                                                add_missed=bool(sub.get("add_missed")))
+        result = {k: rep.get(k) for k in ("ok", "reason", "mode", "changed", "style", "split", "added", "missed",
+                                           "unmatched", "ignored_cues", "found_from", "found_to", "cues") if k in rep}
+        if rep.get("ok"):
+            if len(new_rows) > MAX_SEGMENTS:
+                result.update({"ok": False, "reason": "too_many"})
+            else:
+                new_rows.sort(key=lambda r: (float(r.get("start") or 0), float(r.get("end") or 0)))
+                for i, r in enumerate(new_rows):
+                    r["segment_id"] = f"seg_{i}"
+                rows = new_rows
+        sub["result"] = result
+        _ev(job, "subtitle_applied", "ok" if result.get("ok") else "partial",
+            ", ".join(f"{k}={v}" for k, v in result.items()))
+    except Exception as ex:
+        import traceback
+        print(f"[longdub] subtitle step skipped: {ex}\n{traceback.format_exc()}")
+        sub["result"] = {"ok": False, "reason": "error"}
+        _ev(job, "subtitle_applied", "failed", f"{type(ex).__name__}: {ex}"[:300])
+    _save(job)
+    return rows
 
 
 # ------------------------------------------------------------- segments
