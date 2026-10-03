@@ -16,6 +16,14 @@ Memory is read from the container's cgroup (the same source as the admin memory 
 Both fall back to the processes visible in the container. Everything here is best effort and never raises into the
 caller: a job is never slowed down or broken by its own measuring.
 
+Cached files: Linux keeps recently read or written files in memory ("page cache") and the container's memory figure
+counts them, although the program does not need them (they are re-read from disk if ever needed again). On the live
+server about 3 of the 4 GB held were such cached files. If the host bills that figure, they cost money for nothing, so
+between jobs this module tells Linux it may forget the cached copies of big files in the data folder and the model
+folders (posix_fadvise DONTNEED: no privileges needed, never touches files' content, never done while a job is running,
+and files that are mapped by a running program simply stay). The admin page shows how much was freed each time.
+Switch it off with RESOURCE_TRIM_CACHE=0.
+
 Switch off with RESOURCE_METER=0. Prices can be changed with RAILWAY_MEM_USD_PER_GB_MIN / RAILWAY_CPU_USD_PER_VCPU_MIN.
 """
 import datetime as _dt
@@ -42,6 +50,10 @@ MEM_USD_PER_GB_MIN = _env_float("RAILWAY_MEM_USD_PER_GB_MIN", 0.000231)
 CPU_USD_PER_VCPU_MIN = _env_float("RAILWAY_CPU_USD_PER_VCPU_MIN", 0.000463)
 CYCLE_DAY = int(_env_float("RAILWAY_CYCLE_DAY", 27))          # day of the month a Railway billing month starts
 SAMPLE_SEC = 30
+TRIM_CACHE = os.environ.get("RESOURCE_TRIM_CACHE", "1").strip() not in ("0", "false", "False", "")
+TRIM_EVERY_SEC = 300
+TRIM_MIN_FILE = 1 << 20              # only files of at least 1 MB are worth the call
+TRIM_BUDGET_SEC = 20.0               # never spend longer than this per round
 JOB_SAMPLE_SEC = 3
 FLUSH_SEC = 300
 KEEP_DAYS = 90
@@ -187,14 +199,81 @@ class _Hours:
 
 _hours = _Hours()
 _started = False
+_active = 0                          # jobs being measured right now (cache is never trimmed while one runs)
+_trim = {"runs": 0, "freed_gb_total": 0.0, "last_ts": None, "last_freed_gb": None, "last_files": 0}
+
+
+def _cache_dirs():
+    dirs, seen = [], set()
+    cands = [DATA_DIR, os.environ.get("HF_HOME"), os.environ.get("TORCH_HOME"), os.environ.get("XDG_CACHE_HOME"),
+             os.environ.get("TRANSFORMERS_CACHE"), os.path.expanduser("~/.cache")]
+    for c in cands:
+        if not c:
+            continue
+        try:
+            rp = os.path.realpath(str(c))
+        except Exception:
+            continue
+        if rp in seen or not os.path.isdir(rp):
+            continue
+        if any(rp.startswith(x + os.sep) for x in seen):          # already inside a folder we walk
+            continue
+        seen.add(rp)
+        dirs.append(rp)
+    return dirs
+
+
+def trim_cache(force=False):
+    """Ask Linux to forget the cached copies of big files in the data and model folders. Returns GB freed (or None)."""
+    global _trim
+    if not (ENABLED and TRIM_CACHE) or not hasattr(os, "posix_fadvise"):
+        return None
+    if _active and not force:
+        return None
+    t0 = time.time()
+    before, _ = read_mem()
+    files = 0
+    for root_dir in _cache_dirs():
+        for root, _dirs, names in os.walk(root_dir):
+            if time.time() - t0 > TRIM_BUDGET_SEC or (_active and not force):
+                break
+            for n in names:
+                fp = os.path.join(root, n)
+                try:
+                    if os.path.islink(fp) or os.path.getsize(fp) < TRIM_MIN_FILE:
+                        continue
+                    fd = os.open(fp, os.O_RDONLY)
+                    try:
+                        os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+                        files += 1
+                    finally:
+                        os.close(fd)
+                except Exception:
+                    continue
+    after, _ = read_mem()
+    freed = max(0.0, (before or 0.0) - (after or 0.0)) if (before is not None and after is not None) else None
+    _trim.update(runs=_trim["runs"] + 1, last_ts=_dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"),
+                 last_freed_gb=None if freed is None else round(freed, 2), last_files=files)
+    if freed:
+        _trim["freed_gb_total"] = round(_trim["freed_gb_total"] + freed, 2)
+    if freed is not None and freed >= 0.05:
+        print(f"[resource] cleared about {freed:.2f} GB of cached files ({files} files looked at)")
+    return freed
 
 
 def _loop():
+    last_trim = 0.0
     while True:
         try:
             _hours.sample()
         except Exception as ex:
             print(f"[resource] sample failed: {ex}")
+        try:
+            if TRIM_CACHE and time.time() - last_trim >= TRIM_EVERY_SEC and not _active:
+                last_trim = time.time()
+                trim_cache()
+        except Exception as ex:
+            print(f"[resource] cache clean-up failed: {ex}")
         time.sleep(SAMPLE_SEC)
 
 
@@ -272,8 +351,11 @@ class JobMeter:
         self._thread = None
 
     def __enter__(self):
+        global _active
         try:
             if ENABLED:
+                _active += 1
+                self._counted = True
                 self.t0 = time.time()
                 self.start_gb, _ = read_mem()
                 self.cpu0 = read_cpu_sec()
@@ -306,6 +388,10 @@ class JobMeter:
                 pass
 
     def __exit__(self, *exc):
+        global _active
+        if getattr(self, "_counted", False):
+            self._counted = False
+            _active = max(0, _active - 1)
         try:
             if self._thread is not None:
                 self._stop.set()
@@ -412,7 +498,8 @@ def summary():
     mins_total = sum(float(r.get("min", 0.0)) for r in r24)
     out = {"enabled": ENABLED, "now_gb": None if now_gb is None else round(now_gb, 2),
            "now_anon_gb": None if anon_gb is None else round(anon_gb, 2),
-           "mem_usd_per_gb_month": round(MEM_USD_PER_GB_MIN * 60 * 24 * 30, 2)}
+           "mem_usd_per_gb_month": round(MEM_USD_PER_GB_MIN * 60 * 24 * 30, 2),
+           "cache_trim": dict(_trim, enabled=bool(TRIM_CACHE))}
     if r24 and mins_total > 0:
         out["last24"] = {"avg_gb": round(sum(float(r.get("gb_min", 0.0)) for r in r24) / mins_total, 2),
                          "avg_anon_gb": round(sum(float(r.get("anon_gb_min", 0.0)) for r in r24) / mins_total, 2),

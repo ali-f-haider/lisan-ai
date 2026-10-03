@@ -1603,6 +1603,8 @@ async function loadResourceUsage() {
   if (d.now_gb != null) bits.push('Now: ' + d.now_gb + ' GB held' + (d.now_anon_gb != null ? ' (' + d.now_anon_gb + ' GB of it real program memory, the rest is cached files)' : '') + '.');
   if (l) bits.push('Last 24 h (' + l.hours + ' h measured): average ' + l.avg_gb + ' GB, highest ' + l.peak_gb + ' GB, idle floor ' + l.idle_floor_gb + ' GB, which alone costs about ' + money((l.idle_floor_gb || 0) * d.mem_usd_per_gb_month) + ' a month.');
   if (c.hours) bits.push('Billing month from ' + c.start + ': ' + money(c.usage_usd) + ' measured so far over ' + c.hours + ' h' + (c.projected_usd != null ? ', about ' + money(c.projected_usd) + ' projected to ' + c.end : '') + '. Compare with the Railway bill.');
+  const ct = d.cache_trim;
+  if (ct && ct.enabled) bits.push('Cached-file clean-up: ' + (ct.runs ? ('ran ' + ct.runs + ' time(s) since the last restart, freed ' + (ct.freed_gb_total || 0) + ' GB in total, the last run ' + (ct.last_freed_gb != null ? ct.last_freed_gb + ' GB' : 'nothing measurable') + '. Compare "Now" above with the memory graph in Railway to see whether it lowers what is billed.') : 'not run yet (it runs every 5 minutes when no dubbing is in progress).'));
   const names = { longdub_analysis: 'long dub analysis', longdub_dub: 'long dub dubbing', shortdub_transcribe: 'short dub transcribe', shortdub_generate: 'short dub voices' };
   const js = Object.keys(c.jobs || {}).map(k => (names[k] || k) + ': ' + c.jobs[k].n + ' jobs, average ' + money(c.jobs[k].avg_usd));
   if (js.length) bits.push('Average cost per job this month: ' + js.join('; ') + '.');
@@ -2119,7 +2121,7 @@ function renderEconTable(d) {
   const haveSd = avg('shortdub_transcribe') != null || avg('shortdub_generate') != null;
   const ldM = haveLd ? ci.longdub_jobs * ((avg('longdub_analysis') || 0) + (avg('longdub_dub') || 0)) : null;
   const sdM = haveSd ? ci.shortdub_jobs * ((avg('shortdub_transcribe') || 0) + (avg('shortdub_generate') || 0)) : null;
-  const idleM = (m.idle_usd_per_hour != null && m.hours >= 6) ? m.idle_usd_per_hour * ci.period_days * 24 : null;
+  const idleM = (m.idle_usd_per_hour != null && m.hours >= 1) ? m.idle_usd_per_hour * ci.period_days * 24 : null;
   const ld = ldM != null ? ldM : ci.longdub_minutes * a.ld_per_min, sd = sdM != null ? sdM : ci.shortdub_jobs * a.sd_per_job;
   const scene = (ci.shortdub_jobs + ci.longdub_jobs) * a.scene_per_job;
   const stripeFees = d.revenue.source === 'stripe' ? r.fees : ci.stripe_fees_estimate;
