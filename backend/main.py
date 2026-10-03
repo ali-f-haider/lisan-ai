@@ -18,6 +18,7 @@ from fastapi import FastAPI, UploadFile, File, Form, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import ClientDisconnect
 
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, INWORLD_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
@@ -78,8 +79,25 @@ try:
             _scrubber = EventScrubber(denylist=list(DEFAULT_DENYLIST) + ["code", "admin_code", "token", "pin", "otp", "secret", "api_key", "authorization", "cookie"], recursive=True)
         except Exception:
             _scrubber = None
+        def _sentry_before_send(event, hint):
+            # A customer closing the tab or losing signal in the middle of an upload is normal, not a bug.
+            # Starlette reports it as ClientDisconnect (sometimes wrapped in an ExceptionGroup); drop those.
+            try:
+                exc = (hint or {}).get("exc_info", (None, None, None))[1]
+                stack = [exc]
+                while stack:
+                    e = stack.pop()
+                    if e is None:
+                        continue
+                    if type(e).__name__ == "ClientDisconnect":
+                        return None
+                    stack.extend(getattr(e, "exceptions", None) or [])
+            except Exception:
+                pass
+            return event
         sentry_sdk.init(
             dsn=SENTRY_DSN,
+            before_send=_sentry_before_send,
             traces_sample_rate=0.1,
             send_default_pii=False,
             disabled_integrations=[HuggingfaceHubIntegration()],
@@ -5066,7 +5084,13 @@ async def longdub_chunk(job_id: str, index: int, request: Request):
         clen = 0
     if clen > longdub_service.CHUNK_BYTES + 4096:
         return JSONResponse({"error": "The upload was interrupted. Please try again."}, status_code=413)
-    data = await request.body()
+    try:
+        data = await request.body()
+    except ClientDisconnect:
+        # The browser dropped the connection part-way through this chunk (a phone changing network, a closed
+        # laptop lid, Safari pausing a background tab). Nothing has been written yet -- the chunk is only saved after
+        # it has arrived whole -- and the page already sends the same chunk again, so this is not an error.
+        return JSONResponse({"error": "The upload was interrupted. Please try again."}, status_code=400)
     ok, msg = await asyncio.to_thread(longdub_service.write_chunk, job, index, data)
     if not ok:
         return JSONResponse({"error": msg}, status_code=400)
