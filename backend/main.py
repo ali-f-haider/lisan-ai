@@ -5951,7 +5951,7 @@ def _get_pricing_config():
         # the ceiling as % of the server's memory limit, and the limit itself in GB (0 = read it from the container).
         "concurrency": {"max": 2, "needGb": 5.0, "pct": 80, "limitGb": 0},
         # The AI helper (chat box): on/off, the whole site's daily spending cap in dollars, daily messages per signed-in user / per guest.
-        "assistant": {"enabled": True, "dailyBudgetUsd": 2.0, "userDailyMsgs": 60, "guestDailyMsgs": 15, "notes": ""},
+        "assistant": {"enabled": True, "dailyBudgetUsd": 2.0, "userDailyMsgs": 60, "guestDailyMsgs": 15, "notes": "", "creditsPerCent": 1.0},
     }
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return defaults
@@ -6066,7 +6066,7 @@ def _assistant_cfg(v):
         return min(hi, max(lo, x)) if x == x else d
     return {"enabled": bool(v.get("enabled", True)), "dailyBudgetUsd": num("dailyBudgetUsd", 0, 1000, 2.0),
             "userDailyMsgs": int(num("userDailyMsgs", 1, 1000, 60)), "guestDailyMsgs": int(num("guestDailyMsgs", 0, 1000, 15)),
-            "notes": str(v.get("notes") or "").strip()[:6000]}
+            "notes": str(v.get("notes") or "").strip()[:6000], "creditsPerCent": num("creditsPerCent", 0, 100, 1.0)}
 
 
 def _apply_assistant(cfg=None):
@@ -7326,6 +7326,16 @@ def _assistant_pricing_text():
                  f"lip-sync for long dubs up to {p['lipsync_max_min']:g} minutes.")
     except Exception:
         pass
+    try:
+        cpc = float(assistant_service.SETTINGS.get("credits_per_cent") or 0)
+        if cpc <= 0:
+            L.append("Using this AI helper chat is free.")
+        else:
+            L.append(f"Using this AI helper chat costs credits: about {assistant_service.avg_usd() * cpc / 0.01:.2f} of a credit per question on average "
+                     "(longer questions and longer answers cost a little more). The counter at the top of the chat shows what the current chat has cost; "
+                     "it is billed in whole credits as the fractions add up. When the credits are gone the chat stops until the user adds credits.")
+    except Exception:
+        pass
     return "\n".join(L)
 
 
@@ -7435,23 +7445,74 @@ class AssistantRequest(BaseModel):
     job_id: str = ""
 
 
+_assist_owed = {}                    # uid -> credits owed for chat (a fraction below 1), carried between messages
+_assist_owed_lock = threading.Lock()
+_ASSIST_OWED_FILE = Path(DATA_DIR) / "assistant_owed.json"
+try:
+    _assist_owed.update({str(k): float(v) for k, v in json.loads(_ASSIST_OWED_FILE.read_text(encoding="utf-8")).items()})
+except Exception:
+    pass
+
+
+def _assist_owed_save():
+    try:
+        _ASSIST_OWED_FILE.write_text(json.dumps({k: round(v, 4) for k, v in _assist_owed.items() if v > 0}), encoding="utf-8")
+    except Exception:
+        pass
+
+
 @app.post("/api/assistant")
 def assistant_chat(req: AssistantRequest, request: Request):
-    """One question to the AI helper. Open to visitors who are not signed in (they get help only, no account data)."""
+    """One question to the AI helper. For signed-in users only. It is paid: the real Gemini cost of the question and
+    answer x the admin's credits-per-cent is added to what the user owes, and whole credits are taken as it adds up."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"ok": False, "answer": "Please sign in to use the helper.", "support": False, "login": True}, status_code=401)
     if _rate_limited(request, "assistant", 20, 600):
         return JSONResponse({"ok": False, "answer": "You are sending messages too fast. Please wait a minute.", "support": False}, status_code=429)
     contents = assistant_service.clean_messages(req.messages)
     if not contents:
         return JSONResponse({"ok": False, "answer": "", "support": False}, status_code=400)
-    uid = _current_uid(request)
-    key = f"u:{uid}" if uid else f"g:{_client_ip(request)}"
-    acct = _assistant_account_text(uid, (req.job_id or "")[:40]) if uid else ""
-    out = assistant_service.handle(contents, _assistant_pricing_text(), acct, bool(uid), key, uid, (req.lang or "")[:5], (req.page or "")[:60])
-    if uid:
+    cpc = float(assistant_service.SETTINGS.get("credits_per_cent") or 0)
+    bal = None
+    try:
+        bal = get_credits(uid)
+    except Exception:
+        pass
+    if cpc > 0 and bal is not None and bal < 1:
+        return JSONResponse({"ok": False, "nocredits": True, "billed": True, "credits": bal, "cost": 0,
+                             "answer": "You have no credits left, so the helper is paused. Add credits and ask again.", "support": False},
+                            headers={"Cache-Control": "no-store"})
+    key = f"u:{uid}"
+    acct = _assistant_account_text(uid, (req.job_id or "")[:40])
+    out = assistant_service.handle(contents, _assistant_pricing_text(), acct, True, key, uid, (req.lang or "")[:5], (req.page or "")[:60])
+    usd = float(out.pop("usd", 0) or 0)
+    cost = usd * cpc / 0.01 if (cpc > 0 and out.get("ok")) else 0.0
+    if cost > 0:
+        with _assist_owed_lock:
+            owed = _assist_owed.get(uid, 0.0) + cost
+            whole = int(owed)
+            if bal is not None:
+                whole = min(whole, int(bal))
+            if whole >= 1:
+                try:
+                    deduct_credits(uid, whole, "assistant", None)
+                    owed -= whole
+                    if bal is not None:
+                        bal -= whole
+                    assistant_service.add_charged(whole)
+                except Exception as ex:
+                    print("[assistant] could not take credits:", ex)
+            _assist_owed[uid] = min(owed, 5.0)
+            _assist_owed_save()
         try:
-            out["credits"] = get_credits(uid)
+            _assistant_acct_cache.clear()
         except Exception:
             pass
+    out["cost"] = round(cost, 4)
+    out["billed"] = cpc > 0
+    if bal is not None:
+        out["credits"] = bal
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
@@ -7459,7 +7520,7 @@ def assistant_chat(req: AssistantRequest, request: Request):
 def assistant_credits(request: Request):
     """The chat box's credit counter: the signed-in visitor's own balance (nothing for guests)."""
     uid = _current_uid(request)
-    out = {"signed_in": bool(uid), "credits": None}
+    out = {"signed_in": bool(uid), "credits": None, "billed": float(assistant_service.SETTINGS.get("credits_per_cent") or 0) > 0}
     if uid:
         try:
             out["credits"] = get_credits(uid)

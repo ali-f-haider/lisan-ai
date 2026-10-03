@@ -32,7 +32,7 @@ KEEP_LOG_LINES = 3000
 SUPPORT_EMAIL = "contact@lisanai.org"
 
 # ---------------------------------------------------------------- settings (admin page)
-SETTINGS = {"enabled": True, "daily_budget_usd": 2.0, "user_daily_msgs": 60, "guest_daily_msgs": 15, "notes": ""}
+SETTINGS = {"enabled": True, "daily_budget_usd": 2.0, "user_daily_msgs": 60, "guest_daily_msgs": 15, "notes": "", "credits_per_cent": 1.0}
 
 
 def set_settings(cfg):
@@ -54,19 +54,20 @@ def set_settings(cfg):
         SETTINGS["user_daily_msgs"] = int(num("userDailyMsgs", 1, 1000, 60))
         SETTINGS["guest_daily_msgs"] = int(num("guestDailyMsgs", 0, 1000, 15))
         SETTINGS["notes"] = str(cfg.get("notes") or "").strip()[:6000]
+        SETTINGS["credits_per_cent"] = num("creditsPerCent", 0, 100, 1.0)
     except Exception:
         pass
 
 
 # ---------------------------------------------------------------- today's tally (resets at UTC midnight)
 _lock = threading.Lock()
-_today = {"day": "", "usd": 0.0, "msgs": 0, "per": {}}
+_today = {"day": "", "usd": 0.0, "msgs": 0, "per": {}, "credits": 0.0}
 
 
 def _roll():
     d = _dt.datetime.utcnow().strftime("%Y-%m-%d")
     if _today["day"] != d:
-        _today.update({"day": d, "usd": 0.0, "msgs": 0, "per": {}})
+        _today.update({"day": d, "usd": 0.0, "msgs": 0, "per": {}, "credits": 0.0})
 
 
 def check_allowed(key, is_guest):
@@ -91,10 +92,24 @@ def _count(key, usd):
         _today["per"][key] = _today["per"].get(key, 0) + 1
 
 
+def add_charged(credits):
+    """Credits taken from users for chat messages today (shown on the admin page next to our Gemini cost)."""
+    with _lock:
+        _roll()
+        _today["credits"] += float(credits or 0)
+
+
+def avg_usd():
+    """Our average Gemini cost of one message today (0.0035 until there are a few messages)."""
+    with _lock:
+        _roll()
+        return (_today["usd"] / _today["msgs"]) if _today["msgs"] >= 5 else 0.0035
+
+
 def today():
     with _lock:
         _roll()
-        return {"day": _today["day"], "usd": round(_today["usd"], 4), "msgs": _today["msgs"], "people": len(_today["per"]),
+        return {"day": _today["day"], "usd": round(_today["usd"], 4), "msgs": _today["msgs"], "people": len(_today["per"]), "credits": round(_today["credits"], 2),
                 "budget_usd": SETTINGS["daily_budget_usd"], "enabled": SETTINGS["enabled"]}
 
 
@@ -174,6 +189,7 @@ WHAT A CHARGE ON THE ACCOUNT MEANS (credit history names)
 - long_dub_estimate: the small fee for the long-dub price estimate (it counts toward the total, not extra).
 - long_dub_analysis: reading the video: voice separation, transcription, speakers, translation.
 - long_dub_dub: the final long-dub price: Arabic voice, voice copies, final merge.
+- assistant: chatting with this AI helper. It is charged in whole credits as the small costs of the questions add up (a question costs a fraction of a credit; the counter at the top of the chat shows what this chat has cost so far).
 - long_dub_refund (negative number): credits given back automatically, for example when a line or voice could not be generated or a job failed.
 
 STATUS WORDS
@@ -395,4 +411,4 @@ def handle(contents, pricing_text, account_text, signed_in, key, uid, lang, page
     if not r["ok"]:
         return {"ok": False, "answer": "I couldn't answer just now. Please try again in a moment, or write to the team.", "support": True}
     log(uid, not signed_in, lang, question, r["answer"], r["usd"], r["support"], page)
-    return {"ok": True, "answer": r["answer"], "support": r["support"]}
+    return {"ok": True, "answer": r["answer"], "support": r["support"], "usd": r["usd"]}

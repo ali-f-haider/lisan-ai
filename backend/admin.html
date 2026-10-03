@@ -387,12 +387,12 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         </div>
         <div class="form-group" style="background:#0f172a;border-radius:6px;padding:12px;">
           <label style="color:#e2e8f0;">AI helper (the chat box on the site)</label>
-          <span class="muted">Visitors can ask the chat box how Lisan AI works, what things cost and, when signed in, what is going on with their own account (credits, charges, jobs, files). It can only answer; it cannot change anything. Each message costs about 0.1&ndash;0.3 US cents of Gemini. Saved with the Save button; the server picks it up within a minute. Needs the column <code>assistant</code>: run <code>alter table pricing_config add column if not exists assistant jsonb;</code> once, otherwise these four values are not saved (the defaults stay in force).</span>
+          <span class="muted">The chat box is for signed-in users only. They can ask how Lisan AI works, what things cost and what is going on with their own account (credits, charges, jobs, files). It can only answer; it cannot change anything. Each message costs us about 0.3&ndash;0.4 US cents of Gemini and the user is charged for it: the real Gemini cost of the question and answer times the number below (1 = one credit per cent of Gemini cost, so about a third of a credit per question; longer questions and answers cost a little more). The chat shows the user a counter of what the current chat has cost; whole credits are taken from the balance as the fractions add up, and the chat pauses when the balance reaches 0. Saved with the Save button; the server picks it up within a minute. Needs the column <code>assistant</code>: run <code>alter table pricing_config add column if not exists assistant jsonb;</code> once, otherwise these four values are not saved (the defaults stay in force).</span>
           <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;">
             <label style="font-weight:normal;"><input type="checkbox" id="asstEnabled" checked> Helper switched on</label>
             <label style="font-weight:normal;">Most it may spend per day (US $, whole site)<br><input type="number" id="asstBudget" style="width:110px;" step="0.5" min="0" max="1000"></label>
-            <label style="font-weight:normal;">Messages per signed-in user per day<br><input type="number" id="asstUser" style="width:110px;" step="5" min="1" max="1000"></label>
-            <label style="font-weight:normal;">Messages per visitor not signed in, per day<br><input type="number" id="asstGuest" style="width:110px;" step="5" min="0" max="1000"></label>
+            <label style="font-weight:normal;">Messages per user per day<br><input type="number" id="asstUser" style="width:110px;" step="5" min="1" max="1000"></label>
+            <label style="font-weight:normal;">Credits charged per US cent of Gemini cost (0 = chat is free)<br><input type="number" id="asstCpc" style="width:110px;" step="0.5" min="0" max="100"></label>
           </div>
           <div style="margin-top:10px;">
             <label style="font-weight:normal;color:#e2e8f0;">Teach the helper (your notes: it treats them as the truth and they win over the Help page and everything else)</label>
@@ -1033,7 +1033,7 @@ async function loadAssistantToday() {
   try {
     const r = await api('/api/admin/assistant'); if (!r.ok) { out.textContent = 'Could not read today\'s numbers.'; return; }
     const t = r.data.today || {};
-    out.textContent = 'Today (UTC day ' + (t.day || '?') + '): ' + (t.msgs || 0) + ' messages from ' + (t.people || 0) + ' people, about $' + (t.usd || 0).toFixed(4) + ' of the $' + (t.budget_usd || 0) + ' daily limit.' + (t.enabled === false ? ' The helper is switched OFF.' : '');
+    out.textContent = 'Today (UTC day ' + (t.day || '?') + '): ' + (t.msgs || 0) + ' messages from ' + (t.people || 0) + ' people, about $' + (t.usd || 0).toFixed(4) + ' of the $' + (t.budget_usd || 0) + ' daily limit; charged to users today: ' + (t.credits || 0) + ' credits.' + (t.enabled === false ? ' The helper is switched OFF.' : '');
   } catch (e) { out.textContent = 'Could not read today\'s numbers.'; }
 }
 async function loadAssistantLog() {
@@ -1210,7 +1210,7 @@ async function loadPricing() {
   loadConcInfo();
   { const a = r.data.assistant || {}; const e1 = document.getElementById('asstEnabled'); if (e1) e1.checked = a.enabled !== false;
     const sv = (id, v, d) => { const e = document.getElementById(id); if (e) e.value = (v === undefined || v === null) ? d : v; };
-    sv('asstNotes', a.notes, ''); sv('asstBudget', a.dailyBudgetUsd, 2); sv('asstUser', a.userDailyMsgs, 60); sv('asstGuest', a.guestDailyMsgs, 15); }
+    sv('asstNotes', a.notes, ''); sv('asstBudget', a.dailyBudgetUsd, 2); sv('asstUser', a.userDailyMsgs, 60); sv('asstCpc', a.creditsPerCent, 1); }
   loadAssistantToday();
   document.getElementById('siteGateEnabled').checked = r.data.siteGateEnabled !== false;
   document.getElementById('elevenAlertsEnabled').checked = r.data.elevenAlertsEnabled !== false;
@@ -1344,7 +1344,7 @@ async function savePricing() {
     concurrency: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
       return { max: Math.round(n('concMax', 2, 1, 4)), needGb: n('concNeed', 5, 1, 20), pct: n('concPct', 80, 30, 95), limitGb: n('concLimit', 0, 0, 256) }; })(),
     assistant: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
-      return { enabled: !!document.getElementById('asstEnabled')?.checked, dailyBudgetUsd: n('asstBudget', 2, 0, 1000), userDailyMsgs: Math.round(n('asstUser', 60, 1, 1000)), guestDailyMsgs: Math.round(n('asstGuest', 15, 0, 1000)), notes: (document.getElementById('asstNotes')?.value || '').trim().slice(0, 6000) }; })(),
+      return { enabled: !!document.getElementById('asstEnabled')?.checked, dailyBudgetUsd: n('asstBudget', 2, 0, 1000), userDailyMsgs: Math.round(n('asstUser', 60, 1, 1000)), creditsPerCent: n('asstCpc', 1, 0, 100), notes: (document.getElementById('asstNotes')?.value || '').trim().slice(0, 6000) }; })(),
     geminiCreditsPerCent: (function(){ const v = parseFloat(document.getElementById('geminiCreditsPerCent')?.value); return isNaN(v) || v <= 0 ? 1 : Math.min(100, Math.max(0.1, v)); })(),
     gaMeasurementId: (document.getElementById('gaMeasurementId')?.value || '').trim(),
     packs: packs,
