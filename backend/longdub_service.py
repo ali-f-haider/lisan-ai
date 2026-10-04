@@ -140,6 +140,8 @@ class Hooks:
     log_event = staticmethod(lambda uid, job_id, step, status, detail="", credits=None: None)
     # allowed(uid) -> (True, "") or (False, "message"): Studio-plan check.
     allowed = staticmethod(lambda uid: (True, ""))
+    # watermark(uid) -> True when this user's finished files carry the free-tier watermark (see watermark.py).
+    watermark = staticmethod(lambda uid: False)
 
 
 def configure(**kwargs):
@@ -3290,7 +3292,7 @@ def set_lipsync_resolution(job, uid, res):
     return True, None
 
 
-def confirm(job, uid, expected_due, room="", tracks=False):
+def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True):
     """User reviewed everything and accepts the exact price: charge it and
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
@@ -3336,6 +3338,7 @@ def confirm(job, uid, expected_due, room="", tracks=False):
             job["dub_plan"]["lipsync"] = lip_plan
         job["room_pref"] = room if room in ROOM_CHOICES else "auto"
         job["want_tracks"] = bool(tracks)
+        job["music_pref"] = "keep" if keep_music else "silence"     # music under the original voices: kept where possible / silenced as before
         job["status"] = "confirmed"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -4231,10 +4234,13 @@ def _run_dubbing(job):
                 try:
                     _sf = wd / "speech_spans.json"
                     _sp = [(float(x[0]), float(x[1])) for x in json.loads(_sf.read_text(encoding="utf-8"))] if _sf.exists() else None
-                    _mres = bg_duck.mute_speech(bg, wd / "vocals_mono.wav", wd / "background_muted.wav", spans=_sp)
+                    _mres = bg_duck.mute_speech(bg, wd / "vocals_mono.wav", wd / "background_muted.wav", spans=_sp,
+                                                keep=(job.get("music_pref") != "silence"))
                     if _mres["muted"]:
                         bg_sep = bg_use = wd / "background_muted.wav"
                     _ev(job, "background_mute", "ok" if _mres["muted"] else "info", _mres["reason"])
+                    if _mres.get("keep_note"):
+                        _ev(job, "background_music_keep", "ok" if _mres.get("kept_music") else "info", _mres["keep_note"])
                 except Exception as _mex:
                     print(f"[longdub] background mute skipped: {_mex}")
                 pauses_ = []
@@ -4368,6 +4374,22 @@ def _run_dubbing(job):
             ffmpeg_utils.run_ffmpeg(cmd_)
         if not tmp_final.exists() or tmp_final.stat().st_size < 1000:
             raise Exception("the final file was not produced")
+        wm_on = False
+        try:
+            if Hooks.watermark(job.get("uid")):
+                wm_on = True
+                if video_out:
+                    # only a video is marked (the logo); audio files and the separate tracks never are
+                    _mark(job, "finish", 97, "Adding the free-version watermark...")
+                    import watermark as _wmk
+                    _wr = _wmk.apply_video(tmp_final)
+                    _ev(job, "watermark", "ok" if _wr["ok"] else "failed", _wr["reason"])
+                    if not _wr["ok"]:
+                        print(f"[watermark] FAILED for long dub {job['id']}: {_wr['reason']} -- delivered without")
+                        wm_on = False
+        except Exception as _wex:
+            print(f"[watermark] error for long dub {job['id']}: {_wex}")
+            wm_on = False
         os.replace(tmp_final, OUTPUT_DIR / final_name)
         size = (OUTPUT_DIR / final_name).stat().st_size
         _ev(job, "output_saved", "ok", f"{final_name} {size // 1024} KB")
@@ -4394,6 +4416,8 @@ def _run_dubbing(job):
                          "finished": _now()}
         if lip_summary is not None:
             job["result"]["lipsync"] = lip_summary
+        if wm_on:
+            job["result"]["watermark"] = True
         if tracks_info:
             job["result"]["tracks"] = tracks_info
         if bg_info and bg_info["state"] != "mixed":

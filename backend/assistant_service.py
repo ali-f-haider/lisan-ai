@@ -236,6 +236,12 @@ GLOSSARY (Dub Long Video; free)
 SUBTITLE FILES OF THE DUB (Dub Long Video; free)
 - When the lines are ready (review step, and on the finished dub's page) the customer can download them as a subtitle file: Arabic, English or both, as SRT or VTT. Arabic subtitles have no tashkeel and long lines are split. It costs no credits. (The short dub has its own SRT button.)
 
+WATERMARK ON FREE VIDEOS
+- An account that has only used the free starting credits (no credit pack and no subscription ever bought) gets a small semi-transparent Lisan AI logo in the bottom-right corner of the videos it makes (short dub merge, lip-sync, long dub). Sound, audio files, the separate tracks and subtitle files are never marked. After the customer buys any credit pack or subscribes, the videos they make afterwards have no logo (it can take a few minutes to show). Videos made earlier keep the logo; to get a clean one the customer makes it again (a short dub: merge again, 1 credit; a long dub: the project redo, charged as usual). Never promise to remove the logo from an existing video.
+
+MUSIC WHILE THE ORIGINAL SPEAKERS TALK (Dub Long Video; free)
+- The voice separation leaves a faint copy of the original English voice in the background. By default it is removed while the original speakers talk. At the price step the box "Keep the background music under the original voices" (ticked by default) removes only that voice copy and keeps the music and effects playing at the same moment. It checks itself: a stretch where the voice cannot be separated cleanly from the music is silenced as before, so the result is never worse than silence. Unticking the box always silences the background while people speak. It cannot be perfect: with very quiet music a faint trace of the original voice can remain.
+
 SEPARATE TRACKS (Dub Long Video; free, optional)
 - At the price step, before confirming, the box "Also save the dubbed voices and the music and effects as separate files". After the dub the customer can download the dubbed voices alone and the music and effects alone (M4A). Together they make the final mix again, for video editors. No credits, but about 3 MB per minute of video of the customer's storage; kept as long as the final file. It must be ticked before confirming: it cannot be added to a finished dub (press Redo this project to dub again).
 

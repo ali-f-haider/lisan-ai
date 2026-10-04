@@ -502,12 +502,266 @@ def mute_gain_curve(mask):
     return g
 
 
-def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None):
+# ---------------------------------------------------------------- keep the music under the original voices
+#
+# Silencing the whole background while people speak removes the faint copy of the voices, but it also removes the music
+# and the effects that play at that moment. The alternative used here: the separated voices track is the exact "map" of
+# the leftover voice. Wherever the voices have energy (per time and frequency cell) the background is lowered by just the
+# amount the leftover could account for, so music in other cells is kept. How much of the background in a cell is
+# leftover voice is estimated from the lower percentile of (background / voices) in the neighbourhood, so a sound that
+# is really there (music) does not count as leftover. It cannot be perfect, so every stretch of about 8 seconds is
+# checked afterwards: if the loudness of what is left still follows the loudness of the original voice, the voice is
+# still in it, and that stretch is silenced the old way. The result is never worse than the plain silence.
+
+KEEP_MODE = os.environ.get("BG_MUSIC_KEEP", "1").strip().lower() not in ("0", "off", "no", "false")
+KEEP_OVER = _env_float("BG_MUSIC_KEEP_OVER", 2.5)       # how much more than the estimate is taken away (power subtraction factor)
+KEEP_FLOOR_DB = -35.0          # a cell is never lowered by more than this
+KEEP_PCT = 25                  # lower percentile of the neighbourhood used as the estimate of the leftover
+KEEP_VOICE_FLOOR_REL_DB = -45.0   # voices this far below the loudest voice (per block) are ignored
+KEEP_CORR_MAX = _env_float("BG_MUSIC_KEEP_CORR", 0.35)   # voice-band loudness of the result may follow the voice at most this much
+KEEP_WINDOW_SEC = 8.0          # a stretch is judged (and falls back to silence) on its own
+KEEP_MIN_JUDGE_SEC = 1.0       # shorter stretches take the verdict of the longer ones
+KEEP_CORE_SEC = 30.0           # seconds processed per block
+KEEP_CTX_SEC = 1.5             # extra seconds read on each side of a block (never audible)
+KEEP_MAX_SEC = _env_float("BG_MUSIC_KEEP_MAX_SEC", 1500.0)   # give up (and silence the old way) when it takes longer
+_KNF, _KHOP = 2048, 512
+_FS = HOP * RATE // ANALYSIS_RATE      # 441 samples = 10 ms at 44.1 kHz
+
+
+def _read_seg(path, s0, n, ch):
+    """n samples (RATE) from sample s0 of a file, `ch` channels, zero padded at the end. float32 (n, ch)."""
+    r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{s0 / RATE:.6f}", "-t", f"{n / RATE + 0.02:.4f}", "-i", str(path),
+                        "-vn", "-ac", str(ch), "-ar", str(RATE), "-f", "f32le", "-"], capture_output=True, timeout=300)
+    x = np.frombuffer(r.stdout, dtype="<f4")
+    x = x[:(x.size // ch) * ch].reshape(-1, ch)
+    out = np.zeros((n, ch), dtype=np.float32)
+    k = min(n, x.shape[0])
+    out[:k] = x[:k]
+    return out
+
+
+def _kspec(x):
+    from scipy.signal import stft
+    return stft(x, RATE, nperseg=_KNF, noverlap=_KNF - _KHOP, boundary="zeros", padded=True)[2]
+
+
+def _kispec(Z, n):
+    from scipy.signal import istft
+    y = istft(Z, RATE, nperseg=_KNF, noverlap=_KNF - _KHOP, boundary=True)[1]
+    return y[:n] if y.size >= n else np.pad(y, (0, n - y.size))
+
+
+def _keep_gain(ZL, ZR, ZV, zone):
+    """Gain per time-frequency cell (1 = keep) from the background (L, R) and the separated voices."""
+    from scipy.ndimage import uniform_filter, percentile_filter
+    Bm = (np.abs(ZL) + np.abs(ZR)) / 2.0
+    Vm = np.abs(ZV)
+    vth = float(Vm.max()) * 10.0 ** (KEEP_VOICE_FLOOR_REL_DB / 20.0) + 1e-12
+    ratio = Bm / (Vm + vth)
+    F, T = ratio.shape
+    ds = 2
+    F2, T2 = F // ds, T // ds
+    if F2 < 6 or T2 < 8:
+        return np.ones_like(Bm)
+    R = ratio[:F2 * ds, :T2 * ds].reshape(F2, ds, T2, ds).mean((1, 3))
+    r = percentile_filter(R, KEEP_PCT, size=(5, 6), mode="nearest")
+    r = uniform_filter(r, size=(3, 3), mode="nearest")
+    r = np.repeat(np.repeat(r, ds, 0), ds, 1)
+    r = np.pad(r, ((0, F - r.shape[0]), (0, T - r.shape[1])), mode="edge")
+    noise = KEEP_OVER * r * Vm
+    G = np.sqrt(np.maximum(1.0 - (noise / (Bm + 1e-12)) ** 2, 0.0))
+    G = np.maximum(uniform_filter(G, size=(3, 3), mode="nearest"), 10.0 ** (KEEP_FLOOR_DB / 20.0))
+    return np.where(zone[None, :], G, 1.0)
+
+
+def _band_env_db(x):
+    """Loudness (dB) of the voice band (300 - 3400 Hz) of a mono signal, one value per 10 ms."""
+    from scipy.signal import butter, sosfilt
+    y = sosfilt(butter(4, [300.0, 3400.0], btype="band", fs=RATE, output="sos"), x)
+    n = (y.size // _FS) * _FS
+    f = y[:n].reshape(-1, _FS).astype(np.float64)
+    return 10.0 * np.log10((f * f).mean(1) + 1e-12)
+
+
+def _corr(a, b):
+    a = a - a.mean()
+    b = b - b.mean()
+    den = float(np.sqrt((a * a).sum() * (b * b).sum()))
+    return float((a * b).sum() / den) if den > 0 else 0.0
+
+
+def keep_verdicts(mask, env_v, env_o):
+    """Splits every speech stretch of `mask` (True per 10 ms) into windows of about KEEP_WINDOW_SEC and decides for
+    each whether the leftover voice is gone from the result (keep) or still follows the voice (silence it).
+    Returns (hard_mask, report): hard_mask = frames to silence the old way."""
+    n = mask.size
+    hard = np.zeros(n, dtype=bool)
+    dm = np.diff(np.concatenate([[0], mask.astype(np.int8), [0]]))
+    starts, ends = np.where(dm == 1)[0], np.where(dm == -1)[0]
+    wlen = int(KEEP_WINDOW_SEC / FRAME_SEC)
+    minj = int(KEEP_MIN_JUDGE_SEC / FRAME_SEC)
+    wins, ok_frames, bad_frames = [], 0, 0
+    for a, z in zip(starts, ends):
+        k = max(1, int(round((z - a) / wlen)))
+        edges = np.linspace(a, z, k + 1).astype(int)
+        for i in range(k):
+            w0, w1 = int(edges[i]), int(edges[i + 1])
+            w1c = min(w1, env_v.size, env_o.size)
+            c = None
+            if w1c - w0 >= minj:
+                c = _corr(env_o[w0:w1c], env_v[w0:w1c])
+                if c > KEEP_CORR_MAX:
+                    bad_frames += w1c - w0
+                else:
+                    ok_frames += w1c - w0
+            wins.append((w0, w1, c))
+    default_keep = ok_frames > bad_frames          # short stretches follow the long ones (nothing judged: silence)
+    bad_windows = 0
+    for w0, w1, c in wins:
+        keep = default_keep if c is None else (c <= KEEP_CORR_MAX)
+        if not keep:
+            hard[w0:w1] = True
+            bad_windows += 1
+    cs = [c for _a, _b, c in wins if c is not None]
+    return hard, {"windows": len(wins), "silenced_windows": bad_windows,
+                  "corr_median": None if not cs else round(float(np.median(cs)), 2)}
+
+
+def keep_music(bg_path, vocals_path, out_path, mask, max_sec=None):
+    """Writes `out_path` (16-bit stereo WAV, 44.1 kHz): the background with the leftover of the original voices taken out
+    where `mask` is True and the music kept; stretches where that did not work are silenced instead.
+    max_sec = how long it may take at most (default KEEP_MAX_SEC); a job that is going to take longer is given up early
+    and the caller silences the old way.
+    Returns {"ok", "reason", "kept_share" (share of the speech time with the music kept), ...}. Never raises."""
+    import time
+    info = {"ok": False, "reason": "", "kept_share": None, "windows": None, "silenced_windows": None, "corr_median": None}
+    out_path = Path(out_path)
+    soft = out_path.with_name(out_path.name + ".soft.wav")
+    part = out_path.with_name(out_path.name + ".keep.wav")
+    t_start = time.time()
+    enc = None
+    try:
+        if vocals_path is None or not Path(vocals_path).exists():
+            info["reason"] = "no separated voices"
+            return info
+        n_frames = int(mask.size)
+        total = n_frames * _FS
+        core = int(KEEP_CORE_SEC * RATE) // _FS * _FS
+        ctx = int(KEEP_CTX_SEC * RATE) // _FS * _FS
+        env_v = np.full(n_frames, -120.0, dtype=np.float32)
+        env_o = np.full(n_frames, -120.0, dtype=np.float32)
+        enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", str(CH), "-i", "-",
+                                "-c:a", "pcm_s16le", str(soft)], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        pos = 0
+        while pos < total:
+            spent = time.time() - t_start
+            cap = KEEP_MAX_SEC if max_sec is None else float(max_sec)
+            if spent > cap or (pos >= 2 * core and spent * total / max(1, pos) > cap * 1.25):
+                raise RuntimeError("would take too long")
+            n_core = min(core, total - pos)
+            f0, f1 = pos // _FS, (pos + n_core) // _FS
+            s0 = max(0, pos - ctx)
+            s1 = min(total, pos + n_core + ctx)
+            n = s1 - s0
+            B = _read_seg(bg_path, s0, n, CH).astype(np.float64)
+            V = _read_seg(vocals_path, s0, n, 1)[:, 0].astype(np.float64)
+            a, b = pos - s0, pos - s0 + n_core
+            if mask[f0:f1].any():
+                g0 = s0 // _FS
+                m10 = np.zeros(n // _FS + 2, dtype=bool)
+                seg = mask[g0:g0 + m10.size]
+                m10[:seg.size] = seg
+                ZL, ZR, ZV = _kspec(B[:, 0]), _kspec(B[:, 1]), _kspec(V)
+                zt = m10[((np.arange(ZL.shape[1]) * _KHOP) // _FS).clip(0, m10.size - 1)]
+                G = _keep_gain(ZL, ZR, ZV, zt)
+                O = np.stack([_kispec(ZL * G, n), _kispec(ZR * G, n)], 1)
+            else:
+                O = B
+            i0 = a // _FS
+            k = f1 - f0
+            env_v[f0:f1] = _band_env_db(V)[i0:i0 + k]
+            env_o[f0:f1] = _band_env_db(O.mean(1))[i0:i0 + k]
+            enc.stdin.write(np.clip(O[a:b], -1.0, 1.0).astype("<f4").tobytes())
+            pos += n_core
+        enc.stdin.close()
+        enc.wait()
+        done, enc = enc, None
+        if done.returncode != 0 or not soft.exists() or soft.stat().st_size < 1000:
+            raise RuntimeError("ffmpeg failed while writing the result")
+        hard, rep = keep_verdicts(mask, env_v, env_o)
+        info.update(rep)
+        info["kept_share"] = round(1.0 - float((hard & mask).sum()) / max(1.0, float(mask.sum())), 3)
+        if hard.any():
+            gain = mute_gain_curve(hard)
+            centers = (np.arange(gain.size) + 0.5) * _FS
+            dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(soft), "-vn", "-ac", str(CH), "-ar", str(RATE),
+                                    "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            enc2 = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(RATE), "-ac", str(CH), "-i", "-",
+                                     "-c:a", "pcm_s16le", str(part)], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            p2, left, fb = 0, b"", 4 * CH
+            try:
+                while True:
+                    buf = dec.stdout.read(CHUNK * fb)
+                    if not buf:
+                        break
+                    buf = left + buf
+                    m_ = (len(buf) // fb) * fb
+                    left = buf[m_:]
+                    if not m_:
+                        continue
+                    x = np.frombuffer(buf[:m_], dtype="<f4").reshape(-1, CH).astype(np.float64)
+                    g = np.interp(np.arange(p2, p2 + x.shape[0]), centers, gain)[:, None]
+                    enc2.stdin.write(np.clip(x * g, -1.0, 1.0).astype("<f4").tobytes())
+                    p2 += x.shape[0]
+            finally:
+                try:
+                    dec.stdout.close()
+                except Exception:
+                    pass
+                dec.wait()
+                try:
+                    enc2.stdin.close()
+                except Exception:
+                    pass
+                enc2.wait()
+            if enc2.returncode != 0 or p2 == 0 or not part.exists() or part.stat().st_size < 1000:
+                raise RuntimeError("ffmpeg failed while silencing")
+            os.replace(part, out_path)
+        else:
+            os.replace(soft, out_path)
+        info["ok"] = True
+        info["reason"] = (f"music kept under {info['kept_share'] * 100:.0f}% of the speech time "
+                          f"({info['silenced_windows']} of {info['windows']} stretches silenced instead)")
+        return info
+    except Exception as ex:
+        info["ok"] = False
+        info["reason"] = f"music keeping skipped ({ex})"[:200]
+        return info
+    finally:
+        try:
+            if enc is not None and enc.poll() is None:
+                enc.stdin.close()
+                enc.kill()
+        except Exception:
+            pass
+        for p in (soft, part):
+            try:
+                if p.exists():
+                    p.unlink()
+            except Exception:
+                pass
+
+
+def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None, keep_max_sec=None):
     """Writes `out_path` (16-bit stereo WAV, 44.1 kHz) = the background silenced while the original voices speak.
     spans = [(start, end)] of the spoken words (the speech map written at transcription); without it the loudness of
     the separated voices is followed instead. Returns {"muted": bool, "reason": str, "share": share of the time silenced,
-    "leak_db", "speech_db"}; "muted" is False when nothing was done (the caller then keeps the background). Never raises."""
-    info = {"muted": False, "reason": "", "share": None, "leak_db": None, "speech_db": None}
+    "leak_db", "speech_db", "kept_music" (bool), "kept_share", "keep_note"}; "muted" is False when nothing was done (the
+    caller then keeps the background). keep = keep the music under the voices where that works (None: the BG_MUSIC_KEEP
+    setting, on by default); stretches where it does not work are silenced as before. Never raises."""
+    info = {"muted": False, "reason": "", "share": None, "leak_db": None, "speech_db": None,
+            "kept_music": False, "kept_share": None, "keep_note": "", "keep_windows": None, "keep_silenced": None,
+            "keep_corr": None}
     out_path = Path(out_path)
     part = out_path.with_name(out_path.name + ".part.wav")
     try:
@@ -567,6 +821,22 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None):
                                   + (f" ({info['leak_db']:+.1f} dB) " if info["leak_db"] is not None else " ")
                                   + "so it holds no copy of the voices")
                 return info
+        want_keep = KEEP_MODE if keep is None else bool(keep)
+        if want_keep and vocals_path is not None and mode == "auto" and not (info["leak_db"] is not None and info["leak_db"] >= MUTE_LEAK_DB):
+            want_keep = False       # nothing but a faint copy is in it and it is very quiet: there is no music to keep
+            info["keep_note"] = "no music to keep (the background is almost silent while people speak)"
+        if want_keep and vocals_path is not None:
+            kr = keep_music(bg_path, vocals_path, out_path, mask, max_sec=keep_max_sec)
+            if kr["ok"]:
+                info["muted"] = True
+                info["kept_music"] = bool(kr["kept_share"] is not None and kr["kept_share"] >= 0.05)
+                info["kept_share"] = kr["kept_share"]
+                info["keep_windows"], info["keep_silenced"], info["keep_corr"] = kr["windows"], kr["silenced_windows"], kr["corr_median"]
+                info["keep_note"] = kr["reason"] + (f"; typical voice-band match {kr['corr_median']}" if kr.get("corr_median") is not None else "")
+                info["reason"] = (f"voices taken out of the background ({share * 100:.0f}% of the time, from the {src}); "
+                                  + kr["reason"])
+                return info
+            info["keep_note"] = kr["reason"]
         gain = mute_gain_curve(mask)
         centers = (np.arange(gain.size) + 0.5) * (HOP * RATE / ANALYSIS_RATE)
         dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(bg_path), "-vn", "-ac", str(CH), "-ar", str(RATE),
@@ -1031,6 +1301,7 @@ def build_reaction_layer(vocals_path, spans, dub_path, out_path, gain_db=None, m
 
 # ---------------------------------------------------------------- short dubbing: one call for the whole background
 
+SHORT_KEEP_MAX_SEC = _env_float("BG_MUSIC_KEEP_SHORT_MAX_SEC", 90.0)   # the short dubbing waits for this in one web request
 SHORT_MIX_FILTER = "volume=1.0"      # what ffmpeg_utils.mix_two_audio does to the background (nothing: its level comes from the original)
 
 
@@ -1075,7 +1346,7 @@ def prepare_background(bg_path, vocals_path, original, work_dir, tag, seed=0):
                     spans_ = [(float(x[0]), float(x[1])) for x in json.loads(sf.read_text(encoding="utf-8"))]
             except Exception:
                 spans_ = None
-            mres = mute_speech(bg_path, vocals_path, muted, spans=spans_)
+            mres = mute_speech(bg_path, vocals_path, muted, spans=spans_, keep_max_sec=SHORT_KEEP_MAX_SEC)
             if mres["muted"] and muted.exists() and muted.stat().st_size > 1000:
                 sep_used, mute_done = muted, True
                 res["muted"] = True

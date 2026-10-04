@@ -592,7 +592,7 @@ def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
     shutil.copy(source_video, raw_video)
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None):
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None, watermark=False):
     key = f"lipsync_{job_id}"
     upload_path = None
     try:
@@ -671,6 +671,14 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             mux_audio_into_video(raw_video, dubbed_audio, final_video)
         try: raw_video.unlink()
         except Exception: pass
+        if watermark:       # free tier: the semi-transparent logo (see watermark.py); never stops the job
+            try:
+                import watermark as _wmk
+                jobs_progress[key]["message"] = "Adding the free-version watermark..."
+                _wr = _wmk.apply_video(final_video)
+                print(f"[watermark] lip-sync {job_id}: {'ok' if _wr['ok'] else 'FAILED, delivered without'} ({_wr['reason']})")
+            except Exception as _wex:
+                print(f"[watermark] lip-sync {job_id}: error {_wex}")
 
         jobs_progress[key].update({"status": "done", "percent": 100,
                                    "message": "Lip-sync complete.",

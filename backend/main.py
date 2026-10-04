@@ -37,6 +37,7 @@ import lipsync_service
 import longdub_service
 import subs_align
 import subs_export
+import watermark
 import r2_backup
 import business_metrics
 import alibaba_cost
@@ -844,7 +845,7 @@ def user_info(request: Request):
             subscription_status = sub_prof.get("subscription_status") or "none"
 
         result = {"name": display_name, "uid": user_id, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
-                  "subscription_status": subscription_status}
+                  "subscription_status": subscription_status, "watermark": bool(_wm_needed(user_id))}
         if subscription_status == "active":
             # Which plan, when it renews/ends, and whether it's been cancelled
             # (still active until the paid period ends) -- for the Account
@@ -2521,6 +2522,70 @@ def _final_output_cutoff(path, now, sub_cache):
     if uid not in sub_cache:
         sub_cache[uid] = _subscription_active(uid)
     return (now - CLEANUP_FINAL_OUTPUT_DAYS * 86400) if sub_cache[uid] else payonce_cutoff
+
+
+# ---------- watermark for the free tier ----------
+# Somebody who has only used the free starting credits (no subscription, no credit pack and no subscription invoice
+# ever) gets the semi-transparent Lisan AI logo on the videos they make -- see watermark.py. A video is marked once,
+# when it is made (merge, lip-sync, long dub). Audio files and sound are never marked. Anything that is not clearly "free" (the lookup failed, a payment exists,
+# a test account listed in WATERMARK_EXEMPT_UIDS) is never marked. Switch off for everybody: WATERMARK_FREE=0.
+_wm_cache = {}                 # uid -> (is_free, valid_until)
+_WM_FREE_TTL = 300             # seconds a "free" answer is kept (so a first purchase shows up quickly)
+_WM_PAID_TTL = 3600
+
+
+def _wm_rows(path):
+    """Rows of a Supabase read, or None when the read failed (so "no rows" and "could not look" are never mixed up)."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    import urllib.request as _ur
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    try:
+        req = _ur.Request(f"{SUPABASE_URL}/rest/v1/{path}", headers=hdrs)
+        with _ur.urlopen(req, timeout=8) as r:
+            rows = json.load(r)
+        return rows if isinstance(rows, list) else None
+    except Exception as ex:
+        print(f"[watermark] could not read {path.split('?')[0]}: {ex}")
+        return None
+
+
+def _is_free_user(uid):
+    """True only when it is certain that this account has never paid. False when unsure."""
+    uid = str(uid or "").strip()
+    if not _re_sec.fullmatch(r"[0-9A-Fa-f-]{8,64}", uid):
+        return False
+    now = _time.time()
+    hit = _wm_cache.get(uid)
+    if hit and hit[1] > now:
+        return hit[0]
+    prof = _wm_rows(f"profiles?id=eq.{uid}&select=subscription_status")
+    if prof is None:
+        return False
+    free = True
+    if prof and prof[0].get("subscription_status") == "active":
+        free = False
+    if free:
+        for tbl in ("credit_orders", "subscription_invoices"):
+            rows = _wm_rows(f"{tbl}?uid=eq.{uid}&select=*&limit=1")
+            if rows is None:
+                return False            # could not look: not cached, not marked
+            if rows:
+                free = False
+                break
+    _wm_cache[uid] = (free, now + (_WM_FREE_TTL if free else _WM_PAID_TTL))
+    return free
+
+
+def _wm_needed(uid):
+    """Do this user's files carry the watermark?"""
+    try:
+        if not watermark.ENABLED or not uid or watermark.exempt(uid):
+            return False
+        return _is_free_user(uid)
+    except Exception as ex:
+        print(f"[watermark] check failed: {ex}")
+        return False
 
 
 def _uid_for_subscription(stripe_subscription_id):
@@ -4413,8 +4478,13 @@ def merge_video(req: MergeRequest, request: Request):
         clean_dub.unlink()
     except Exception:
         pass
+    marked = False
+    if _wm_needed(uid):
+        _wr = watermark.apply_video(final)
+        marked = bool(_wr["ok"])
+        print(f"[watermark] merge {req.job_id}: {'ok' if marked else 'FAILED, delivered without'} ({_wr['reason']})")
 
-    return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background}
+    return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background, "watermarked": marked}
 
 # Optional reference photos for Step 7 -- uploaded separately from the
 # /api/lipsync call itself (this just saves them to disk under the job's
@@ -4525,7 +4595,7 @@ def lipsync(req: LipSyncRequest, request: Request):
     threading.Thread(target=lipsync_service.lipsync_worker,
                      # only Wan 3.0 is used: whatever provider/model/key a caller puts in the request body is ignored
                      args=(req.job_id, "wan3", "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
-                           DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, res),
+                           DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, res, _wm_needed(uid)),
                      daemon=True).start()
     return {"status": "started", "resolution": res, "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
 
@@ -4985,7 +5055,7 @@ def _ld_allowed(uid):
     return False, "Dub Long Video is available with the Studio plan. Upgrade from the Buy menu or the Pricing page."
 
 
-longdub_service.configure(get_credits=get_credits, charge=_ld_charge, refund=_ld_refund,
+longdub_service.configure(get_credits=get_credits, charge=_ld_charge, refund=_ld_refund, watermark=_wm_needed,
                           send_email=_ld_email, email_error=lambda: _ld_email_last.get("reason", ""), pricing=_ld_pricing,
                           log_event=_ld_log_event, allowed=_ld_allowed)
 
@@ -5027,7 +5097,7 @@ def longdub_config(request: Request):
         "chunk_bytes": longdub_service.CHUNK_BYTES,
         "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"], "flat": p["flat"],
-        "credits": get_credits(uid), "studio": bool(LONGDUB_ALL_TIERS or _ld_is_studio(uid)),
+        "credits": get_credits(uid), "studio": bool(LONGDUB_ALL_TIERS or _ld_is_studio(uid)), "watermark": bool(_wm_needed(uid)),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
         "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
                     "rates": lipsync_rates(p["lipsync_per_sec"]), "max_min": p["lipsync_max_min"]},
@@ -5432,6 +5502,7 @@ class LongDubConfirm(BaseModel):
     expected_due: int = -1
     room: str = ""
     tracks: bool = False        # also keep the dubbed voices and the music / effects as separate files
+    keep_music: bool = True     # keep the music under the original voices where that can be done cleanly (False: silence it there)
 
 
 @app.post("/api/longdub/{job_id}/confirm")
@@ -5449,7 +5520,7 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     _blk = _storage_block(uid, _need)
     if _blk is not None:
         return _blk          # before the dubbing is charged
-    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks)
+    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks, body.keep_music)
     if not ok:
         extra = {}
         if e[1] == 409 and job.get("status") == "editing":

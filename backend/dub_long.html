@@ -320,6 +320,9 @@ var T = {
     subsLang: "Language", subsAr: "Arabic", subsEn: "English", subsBoth: "Arabic + English", subsFmt: "Format", subsGet: "⬇️ Download subtitles",
     tracksHeading: "Separate tracks", tracksNote: "The dubbed voices and the music and sound effects as two separate files, each at the level it has in the final file. Together they make the final mix again, so you can re-mix them in a video editor.",
     trackVoices: "⬇️ Dubbed voices only", trackEffects: "⬇️ Music and effects only",
+    wmNote: "Free version: you have not bought credits or a subscription yet, so a video you make carries a small semi-transparent Lisan AI logo in the corner. Audio files have none. Buy any credit pack or subscribe, and the videos you make afterwards have no logo.",
+    musicAsk: "Keep the background music under the original voices",
+    musicAskNote: "The original English voice is taken out of the background and the music and effects that play at the same moment stay. Where that cannot be done cleanly the background is silenced there, as before. Untick to always silence it while people speak.",
     tracksAsk: "Also save the dubbed voices and the music and effects as separate files",
     tracksAskNote: "For video editors who want to mix the sound themselves. Free, but the two files take about 3 MB per minute of video from your storage.",
     glossHeading: "Glossary (optional)",
@@ -567,6 +570,9 @@ var T = {
     subsLang: "اللغة", subsAr: "العربية", subsEn: "الإنجليزية", subsBoth: "العربية + الإنجليزية", subsFmt: "الصيغة", subsGet: "⬇️ تنزيل الترجمة",
     tracksHeading: "مسارات منفصلة", tracksNote: "الأصوات المدبلجة والموسيقى والمؤثرات الصوتية في ملفين منفصلين، كلٌّ بمستواه في الملف النهائي. يجمعهما المزج النهائي من جديد، فيمكنك إعادة مزجهما في برنامج مونتاج.",
     trackVoices: "⬇️ الأصوات المدبلجة فقط", trackEffects: "⬇️ الموسيقى والمؤثرات فقط",
+    wmNote: "النسخة المجانية: لم تشترِ رصيداً أو اشتراكاً بعد، لذلك يحمل الفيديو الذي تصنعه شعار Lisan AI صغيراً شبه شفاف في الزاوية. أما الملفات الصوتية فبلا علامة. اشترِ أي باقة رصيد أو اشترك، وتصبح الفيديوهات التي تصنعها بعد ذلك بلا شعار.",
+    musicAsk: "أبقِ موسيقى الخلفية تحت أصوات المتحدثين الأصليين",
+    musicAskNote: "يُزال صوت المتحدث الإنجليزي من الخلفية وتبقى الموسيقى والمؤثرات التي تعمل في اللحظة نفسها. وحيث لا يمكن ذلك بنظافة تُكتم الخلفية هناك كما كان من قبل. ألغِ التحديد لكتم الخلفية دائماً أثناء كلام المتحدثين.",
     tracksAsk: "احفظ أيضاً الأصوات المدبلجة والموسيقى والمؤثرات كملفات منفصلة",
     tracksAskNote: "لمن يريد مزج الصوت بنفسه في برنامج مونتاج. مجاني، لكن الملفين يأخذان نحو 3 ميغابايت لكل دقيقة فيديو من مساحة التخزين.",
     glossHeading: "قاموس المصطلحات (اختياري)",
@@ -1058,6 +1064,7 @@ function renderJob() {
       if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
       if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";
       if (r.lipsync) h += "<p class='note'>" + esc(T.doneLip(r.lipsync.synced, r.lipsync.clips)) + "</p>";
+      if (r.watermark && r.kind === "video") h += "<div class='ld-warn'>" + esc(T.wmNote) + ' <a href="/pricing">' + esc(T.buyCredits) + "</a></div>";
       h += '<div class="ld-row-btns"><a class="ld-dl" href="/api/longdub/' + esc(j.id) + '/download">' + esc(T.download) + "</a></div>";
       h += doneExtrasHtml(j);
     } else {
@@ -2229,6 +2236,7 @@ window.addEventListener("beforeunload", function (e) { if (uploading) { e.preven
 
 // ---- confirm step
 var roomPref = "auto";
+var musicPref = true;       // keep the music under the original voices (confirm step)
 function renderConfirm() {
   var a = $("confirmArea"); if (!a) return;
   var h = '<div class="ld-terms" style="margin-top:22px;"><h4>' + esc(T.confirmHeading) + "</h4>";
@@ -2253,10 +2261,12 @@ function renderConfirm() {
     if (lastErr) h += "<p class='ld-err'>" + esc(lastErr) + "</p>";
     var short = p.credits !== null && p.credits !== undefined && p.credits < p.due;
     if (short) h += "<p class='ld-err'>" + esc(T.notEnough(p.due, p.credits)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
+    if (cfg && cfg.watermark) h += "<div class='ld-warn'>" + esc(T.wmNote) + ' <a href="/pricing">' + esc(T.buyCredits) + "</a></div>";
     h += '<div class="ld-room"><label for="roomPref">' + esc(T.roomLabel) + '</label><select id="roomPref">' +
          [["auto", T.roomAuto], ["lighter", T.roomLighter], ["much_lighter", T.roomMuch], ["off", T.roomNone]].map(function (o) {
            return '<option value="' + o[0] + '"' + (roomPref === o[0] ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") +
          "</select></div><p class='note' style='margin-top:2px;'>" + esc(T.roomNote) + "</p>";
+    h += '<label class="ld-agree" style="margin-top:12px;"><input type="checkbox" id="musicBox"' + (musicPref ? " checked" : "") + "><span>" + esc(T.musicAsk) + "</span></label><p class='note' style='margin-top:2px;'>" + esc(T.musicAskNote) + "</p>";
     h += '<label class="ld-agree" style="margin-top:12px;"><input type="checkbox" id="tracksBox"' + (tracksPref ? " checked" : "") + "><span>" + esc(T.tracksAsk) + "</span></label><p class='note' style='margin-top:2px;'>" + esc(T.tracksAskNote) + "</p>";
     h += "<p class='note'>" + esc(T.confirmRecap + (p.lipsync && p.lipsync.clips ? T.confirmRecapLip : "")) + "</p>";
     var noFile = cur && cur.media_present === false;
@@ -2269,6 +2279,7 @@ function renderConfirm() {
   var b;
   if ((b = $("btnPrice"))) b.onclick = loadPrice;
   var rp = $("roomPref"); if (rp) rp.onchange = function () { roomPref = rp.value; };
+  var mb = $("musicBox"); if (mb) mb.onchange = function () { musicPref = mb.checked; };
   var tb = $("tracksBox"); if (tb) tb.onchange = function () { tracksPref = tb.checked; };
   var pr = $("priceLipRes"); if (pr) pr.onchange = function () { changeLipRes(pr, function () { loadPrice(true); }); };
   if ((b = $("btnConfirm"))) b.onclick = doConfirm;
@@ -2304,7 +2315,7 @@ function doConfirm() {
   ask.then(function (yes) {
     if (!yes) return;
     var b = $("btnConfirm"); if (b) b.disabled = true;
-    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, tracks: tracksPref }); }).then(function (r) {
+    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, tracks: tracksPref, keep_music: musicPref }); }).then(function (r) {
       if (!r.ok) {
         lastErr = r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr);
         if (r.status === 409 && r.data.price) {

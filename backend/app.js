@@ -1273,6 +1273,7 @@ async function mergeVideo() {
                 <a class="blue" href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download Pure Vocals (MP3)</a>
             </div>`;
         notify("success", "Video merged successfully!");
+        if (data.watermarked) notify("info", subsText("Free version: your video carries a small semi-transparent Lisan AI logo. Buy credits or subscribe to make videos without it.", "النسخة المجانية: يحمل الفيديو شعار Lisan AI صغيراً شبه شفاف. اشترِ رصيداً أو اشترك لتصنع فيديوهات بدونه."));
     } catch (e) { document.getElementById("mergeButton").disabled = false; notify("error", e.message); }
 }
 
@@ -7506,4 +7507,33 @@ window.cleanOldClones = function () {
         } catch (e) {}
         return r;
     };
+})();
+
+// ---- free-tier watermark notice (the files of an account that has never paid carry a small mark, see watermark.py) ----
+(function () {
+    function build() {
+        if (document.getElementById("wmBanner")) return;
+        var bar = document.getElementById("userBar");
+        if (!bar) return;
+        var d = document.createElement("div");
+        d.id = "wmBanner";
+        d.style.cssText = "margin:8px 16px;padding:9px 14px;border-radius:8px;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;font-size:13px;line-height:1.5;";
+        d.innerHTML = '<span data-wm="en"><strong>Free version:</strong> videos you make carry a small semi-transparent Lisan AI logo. <a href="/pricing" style="color:#92400e;font-weight:700;">Buy credits or subscribe</a> to make videos without it.</span>' +
+            '<span data-wm="ar" dir="rtl" style="display:none;"><strong>النسخة المجانية:</strong> تحمل الفيديوهات التي تصنعها شعار Lisan AI صغيراً شبه شفاف. <a href="/pricing" style="color:#92400e;font-weight:700;">اشترِ رصيداً أو اشترك</a> لتصنع فيديوهات بدونه.</span>';
+        bar.insertAdjacentElement("afterend", d);
+        function sync() {
+            var ar = window.currentLang === "ar";
+            var a = d.querySelector('[data-wm="ar"]'), e = d.querySelector('[data-wm="en"]');
+            if (a) a.style.display = ar ? "" : "none";
+            if (e) e.style.display = ar ? "none" : "";
+        }
+        sync();
+        setInterval(sync, 1500);
+    }
+    function start() {
+        fetch("/api/user/info", { credentials: "same-origin" }).then(function (r) { return r.json(); }).then(function (u) {
+            if (u && u.watermark) { window._lisanWatermark = true; build(); }
+        }).catch(function () {});
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
