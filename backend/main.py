@@ -36,6 +36,7 @@ import ffmpeg_utils
 import lipsync_service
 import longdub_service
 import subs_align
+import subs_export
 import r2_backup
 import business_metrics
 import alibaba_cost
@@ -2436,7 +2437,8 @@ EXPIRY_CHECK_INTERVAL_HOURS = 6
 # than an intermediate working file. Keep this in sync with the filenames
 # written in main.py (merge_video), eleven_service.py, tts_service.py and
 # lipsync_service.py. Also what r2_backup.py treats as "back this up".
-_FINAL_OUTPUT_SUFFIXES = ("_final_dubbed.mp3", "_final_dubbed_video.mp4", "_final_lipsync.mp4")
+_FINAL_OUTPUT_SUFFIXES = ("_final_dubbed.mp3", "_final_dubbed_video.mp4", "_final_lipsync.mp4",
+                          "_final_voices.m4a", "_final_effects.m4a")      # the last two: the optional separate tracks of a long dub
 
 
 def _is_final_output(path):
@@ -5429,6 +5431,7 @@ def longdub_preview(job_id: str, request: Request):
 class LongDubConfirm(BaseModel):
     expected_due: int = -1
     room: str = ""
+    tracks: bool = False        # also keep the dubbed voices and the music / effects as separate files
 
 
 @app.post("/api/longdub/{job_id}/confirm")
@@ -5440,10 +5443,13 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     if blocked:
         return blocked
     _vid = str(job.get("ext") or "").lower() in longdub_service.VIDEO_EXTS
-    _blk = _storage_block(uid, int(job.get("size") or 0) if _vid else int((job.get("size") or 0) * 0.2))
+    _need = int(job.get("size") or 0) if _vid else int((job.get("size") or 0) * 0.2)
+    if body.tracks:
+        _need += int(float(job.get("duration") or 0) * 50000)      # two AAC files at 192 kbit/s
+    _blk = _storage_block(uid, _need)
     if _blk is not None:
         return _blk          # before the dubbing is charged
-    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room)
+    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks)
     if not ok:
         extra = {}
         if e[1] == 409 and job.get("status") == "editing":
@@ -5465,6 +5471,80 @@ def longdub_download(job_id: str, request: Request):
     base = Path(job.get("filename") or "video").stem[:80] or "video"
     ext = p.suffix
     return FileResponse(p, media_type="video/mp4" if ext == ".mp4" else "audio/mpeg", filename=f"{base}_dubbed{ext}")
+
+
+@app.get("/api/longdub/{job_id}/track/{which}")
+def longdub_track(job_id: str, which: str, request: Request):
+    """The optional separate tracks of a finished dub: the dubbed voices alone, or the music and effects alone."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    p = longdub_service.track_file(job, which)
+    if p is None:
+        return JSONResponse({"error": "This file was not made, or it has expired or was deleted."}, status_code=404)
+    base = Path(job.get("filename") or "video").stem[:80] or "video"
+    label = {"voices": "dubbed_voices", "effects": "music_and_effects"}[which]
+    return FileResponse(p, media_type="audio/mp4", filename=f"{base}_{label}.m4a")
+
+
+@app.get("/api/longdub/{job_id}/subtitles")
+def longdub_subtitles(job_id: str, request: Request, lang: str = "ar", fmt: str = "srt"):
+    """Subtitle file (.srt or .vtt) of the lines of a long dub: Arabic, English or both. Free; nothing is generated."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    if lang not in subs_export.LANGS or fmt not in subs_export.FORMATS:
+        return JSONResponse({"error": "Choose Arabic, English or both, and SRT or VTT."}, status_code=400)
+    if job.get("status") not in ("editing", "done"):
+        return JSONResponse({"error": "The subtitles are available once the lines are ready."}, status_code=409)
+    text, n = subs_export.export(longdub_service.read_segments(job), lang, fmt)
+    if not n:
+        return JSONResponse({"error": "There is no text for this language yet."}, status_code=404)
+    base = (Path(job.get("filename") or "video").stem[:80] or "video")
+    fname = f"{base}_{lang}.{fmt}"
+    from urllib.parse import quote as _q
+    ascii_name = "".join(c if (c.isascii() and c not in '"\\;') else "_" for c in fname) or f"subtitles.{fmt}"
+    return Response(
+        content=("\ufeff" + text).encode("utf-8"),
+        media_type=("text/vtt" if fmt == "vtt" else "application/x-subrip") + "; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{_q(fname)}"})
+
+
+class LongDubGlossary(BaseModel):
+    text: str = ""
+
+
+@app.put("/api/longdub/{job_id}/glossary")
+def longdub_glossary_put(job_id: str, body: LongDubGlossary, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, res = longdub_service.set_glossary(job, body.text[:20000])
+    if not ok:
+        return JSONResponse({"error": res[0]}, status_code=res[1])
+    return res
+
+
+@app.get("/api/longdub/{job_id}/glossary/check")
+def longdub_glossary_check(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    missing, mine = longdub_service.glossary_check(job)
+    return {"missing": len(missing), "mine": len(mine)}
+
+
+@app.post("/api/longdub/{job_id}/glossary/apply")
+def longdub_glossary_apply(job_id: str, request: Request):
+    if _rate_limited(request, "glossary", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, res = longdub_service.glossary_apply(job)
+    if not ok:
+        return JSONResponse({"error": res[0]}, status_code=res[1])
+    return res
 
 
 class LongDubRetranslate(BaseModel):
@@ -5581,6 +5661,8 @@ _MY_JOB_FILE_SUFFIXES = {
     "audio": "_final_dubbed.mp3",
     "video": "_final_dubbed_video.mp4",
     "lipsync": "_final_lipsync.mp4",
+    "voices": "_final_voices.m4a",        # long dub: the dubbed voices alone (optional)
+    "effects": "_final_effects.m4a",      # long dub: music and sound effects alone (optional)
 }
 
 
@@ -5734,7 +5816,9 @@ def my_jobs(request: Request):
             "has_audio": audio.exists(),
             "has_video": video.exists(),
             "has_lipsync": lip.exists(),
-            "bytes": sum(p.stat().st_size for p in existing),
+            "bytes": sum(p.stat().st_size for p in existing) + sum(
+                (OUTPUT_DIR / f"{jid}{_MY_JOB_FILE_SUFFIXES[k]}").stat().st_size for k in ("voices", "effects")
+                if (OUTPUT_DIR / f"{jid}{_MY_JOB_FILE_SUFFIXES[k]}").exists()),
             "expires_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(newest_mtime + CLEANUP_FINAL_OUTPUT_DAYS * 86400)),
         })
     jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
@@ -5754,7 +5838,7 @@ def my_job_file(job_id: str, kind: str, request: Request):
     p = OUTPUT_DIR / f"{job_id}{suffix}"
     if not p.exists():
         return JSONResponse({"error": "This file has expired or was already deleted."}, status_code=404)
-    media_type = "audio/mpeg" if kind == "audio" else "video/mp4"
+    media_type = "audio/mpeg" if kind == "audio" else ("audio/mp4" if kind in ("voices", "effects") else "video/mp4")
     return FileResponse(p, media_type=media_type, filename=p.name)
 
 

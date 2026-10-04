@@ -228,6 +228,17 @@ SUBTITLE FILE (fixes words the AI misheard; free)
 - If the subtitle cannot be matched (it is another video's subtitle, or in another language), nothing is changed and the user is told. If a line is not found in the subtitle it stays as the AI heard it.
 - The subtitle's wording replaces what the AI heard, so if the subtitle is a loose paraphrase of the speech, the dub follows the subtitle.
 
+GLOSSARY (Dub Long Video; free)
+- What it is: a list of names and terms that must always be written the same way in Arabic, one per line as English = Arabic (for example Neo = نيو). The translation follows the list.
+- Where: "Glossary (optional)" on the estimate page (before accepting, so the first translation already uses it) and in the review step. In the review step "Apply to the lines" translates again only the lines that contain a term but do not use it; lines the customer typed by hand are never changed. A message says how many lines were fixed and how many still do not use the term (edit by hand or press Translate again).
+- It costs no credits and it is kept when a project is redone. It is not in the short dub yet.
+
+SUBTITLE FILES OF THE DUB (Dub Long Video; free)
+- When the lines are ready (review step, and on the finished dub's page) the customer can download them as a subtitle file: Arabic, English or both, as SRT or VTT. Arabic subtitles have no tashkeel and long lines are split. It costs no credits. (The short dub has its own SRT button.)
+
+SEPARATE TRACKS (Dub Long Video; free, optional)
+- At the price step, before confirming, the box "Also save the dubbed voices and the music and effects as separate files". After the dub the customer can download the dubbed voices alone and the music and effects alone (M4A). Together they make the final mix again, for video editors. No credits, but about 3 MB per minute of video of the customer's storage; kept as long as the final file. It must be ticked before confirming: it cannot be added to a finished dub (press Redo this project to dub again).
+
 "ENTER MAN." (Dub Long Video, review step; "man." is short for "manual"; each line has this button)
 - Use it when the AI missed a word or sentence because it was too quiet or unclear. First click Insert a line, type the text of what was said, then press Enter man. on that line.
 - A player opens with the original video. Play it, slow it down or raise the volume, listen to find the exact words, and set the line's start and end to the millisecond: with the buttons, by typing the times, or with the keys [ and ] (start and end at the current moment).

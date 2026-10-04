@@ -240,7 +240,7 @@ PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "messag
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
                  "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
-                 "media_present", "restoring", "parked_at", "redo_of", "subtitle")
+                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary")
 
 
 def result_file(job):
@@ -250,6 +250,22 @@ def result_file(job):
     if not name or "/" in name or "\\" in name or ".." in name:
         return None
     p = OUTPUT_DIR / name
+    return p if p.exists() else None
+
+
+# Separate tracks (optional, chosen when the dubbing is confirmed): the dubbed voices alone and the music / sound
+# effects alone, each at the level it has in the final file, so the two together are the final mix again. They are
+# saved next to the final file under names that end in these suffixes, which makes the normal storage count, the
+# storage period and the backup treat them like the final file (main.py _FINAL_OUTPUT_SUFFIXES).
+TRACK_KINDS = {"voices": "_final_voices.m4a", "effects": "_final_effects.m4a"}
+
+
+def track_file(job, which):
+    """Path of a separate track if it was made and still exists, else None."""
+    suffix = TRACK_KINDS.get(which)
+    if not suffix or job.get("status") != "done":
+        return None
+    p = OUTPUT_DIR / f"{job['id']}{suffix}"
     return p if p.exists() else None
 
 
@@ -267,6 +283,7 @@ def public_view(job):
         v["reattaching"] = True
     if job.get("status") == "done":
         v["file_available"] = result_file(job) is not None
+        v["tracks"] = [k for k in TRACK_KINDS if track_file(job, k) is not None]
     return v
 
 
@@ -805,6 +822,8 @@ def redo_project(job, uid):
             "media_fp": fp, "analysis": an, "parked_at": _now(), "redo_of": job["id"],
             "terms_accepted": job.get("terms_accepted"),
         }
+        if job.get("glossary"):
+            new["glossary"] = json.loads(json.dumps(job["glossary"]))
         nd = job_dir(new_id)
         nd.mkdir(parents=True, exist_ok=True)
         _JOBS[new_id] = new
@@ -1779,15 +1798,139 @@ def read_segments(job):
         return []
 
 
-def _translate_batch(job_id, batch):
-    """Returns {segment_id: (arabic, emotion)} for the batch, {} on failure."""
+# ------------------------------------------------------------- glossary
+#
+# The user's own list of terms ("Neo = نيو"): names, places, brand and technical words that must always be written
+# the same way in Arabic. The list is handed to the translation (the first one at the analysis, "Translate again" and
+# the "Apply to the lines" button), only with the terms that occur in the lines being translated. Free of charge.
+
+GLOSSARY_MAX = 60               # terms per project
+GLOSSARY_TERM_MAX = 80          # characters on each side of a term
+_GLOSS_SPLIT = re.compile(r"\s*(?:=>|->|\u2192|=|\t)\s*")
+GLOSSARY_FIX_MAX = 60           # lines re-translated by one press of "Apply to the lines"
+
+
+def parse_glossary(text):
+    """'English = Arabic' per line -> ([{en, ar}], number_of_lines_that_could_not_be_read). A blank line or a line
+    starting with # is ignored; a term written twice keeps its first meaning."""
+    out, bad, seen = [], 0, set()
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = _GLOSS_SPLIT.split(line, maxsplit=1)
+        if len(parts) != 2:
+            bad += 1
+            continue
+        en, ar = parts[0].strip(), parts[1].strip()
+        if not en or not ar or len(en) > GLOSSARY_TERM_MAX or len(ar) > GLOSSARY_TERM_MAX or not re.search(r"[A-Za-z]", en):
+            bad += 1
+            continue
+        k = en.lower()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append({"en": en, "ar": ar})
+        if len(out) >= GLOSSARY_MAX:
+            break
+    return out, bad
+
+
+def set_glossary(job, text):
+    """Save the project's glossary. Allowed until the dubbing is confirmed. Returns (True, {glossary, bad}) or (False, (msg, status))."""
+    if job.get("status") not in ("uploading", "estimated", "editing"):
+        return False, ("The glossary can only be changed before the dubbing starts.", 409)
+    entries, bad = parse_glossary(text)
+    with _lock_for(job["id"]):
+        if entries:
+            job["glossary"] = entries
+        else:
+            job.pop("glossary", None)
+    _save(job)
+    _ev(job, "glossary_saved", "ok", f"{len(entries)} terms, {bad} lines not understood")
+    return True, {"glossary": entries, "bad": bad}
+
+
+def _gloss_has(entry, english):
+    """Does this English text contain the term as a whole word (any capitals)?"""
+    try:
+        return re.search(r"(?<![A-Za-z0-9])" + re.escape(entry["en"]) + r"(?![A-Za-z0-9])", english or "", re.I) is not None
+    except Exception:
+        return False
+
+
+def _norm_ar(t):
+    """Arabic for comparing: no vowel marks or tatweel, one form of alef, ya and ta marbuta."""
+    t = _strip_marks(str(t or "")).replace("\u0640", "")
+    for a in "\u0623\u0625\u0622\u0671":
+        t = t.replace(a, "\u0627")
+    return t.replace("\u0649", "\u064A").replace("\u0629", "\u0647")
+
+
+def glossary_check(job, rows=None):
+    """(ids of lines that do not use a glossary term they contain, ids of such lines the user wrote by hand)."""
+    entries = job.get("glossary") or []
+    missing, mine = [], []
+    if not entries:
+        return missing, mine
+    for r in (rows if rows is not None else read_segments(job)):
+        ar = _norm_ar(r.get("arabic_text"))
+        if not ar.strip():
+            continue
+        for e in entries:
+            if _gloss_has(e, r.get("text")) and _norm_ar(e["ar"]) not in ar:
+                (mine if r.get("ar_set") else missing).append(r["segment_id"])
+                break
+    return missing, mine
+
+
+def glossary_apply(job):
+    """Translate again the lines that contain a glossary term but do not use it (lines the user typed by hand are
+    left alone). Returns (True, {fixed, still, mine, remaining}) or (False, (msg, status))."""
+    if job.get("status") != "editing":
+        return False, ("This job is not open for editing.", 409)
+    if not job.get("glossary"):
+        return False, ("The glossary is empty.", 400)
+    rows = read_segments(job)
+    missing, mine = glossary_check(job, rows)
+    todo_ids = missing[:GLOSSARY_FIX_MAX]
+    by_id = {r["segment_id"]: r for r in rows}
+    todo = [by_id[i] for i in todo_ids]
+    before = {r["segment_id"]: r.get("arabic_text") or "" for r in todo}
+    results = {}
+    for i in range(0, len(todo), TRANSLATE_BATCH):
+        results.update(_translate_batch(job["id"], todo[i:i + TRANSLATE_BATCH], job.get("glossary")))
+    with _lock_for(job["id"]):
+        cur = read_segments(job)          # the user may have kept typing while the AI worked: only untouched lines are replaced
+        cur_by = {r["segment_id"]: r for r in cur}
+        for sid, (ar, emo) in results.items():
+            r = cur_by.get(sid)
+            if r is None or not ar or (r.get("arabic_text") or "") != before.get(sid) or r.get("ar_set"):
+                continue
+            r["arabic_text"] = ar
+            if not r.get("emotion_set"):
+                r["emotion"] = emo
+        _write_segments(job, cur)
+    still, mine2 = glossary_check(job)
+    fixed = max(0, len(missing) - len(still))
+    _ev(job, "glossary_applied", "ok", f"{len(todo)} lines translated again, {fixed} now use the glossary, {len(still)} still do not, {len(mine2)} written by hand left alone")
+    return True, {"fixed": fixed, "still": len(still), "mine": len(mine2), "remaining": max(0, len(missing) - len(todo))}
+
+
+def _translate_batch(job_id, batch, glossary=None):
+    """Returns {segment_id: (arabic, emotion)} for the batch, {} on failure. glossary = the project's term list:
+    only the terms that really occur in this batch's English are sent to the translator."""
     import gemini_service
     from models import Segment
     segs = [Segment(segment_id=r["segment_id"], start=r["start"], end=r["end"], speaker=r["speaker"],
                     text=r["text"]) for r in batch]
+    hits = []
+    for e in glossary or []:
+        if any(_gloss_has(e, r.get("text")) for r in batch):
+            hits.append(e)
     for attempt in range(2):
         try:
-            res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY)
+            res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY, glossary=hits or None)
             if isinstance(res, dict) and res.get("status") == "success":
                 out = {}
                 for it in res.get("translated_segments", []):
@@ -1807,7 +1950,7 @@ def _translate_all(job, rows):
     for i in range(0, total, TRANSLATE_BATCH):
         batch = rows[i:i + TRANSLATE_BATCH]
         _mark(job, "translate", 88 + int(10 * i / max(1, total)), f"Translating to Arabic ({min(i + TRANSLATE_BATCH, total)} of {total} lines)...")
-        got = _translate_batch(job["id"], batch)
+        got = _translate_batch(job["id"], batch, job.get("glossary"))
         for r in batch:
             if r["segment_id"] in got and got[r["segment_id"]][0]:
                 r["arabic_text"], r["emotion"] = got[r["segment_id"]]
@@ -2048,7 +2191,10 @@ def update_segments(job, edits):
                 r["text"] = e["text"][:MAX_TEXT_LEN]
                 changed += 1
             if isinstance(e.get("arabic_text"), str):
-                r["arabic_text"] = e["arabic_text"][:MAX_TEXT_LEN]
+                new_ar = e["arabic_text"][:MAX_TEXT_LEN]
+                if new_ar != (r.get("arabic_text") or ""):
+                    r["ar_set"] = True          # typed by the user: the glossary check leaves this line alone
+                r["arabic_text"] = new_ar
                 changed += 1
             if isinstance(e.get("emotion"), str):
                 emo = clean_emotion(e["emotion"])
@@ -2342,11 +2488,12 @@ def retranslate_line(job, segment_id):
         return False, "Line not found.", None
     if not (r.get("text") or "").strip():
         return False, "There is no English text to translate.", None
-    got = _translate_batch(job["id"], [r])
+    got = _translate_batch(job["id"], [r], job.get("glossary"))
     if segment_id not in got or not got[segment_id][0]:
         return False, "The translation service didn't answer. Please try again.", None
     new_ar, new_emo = got[segment_id]
     r["arabic_text"] = new_ar
+    r.pop("ar_set", None)
     if not r.get("emotion_set"):      # a delivery the user picked is never overwritten
         r["emotion"] = new_emo
     _write_segments(job, rows)
@@ -3143,7 +3290,7 @@ def set_lipsync_resolution(job, uid, res):
     return True, None
 
 
-def confirm(job, uid, expected_due, room=""):
+def confirm(job, uid, expected_due, room="", tracks=False):
     """User reviewed everything and accepts the exact price: charge it and
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
@@ -3188,6 +3335,7 @@ def confirm(job, uid, expected_due, room=""):
         if lip_plan is not None:
             job["dub_plan"]["lipsync"] = lip_plan
         job["room_pref"] = room if room in ROOM_CHOICES else "auto"
+        job["want_tracks"] = bool(tracks)
         job["status"] = "confirmed"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -3676,6 +3824,45 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
 
 
 @_metered("longdub_dub", lambda job, *a, **k: job["id"], after=_log_resource)
+def _save_tracks(job, dub_full, bg_mix, react, total):
+    """Optional separate tracks, made from the same pieces as the final file: the dubbed voices alone, and the
+    background sound (+ laughter / applause) alone, at the levels they have in the final mix. Returns
+    {"voices": {size}, "effects": {size}} for what was made. Never raises past the caller's try/except."""
+    jid = job["id"]
+    out = {}
+    tmp_v = OUTPUT_DIR / f"{jid}_voices_tmp.m4a"
+    ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(dub_full), "-vn", "-c:a", "aac", "-b:a", "192k", str(tmp_v)])
+    if tmp_v.exists() and tmp_v.stat().st_size > 1000:
+        os.replace(tmp_v, OUTPUT_DIR / f"{jid}{TRACK_KINDS['voices']}")
+        out["voices"] = {"size": (OUTPUT_DIR / f"{jid}{TRACK_KINDS['voices']}").stat().st_size}
+    layers = [p for p in (bg_mix, react) if p is not None]
+    if layers:
+        tmp_e = OUTPUT_DIR / f"{jid}_effects_tmp.m4a"
+        cmd = ["ffmpeg", "-y"]
+        for p in layers:
+            cmd += ["-i", str(p)]
+        parts = []
+        labels = []
+        k = 0
+        if bg_mix is not None:
+            parts.append(f"[{k}:a]{BG_MIX_FILTER}[b]")
+            labels.append("[b]")
+            k += 1
+        if react is not None:
+            parts.append(f"[{k}:a]volume=1.0[r]")
+            labels.append("[r]")
+        if len(labels) == 1:
+            fc = ";".join(parts) + f";{labels[0]}alimiter=limit=0.97:level=disabled[out]"
+        else:
+            fc = ";".join(parts) + ";" + "".join(labels) + "amix=inputs=%d:duration=longest:normalize=0[m];[m]alimiter=limit=0.97:level=disabled[out]" % len(labels)
+        cmd += ["-filter_complex", fc, "-map", "[out]", "-t", f"{float(total):.3f}", "-c:a", "aac", "-b:a", "192k", str(tmp_e)]
+        ffmpeg_utils.run_ffmpeg(cmd)
+        if tmp_e.exists() and tmp_e.stat().st_size > 1000:
+            os.replace(tmp_e, OUTPUT_DIR / f"{jid}{TRACK_KINDS['effects']}")
+            out["effects"] = {"size": (OUTPUT_DIR / f"{jid}{TRACK_KINDS['effects']}").stat().st_size}
+    return out
+
+
 def _run_dubbing(job):
     """confirmed -> per-speaker temporary voice clones -> Arabic speech line by
     line -> fit to timing -> mix in stretches -> join with the background ->
@@ -4184,6 +4371,20 @@ def _run_dubbing(job):
         os.replace(tmp_final, OUTPUT_DIR / final_name)
         size = (OUTPUT_DIR / final_name).stat().st_size
         _ev(job, "output_saved", "ok", f"{final_name} {size // 1024} KB")
+        tracks_info = None
+        if job.get("want_tracks"):        # chosen by the user at confirm: a failure here never fails the dub
+            try:
+                tracks_info = _save_tracks(job, dub_full, bg_mix if use_bg else None, react, total)
+                _ev(job, "tracks", "ok", ", ".join(f"{k} {v['size'] // 1024} KB" for k, v in tracks_info.items()) or "nothing to save")
+            except Exception as ex_t:
+                print(f"[longdub] separate tracks skipped for {job['id']}: {ex_t}")
+                _ev(job, "tracks", "failed", f"{type(ex_t).__name__}: {ex_t}"[:300])
+                for nm_ in [f"{job['id']}{s_}" for s_ in TRACK_KINDS.values()] + [f"{job['id']}_voices_tmp.m4a", f"{job['id']}_effects_tmp.m4a"]:
+                    try:
+                        (OUTPUT_DIR / nm_).unlink()
+                    except Exception:
+                        pass
+                tracks_info = None
 
         # 5. voices gone, working files gone, tell the user ---------------------
         _delete_pending_voices(job)
@@ -4193,6 +4394,8 @@ def _run_dubbing(job):
                          "finished": _now()}
         if lip_summary is not None:
             job["result"]["lipsync"] = lip_summary
+        if tracks_info:
+            job["result"]["tracks"] = tracks_info
         if bg_info and bg_info["state"] != "mixed":
             job["result"]["background"] = {"state": bg_info["state"], "failed_parts": bg_info["failed_parts"], "parts": bg_info["parts"]}
         if dub.get("timing") and (dub["timing"]["n_cut"] or dub["timing"]["n_fast"]):
