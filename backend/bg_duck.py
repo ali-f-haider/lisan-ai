@@ -822,9 +822,6 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None
                                   + "so it holds no copy of the voices")
                 return info
         want_keep = KEEP_MODE if keep is None else bool(keep)
-        if want_keep and vocals_path is not None and mode == "auto" and not (info["leak_db"] is not None and info["leak_db"] >= MUTE_LEAK_DB):
-            want_keep = False       # nothing but a faint copy is in it and it is very quiet: there is no music to keep
-            info["keep_note"] = "no music to keep (the background is almost silent while people speak)"
         if want_keep and vocals_path is not None:
             kr = keep_music(bg_path, vocals_path, out_path, mask, max_sec=keep_max_sec)
             if kr["ok"]:
