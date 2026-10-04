@@ -37,11 +37,12 @@ from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 
-from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_KEY
+from config import DATA_DIR, OUTPUT_DIR, GEMINI_API_KEY, HF_TOKEN, INWORLD_API_KEY, FAL_API_KEY
 from resource_meter import metered as _metered      # measures what each job costs on Railway (see resource_meter.py)
 import ffmpeg_utils
 import voice_clean
 import bg_duck
+import music_fill
 import lang_check
 import subs_align
 
@@ -4241,6 +4242,21 @@ def _run_dubbing(job):
                     _ev(job, "background_mute", "ok" if _mres["muted"] else "info", _mres["reason"])
                     if _mres.get("keep_note"):
                         _ev(job, "background_music_keep", "ok" if _mres.get("kept_music") else "info", _mres["keep_note"])
+                    # Holes the music repair can still close: the stretches where the music had to be silenced and there is
+                    # real music right next to them (fal.ai Stable Audio 3 small, see music_fill.py). Falls back to what is there.
+                    if _mres["muted"] and job.get("music_pref") != "silence" and _sp:
+                        try:
+                            _fres = music_fill.fill(wd / "background_muted.wav", wd / "background_filled.wav", _sp, FAL_API_KEY,
+                                                    gemini_key=GEMINI_API_KEY, log=lambda m_: print(f"[longdub] {job['id']} music_fill {m_}"))
+                            if _fres["filled"]:
+                                bg_sep = bg_use = wd / "background_filled.wav"
+                            if _fres["filled"] or _fres.get("found"):
+                                _ev(job, "background_music_fill", "ok" if _fres["filled"] else "info",
+                                    f"{_fres['reason']}; sent {_fres['sent_sec']} s of audio to the model"
+                                    + (f"; prompt: {_fres['prompt']}" if _fres.get("prompt") else "")
+                                    + "; " + " | ".join(f"{g['start']}-{g['end']} s: {g['note']}" for g in _fres["gaps"])[:700])
+                        except Exception as _fex:
+                            print(f"[longdub] music fill skipped: {_fex}")
                 except Exception as _mex:
                     print(f"[longdub] background mute skipped: {_mex}")
                 pauses_ = []
