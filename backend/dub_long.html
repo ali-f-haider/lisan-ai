@@ -323,6 +323,7 @@ var T = {
     wmNote: "Free version: you have not bought credits or a subscription yet, so a video you make carries a small semi-transparent Lisan AI logo in the corner. Audio files have none. Buy any credit pack or subscribe, and the videos you make afterwards have no logo.",
     musicAsk: "Keep the background music under the original voices",
     musicAskNote: "The original English voice is taken out of the background and the music and effects that play at the same moment stay. Where that cannot be done cleanly the background is silenced there, as before. Untick to always silence it while people speak.",
+    musicFillNote: "Where the music has a gap because it had to be silenced, an AI music model can fill the gap so the music sounds continuous. It costs {n} credits for each gap that is really filled, and nothing when no gap can be filled. The gaps that need it are found while the dub is made.",
     tracksAsk: "Also save the dubbed voices and the music and effects as separate files",
     tracksAskNote: "For video editors who want to mix the sound themselves. Free, but the two files take about 3 MB per minute of video from your storage.",
     glossHeading: "Glossary (optional)",
@@ -573,6 +574,7 @@ var T = {
     wmNote: "النسخة المجانية: لم تشترِ رصيداً أو اشتراكاً بعد، لذلك يحمل الفيديو الذي تصنعه شعار Lisan AI صغيراً شبه شفاف في الزاوية. أما الملفات الصوتية فبلا علامة. اشترِ أي باقة رصيد أو اشترك، وتصبح الفيديوهات التي تصنعها بعد ذلك بلا شعار.",
     musicAsk: "أبقِ موسيقى الخلفية تحت أصوات المتحدثين الأصليين",
     musicAskNote: "يُزال صوت المتحدث الإنجليزي من الخلفية وتبقى الموسيقى والمؤثرات التي تعمل في اللحظة نفسها. وحيث لا يمكن ذلك بنظافة تُكتم الخلفية هناك كما كان من قبل. ألغِ التحديد لكتم الخلفية دائماً أثناء كلام المتحدثين.",
+    musicFillNote: "عندما يكون في الموسيقى فراغ لأنه كان لا بدّ من كتمها، يستطيع نموذج موسيقى بالذكاء الاصطناعي ملء الفراغ لتبدو الموسيقى متصلة. تكلفة كل فراغ يُملأ فعلاً {n} رصيداً، ولا شيء إذا لم يُملأ أي فراغ. تُكتشف الفراغات التي تحتاج إلى ذلك أثناء إنتاج الدبلجة.",
     tracksAsk: "احفظ أيضاً الأصوات المدبلجة والموسيقى والمؤثرات كملفات منفصلة",
     tracksAskNote: "لمن يريد مزج الصوت بنفسه في برنامج مونتاج. مجاني، لكن الملفين يأخذان نحو 3 ميغابايت لكل دقيقة فيديو من مساحة التخزين.",
     glossHeading: "قاموس المصطلحات (اختياري)",
@@ -2267,6 +2269,7 @@ function renderConfirm() {
            return '<option value="' + o[0] + '"' + (roomPref === o[0] ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") +
          "</select></div><p class='note' style='margin-top:2px;'>" + esc(T.roomNote) + "</p>";
     h += '<label class="ld-agree" style="margin-top:12px;"><input type="checkbox" id="musicBox"' + (musicPref ? " checked" : "") + "><span>" + esc(T.musicAsk) + "</span></label><p class='note' style='margin-top:2px;'>" + esc(T.musicAskNote) + "</p>";
+    if (cfg && cfg.music_fill && cfg.music_fill.available && cfg.music_fill.credits > 0) h += "<p class='note' style='margin-top:2px;'>" + esc(T.musicFillNote.replace("{n}", cfg.music_fill.credits)) + "</p>";
     h += '<label class="ld-agree" style="margin-top:12px;"><input type="checkbox" id="tracksBox"' + (tracksPref ? " checked" : "") + "><span>" + esc(T.tracksAsk) + "</span></label><p class='note' style='margin-top:2px;'>" + esc(T.tracksAskNote) + "</p>";
     h += "<p class='note'>" + esc(T.confirmRecap + (p.lipsync && p.lipsync.clips ? T.confirmRecapLip : "")) + "</p>";
     var noFile = cur && cur.media_present === false;

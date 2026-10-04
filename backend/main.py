@@ -4952,6 +4952,8 @@ def _ld_pricing():
         # lip-sync: same per-second price as Step 7, and its own length limit
         "lipsync_per_sec": _num(cfg.get("lipsyncCreditsPerSec"), 40),
         "lipsync_max_min": _num(cfg.get("longDubLipsyncMaxMin"), 3),
+        # music repair (music_fill.py): credits per hole in the kept music that the AI model fills; only holes really filled are charged
+        "music_fill_credits": int(_num(cfg.get("musicFillCredits"), os.environ.get("MUSIC_FILL_CREDITS", 10) or 10)),
     }
 
 
@@ -5101,6 +5103,7 @@ def longdub_config(request: Request):
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
         "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
                     "rates": lipsync_rates(p["lipsync_per_sec"]), "max_min": p["lipsync_max_min"]},
+        "music_fill": {"available": bool(FAL_API_KEY) and longdub_service.music_fill.ENABLED, "credits": p["music_fill_credits"]},
     }
 
 

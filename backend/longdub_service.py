@@ -4246,15 +4246,33 @@ def _run_dubbing(job):
                     # real music right next to them (fal.ai Stable Audio 3 small, see music_fill.py). Falls back to what is there.
                     if _mres["muted"] and job.get("music_pref") != "silence" and _sp:
                         try:
+                            # The user pays for every hole that is really filled (credits are taken after each success, and
+                            # the model is not called when the balance cannot cover the next one).
+                            _mfc = max(0, int((Hooks.pricing() or {}).get("music_fill_credits", 10) or 0))
+                            _mfu = job.get("uid")
+
+                            def _mf_allow(_c=_mfc, _u=_mfu):
+                                if not _c:
+                                    return True
+                                _bal = Hooks.get_credits(_u)
+                                return _bal is None or _bal >= _c
+
+                            def _mf_charge(_a, _b, _c=_mfc, _u=_mfu):
+                                if _c:
+                                    Hooks.charge(_u, _c, "long_dub_music_fill", job["id"])
+                                    job["paid"]["music_fill"] = int(job["paid"].get("music_fill", 0)) + _c
+
                             _fres = music_fill.fill(wd / "background_muted.wav", wd / "background_filled.wav", _sp, FAL_API_KEY,
-                                                    gemini_key=GEMINI_API_KEY, log=lambda m_: print(f"[longdub] {job['id']} music_fill {m_}"))
+                                                    gemini_key=GEMINI_API_KEY, log=lambda m_: print(f"[longdub] {job['id']} music_fill {m_}"),
+                                                    allow=_mf_allow, on_filled=_mf_charge)
                             if _fres["filled"]:
                                 bg_sep = bg_use = wd / "background_filled.wav"
                             if _fres["filled"] or _fres.get("found"):
+                                _mf_n = sum(1 for g_ in _fres["gaps"] if g_["ok"])
                                 _ev(job, "background_music_fill", "ok" if _fres["filled"] else "info",
-                                    f"{_fres['reason']}; sent {_fres['sent_sec']} s of audio to the model"
+                                    f"{_fres['reason']}; charged {_mf_n * _mfc} credits ({_mf_n} x {_mfc}); sent {_fres['sent_sec']} s of audio to the model"
                                     + (f"; prompt: {_fres['prompt']}" if _fres.get("prompt") else "")
-                                    + "; " + " | ".join(f"{g['start']}-{g['end']} s: {g['note']}" for g in _fres["gaps"])[:700])
+                                    + "; " + " | ".join(f"{g['start']}-{g['end']} s: {g['note']}" for g in _fres["gaps"])[:700], (_mf_n * _mfc) or None)
                         except Exception as _fex:
                             print(f"[longdub] music fill skipped: {_fex}")
                 except Exception as _mex:

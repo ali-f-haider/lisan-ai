@@ -12,9 +12,10 @@ without any music costs nothing.
 
 Settings (environment variables):
   MUSIC_FILL=0            switch the feature off for everybody
-  MUSIC_FILL_MAX_GAP_SEC  longest hole that is filled (default 20)
-  MUSIC_FILL_MAX_GAPS     most holes filled per job (default 8)
-  MUSIC_FILL_MAX_SEC      most seconds of holes filled per job (default 60)
+  MUSIC_FILL_MAX_GAP_SEC  longest hole that is filled (default 20; longer holes are left as they are)
+  MUSIC_FILL_MAX_GAPS     most holes filled per job (default 200: no practical limit, the user pays per hole)
+  MUSIC_FILL_MAX_SEC      most seconds of holes filled per job (default 3600)
+  MUSIC_FILL_MAX_WALL_SEC time allowed for all holes of one job together (default 900)
   MUSIC_FILL_STEPS        sampling steps sent to the model (default: the model's own default)
 """
 import base64
@@ -37,8 +38,8 @@ HOP_SEC = 0.1
 
 MIN_GAP_SEC = 1.0              # shorter holes are not worth a call
 MAX_GAP_SEC = float(os.environ.get("MUSIC_FILL_MAX_GAP_SEC", "20") or 20)
-MAX_GAPS = int(float(os.environ.get("MUSIC_FILL_MAX_GAPS", "8") or 8))
-MAX_TOTAL_SEC = float(os.environ.get("MUSIC_FILL_MAX_SEC", "60") or 60)
+MAX_GAPS = int(float(os.environ.get("MUSIC_FILL_MAX_GAPS", "200") or 200))
+MAX_TOTAL_SEC = float(os.environ.get("MUSIC_FILL_MAX_SEC", "3600") or 3600)
 STEPS = os.environ.get("MUSIC_FILL_STEPS", "").strip()
 
 REF_FLOOR_DB = -50.0           # quieter than this is not music
@@ -59,7 +60,7 @@ GEN_MIN_DB = -60.0             # a result quieter than this is silence
 SEAM_MAX_DB = 9.0              # level difference allowed between a seam and the music beside it
 MAX_FILE_SEC = 1800.0
 CALL_TIMEOUT_SEC = 240
-MAX_WALL_SEC = float(os.environ.get("MUSIC_FILL_MAX_WALL_SEC", "420") or 420)     # all holes of one job together
+MAX_WALL_SEC = float(os.environ.get("MUSIC_FILL_MAX_WALL_SEC", "900") or 900)     # all holes of one job together
 
 DEFAULT_PROMPT = ("instrumental background music that continues the same style, instruments, tempo and mood, "
                   "smooth and steady, no vocals, no speech")
@@ -307,11 +308,14 @@ def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
     return True, f"filled {g1 - g0:.1f} s (generated {gen_db:.0f} dB, set to {target:.0f} dB)"
 
 
-def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=None, runner=None, log=None):
+def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=None, runner=None, log=None,
+         allow=None, on_filled=None):
     """Fills the holes in the background track `bg_path` (the one that voices were silenced in) and writes the result to
     `out_path`. spans = [(start_sec, end_sec)] where the original voices speak. Returns
     {"filled": bool, "reason", "gaps": [{start, end, ok, note}], "filled_sec", "sent_sec", "prompt"}; never raises.
-    When nothing was filled, `out_path` is not written."""
+    When nothing was filled, `out_path` is not written.
+    allow() -> bool is asked before every call (False = stop calling the model, for example when the user cannot pay);
+    on_filled(start_sec, end_sec) is called after each hole that was really filled (the place to charge for it)."""
     info = {"filled": False, "reason": "", "gaps": [], "filled_sec": 0.0, "sent_sec": 0.0, "prompt": "", "found": 0}
     runner = runner or _fal_run
     say = log or (lambda m: None)
@@ -370,6 +374,14 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             if time.time() - t_start > MAX_WALL_SEC:
                 rec["note"] = "out of time"
                 continue
+            if allow is not None:
+                try:
+                    permitted = bool(allow())
+                except Exception:
+                    permitted = False
+                if not permitted:
+                    rec["note"] = "not enough credits to repair this one"
+                    continue
             # level of the music right around this hole
             hop = int(1 / HOP_SEC)
             s, e = int(g0 / HOP_SEC), int(g1 / HOP_SEC)
@@ -384,6 +396,11 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             info["sent_sec"] = round(info["sent_sec"] + min(MAX_WINDOW_SEC, max(MIN_WINDOW_SEC, ln + 2 * CONTEXT_SEC)), 1)
             if ok:
                 ok_n += 1
+                if on_filled is not None:
+                    try:
+                        on_filled(g0, g1)
+                    except Exception as ex:
+                        say(f"charge hook failed: {str(ex)[:120]}")
                 budget -= ln
                 info["filled_sec"] = round(float(info["filled_sec"] + ln), 1)
                 db = _levels(pcm)       # later holes see this one as music
