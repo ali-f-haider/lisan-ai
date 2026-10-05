@@ -134,3 +134,22 @@ test('invalid project JSON is described as a file problem and does not replace t
     assert.match(notifications[0], /valid Lisan AI project/);
     assert.doesNotMatch(notifications[0], /Connection problem|Load failed/);
 });
+
+test('canceling a merge confirms its full music budget and makes no paid request', async () => {
+    const {c,calls,confirmations,elements}=context();
+    c.quote={max_total:21,music_max:20};c.accept=false;c.subsText=(en)=>en;c.window.LisanDialog=c.LisanDialog;
+    vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    await c.mergeVideo();
+    assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote']);
+    assert.match(confirmations[0],/21 credits/);assert.match(confirmations[0],/20 for music/);
+    assert.equal(elements.get('mergeButton').disabled,false);
+});
+
+test('an invalid merge quote cannot start paid processing', async () => {
+    for(const quote of [{max_total:-1,music_max:0},{max_total:'21',music_max:20},{max_total:1,music_max:10}]) {
+        const {c,calls,confirmations,elements}=context();c.quote=quote;c.subsText=(en)=>en;
+        vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+        await c.mergeVideo();assert.equal(calls.length,1);assert.equal(confirmations.length,0);
+        assert.equal(elements.get('mergeButton').disabled,false);
+    }
+});

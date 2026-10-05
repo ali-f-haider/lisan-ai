@@ -22,6 +22,7 @@ import base64
 import json
 import os
 import subprocess
+import tempfile
 import time
 import urllib.request
 import wave
@@ -55,10 +56,11 @@ MIN_WINDOW_SEC = 12.0
 MAX_WINDOW_SEC = 60.0
 XFADE_SEC = 0.2
 TARGET_BELOW_CTX_DB = 2.0      # the filled music is this much under the music around it
-GAIN_MIN_DB, GAIN_MAX_DB = -12.0, 6.0      # level correction allowed; needing more means the result is not usable
+GAIN_MAX_DB = 6.0                        # amplification limit; attenuation matches the measured context
 GEN_MIN_DB = -60.0             # a result quieter than this is silence
+MAX_CLIPPED_SHARE = 0.10       # reject severe saturation before attenuation can hide its level
 SEAM_MAX_DB = 9.0              # level difference allowed between a seam and the music beside it
-MAX_FILE_SEC = 1800.0
+MAX_FILE_SEC = 3600.0
 CALL_TIMEOUT_SEC = 240
 MAX_WALL_SEC = float(os.environ.get("MUSIC_FILL_MAX_WALL_SEC", "900") or 900)     # all holes of one job together
 
@@ -266,7 +268,9 @@ def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
     w0 = max(0.0, w1 - need)
     i0, i1 = int(w0 * RATE), int(w1 * RATE)
     win = np.array(pcm[i0:i1])
-    wav = Path(os.environ.get("TMPDIR") or "/tmp") / f"mf_{os.getpid()}_{int(g0 * 1000)}.wav"
+    # Concurrent jobs can repair the same timestamp; each request needs its own sample.
+    with tempfile.NamedTemporaryFile(prefix="lisan_music_", suffix=".wav", delete=False) as sample:
+        wav = Path(sample.name)
     try:
         _write_wav(wav, win)
         data = runner(key, wav, g0 - w0, g1 - w0, prompt)
@@ -281,12 +285,15 @@ def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
     gen = gen[:win.shape[0]]
     a, b = int((g0 - w0) * RATE), int((g1 - w0) * RATE)
     seg = gen[a:b].astype(np.float32)
+    clipped_share = float(np.mean((seg <= -32768) | (seg >= 32767))) if seg.size else 0.0
+    if clipped_share >= MAX_CLIPPED_SHARE:
+        return False, f"the generated music is severely clipped ({clipped_share:.0%} of samples at full scale)"
     gen_db = _seg_db(seg)
     if gen_db < GEN_MIN_DB:
         return False, f"the model made silence ({gen_db:.0f} dB)"
     target = ctx_db - TARGET_BELOW_CTX_DB
     gain_db = target - gen_db
-    if gain_db > GAIN_MAX_DB or gain_db < GAIN_MIN_DB:
+    if not np.isfinite(gain_db) or gain_db > GAIN_MAX_DB:
         return False, f"the result is {gen_db:.0f} dB against music of {ctx_db:.0f} dB around it (needs {gain_db:+.0f} dB)"
     seg *= 10 ** (gain_db / 20.0)
     f = int(XFADE_SEC * RATE)
@@ -320,6 +327,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
     runner = runner or _fal_run
     say = log or (lambda m: None)
     raw = Path(str(out_path) + ".mf.pcm")
+    pcm = None
     try:
         if not ENABLED:
             info["reason"] = "off (MUSIC_FILL=0)"
@@ -357,7 +365,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             gaps = keep
         music_prompt = prompt
         if not music_prompt:
-            desc = describe_music(gemini_key, np.array(pcm), db, log=say) if gemini_key else ""
+            desc = describe_music(gemini_key, pcm, db, log=say) if gemini_key else ""
             music_prompt = (desc + ", instrumental, no vocals, no speech") if desc else DEFAULT_PROMPT
         info["prompt"] = music_prompt
         ctx_ref = float(np.median(db[db >= REF_FLOOR_DB]))
@@ -400,7 +408,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                     try:
                         on_filled(g0, g1)
                     except Exception as ex:
-                        say(f"charge hook failed: {str(ex)[:120]}")
+                        raise RuntimeError("Music repair payment could not be confirmed") from ex
                 budget -= ln
                 info["filled_sec"] = round(float(info["filled_sec"] + ln), 1)
                 db = _levels(pcm)       # later holes see this one as music
@@ -408,7 +416,8 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             info["reason"] = "no hole could be filled: " + "; ".join(r["note"] for r in info["gaps"])[:300]
             return info
         pcm.flush()
-        del pcm
+        pcm._mmap.close()
+        pcm = None
         part = Path(str(out_path) + ".mf.tmp.wav")
         _ffmpeg(["ffmpeg", "-v", "error", "-y", "-f", "s16le", "-ar", str(RATE), "-ac", str(CH), "-i", str(raw),
                  "-c:a", "pcm_s16le", str(part)])
@@ -422,6 +431,8 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         info["reason"] = f"skipped ({str(ex)[:200]})"
         return info
     finally:
+        if pcm is not None:
+            pcm._mmap.close()
         for p in (raw, Path(str(out_path) + ".mf.tmp.wav")):
             try:
                 if p.exists():

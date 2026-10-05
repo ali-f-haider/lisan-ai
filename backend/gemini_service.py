@@ -357,41 +357,10 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
                 cut_audio_segment(input_path, seg.start, duration, segment_file,
                                   sample_rate=16000, channels=1)
 
-                with open(segment_file, "rb") as f:
-                    audio_b64 = base64.b64encode(f.read()).decode()
                 bucket["audio_sec"] += duration
-
-                prompt = (
-                    "Listen to this audio clip carefully. "
-                    "What emotion or speaking style is the speaker expressing in their voice tone? "
-                    "You MUST return exactly TWO comma-separated style tags (never just one) — "
-                    "a primary emotion plus a secondary delivery trait (pacing, volume, or manner) "
-                    "from this list (example: 'confident, calm' or 'sad, softly'): "
-                    + ", ".join(CANONICAL_EMOTIONS) +
-                    ". Do not add any other text."
-                )
-                payload = {
-                    "contents": [{
-                        "parts": [
-                            {"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}},
-                            {"text": prompt},
-                        ]
-                    }]
-                }
-
-                data, err = call_gemini(api_key, payload, timeout=60)
-                record_gemini(job_id, data)
-
-                if data is None:
-                    errors.append(f"{seg.segment_id}: {err}")
-                    print(f"[emotions] {job_id}: {seg.segment_id}: {str(err)[:300]}")
-                    emotions_result[seg.segment_id] = "neutral"
-                    jobs_progress[progress_key]["emotions"] = emotions_result.copy()
-                    jobs_progress[progress_key]["errors"] = _public_errors(errors)
-                    continue
-
-                result_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                emotions_result[seg.segment_id] = normalize_emotions(result_text)
+                review = inspect_audio_style(job_id, segment_file, seg.emotion if hasattr(seg, "emotion") else "neutral", api_key)
+                emotions_result[seg.segment_id] = review['fallback']
+                jobs_progress[progress_key].setdefault('reviews', {})[seg.segment_id] = review
                 jobs_progress[progress_key]["emotions"] = emotions_result.copy()
 
                 try:
@@ -415,3 +384,29 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
         jobs_progress[progress_key] = {
             "status": "error", "percent": 0, "error": friendly_error(e, "emotions"), "emotions": {}, "errors": [],
         }
+
+def inspect_audio_style(job_id, audio, selected, api_key):
+    if not api_key:
+        raise ValueError('The listening service is unavailable.')
+    payload = {'generationConfig': {'responseMimeType': 'application/json', 'temperature': 0},
+        'contents': [{'parts': [
+            {'inline_data': {'mime_type': 'audio/mpeg', 'data': base64.b64encode(Path(audio).read_bytes()).decode()}},
+            {'text': 'Listen to the actual vocal delivery, not just the meaning of the words. '
+             'Review this suggested speaking style: ' + str(selected)[:200] + '. '
+             'Return JSON only: {"suggested": "one or two supported tags", "uncertain": true, "reason": "short reason"}. '
+             'Set uncertain=true when the audio is short, noisy, ambiguous, has simultaneous speakers, or the suggested '
+             'style is not clearly supported. Use neutral when there is no clear emotional evidence. '
+             'Do not return a probability or accuracy percentage. Supported tags: ' + ', '.join(CANONICAL_EMOTIONS)}]}]}
+    data, error = call_gemini(api_key, payload, timeout=60)
+    record_gemini(job_id, data)
+    if data is None:
+        raise ValueError('The listening check could not finish. Keep the style under review.')
+    text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+    text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text)
+    result = json.loads(text)
+    if not isinstance(result.get('uncertain'), bool):
+        raise ValueError('The listening check returned an invalid answer.')
+    suggested = normalize_emotions(result.get('suggested') or 'neutral', min_tags=1)
+    return {'suggested': suggested, 'uncertain': result['uncertain'],
+            'reason': str(result.get('reason') or '')[:240], 'accuracy': None,
+            'fallback': 'neutral' if result['uncertain'] else suggested}

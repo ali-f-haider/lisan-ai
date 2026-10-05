@@ -43,6 +43,10 @@ import ffmpeg_utils
 import voice_clean
 import bg_duck
 import music_fill
+import dub_audio
+import dub_background
+import dub_review
+from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
 import subs_align
 
@@ -56,7 +60,7 @@ ALLOWED_EXTS = VIDEO_EXTS + AUDIO_EXTS
 CHUNK_BYTES = 8 * 1024 * 1024            # upload chunk size the page uses
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB hard ceiling on the source file
 MIN_SEC = 20.0                           # shorter than this: use the normal app
-DEFAULT_MAX_MIN = 10                     # overridden by admin (longDubMaxMin)
+DEFAULT_MAX_MIN = 60                     # overridden by admin (longDubMaxMin)
 MAX_ACTIVE_PER_USER = 2                  # long jobs one user may have holding a video on the server at once
 MAX_PROJECTS_PER_USER = 25               # unfinished projects one user may keep (saved ones hold text only)
 try:      # hours without activity before a project's video is taken off the server (the text stays)
@@ -70,7 +74,7 @@ except ValueError:
 NAME_MAX = 80
 DESC_MAX = 500
 MAX_CONCURRENT_WORKERS = 2               # long jobs running at once, whole server
-MAX_SEGMENTS = 1500                      # sanity ceiling on transcript lines
+MAX_SEGMENTS = 6000                      # sanity ceiling on transcript lines
 
 PIECE_TARGET = 40.0                      # aim for ~40 s pieces...
 PIECE_MIN = 20.0                         # ...never shorter than this (except the last)
@@ -88,7 +92,7 @@ SAMPLE_RATE = 44100
 MAX_SPEAKERS = 8
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
-TERMS_VERSION = "2026-10-03-flat"
+TERMS_VERSION = "2026-10-05-corrections"
 
 # Time estimates: how many seconds of work per second of video, until real
 # measurements from finished jobs replace these (see _record_speed).
@@ -122,6 +126,7 @@ _FF_LOCAL = threading.Semaphore(1)        # local video encodes, one at a time, 
 _LOCK = threading.RLock()
 _JOBS = {}          # job_id -> job dict (memory copy of job.json)
 _JOB_LOCKS = {}     # job_id -> Lock (serialises chunk writes / saves per job)
+_ACCOUNT_LOCKS = {} # serializes storage reservations within this server process
 _RUNNING = set()    # job_ids that currently have a worker thread
 _worker_slots = threading.Semaphore(MAX_CONCURRENT_WORKERS)
 _slot_state = threading.local()      # .held -- does this worker thread hold one of the slots?
@@ -143,6 +148,7 @@ class Hooks:
     allowed = staticmethod(lambda uid: (True, ""))
     # watermark(uid) -> True when this user's finished files carry the free-tier watermark (see watermark.py).
     watermark = staticmethod(lambda uid: False)
+    capacity = staticmethod(lambda job, need: (True, "", 200))
 
 
 def configure(**kwargs):
@@ -181,6 +187,11 @@ def _lock_for(job_id):
         if lk is None:
             lk = _JOB_LOCKS[job_id] = threading.RLock()
         return lk
+
+
+def account_lock(uid):
+    with _LOCK:
+        return _ACCOUNT_LOCKS.setdefault(uid, threading.RLock())
 
 
 def _save(job):
@@ -243,7 +254,7 @@ PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "messag
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
                  "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
-                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary")
+                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary", "edit_of", "restore_for_edits")
 
 
 def result_file(job):
@@ -635,8 +646,18 @@ def finish_upload(job, uid):
         job["media_fp"] = dict(_fingerprint(src), duration=round(duration, 1))
     except Exception as ex:
         print(f"[longdub] could not fingerprint the upload: {ex}")
+    job["duration"] = duration
+    need = dub_review.output_budget(job["size"], duration, "video" in streams)
+    permitted, why, status = Hooks.capacity(job, need)
+    if not permitted:
+        os.replace(src, part)
+        return False, (why, status)
+    job["reserved_output_bytes"] = need
     fee = int(cfg.get("fee", 3))
     bal = Hooks.get_credits(uid)
+    if bal is None:
+        os.replace(src, part)
+        return False, ("We could not verify your balance. Please retry. Nothing was charged.", 503)
     if bal is not None and bal < fee:
         # Keep the upload so the user can top up and retry finishing.
         os.replace(src, part)
@@ -651,7 +672,9 @@ def finish_upload(job, uid):
             if geo_raw:
                 job["lipsync"].update({"sw": geo_raw[1], "sh": geo_raw[2]})      # the picture's own size: the chosen resolution is fitted to it
         if fee > 0 and not job["paid"]["fee"]:
-            Hooks.charge(uid, fee, "long_dub_estimate", job["id"])
+            if not _debit_ok(Hooks.charge(uid, fee, "long_dub_estimate", job["id"])):
+                os.replace(src, part)
+                return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["fee"] = fee
             _ev(job, "estimate_fee_charged", "ok", f"{fee} credits", fee)
         job["status"] = "estimated"
@@ -681,6 +704,9 @@ def accept(job, uid, agreed=False):
         return False, ("This job is not waiting for approval.", 409)
     if not agreed:
         return False, ("Please tick the box to confirm you have read the terms of this offer.", 400)
+    permitted, why, status = Hooks.capacity(job, int(job.get("reserved_output_bytes") or 0))
+    if not permitted:
+        return False, (why, status)
     est = job["estimate"]
     # The flat processing fee is paid together with the analysis (that is when
     # most of the server work happens) and is booked under paid["analysis"], so
@@ -691,15 +717,20 @@ def accept(job, uid, agreed=False):
     # He must be able to cover the whole estimate (minus what he already paid)
     # to proceed -- the exact voice cost is confirmed later after editing.
     remaining_total = est["total"] - job["paid"]["fee"]
-    if bal is not None and bal < remaining_total:
+    if bal is None:
+        return False, ("Your balance could not be verified. Please retry.", 503)
+    if bal < remaining_total:
         _ev(job, "accepted", "failed", f"not enough credits (need {remaining_total}, have {bal})")
         return False, (f"Not enough credits. The full estimate is {est['total']} credits (you already paid {job['paid']['fee']}); "
                        f"you have {bal}. Use Buy to top up.", 402)
     with _lock_for(job["id"]):
+        if job.get("status") != "estimated":
+            return False, ("This job has already been submitted.", 409)
         job["terms_accepted"] = {"version": TERMS_VERSION, "at": _now()}
         _ev(job, "terms_accepted", "ok", f"version={TERMS_VERSION} estimate_total={est['total']}")
         if need_now > 0 and not job["paid"]["analysis"]:
-            Hooks.charge(uid, need_now, "long_dub_analysis", job["id"])
+            if not _debit_ok(Hooks.charge(uid, need_now, "long_dub_analysis", job["id"])):
+                return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["analysis"] = need_now
             _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits", need_now)
         job["status"] = "accepted"
@@ -713,14 +744,15 @@ def accept(job, uid, agreed=False):
 
 def delete_job(job, uid):
     """User throws a job away (only when no worker is busy on it)."""
-    if job["id"] in _RUNNING:
-        return False, ("This job is being processed right now and can't be deleted yet.", 409)
-    _ev(job, "deleted_by_user", "ok", f"status={job.get('status')} paid={job.get('paid')}")
-    _delete_pending_voices(job)
-    with _LOCK:
-        _JOBS.pop(job["id"], None)
-    shutil.rmtree(job_dir(job["id"]), ignore_errors=True)
-    return True, None
+    import longdub_edits
+    with _lock_for(job['id']):
+        if job.get('uid') != uid:
+            return False, ("This project does not belong to your account.", 403)
+        if job["id"] in _RUNNING or job.get('status') in ('payment_pending', 'accepted', 'analyzing', 'confirmed', 'dubbing') or longdub_edits.active(job):
+            return False, ("This job is being processed right now and can't be deleted yet.", 409)
+        _ev(job, "deleted_by_user", "ok", f"status={job.get('status')} paid={job.get('paid')}")
+        _delete_project_assets(job)
+        return True, None
 
 
 # ------------------------------------------------------------- projects
@@ -733,6 +765,7 @@ def delete_job(job, uid):
 # the audio again. None of this costs credits.
 
 _MEDIA_FILES = ("audio.wav", "vocals_mono.wav", "background.wav", "vocals.wav", "vocals_normalized.wav", "src.part",
+                "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "price_music_muted.wav",
                 "preview.mp4", "preview.m4a", "preview.tmp.mp4", "preview.tmp.m4a")
 _MEDIA_DIRS = ("pieces", "vocals", "bg", "asr", "sep")
 
@@ -780,7 +813,7 @@ def _redo_name(uid, name):
     return base[:NAME_MAX - len(suffix)].rstrip() + suffix
 
 
-def redo_project(job, uid):
+def redo_project(job, uid, for_edits=False):
     """Make a NEW project from a finished one: the same lines, translations, speakers,
     emotions and options, so the user has nothing to edit. The new project starts "saved"
     (text only): the user attaches the original file again (free), sees the exact price and
@@ -792,7 +825,7 @@ def redo_project(job, uid):
         return False, ("The text of this project is no longer on the server, so it can't be redone.", 404)
     with _LOCK:
         for j in list_jobs_for_uid(uid):       # a second click (or a second tab) opens the redo that already exists
-            if j.get("redo_of") == job["id"] and j.get("status") not in ("done", "failed", "cancelled", "expired"):
+            if j.get("redo_of") == job["id"] and bool(j.get("restore_for_edits")) == bool(for_edits) and j.get("status") not in ("done", "failed", "cancelled", "expired"):
                 return True, j
         if project_count(uid) >= MAX_PROJECTS_PER_USER:
             return False, (f"You already have {MAX_PROJECTS_PER_USER} unfinished projects. Finish or delete one first.", 429)
@@ -825,6 +858,8 @@ def redo_project(job, uid):
             "media_fp": fp, "analysis": an, "parked_at": _now(), "redo_of": job["id"],
             "terms_accepted": job.get("terms_accepted"),
         }
+        if for_edits:
+            new["restore_for_edits"] = job["id"]
         if job.get("glossary"):
             new["glossary"] = json.loads(json.dumps(job["glossary"]))
         nd = job_dir(new_id)
@@ -973,6 +1008,11 @@ def _finish_restored_media(job, wd, vocals_all):
         except Exception:
             pass
     job["restoring"] = False
+    if job.get("restore_for_edits"):
+        parent_ = load_job(job["restore_for_edits"])
+        if parent_ and parent_.get("uid") == job.get("uid"):
+            parent_["edit_restore_id"] = job["id"]
+            _save(parent_)
     job["media_present"] = True
     job.pop("parked_at", None)
     job["status"] = "editing"
@@ -1066,7 +1106,11 @@ def _worker_main(job_id):
             if job["status"] in ("accepted", "analyzing"):
                 _run_analysis(job)
             elif job["status"] in ("confirmed", "dubbing"):
-                runner = globals().get("_run_dubbing")
+                if job.get("edit_of"):
+                    import longdub_edits
+                    runner = longdub_edits.run
+                else:
+                    runner = globals().get("_run_dubbing")
                 if runner:
                     runner(job)
         finally:
@@ -1103,9 +1147,13 @@ def _fail(job, message, refund_kind=None):
     with _lock_for(job["id"]):
         if refund_kind and job["paid"].get(refund_kind):
             refunded = int(job["paid"][refund_kind])
+            if refund_kind == "dub":
+                refunded += int(job["paid"].get("music_fill", 0))
             try:
                 Hooks.refund(uid, refunded, job["id"])
                 job["paid"][refund_kind] = 0
+                if refund_kind == "dub":
+                    job["paid"]["music_fill"] = 0
             except Exception as ex:
                 print(f"[longdub] refund failed for {job['id']}: {ex}")
                 refunded = 0
@@ -1803,7 +1851,7 @@ def read_segments(job):
 
 # ------------------------------------------------------------- glossary
 #
-# The user's own list of terms ("Neo = نيو"): names, places, brand and technical words that must always be written
+# The user's own list of terms ("Neo = Ã™â€ Ã™Å Ã™Ë†"): names, places, brand and technical words that must always be written
 # the same way in Arabic. The list is handed to the translation (the first one at the analysis, "Translate again" and
 # the "Apply to the lines" button), only with the terms that occur in the lines being translated. Free of charge.
 
@@ -2151,7 +2199,7 @@ def _time_error(rows, seg_id, start, end, total):
             continue
         ov = min(end, float(o["end"])) - max(start, float(o["start"]))
         if ov > OVERLAP_OK:
-            return (f"This time overlaps another line ({_fmt_t(o['start'])} – {_fmt_t(o['end'])}). "
+            return (f"This time overlaps another line ({_fmt_t(o['start'])} Ã¢â‚¬â€œ {_fmt_t(o['end'])}). "
                     "Change that line's time first, or choose a free gap.")
     return None
 
@@ -3293,7 +3341,22 @@ def set_lipsync_resolution(job, uid, res):
     return True, None
 
 
-def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True):
+def music_quote(job):
+    wd = _wd(job)
+    bg = wd / "background.wav"
+    if not bg.exists():
+        return {"repairs": 0, "max_credits": 0}
+    spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job))
+    muted = wd / "price_music_muted.wav"
+    clean = dub_background.mute(bg, wd / "vocals_mono.wav", muted, spans)
+    count = dub_background.count_repairs(clean, spans, wd / "price_music.pcm", original=bg) if clean == muted else 0
+    if count and (not FAL_API_KEY or not music_fill.ENABLED):
+        raise ValueError("Music inpainting is unavailable. Please retry when the music service is available.")
+    fee = max(0, int(Hooks.pricing().get("music_fill_credits", 10)))
+    return {"repairs": count, "max_credits": count * fee, "each": fee}
+
+
+def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, music_budget=0):
     """User reviewed everything and accepts the exact price: charge it and
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
@@ -3325,13 +3388,26 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True):
             return False, ("The price changed. Please check the new price and confirm again.", 409)
         lip_plan = {"per_sec": lp["per_sec"], "resolution": lp["resolution"], "credits": lp["credits"], "seconds": lp["seconds"], "short": lp["short"],
                     "clips": [{"f0": c["f0"], "f1": c["f1"], "dur": c["dur"], "credits": c["credits"]} for c in lp["clips"]]}
+    try:
+        mq = music_quote(job) if keep_music else {"max_credits": 0}
+    except Exception as ex:
+        return False, (str(ex), 503)
+    if mq["max_credits"] != int(music_budget):
+        return False, ("The music repair price changed. Review the new maximum price.", 409)
     bal = Hooks.get_credits(uid)
-    if bal is not None and bal < price["due"]:
+    if bal is None:
+        return False, ("We could not verify your balance. Nothing was charged. Please retry.", 503)
+    if bal < price["due"] + mq["max_credits"]:
         _ev(job, "dub_confirmed", "failed", f"not enough credits (need {price['due']}, have {bal})")
         return False, (f"Not enough credits. Dubbing costs {price['due']} credits and you have {bal}. Use Buy to top up.", 402)
     with _lock_for(job["id"]):
-        Hooks.charge(uid, price["due"], "long_dub_dub", job["id"])
+        if job.get("status") != "editing":
+            return False, ("This job has already been submitted.", 409)
+        if not _debit_ok(Hooks.charge(uid, price["due"], "long_dub_dub", job["id"])):
+            return False, ("Your payment could not be confirmed. Please retry.", 503)
         job["paid"]["dub"] = price["due"]
+        job["music_budget"] = mq["max_credits"]
+        job["music_expected_repairs"] = mq.get('repairs', 0)
         job["dub_plan"] = {"chars": price["chars"], "cpc": price["chars_per_credit"], "clone_each": price["clone_each"],
                            "merge": price["merge"], "lines": price["lines"],
                            "speakers": [s["id"] for s in price["speakers_used"]], "confirmed_at": _now()}
@@ -3377,8 +3453,8 @@ MAX_FAILED_LINE_SHARE = 0.10   # more failed lines than this and the whole job f
 
 def _delete_pending_voices(job):
     """Delete every temporary cloned voice this job still has on Inworld.
-    Voices are never kept: they are removed as soon as the job ends, whether
-    it finished, failed or was deleted. Anything that can't be deleted right
+    Finished projects keep voices for seven days after last correction use.
+    Explicit finish, failure and project deletion release them. Anything that can't be deleted right
     now stays listed and is retried by the hourly housekeeping."""
     ids = list(job.get("voices_pending_delete") or [])
     if not ids:
@@ -3404,13 +3480,34 @@ def sweep_voices():
     the job ended)."""
     if not LONG_DIR.exists():
         return
+    import longdub_edits
     for d in LONG_DIR.iterdir():
         if not d.is_dir():
             continue
-        job = load_job(d.name)
-        if job and job.get("voices_pending_delete") and job["id"] not in _RUNNING \
-                and job.get("status") not in ("confirmed", "dubbing"):
-            _delete_pending_voices(job)
+        with _lock_for(d.name):
+            job = load_job(d.name)
+            if job and longdub_edits.active(job):
+                continue
+            if job and job.get("status") == "provider_cleanup":
+                if job["id"] in _RUNNING:
+                    continue
+                if job.get("voices_pending_delete"):
+                    _delete_pending_voices(job)
+                if not job.get("voices_pending_delete"):
+                    directory = job_dir(job["id"])
+                    if directory.resolve().parent != LONG_DIR.resolve():
+                        raise RuntimeError("The voice cleanup directory is outside the project folder.")
+                    shutil.rmtree(directory)
+                    with _LOCK:
+                        _JOBS.pop(job["id"], None)
+                continue
+            if job and job.get("voices_pending_delete") and job["id"] not in _RUNNING \
+                    and job.get("status") not in ("payment_pending", "confirmed", "dubbing") and not (job.get("edit_assets") and job.get("status") == "done"
+                             and _now() - job.get("edit_voice_last_used", (job.get("result") or {}).get("finished", _now())) < 7 * 86400):
+                _delete_pending_voices(job)
+                if job.get("status") == "done":
+                    job.setdefault("dub", {})["voices"] = {}
+                    _save(job)
 
 
 def _clone_sample(job, spid, rows, out_dir):
@@ -3566,8 +3663,7 @@ def _volume_stats(path):
 
 FAINT_BG_MEAN_DB = -50.0     # a separated background this quiet on average is reported to the user
 # what the background goes through on its way into the final video (no fixed cut: its level is set from the ORIGINAL audio beforehand)
-BG_MIX_FILTER = ("highpass=f=80:poles=2,highpass=f=80:poles=2,highshelf=f=2500:g=5:t=q:w=0.707,"
-                 "alimiter=limit=0.95,volume=1.0")
+BG_MIX_FILTER = "volume=1.0"  # local levels are measured; no global EQ or automatic gain
 
 
 def _bg_final_event(job, wd, bg_mix, dub_full):
@@ -3666,6 +3762,7 @@ def _fit_line(raw_path, out_wav, slot, room, loud_ref, start):
         pass
     dur = ffmpeg_utils.get_media_duration(out_wav)
     gain = 0.0
+    o_mean = None
     try:
         o_mean, _o_max = _speech_levels(loud_ref, start, max(min(slot, room), 0.3))
         d_mean, d_max = _speech_levels(out_wav)
@@ -3674,7 +3771,7 @@ def _fit_line(raw_path, out_wav, slot, room, loud_ref, start):
             gain = min(gain, PEAK_CEIL_DB - d_max)      # a boost must not clip
     except Exception:
         gain = 0.0
-    return {"dur": round(dur, 3), "tempo": round(tempo, 3), "warn": warn, "gain_db": round(gain, 1),
+    return {"dur": round(dur, 3), "tempo": round(tempo, 3), "warn": warn, "gain_db": round(gain, 1), "original_mean_db": o_mean,
             "raw": round(actual, 3), "slot": round(slot, 2), "room": round(room, 2)}
 
 
@@ -3840,6 +3937,12 @@ def _save_tracks(job, dub_full, bg_mix, react, total):
         os.replace(tmp_v, OUTPUT_DIR / f"{jid}{TRACK_KINDS['voices']}")
         out["voices"] = {"size": (OUTPUT_DIR / f"{jid}{TRACK_KINDS['voices']}").stat().st_size}
     layers = [p for p in (bg_mix, react) if p is not None]
+    if not layers:
+        silence_ = OUTPUT_DIR / f"{jid}_effects_tmp.m4a"
+        ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo",
+                                "-t", str(total), "-c:a", "aac", "-b:a", "192k", str(silence_)])
+        os.replace(silence_, OUTPUT_DIR / f"{jid}{TRACK_KINDS['effects']}")
+        out["effects"] = {"size": (OUTPUT_DIR / f"{jid}{TRACK_KINDS['effects']}").stat().st_size}
     if layers:
         tmp_e = OUTPUT_DIR / f"{jid}_effects_tmp.m4a"
         cmd = ["ffmpeg", "-y"]
@@ -3909,6 +4012,9 @@ def _run_dubbing(job):
             wav, secs = _clone_sample(job, spid, rows_all, d)
             vid, err = (None, f"not enough clear speech to copy this voice ({secs:.1f}s)")
             if wav is not None:
+                refs_ = job_dir(job["id"]) / "editrefs"
+                refs_.mkdir(exist_ok=True)
+                shutil.copyfile(wav, refs_ / f"{spid}.wav")
                 vid, err = _clone_with_retry(f"lisan-tmp-{job['id'][:8]}-{spid}", wav)
                 try:
                     wav.unlink()
@@ -4223,119 +4329,27 @@ def _run_dubbing(job):
                 f"{bg_info['failed_parts']} of {bg_info['parts']} parts had no separated background")
             if not video_out and bg_info["state"] == "silent" and not bg_info["failed_parts"]:
                 bg_info = None      # a recording with only voices has no background: nothing is missing, nothing to report
-        bg_use = bg
-        bg_sep = bg         # the separated background as it is mixed: silenced while the original voices speak (below)
-        bed_done = False
+        bg_mix = bg
         bed_level_ = None
-        if bg.exists() and bg_info and bg_info["state"] in ("mixed", "faint"):
-            try:
-                # The separator leaves a faint copy of every original phrase in the background (the "shadow" of the
-                # English voice). While the original speaker talks the dubbed voice is there instead: silence the
-                # background for exactly those stretches (only when it holds such a copy, see bg_duck.MUTE_MODE).
-                try:
-                    _sf = wd / "speech_spans.json"
-                    _sp = [(float(x[0]), float(x[1])) for x in json.loads(_sf.read_text(encoding="utf-8"))] if _sf.exists() else None
-                    _mres = bg_duck.mute_speech(bg, wd / "vocals_mono.wav", wd / "background_muted.wav", spans=_sp,
-                                                keep=(job.get("music_pref") != "silence"))
-                    if _mres["muted"]:
-                        bg_sep = bg_use = wd / "background_muted.wav"
-                    _ev(job, "background_mute", "ok" if _mres["muted"] else "info", _mres["reason"])
-                    if _mres.get("keep_note"):
-                        _ev(job, "background_music_keep", "ok" if _mres.get("kept_music") else "info", _mres["keep_note"])
-                    # Holes the music repair can still close: the stretches where the music had to be silenced and there is
-                    # real music right next to them (fal.ai Stable Audio 3 small, see music_fill.py). Falls back to what is there.
-                    if _mres["muted"] and job.get("music_pref") != "silence" and _sp:
-                        try:
-                            # The user pays for every hole that is really filled (credits are taken after each success, and
-                            # the model is not called when the balance cannot cover the next one).
-                            _mfc = max(0, int((Hooks.pricing() or {}).get("music_fill_credits", 10) or 0))
-                            _mfu = job.get("uid")
-
-                            def _mf_allow(_c=_mfc, _u=_mfu):
-                                if not _c:
-                                    return True
-                                _bal = Hooks.get_credits(_u)
-                                return _bal is None or _bal >= _c
-
-                            def _mf_charge(_a, _b, _c=_mfc, _u=_mfu):
-                                if _c:
-                                    Hooks.charge(_u, _c, "long_dub_music_fill", job["id"])
-                                    job["paid"]["music_fill"] = int(job["paid"].get("music_fill", 0)) + _c
-
-                            _fres = music_fill.fill(wd / "background_muted.wav", wd / "background_filled.wav", _sp, FAL_API_KEY,
-                                                    gemini_key=GEMINI_API_KEY, log=lambda m_: print(f"[longdub] {job['id']} music_fill {m_}"),
-                                                    allow=_mf_allow, on_filled=_mf_charge)
-                            if _fres["filled"]:
-                                bg_sep = bg_use = wd / "background_filled.wav"
-                            if _fres["filled"] or _fres.get("found"):
-                                _mf_n = sum(1 for g_ in _fres["gaps"] if g_["ok"])
-                                _ev(job, "background_music_fill", "ok" if _fres["filled"] else "info",
-                                    f"{_fres['reason']}; charged {_mf_n * _mfc} credits ({_mf_n} x {_mfc}); sent {_fres['sent_sec']} s of audio to the model"
-                                    + (f"; prompt: {_fres['prompt']}" if _fres.get("prompt") else "")
-                                    + "; " + " | ".join(f"{g['start']}-{g['end']} s: {g['note']}" for g in _fres["gaps"])[:700], (_mf_n * _mfc) or None)
-                        except Exception as _fex:
-                            print(f"[longdub] music fill skipped: {_fex}")
-                except Exception as _mex:
-                    print(f"[longdub] background mute skipped: {_mex}")
-                pauses_ = []
-                pp_ = wd / "pauses.json"
-                if pp_.exists():
-                    pauses_ = [tuple(x) for x in json.loads(pp_.read_text(encoding="utf-8"))]
-                # First choice: a steady background sound that the separator filed under "voices" (a crowd, a
-                # machine hum, traffic, rain ...) is rebuilt from the pauses between the speakers and laid under
-                # the whole video. Second choice (below): the separated background is simply raised in level.
-                plan_, why_ = bg_duck.plan_ambience_bed(wd / "audio.wav", bg, wd / "vocals_mono.wav", pauses_)
-                if plan_:
-                    sep_used = bg_sep
-                    if bg_duck.ENABLED and bg_sep is bg:
-                        _bdk = bg_duck.duck_background(bg, wd / "vocals_mono.wav", wd / "background_ducked.wav")
-                        if _bdk["ducked"]:
-                            sep_used = wd / "background_ducked.wav"
-                        _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
-                    import zlib
-                    binfo_ = bg_duck.add_ambience_bed(plan_, sep_used, wd / "background_restored.wav",
-                                                      seed=zlib.crc32(job["id"].encode("utf-8")))
-                    if binfo_["ok"]:
-                        bg_use = wd / "background_restored.wav"
-                        # the final mix costs a few dB (volume, bass filter): give them back so that the
-                        # pauses end up as loud as in the original
-                        g2_, _n2 = bg_duck.makeup_gain(wd / "audio.wav", bg_use, pauses_, max_db=6.0,
-                                                       mix_filter=BG_MIX_FILTER, min_db=1.0)
-                        if g2_ > 0 and bg_duck.lift_background(bg_use, wd / "background_restored_lifted.wav", g2_):
-                            bg_use = wd / "background_restored_lifted.wav"
-                        l_mean, l_max = _volume_stats(bg_use)
-                        if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
-                            bg_info["state"] = "mixed"
-                        bed_done = True
-                        bed_level_ = plan_["target"]
-                        _ev(job, "background_bed", "ok", f"{binfo_['reason']}; level correction {g2_:g} dB; "
-                                                          f"the track averages {l_mean} dB, peak {l_max} dB")
-                    else:
-                        _ev(job, "background_bed", "info", "could not be built (" + binfo_["reason"] + "); the level is raised instead")
-                else:
-                    _ev(job, "background_bed", "info", "not used: " + str(why_))
-                if not bed_done:
-                    # The separator often keeps far less of the room sound than the original had. Raise the
-                    # background until, in the pauses of the voices, it is as loud as the original there.
-                    gain_, note_ = bg_duck.makeup_gain(wd / "audio.wav", bg, pauses_, mix_filter=BG_MIX_FILTER, min_db=1.0)
-                    if gain_ > 0 and bg_duck.lift_background(bg_sep, wd / "background_lifted.wav", gain_):
-                        bg_use = wd / "background_lifted.wav"
-                        l_mean, l_max = _volume_stats(bg_use)
-                        if bg_info["state"] == "faint" and l_mean is not None and l_mean >= FAINT_BG_MEAN_DB:
-                            bg_info["state"] = "mixed"       # no longer faint once raised
-                        _ev(job, "background_lift", "ok", note_ + f"; the raised track averages {l_mean} dB, peak {l_max} dB")
-                    else:
-                        _ev(job, "background_lift", "info", note_ if gain_ <= 0 else "could not raise the background, it is used as it is")
-            except Exception as ex:
-                print(f"[longdub] background restore skipped: {ex}")
-        bg_mix = bg_use
-        if bg.exists() and bg_duck.ENABLED and not bed_done and bg_sep is bg:
-            # the separated background keeps a faint metallic copy of the original voices:
-            # lower its voice range only while the original speakers talk
-            _bdk = bg_duck.duck_background(bg_use, wd / "vocals_mono.wav", wd / "background_ducked.wav")
-            if _bdk["ducked"]:
-                bg_mix = wd / "background_ducked.wav"
-            _ev(job, "background_duck", "ok" if _bdk["ducked"] else "info", _bdk["reason"])
+        if bg.exists():
+            spans_ = dub_background.speech_spans(wd / "speech_spans.json", rows_all)
+            fee_ = max(0, int((Hooks.pricing() or {}).get("music_fill_credits", 10)))
+            limit_ = int(job.get("music_budget") or 0)
+            def allow_fill():
+                balance = Hooks.get_credits(uid)
+                return (int(job["paid"].get("music_fill", 0)) + fee_ <= limit_
+                        and balance is not None and balance >= fee_)
+            def charge_fill(a_, b_):
+                if fee_ and not _debit_ok(Hooks.charge(uid, fee_, "long_dub_music_fill", job["id"])):
+                    raise RuntimeError("Music repair payment could not be verified")
+                job["paid"]["music_fill"] = int(job["paid"].get("music_fill", 0)) + fee_
+                _save(job)
+            repaired_ = dub_background.checkpointed_prepare(job, _save, job.get('music_expected_repairs', 0), bg, wd / "vocals_mono.wav", dub_full, wd, "dubbing_bg", spans_,
+                key=FAL_API_KEY if job.get("music_pref") != "silence" else "",
+                gemini_key=GEMINI_API_KEY, allow=allow_fill, on_filled=charge_fill, preserve_music=job.get("music_pref") != "silence")
+            bg_mix = repaired_["path"]
+            job["background_levels"] = repaired_["measurements"]
+            _ev(job, "background_music_fill", "ok", repaired_["music_fill"]["reason"])
         # Laughter, applause and cheers: the separator files them under "voices", so the separated background
         # has none. They are cut out of the separated voices outside the spoken words and laid back as their own layer.
         react = None
@@ -4347,7 +4361,7 @@ def _run_dubbing(job):
                 elif not sp_file.exists():
                     _ev(job, "reactions", "info", "not used: no speech map for this job")
                 else:
-                    spans_ = [tuple(x) for x in json.loads(sp_file.read_text(encoding="utf-8"))]
+                    spans_ = dub_background.speech_spans(sp_file, rows_all)
                     # a part whose separation failed has the original sound (music included) as its "voices":
                     # nothing in it may be taken for a reaction
                     for i_ in (job.get("analysis") or {}).get("bg_failed") or []:
@@ -4428,9 +4442,12 @@ def _run_dubbing(job):
         size = (OUTPUT_DIR / final_name).stat().st_size
         _ev(job, "output_saved", "ok", f"{final_name} {size // 1024} KB")
         tracks_info = None
-        if job.get("want_tracks"):        # chosen by the user at confirm: a failure here never fails the dub
+        if True:  # Always retain the exact effects layer for inexpensive corrections.
             try:
                 tracks_info = _save_tracks(job, dub_full, bg_mix if use_bg else None, react, total)
+                if not job.get("want_tracks"):
+                    (OUTPUT_DIR / f"{job['id']}{TRACK_KINDS['voices']}").unlink(missing_ok=True)
+                    tracks_info.pop("voices", None)
                 _ev(job, "tracks", "ok", ", ".join(f"{k} {v['size'] // 1024} KB" for k, v in tracks_info.items()) or "nothing to save")
             except Exception as ex_t:
                 print(f"[longdub] separate tracks skipped for {job['id']}: {ex_t}")
@@ -4442,8 +4459,11 @@ def _run_dubbing(job):
                         pass
                 tracks_info = None
 
-        # 5. voices gone, working files gone, tell the user ---------------------
-        _delete_pending_voices(job)
+        # Retain the provider IDs and measured references for repeated corrections.
+        job["edit_assets"] = True
+        job["original_voice_levels"] = {sid_: meta_.get("original_mean_db") for sid_, meta_ in dub["lines"].items()}
+        job["original_voice_envelope"] = dub_audio.profile(loud_ref, wd / "original_levels.pcm")
+        # Working media can now be removed; references and the background remain.
         elapsed = _now() - dub.get("started", _now())
         job["result"] = {"kind": "video" if video_out else "audio", "file": final_name, "size": size,
                          "duration": round(total, 1), "lines": len(dub["lines"]), "failed_lines": len(failed),
@@ -4469,7 +4489,7 @@ def _run_dubbing(job):
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
         # (pauses.json, speech_spans.json and turns.json are tiny and are kept: a "Redo" of this project needs them)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "price_music_muted.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
             try:
                 (wd / f).unlink()
             except Exception:
@@ -4498,7 +4518,7 @@ def _run_dubbing(job):
         ok = Hooks.send_email(uid, "Your dubbed video is ready",
                               f"Hi,\n\nYour dubbed {'video' if video_out else 'audio'} \"{job['filename']}\" is ready.\n"
                               "Download it from https://lisanai.org/dub-long (or your Account page).\n"
-                              "As agreed, the copied voices were deleted and you get this one file. "
+                              "Cloned voices remain available for corrections for seven days after last use, or until you finish corrections. "
                               f"It stays available for your plan's storage period.{note}\n\n-- Lisan AI")
         _ev(job, "email_sent", "ok" if ok else "failed", "finished email" + ("" if ok else f": {Hooks.email_error() or 'unknown reason'}"))
     except Exception as ex:
@@ -4540,34 +4560,44 @@ def sweep_stale(park_hours=None):
                 pass
             continue
         if job.get("status") == "editing" and job["id"] not in _RUNNING:
-            idle = now - job.get("updated", now)
-            try:
-                if has_media(job):
-                    if idle > _park_after * 3600:
-                        park_job(job, f"idle for over {_park_after:g} hours")
+            owner_id = job.get('restore_for_edits') or job['id']
+            with _lock_for(owner_id):
+                import longdub_edits
+                owner = load_job(owner_id) or job
+                if longdub_edits.active(owner):
                     continue
-                if job.get("reattach") and idle > 24 * 3600:
-                    _cancel_reattach(job)
-                    _save(job)
-                    continue
-                if idle > PROJECT_KEEP_DAYS * 86400:
-                    _ev(job, "removed_by_housekeeping", "ok", f"saved project not opened for over {PROJECT_KEEP_DAYS:g} days")
-                    _delete_pending_voices(job)
-                    with _LOCK:
-                        _JOBS.pop(job["id"], None)
-                    shutil.rmtree(d, ignore_errors=True)
-                    removed += 1
-            except Exception as ex:
-                print(f"[longdub] housekeeping of {job.get('id')} skipped: {ex}")
+                idle = now - job.get("updated", now)
+                try:
+                    if has_media(job):
+                        if idle > _park_after * 3600:
+                            park_job(job, f"idle for over {_park_after:g} hours")
+                        continue
+                    if job.get("reattach") and idle > 24 * 3600:
+                        _cancel_reattach(job)
+                        _save(job)
+                        continue
+                    if idle > PROJECT_KEEP_DAYS * 86400:
+                        _ev(job, "removed_by_housekeeping", "ok", f"saved project not opened for over {PROJECT_KEEP_DAYS:g} days")
+                        _delete_pending_voices(job)
+                        with _LOCK:
+                            _JOBS.pop(job["id"], None)
+                        shutil.rmtree(d, ignore_errors=True)
+                        removed += 1
+                except Exception as ex:
+                    print(f"[longdub] housekeeping of {job.get('id')} skipped: {ex}")
             continue
         hours = STALE_HOURS.get(job.get("status"))
-        if hours and job["id"] not in _RUNNING and now - job.get("updated", now) > hours * 3600:
-            _ev(job, "removed_by_housekeeping", "ok", f"status={job.get('status')} idle for over {hours} hours")
-            _delete_pending_voices(job)
-            with _LOCK:
-                _JOBS.pop(job["id"], None)
-            shutil.rmtree(d, ignore_errors=True)
-            removed += 1
+        with _lock_for(job['id']):
+            import longdub_edits
+            if longdub_edits.active(job):
+                continue
+            if hours and job["id"] not in _RUNNING and now - job.get("updated", now) > hours * 3600:
+                _ev(job, "removed_by_housekeeping", "ok", f"status={job.get('status')} idle for over {hours} hours")
+                _delete_pending_voices(job)
+                with _LOCK:
+                    _JOBS.pop(job["id"], None)
+                shutil.rmtree(d, ignore_errors=True)
+                removed += 1
     return removed
 
 
@@ -4581,3 +4611,72 @@ def start_housekeeping():
             except Exception as ex:
                 print(f"[longdub] sweep error: {ex}")
     threading.Thread(target=_loop, daemon=True).start()
+
+
+def _delete_project_assets(project):
+    """Delete inactive project data, retaining a durable retry record for provider failures.
+
+    The caller holds this project's lock and has checked ownership/activity. Until
+    disk cleanup succeeds the minimal record retains its owner, so deletion can be
+    retried without losing references to undeleted assets or provider voice IDs.
+    """
+    jid, uid = project["id"], project.get("uid")
+    directory = job_dir(jid)
+    if not _valid_id(jid) or directory.resolve().parent != LONG_DIR.resolve():
+        raise RuntimeError("The project directory is outside the project folder.")
+    pending = list(project.get("voices_pending_delete") or [])
+    try:
+        _delete_pending_voices(project)
+    except Exception as ex:
+        project["voices_pending_delete"] = pending
+        print(f"[longdub] project voice deletion will be retried for {jid}: {ex}")
+    pending = list(project.get("voices_pending_delete") or [])
+    checkpoint = {"id": jid, "uid": uid, "status": "account_cleanup",
+                  "voices_pending_delete": pending, "created": project.get("created", _now())}
+    # Invalidate stale requests and save pending IDs before removing any assets.
+    project.clear()
+    project.update(checkpoint)
+    _save(project)
+    with _LOCK:
+        _JOBS[jid] = project
+    suffixes = ("_final_dubbed_video.mp4", "_final_dubbed.mp3", "_final_corrections.m4a",
+                "_voices_tmp.m4a", "_effects_tmp.m4a") + tuple(TRACK_KINDS.values())
+    for suffix in suffixes:
+        (OUTPUT_DIR / (jid + suffix)).unlink(missing_ok=True)
+    for path in list(directory.iterdir()):
+        if path.name == "job.json":
+            continue
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    if pending:
+        project["uid"] = None
+        project["status"] = "provider_cleanup"
+        _save(project)
+    else:
+        shutil.rmtree(directory)
+        with _LOCK:
+            _JOBS.pop(jid, None)
+
+
+def delete_account_jobs(uid):
+    """Delete owned inactive long projects before the account/login is removed."""
+    from contextlib import ExitStack
+    busy = {"payment_pending", "accepted", "analyzing", "confirmed", "dubbing"}
+    with account_lock(uid):
+        projects = list_jobs_for_uid(uid)
+        with ExitStack() as held:
+            for project in sorted(projects, key=lambda item: item["id"]):
+                held.enter_context(_lock_for(project["id"]))
+            # Check all projects before deleting anything from any of them.
+            for project in projects:
+                if project.get("uid") != uid or not _valid_id(project["id"]):
+                    raise RuntimeError("The account's project ownership could not be verified.")
+                if project["id"] in _RUNNING or project.get("status") in busy:
+                    raise ValueError("Wait for your running long dubbing or correction jobs to finish before deleting your account.")
+                if job_dir(project["id"]).resolve().parent != LONG_DIR.resolve():
+                    raise RuntimeError("The account's project directory is outside the project folder.")
+            for project in projects:
+                _delete_project_assets(project)
+    return len(projects)

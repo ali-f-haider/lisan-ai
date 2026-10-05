@@ -148,6 +148,15 @@
   html[dir="rtl"] .ld-warn { border-left: none; border-right: 3px solid var(--warning); }
   html[dir="rtl"] .ld-seg textarea.en { direction: ltr; text-align: left; }
   html[dir="rtl"] #userBar { direction: rtl; }
+
+.ld-help {display:inline-block;position:relative;margin-inline-start:8px;vertical-align:middle}
+.ld-help>button {border:1px solid #818cf8;border-radius:50%;width:24px;height:24px;padding:0;font-weight:bold;cursor:pointer}
+.ld-help-content {display:none;position:absolute;z-index:20;inset-inline-start:0;top:30px;width:min(530px,75vw);padding:16px;background:var(--card,#202127);border:1px solid #818cf8;border-radius:10px;box-shadow:0 6px 20px #0006;color:var(--text,#e5e7eb)}
+.ld-help:hover .ld-help-content,.ld-help:focus-within .ld-help-content,.ld-help.open .ld-help-content {display:block}
+.ld-pages {display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:8px;z-index:5;padding:10px;background:var(--card,#202127);border-radius:8px;margin:12px 0}
+.ld-pages .reviewed {border:1px solid #22c55e;color:#22c55e}
+.ld-overlap {border-inline-start:4px solid #f59e0b}
+.ld-time-notice {padding:8px;border:1px solid #818cf8;border-radius:6px;margin:8px 0;font-size:13px}
 </style>
 </head>
 <body>
@@ -168,7 +177,7 @@
 <div class="ld-wrap">
 
   <div class="card" id="introCard">
-    <h3 id="introHeading">🎞️ Dub Long Video</h3>
+    <h3 id="introHeading">🎞️ Dub Long Video</h3><a href="/dub-long-edit" class="btn-plain">✎ Edit completed projects / تعديل المشاريع المكتملة</a>
     <p id="introText" class="note"></p>
     <ol id="introSteps" style="margin:10px 22px;line-height:1.7;font-size:14px;"></ol>
   </div>
@@ -405,7 +414,7 @@ var T = {
     terms: function (e) {
       return [
         "You will receive one file: the dubbed video (or the dubbed audio if you uploaded audio) when the dubbing is finished.",
-        "The cloned voices are not saved.",
+        "Cloned voices are retained for seven days after their last correction use, or until you finish corrections. Short reference samples and the background are saved for later corrections.",
         "The exact price is calculated from your edited Arabic text and shown to you before the dubbing starts — nothing more is charged without your confirmation.",
         "If you decline this estimate you only pay the estimate fee. If a step fails on our side, the credits of that step are refunded automatically.",
         "Timing is automatic for the Arabic lines.",
@@ -450,7 +459,7 @@ var T = {
     failedHeading: "This one didn't finish",
     startNew: "Upload another video",
     doneHeading: "✅ Your dubbed file is ready",
-    doneText: function (kind, dur) { return "Your dubbed " + kind + " (" + dur + ") is ready. It is the only file you get. The copied voices have been deleted."; },
+    doneText: function (kind, dur) { return "Your dubbed " + kind + " (" + dur + ") is ready. You can correct selected lines on the correction page. Saved voices are retained for seven days after last use, or until you finish corrections."; },
     kindVideo: "video", kindAudio: "audio",
     download: "⬇️ Download", fileGone: "This file has expired or was deleted. It is kept for your plan's storage period.",
     doneWarn: function (n) { return n + " line(s) could not be dubbed and were left silent (their price was refunded)."; },
@@ -499,10 +508,10 @@ var T = {
     roomMuch: "Much lighter",
     roomNone: "None (dry voice)",
     roomNote: "The echo of the original room is measured and added to the Arabic voice. If the original sounds quite dry, choose a lighter option.",
-    confirmRecap: "By confirming you accept: the cloned voices are deleted after the job, and you receive one file (the dubbed video or audio).",
+    confirmRecap: "By confirming you accept: cloned voices are retained for seven days after last use, or until you finish corrections. Short references and the background remain available for corrections.",
     confirmRecapLip: " A lip-sync clip that cannot be processed is refunded and keeps the original picture; the lip-synced parts are AI-generated and can differ slightly from your original.",
     confirmBtn: function (n) { return "Confirm and start dubbing — " + n + " credits"; },
-    confirmAsk: function (n, bal) { return "Charge " + n + " credits and start the dubbing? (Your balance: " + bal + ")\n\nThe cloned voices are deleted after the job and you receive one file."; },
+    confirmAsk: function (n, bal) { return "Charge " + n + " credits and start the dubbing? (Your balance: " + bal + ")\n\nCloned voices are retained for seven days after last use, or until you finish corrections."; },
     priceChanged: "The price changed. Please check the new price.",
     listHeading: "My long dubs",
     st: { uploading: "Uploading", estimated: "Waiting for your approval", accepted: "Queued", analyzing: "Analysing",
@@ -656,7 +665,7 @@ var T = {
     terms: function (e) {
       return [
         "ستحصل على ملف واحد: الفيديو المدبلج (أو الصوت المدبلج إن رفعت ملفاً صوتياً) عند انتهاء الدبلجة.",
-        "الأصوات المستنسَخة لا تُحفظ.",
+        "تُحفظ الأصوات المستنسخة لمدة سبعة أيام بعد آخر استخدام للتصحيح، أو حتى إنهاء التصحيحات. تُحفظ عينات قصيرة والخلفية للتصحيحات اللاحقة.",
         "يُحسب السعر الدقيق من النص العربي بعد تعديلك ويُعرض عليك قبل بدء الدبلجة — ولا يُخصم أي مبلغ إضافي دون تأكيدك.",
         "إذا رفضت هذا التقدير فلا تدفع إلا رسم التقدير. وإذا فشلت أي خطوة من جانبنا تُعاد أرصدة تلك الخطوة تلقائياً.",
         "التوقيت تلقائي للأسطر العربية.",
@@ -701,7 +710,7 @@ var T = {
     failedHeading: "لم تكتمل هذه العملية",
     startNew: "ارفع فيديو آخر",
     doneHeading: "✅ ملفك المدبلج جاهز",
-    doneText: function (kind, dur) { return "الـ" + kind + " المدبلج (" + dur + ") جاهز. هذا هو الملف الوحيد الذي تحصل عليه. وقد حُذفت الأصوات المستنسَخة."; },
+    doneText: function (kind, dur) { return "الـ" + kind + " المدبلج (" + dur + ") جاهز. يمكنك تصحيح أسطر محددة في صفحة التصحيحات. تُحفظ الأصوات سبعة أيام بعد آخر استخدام، أو حتى إنهاء التصحيحات."; },
     kindVideo: "فيديو", kindAudio: "صوت",
     download: "⬇️ تنزيل", fileGone: "انتهت صلاحية هذا الملف أو حُذف. يُحتفظ به طوال مدة التخزين في باقتك.",
     doneWarn: function (n) { return "تعذّرت دبلجة " + n + " سطر وتُرك صامتاً (وأُعيد ثمنه)."; },
@@ -750,10 +759,10 @@ var T = {
     roomMuch: "أخفّ بكثير",
     roomNone: "بدون (صوت جاف)",
     roomNote: "يُقاس صدى المكان في التسجيل الأصلي ويُضاف إلى الصوت العربي. إذا كان الأصل يبدو جافاً فاختر خياراً أخفّ.",
-    confirmRecap: "بالتأكيد أنت توافق على: حذف الأصوات المستنسَخة بعد انتهاء العملية، وحصولك على ملف واحد (الفيديو أو الصوت المدبلج).",
+    confirmRecap: "بالتأكيد أنت توافق على: حفظ الأصوات المستنسخة سبعة أيام بعد آخر استخدام، أو حتى إنهاء التصحيحات، وحفظ عينات قصيرة والخلفية للتصحيحات اللاحقة.",
     confirmRecapLip: " والمقطع الذي تتعذر مزامنة شفاهه يُعاد ثمنه ويحتفظ بالصورة الأصلية؛ وأجزاء مزامنة الشفاه يولّدها الذكاء الاصطناعي وقد تختلف قليلاً عن الأصل.",
     confirmBtn: function (n) { return "تأكيد وبدء الدبلجة — " + n + " رصيد"; },
-    confirmAsk: function (n, bal) { return "خصم " + n + " رصيد وبدء الدبلجة؟ (رصيدك: " + bal + ")\n\nتُحذف الأصوات المستنسَخة بعد العملية وتحصل على ملف واحد."; },
+    confirmAsk: function (n, bal) { return "خصم " + n + " رصيد وبدء الدبلجة؟ (رصيدك: " + bal + ")\n\nتُحفظ الأصوات المستنسخة سبعة أيام بعد آخر استخدام، أو حتى إنهاء التصحيحات."; },
     priceChanged: "تغيّر السعر. يرجى مراجعة السعر الجديد.",
     listHeading: "دبلجاتي الطويلة",
     st: { uploading: "قيد الرفع", estimated: "بانتظار موافقتك", accepted: "في الانتظار", analyzing: "قيد التحليل",
@@ -768,6 +777,7 @@ var LS_KEY = "lisan_longdub_job";
 var cfg = null;          // /api/longdub/config
 var jobs = [];           // list of public job views
 var cur = null;          // job currently on screen
+var reviewPage = 0, reviewedBatches = {}, manualNoticeId = "";
 var segs = [];           // transcript rows while editing
 var spk = [];            // speaker list while editing [{id, name}]
 var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?, speaker_id?} waiting to be saved
@@ -1575,6 +1585,8 @@ function loadSegments() {
     if (!cur || cur.id !== id) return;
     if (!r.ok) { $("editorBody").innerHTML = "<p class='ld-err'>" + esc(safeErr(r.data.error, T.genericErr)) + "</p>"; return; }
     segs = r.data.segments || [];
+    reviewPage = 0; reviewedBatches = {};
+    (r.data.batches || []).forEach(function(b) { if (b.reviewed) reviewedBatches[String(b.page)] = b.hash; });
     spk = (r.data.speaker_list || []).map(function (s) { return { id: s.id, name: s.name }; });
     cur.warnings = r.data.warnings || [];
     cur.stated_speakers = r.data.stated_speakers; cur.detected_speakers = r.data.detected_speakers;
@@ -1613,7 +1625,8 @@ function renderEditor() {
   renderProjHead();
   renderReattach();
   var list = document.createElement("div"); list.id = "segList";
-  segs.forEach(function (s) { list.appendChild(buildRow(s)); });
+  body.appendChild(reviewNavigation());
+  segs.slice(reviewPage * 10, reviewPage * 10 + 10).forEach(function (s) { list.appendChild(buildRow(s)); });
   body.appendChild(list);
   var foot = document.createElement("div"); foot.id = "confirmArea";
   body.appendChild(foot);
@@ -1624,6 +1637,34 @@ function renderEditor() {
   setSaved(true);
 }
 
+
+function reviewNavigation() {
+  var nav = document.createElement("div"); nav.id = "reviewPages"; nav.className = "ld-pages";
+  reviewPage = Math.max(0, Math.min(reviewPage, Math.ceil(segs.length / 10) - 1));
+  for (var i = 0; i < Math.ceil(segs.length / 10); i++) (function(page) {
+    var b = document.createElement("button"); b.type = "button"; b.className = "btn-plain";
+    b.textContent = (reviewedBatches[String(page)] ? "✓ " : "") + (page * 10 + 1) + "–" + Math.min(page * 10 + 10, segs.length);
+    b.classList.toggle("reviewed", !!reviewedBatches[String(page)]); b.setAttribute("aria-current", page === reviewPage ? "page" : "false");
+    b.onclick = function() { flushSave().then(function() { if (saving || Object.keys(dirty).length) { alertMsg(T.saveFailed); return; } reviewPage = page; renderEditor(); }); }; nav.appendChild(b);
+  })(i);
+  var check = document.createElement("button"); check.type = "button"; check.className = "green";
+  check.textContent = LANG === "ar" ? "✓ تمت مراجعة هذه الأسطر" : "✓ Mark these lines reviewed";
+  check.onclick = function() { flushSave().then(function() {
+    if (saving || Object.keys(dirty).length) return {ok:false,data:{error:T.saveFailed}};
+    return api("POST", "/api/longdub/" + cur.id + "/review", {page:reviewPage});
+  }).then(function(r) { if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; } reviewedBatches = r.data.reviewed_batches || {}; nav.replaceWith(reviewNavigation()); }); };
+  nav.appendChild(check); return nav;
+}
+function hiddenHelp(id, labelId) {
+  var content = $(id), label = $(labelId); if (!content || !label) return;
+  var shell = document.createElement("span"); shell.className = "ld-help";
+  var button = document.createElement("button"); button.type = "button"; button.textContent = "?";
+  button.setAttribute("aria-label", LANG === "ar" ? "مساعدة" : "Help"); button.setAttribute("aria-controls", id);
+  button.setAttribute("aria-expanded", "false");
+  button.onclick = function() { shell.classList.toggle("open"); button.setAttribute("aria-expanded", shell.classList.contains("open") ? "true" : "false"); };
+  shell.onkeydown = function(e) { if (e.key === "Escape") { shell.classList.remove("open"); button.blur(); } };
+  content.classList.add("ld-help-content"); shell.appendChild(button); shell.appendChild(content); label.appendChild(shell);
+}
 // ---- speakers panel
 function renderSpeakers() {
   var p = $("spkPanel"); if (!p) return;
@@ -1960,7 +2001,9 @@ function applyRows(rows, focusId) {
   Object.keys(dirty).forEach(function (id) { if (!segs.some(function (x) { return x.segment_id === id; })) delete dirty[id]; });
   pricePreview = null; tashNote = "";
   var list = $("segList");
-  if (list) { list.innerHTML = ""; segs.forEach(function (x) { list.appendChild(buildRow(x)); }); }
+  if (focusId) { var at = segs.findIndex(function(x) { return x.segment_id === focusId; }); if (at >= 0) reviewPage = Math.floor(at / 10); }
+  if (list) { list.innerHTML = ""; segs.slice(reviewPage * 10, reviewPage * 10 + 10).forEach(function (x) { list.appendChild(buildRow(x)); }); }
+  var nav = $("reviewPages"); if (nav) nav.replaceWith(reviewNavigation());
   renderSpeakers(); renderConfirm(); updateCount();
   if (focusId && list) {
     var row = list.querySelector('[data-id="' + focusId + '"]');
@@ -2072,7 +2115,10 @@ function makeEmoPicker(value, onChange) {
 
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
+  if ((s.overlaps || []).length) row.classList.add("ld-overlap");
   var time = document.createElement("div"); time.className = "ld-time";
+  if ((s.overlaps || []).length) { var warning = document.createElement("p"); warning.className = "ld-time-notice"; warning.textContent = LANG === "ar" ? "⚠ يتداخل هذا السطر مع سطر آخر. راجع التوقيت." : "⚠ This line overlaps another line. Review its timing."; time.appendChild(warning); }
+  if (manualNoticeId === s.segment_id) { var notice = document.createElement("p"); notice.className = "ld-time-notice"; notice.setAttribute("role", "status"); notice.textContent = LANG === "ar" ? "أدخل وقت البداية والنهاية يدوياً لتحديد موضع السطر بدقة." : "Enter the start and end times manually for precise placement."; time.appendChild(notice); }
   var tf0 = timeField(T.timeFrom), tf1 = timeField(T.timeTo);
   tf0.input.value = fmtMs(s.start); tf1.input.value = fmtMs(s.end);
   var terr = document.createElement("div"); terr.className = "ld-terr hidden";
@@ -2094,9 +2140,22 @@ function buildRow(s) {
   var cnt = document.createElement("span"); cnt.className = "ld-cnt"; cnt.textContent = T.chars((ar.value || "").length);
   var btn = document.createElement("button"); btn.className = "btn-plain"; btn.textContent = T.retranslate;
   var btnTash = document.createElement("button"); btnTash.type = "button"; btnTash.className = "btn-plain"; btnTash.textContent = T.tashkeel; btnTash.title = T.tashkeelHint;
+  if (s.emotion_review === "listen_and_review") { var enote = document.createElement("small"); enote.textContent = LANG === "ar" ? "أسلوب مقترح — استمع وراجعه" : "Suggested style — listen and review"; wrap.appendChild(enote); }
   var emoPick = makeEmoPicker(s.emotion, function (v) { s.emotion = v; queueSave(s.segment_id, "emotion", v); pricePreview = null; });
   var footR = document.createElement("div"); footR.className = "ld-foot-r";
-  footR.appendChild(emoPick.el); footR.appendChild(btnTash); footR.appendChild(btn);
+  var styleCheck = document.createElement("button"); styleCheck.type = "button"; styleCheck.className = "btn-plain";
+  styleCheck.textContent = LANG === "ar" ? "فحص الأسلوب بالصوت" : "Check style from audio";
+  styleCheck.onclick = function() {
+    styleCheck.disabled = true;
+    flushSave().then(function() { return api("POST", "/api/longdub/" + cur.id + "/emotion/review", {segment_id:s.segment_id}); }).then(function(r) {
+      if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
+      var v = r.data.fallback;
+      var msg = (LANG === "ar" ? "الأسلوب المقترح: " : "Suggested style: ") + v + "\n" + r.data.reason + "\n" + (LANG === "ar" ? "هل تريد تطبيقه؟" : "Apply this suggestion?");
+      var ask = window.LisanDialog ? LisanDialog.confirm(msg) : Promise.resolve(window.confirm(msg));
+      ask.then(function(yes) { if (yes) { s.emotion = v; queueSave(s.segment_id, "emotion", v); renderEditor(); } });
+    }).finally(function() { styleCheck.disabled = false; });
+  };
+  footR.appendChild(emoPick.el); footR.appendChild(styleCheck); footR.appendChild(btnTash); footR.appendChild(btn);
   foot.appendChild(cnt); foot.appendChild(footR);
   wrap.appendChild(ar); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
@@ -2124,6 +2183,8 @@ function buildRow(s) {
     lineOp(function () { return api("POST", "/api/longdub/" + cur.id + "/segments/insert", { segment_id: s.segment_id }); },
       function (r) {
         if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
+        manualNoticeId = r.data.new_id;
+        reviewedBatches = {};
         applyRows(r.data.segments, r.data.new_id);
       });
   });
@@ -2139,6 +2200,8 @@ function buildRow(s) {
         restore();
         if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
         delete dirty[s.segment_id];
+        manualNoticeId = r.data.new_id;
+        reviewedBatches = {};
         applyRows(r.data.segments, r.data.new_id);
       }).then(restore);
   });
@@ -2196,6 +2259,9 @@ function setSaved(ok, text) {
 }
 
 function queueSave(id, field, value) {
+  var page = Math.floor(segs.findIndex(function(x) { return x.segment_id === id; }) / 10);
+  delete reviewedBatches[String(page)];
+  var nav = $("reviewPages"); if (nav) nav.replaceWith(reviewNavigation());
   var d = dirty[id] || (dirty[id] = { segment_id: id });
   d[field] = value;
   setSaved(false);
@@ -2261,8 +2327,11 @@ function renderConfirm() {
     if (p.lines_without_arabic) h += "<div class='ld-warn'>" + esc(T.priceNoArabic(p.lines_without_arabic)) + "</div>";
     if (tashNote) h += "<div class='ld-warn'>" + esc(tashNote) + "</div>";
     if (lastErr) h += "<p class='ld-err'>" + esc(lastErr) + "</p>";
-    var short = p.credits !== null && p.credits !== undefined && p.credits < p.due;
-    if (short) h += "<p class='ld-err'>" + esc(T.notEnough(p.due, p.credits)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
+    var maxDue = p.due + (musicPref && p.music ? p.music.max_credits : 0);
+    var musicError = musicPref && p.music && p.music.error;
+    var short = p.credits == null || p.credits < maxDue;
+    if (short) h += "<p class='ld-err'>" + esc(T.notEnough(maxDue, p.credits == null ? "—" : p.credits)) + ' <a href="/pricing" style="color:inherit;">' + esc(T.buyCredits) + "</a></p>";
+    if (musicError) h += "<p class='ld-err'>" + esc(musicError) + "</p>";
     if (cfg && cfg.watermark) h += "<div class='ld-warn'>" + esc(T.wmNote) + ' <a href="/pricing">' + esc(T.buyCredits) + "</a></div>";
     h += '<div class="ld-room"><label for="roomPref">' + esc(T.roomLabel) + '</label><select id="roomPref">' +
          [["auto", T.roomAuto], ["lighter", T.roomLighter], ["much_lighter", T.roomMuch], ["off", T.roomNone]].map(function (o) {
@@ -2271,10 +2340,12 @@ function renderConfirm() {
     h += '<label class="ld-agree" style="margin-top:12px;"><input type="checkbox" id="musicBox"' + (musicPref ? " checked" : "") + "><span>" + esc(T.musicAsk) + "</span></label><p class='note' style='margin-top:2px;'>" + esc(T.musicAskNote) + "</p>";
     if (cfg && cfg.music_fill && cfg.music_fill.available && cfg.music_fill.credits > 0) h += "<p class='note' style='margin-top:2px;'>" + esc(T.musicFillNote.replace("{n}", cfg.music_fill.credits)) + "</p>";
     h += '<label class="ld-agree" style="margin-top:12px;"><input type="checkbox" id="tracksBox"' + (tracksPref ? " checked" : "") + "><span>" + esc(T.tracksAsk) + "</span></label><p class='note' style='margin-top:2px;'>" + esc(T.tracksAskNote) + "</p>";
+    h += "<p class='note'>" + esc(LANG === "ar" ? "تُحفظ عينات صوت قصيرة وخلفية المشروع للتصحيحات. يُحتفظ بالأصوات المستنسخة لمدة ٧ أيام أو حتى تختار إنهاء التصحيحات." : "Short voice references and the project background are saved for corrections. Cloned voices are retained for seven days or until you finish corrections.") + "</p>";
+    if (p.music && p.music.max_credits) h += "<p>" + esc(LANG === "ar" ? "إصلاح الموسيقى: بحد أقصى " + p.music.max_credits + " رصيداً؛ تدفع فقط عن الإصلاحات الناجحة." : "Music repair: up to " + p.music.max_credits + " additional credits; only successful repairs are charged.") + "</p>";
     h += "<p class='note'>" + esc(T.confirmRecap + (p.lipsync && p.lipsync.clips ? T.confirmRecapLip : "")) + "</p>";
     var noFile = cur && cur.media_present === false;
     if (noFile) h += "<div class='ld-warn'>" + esc(T.needFileToDub) + "</div>";
-    h += '<div class="ld-row-btns"><button class="green" id="btnConfirm" ' + ((short || !p.lines || noFile) ? "disabled" : "") + ">" + esc(T.confirmBtn(p.due)) + "</button>" +
+    h += '<div class="ld-row-btns"><button class="green" id="btnConfirm" ' + ((short || musicError || !p.lines || noFile) ? "disabled" : "") + ">" + esc(T.confirmBtn(maxDue)) + "</button>" +
          '<button class="btn-plain" id="btnPrice">' + esc(T.refreshPrice) + '</button><button class="btn-danger" id="btnDelete2">' + esc(T.deleteBtn) + "</button></div>";
   }
   h += "</div>";
@@ -2282,7 +2353,7 @@ function renderConfirm() {
   var b;
   if ((b = $("btnPrice"))) b.onclick = loadPrice;
   var rp = $("roomPref"); if (rp) rp.onchange = function () { roomPref = rp.value; };
-  var mb = $("musicBox"); if (mb) mb.onchange = function () { musicPref = mb.checked; };
+  var mb = $("musicBox"); if (mb) mb.onchange = function () { musicPref = mb.checked; renderConfirm(); };
   var tb = $("tracksBox"); if (tb) tb.onchange = function () { tracksPref = tb.checked; };
   var pr = $("priceLipRes"); if (pr) pr.onchange = function () { changeLipRes(pr, function () { loadPrice(true); }); };
   if ((b = $("btnConfirm"))) b.onclick = doConfirm;
@@ -2312,13 +2383,15 @@ function loadPrice(quiet) {      // quiet === true: the automatic price on a red
 function saveSpeakersIfPending() { return spkTimer ? saveSpeakers(false) : Promise.resolve(); }
 
 function doConfirm() {
+  if (saving || Object.keys(dirty).length) { alertMsg(T.saveFailed); return; }
   var p = pricePreview; if (!p) return;
-  var msg = T.confirmAsk(p.due, p.credits);
+  var musicMax = musicPref && p.music ? p.music.max_credits : 0;
+  var msg = T.confirmAsk(p.due + musicMax, p.credits);
   var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { okText: T.confirmBtn(p.due) }) : Promise.resolve(window.confirm(msg));
   ask.then(function (yes) {
     if (!yes) return;
     var b = $("btnConfirm"); if (b) b.disabled = true;
-    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, tracks: tracksPref, keep_music: musicPref }); }).then(function (r) {
+    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, tracks: tracksPref, keep_music: musicPref, music_budget: musicMax }); }).then(function (r) {
       if (!r.ok) {
         lastErr = r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr);
         if (r.status === 409 && r.data.price) {
@@ -2343,6 +2416,10 @@ function doConfirm() {
 
 (function init() {
   applyStaticText();
+  hiddenHelp("introText", "introHeading");
+  hiddenHelp("introSteps", "introHeading");
+  hiddenHelp("spkAskNote", "spkAskLabel");
+  hiddenHelp("subAskNote", "subAskLabel");
   var dz = $("dropZone"), fi = $("fileInput");
   dz.onclick = function () { fi.dataset.resume = ""; fi.dataset.reattach = ""; if (nameOk()) fi.click(); };
   dz.onkeydown = function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.dataset.resume = ""; fi.dataset.reattach = ""; if (nameOk()) fi.click(); } };

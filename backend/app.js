@@ -603,7 +603,7 @@ function insertSegmentAfter(i) {
     if (next && next.start > start + 0.5) end = next.start;
     segmentsData.splice(i + 1, 0, { segment_id: "manual_" + Date.now(), start: Number(start.toFixed(2)), end: Number(end.toFixed(2)), speaker: cur.speaker, gender: cur.gender, emotion: cur.emotion, text: "", arabic_text: "", locked: false, tempo_mode: cur.tempo_mode || "excellent" });
     renderTable(); renderSpeakerVoices();
-    notify("info", "Manual line inserted. Use ✨ Auto-Fix to sync its time.");
+    notify("info", "Manual line inserted. Enter its start and end times manually for precise placement.");
 }
 // ===== Internal-pause detection (auto-suggest a segment split) =====
 // Whisper sometimes groups two natural spoken phrases -- with a real pause
@@ -1253,16 +1253,22 @@ async function checkGenerateProgress() {
 }
 async function mergeVideo() {
     if (!currentJobId) { notify("error", "Please upload your video first."); return; }
+    const mergePayload = {job_id:currentJobId, keep_music:true, enhance_background:document.getElementById("enhanceBackground") ? document.getElementById("enhanceBackground").checked : true};
     document.getElementById("mergeButton").disabled = true;
     notify("info", "Merging dubbed audio with video and background music...");
     try {
-        const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-		job_id: currentJobId,
-		enhance_background: document.getElementById("enhanceBackground") ? document.getElementById("enhanceBackground").checked : true
-	}) });
+        const quoteResponse = await fetch("/api/merge_video/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mergePayload) });
+        const quote = await quoteResponse.json();
+        if (!quoteResponse.ok) throw new Error(quote.error || "Could not check the merge price.");
+        if (!Number.isInteger(quote.max_total) || quote.max_total < 1 || !Number.isInteger(quote.music_max) || quote.music_max < 0 || quote.music_max > quote.max_total) throw new Error("Could not verify the merge price.");
+        const question = subsText("Merge price: up to " + quote.max_total + " credits, including up to " + quote.music_max + " for music inpainting. Only successful repairs are charged. Continue?", "سعر الدمج: بحد أقصى " + quote.max_total + " رصيداً، منها حتى " + quote.music_max + " لإصلاح الموسيقى. تُحاسب فقط على الإصلاحات الناجحة. هل تريد المتابعة؟");
+        const accepted = window.LisanDialog ? await LisanDialog.confirm(question) : window.confirm(question);
+        if (!accepted) { document.getElementById("mergeButton").disabled = false; return; }
+        const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({},mergePayload,{accepted_credits:quote.max_total})) });
         const data = await res.json();
         document.getElementById("mergeButton").disabled = false;
         if (data.error) { notify("error", data.error); return; }
+        if (currentJobId !== mergePayload.job_id) { notify("success", "Your previous project's merged video is ready on your Account page."); return; }
         const bgNote = data.has_background ? "✅ Background music/sounds mixed with the dubbed vocals." : "⚠️ No background separation available; dubbed vocals only.";
         document.getElementById("videoResults").classList.remove("hidden");
         document.getElementById("videoResults").innerHTML = `
@@ -1667,7 +1673,7 @@ async function checkEmotionProgress() {
         const emotions = data.emotions || {}; let updated = 0;
         segmentsData.forEach(seg => {
             const clean = sanitizeStyle(emotions[seg.segment_id]);
-            if (clean) { seg.emotion = clean; updated++; }
+            if (clean && !seg.emotion_set) { seg.emotion = clean; seg.emotion_review = (data.reviews || {})[seg.segment_id]; updated++; }
         });
         renderTable();
         notify("success", `Emotion detection complete. ${updated} segments updated.`);
@@ -2433,13 +2439,13 @@ async function autoAssignVoices() {
 
 // ===== USER HEADER =====
 (function loadUserInfo() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+    fetch("/api/user/info").then(function(r) { if (!r.ok) throw new Error("Account unavailable"); return r.json(); }).then(function(data) {
         var nameEl = document.getElementById("userName");
         var credEl = document.getElementById("creditsDisplay");
         var credNum = document.getElementById("creditsNum");
         if (nameEl) nameEl.textContent = data.name || "";
         if (!data.is_guest && credEl && credNum) {
-            credNum.textContent = data.credits;
+            credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "â€¦";
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
@@ -2488,13 +2494,13 @@ function onVoiceConsentChanged(checkbox) {
 
 // ===== USER HEADER =====
 (function loadUserInfo() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+    fetch("/api/user/info").then(function(r) { if (!r.ok) throw new Error("Account unavailable"); return r.json(); }).then(function(data) {
         var nameEl = document.getElementById("userName");
         var credEl = document.getElementById("creditsDisplay");
         var credNum = document.getElementById("creditsNum");
         if (nameEl) nameEl.textContent = data.name || "";
         if (!data.is_guest && credEl && credNum) {
-            credNum.textContent = data.credits;
+            credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "â€¦";
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
@@ -2517,9 +2523,9 @@ function doLogout() {
 }
 
 function refreshCredits() {
-    fetch("/api/user/info").then(function(r) { return r.json(); }).then(function(data) {
+    fetch("/api/user/info").then(function(r) { if (!r.ok) throw new Error("Account unavailable"); return r.json(); }).then(function(data) {
         var credNum = document.getElementById("creditsNum");
-        if (credNum && !data.is_guest) credNum.textContent = data.credits;
+        if (credNum && !data.is_guest) credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "â€¦";
     }).catch(function() {});
 }
 
@@ -2581,15 +2587,26 @@ function createRow(seg, i) {
         if (!eS.value) return;
         var merged = (seg.emotion ? seg.emotion + ", " : "") + eS.value;
         var clean = sanitizeStyle(merged) || "neutral";
-        seg.emotion = clean; eI.value = clean; eS.selectedIndex = 0; updateBadges();
+        seg.emotion = clean; seg.emotion_set = true; eI.value = clean; eS.selectedIndex = 0; updateBadges();
     };
     var eI = mk("input"); eI.type = "text"; eI.list = "emotionList"; eI.value = seg.emotion || "neutral"; eI.placeholder = "tags…"; eI.style.flex = "1"; eI.style.minWidth = "80px";
     eI.onchange = function() {
         var clean = sanitizeStyle(eI.value) || "neutral";
         if (clean !== eI.value.trim()) notify("info", "Only the supported style words were kept. Style: '" + clean + "'.");
-        eI.value = clean; seg.emotion = clean; updateBadges();
+        eI.value = clean; seg.emotion = clean; seg.emotion_set = true; updateBadges();
     };
-    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap); row.appendChild(eCell);
+    eWrap.appendChild(eS); eWrap.appendChild(eI); eCell.appendChild(eWrap);
+    var checkStyle = mk("button"); checkStyle.type = "button"; checkStyle.className = "action-btn";
+    checkStyle.textContent = subsText("Check from audio", "فحص بالصوت");
+    checkStyle.onclick = async function() {
+        checkStyle.disabled = true;
+        try {
+            var response = await fetch("/api/emotion/review", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job_id:currentJobId,segment_id:seg.segment_id,start:seg.start,end:seg.end,emotion:seg.emotion})});
+            var result = await response.json(); if (!response.ok) throw new Error(result.error || "Style check failed");
+            var yes = await LisanDialog.confirm(subsText("Suggested style: ", "الأسلوب المقترح: ") + result.fallback + "\n" + result.reason + "\n" + subsText("Apply?", "هل تريد تطبيقه؟"));
+            if (yes) { seg.emotion = result.fallback; seg.emotion_set = true; eI.value = seg.emotion; updateBadges(); }
+        } catch(ex) { notify("error",ex.message); } finally { checkStyle.disabled = false; }
+    }; eCell.appendChild(checkStyle); row.appendChild(eCell);
     var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function() { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
     var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function() {
         segmentsData[i].arabic_text = arT.value; updateBadges();
@@ -4967,7 +4984,7 @@ window.cleanOldClones = function () {
         ["Choose an audio or video file.", "اختر ملف صوت أو فيديو."],
         ["Line locked: Auto-Fix, Translate and Tashkeel will skip it.", "السطر مقفل: سيتخطاه الإصلاح التلقائي والترجمة والتشكيل."],
         ["Line unlocked.", "السطر غير مقفل."],
-        ["Manual line inserted. Use ✨ Auto-Fix to sync its time.", "أُدرج سطر يدوي. استخدم ✨ الإصلاح التلقائي لمزامنة توقيته."],
+        ["Manual line inserted. Enter its start and end times manually for precise placement.", "أُدرج سطر يدوي. أدخل وقت البداية والنهاية يدوياً لتحديد موضعه بدقة."],
         ["Could not load voices. Please try again in a moment.", "تعذّر تحميل الأصوات. يُرجى المحاولة بعد قليل."],
         ["Voice generation is temporarily unavailable. Please try again later.", "خدمة توليد الصوت غير متاحة مؤقتًا. يُرجى المحاولة لاحقًا."],
         ["No segments to fix.", "لا توجد مقاطع لإصلاحها."],

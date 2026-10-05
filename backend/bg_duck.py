@@ -752,7 +752,7 @@ def keep_music(bg_path, vocals_path, out_path, mask, max_sec=None):
                 pass
 
 
-def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None, keep_max_sec=None):
+def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None, keep_max_sec=None, strict=False):
     """Writes `out_path` (16-bit stereo WAV, 44.1 kHz) = the background silenced while the original voices speak.
     spans = [(start, end)] of the spoken words (the speech map written at transcription); without it the loudness of
     the separated voices is followed instead. Returns {"muted": bool, "reason": str, "share": share of the time silenced,
@@ -835,6 +835,8 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None
                 return info
             info["keep_note"] = kr["reason"]
         gain = mute_gain_curve(mask)
+        if strict:
+            gain[mask] = 0.0  # speech is digital silence before instrumental repair
         centers = (np.arange(gain.size) + 0.5) * (HOP * RATE / ANALYSIS_RATE)
         dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(bg_path), "-vn", "-ac", str(CH), "-ar", str(RATE),
                                 "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)

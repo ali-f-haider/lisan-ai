@@ -46,6 +46,12 @@ import railway_monitor
 import resource_meter
 import assistant_service
 import service_usage_monitor
+import dub_review
+import dub_audio
+import dub_background
+import fal_usage
+import longdub_edits
+import emotion_review
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 from shortdub_paths import line_audio_path, begin_operation, finish_operation, operation_active
 from shortdub_billing import studio_quote, debit_confirmed
@@ -295,6 +301,8 @@ class RemixRequest(_JobIdModel):
 class MergeRequest(_JobIdModel):
     job_id: str
     enhance_background: bool = True
+    keep_music: bool = True
+    accepted_credits: int = -1
 
 class LipSyncRequest(_JobIdModel):
     job_id: str
@@ -793,23 +801,19 @@ def _rate_limited(request: Request, bucket: str, max_attempts: int, window_sec: 
     return False
 
 # ==================== DEBUG ====================
+_user_info_cache = {}
 @app.get("/api/user/info")
 def user_info(request: Request):
     cookie = request.cookies.get("session", "")
-    sb_token = _valid_tokens.get(cookie, "")
-    if not sb_token or not SUPABASE_URL:
-        return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
+    user_id = _current_uid(request)
+    if not user_id:
+        if cookie and (_valid_tokens.get(cookie) or _sessions.get(cookie)):
+            return JSONResponse({"error": "Your account is temporarily unavailable. Please retry."}, status_code=503)
+        return {"name": "Guest", "credits": None, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
     try:
-        url = f"{SUPABASE_URL}/auth/v1/user"
-        req = urllib.request.Request(url, headers={
-            "Authorization": f"Bearer {sb_token}",
-            "apikey": SUPABASE_ANON_KEY
-        })
-        with urllib.request.urlopen(req, timeout=10) as r:
-            user_data = json.load(r)
-        user_id = user_data.get("id", "")
-        email = user_data.get("email", "User")
-        display_name = email.split("@")[0] if email else "User"
+        cached = _user_info_cache.get(user_id, {})
+        email = _email_for_uid(user_id) or ""
+        display_name = cached.get("name") or (email.split("@")[0] if email else "User")
         
         # Read credits securely via service key (bypasses RLS issues). A
         # None here means no profile row exists yet for this user -- this
@@ -819,8 +823,7 @@ def user_info(request: Request):
         # profile row (outside this codebase) -- keep the two in sync by
         # eye if you change freeCredits in the admin panel.
         credits = get_credits(user_id)
-        if credits is None:
-            credits = int(_get_pricing_config().get("freeCredits", 100))
+        # None means unavailable; never invent a balance when the database cannot answer.
             
         subscription_status = "none"
         # The profile is read with the SERVER key, not the user's own token:
@@ -871,9 +874,10 @@ def user_info(request: Request):
                     result["subscription_pending_plan_name"] = _get_subscription_plan(pending_key).get("name") or ""
                 except Exception:
                     result["subscription_pending_plan_name"] = ""
+        _user_info_cache[user_id] = {"name": display_name}
         return result
     except Exception:
-        return {"name": "Guest", "credits": -1, "is_guest": True, "lipsync_enabled": LIPSYNC_ENABLED}
+        return JSONResponse({"error": "Your account is temporarily unavailable. Please retry."}, status_code=503)
 
 def _cookie_secure(request: Request) -> bool:
     """Secure cookies only over https (Railway terminates TLS and tells us
@@ -1062,7 +1066,7 @@ button[type="submit"]{{width:100%;margin-top:10px;padding:9px;border:none;border
 #err{{color:#f87171;font-size:12px;margin-top:8px;min-height:14px}}
 </style></head><body>
 <div class="box">
-<div class="icon">🚧</div>
+<div class="icon">ðŸš§</div>
 <h1>Under Construction</h1>
 <p>Lisan AI is being tested right now and will be available soon. Thanks for checking back!</p>
 <hr class="divider">
@@ -1128,7 +1132,7 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 # ---- Credit packs: ONE default list + ONE keying helper, shared by every ----
 # endpoint that returns packs (get_packs() for checkout, billing_packs_dynamic()
 # for the landing page / buy modal, and _get_pricing_config()'s defaults).
-# Each pack carries its own explicit "key" (e.g. "starter") set by admin.html —
+# Each pack carries its own explicit "key" (e.g. "starter") set by admin.html â€”
 # that key is what the public site and Stripe checkout use to identify the
 # pack. Older packs saved before this field existed have no "key" yet; for
 # those only, _pack_dict_key() derives one from the name the same way the
@@ -1237,7 +1241,7 @@ def _keyed_packs(packs_array):
 
 def get_packs():
     """Returns credit packs keyed by each pack's own key (see _keyed_packs).
-    Reads from pricing_config table — admin panel is the single source of truth."""
+    Reads from pricing_config table â€” admin panel is the single source of truth."""
     cfg = _get_pricing_config()
     packs_array = cfg.get("packs") or DEFAULT_PACKS
     return _keyed_packs(packs_array)
@@ -1333,8 +1337,10 @@ def _job_guard(request: Request, job_id, allow_empty: bool = True):
     return None
 
 
-def _sb_rpc(function: str, args: dict):
+def _sb_rpc(function: str, args: dict, strict=False):
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        if strict:
+            raise RuntimeError('The credit service is unavailable.')
         return None
     body = json.dumps(args).encode("utf-8")
     req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/rpc/{function}", data=body, headers={
@@ -1346,6 +1352,8 @@ def _sb_rpc(function: str, args: dict):
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.load(r)
     except Exception:
+        if strict:
+            raise
         return None
 
 
@@ -1517,7 +1525,7 @@ def _watch_and_deduct(job_id, uid, kind):
             return
 
         if job_id in _abandoned_jobs:
-            return  # user switched videos — never charge for abandoned work
+            return  # user switched videos â€” never charge for abandoned work
 
         cfg = _get_pricing_config()
         if kind == "transcribe":
@@ -1561,7 +1569,7 @@ def _watch_and_deduct(job_id, uid, kind):
                 + max(1, math.ceil(gemini_usd * _gemini_cpc(cfg.get("geminiCreditsPerCent")) / 0.01))
             )
 
-        # Duration (seconds) of the actual dubbed audio produced by this job —
+        # Duration (seconds) of the actual dubbed audio produced by this job â€”
         # only meaningful for "generate" (merge/transcribe don't produce new
         # generated audio). Recorded to credit_spends for the admin dashboard's
         # generated-minutes tracking.
@@ -2075,6 +2083,22 @@ def billing_change_plan(request: Request, plan_key: str = ""):
 
 @app.post("/api/account/delete")
 def delete_account(request: Request, response: Response):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
+    with longdub_service.account_lock(uid):
+        try:
+            longdub_service.delete_account_jobs(uid)
+        except ValueError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=409)
+        except Exception:
+            return JSONResponse({"error": "Your project cleanup could not finish. Your account has not been deleted. Please try again later."}, status_code=503)
+        return _delete_account_run(request, response, uid)
+
+
+def _delete_account_run(request: Request, response: Response, uid):
     """Permanently deletes the caller's account -- irreversible, as warned
     on the account page's confirmation dialog before this is ever called.
     In order:
@@ -2096,11 +2120,6 @@ def delete_account(request: Request, response: Response):
     best-effort logged and continues past a single failure except the auth
     delete itself, so a partial failure never leaves the account half-open
     with no way for the user to know."""
-    uid = _current_uid(request)
-    if not uid:
-        return JSONResponse({"error": "Login required."}, status_code=401)
-    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
-        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
     sb_hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
 
     # 1) Cancel any active Stripe subscription immediately.
@@ -2443,7 +2462,7 @@ EXPIRY_CHECK_INTERVAL_HOURS = 6
 # written in main.py (merge_video), eleven_service.py, tts_service.py and
 # lipsync_service.py. Also what r2_backup.py treats as "back this up".
 _FINAL_OUTPUT_SUFFIXES = ("_final_dubbed.mp3", "_final_dubbed_video.mp4", "_final_lipsync.mp4",
-                          "_final_voices.m4a", "_final_effects.m4a")      # the last two: the optional separate tracks of a long dub
+                          "_final_voices.m4a", "_final_effects.m4a", "_final_corrections.m4a")      # the last two: the optional separate tracks of a long dub
 
 
 def _is_final_output(path):
@@ -3790,7 +3809,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     bal = get_credits(uid)
     transcribe_cost = int(_get_pricing_config().get("transcribeCredits", 3))
     if bal is not None and bal < transcribe_cost:
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use ➕ Buy to get a pack."}, status_code=402)
+        return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use âž• Buy to get a pack."}, status_code=402)
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
     _register_job_owner(job_id, uid)
@@ -3810,7 +3829,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
         try: dest.unlink()
         except Exception: pass
         _job_started.pop(job_id, None)
-        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {size_cap_mb} MB — please compress it or cut it shorter first."}, status_code=413)
+        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {size_cap_mb} MB â€” please compress it or cut it shorter first."}, status_code=413)
     lipsync_wanted = lipsync.strip().lower() in ("true", "1", "yes", "on")
     if trim_requested:
         # The user picked a section of a longer (or larger) file. Cut it out
@@ -3875,7 +3894,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
             except Exception: pass
             _job_started.pop(job_id, None)
             limit_desc = "For a lip-synced clip, the" if lipsync_wanted else "The"
-            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. {limit_desc} limit is {max_sec} seconds — please trim it first."}, status_code=413)
+            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. {limit_desc} limit is {max_sec} seconds â€” please trim it first."}, status_code=413)
     jobs_progress[job_id] = {"status": "processing", "percent": 0,
                              "status_text": "Upload done, starting transcription...",
                              "is_video": ext in VIDEO_EXTS}
@@ -3913,7 +3932,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
         try: dest.unlink()
         except Exception: pass
         _job_started.pop(job_id, None)
-        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB — please trim or compress it first."}, status_code=413)
+        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB â€” please trim or compress it first."}, status_code=413)
     try:
         dur = ffmpeg_utils.get_media_duration(dest)
     except Exception as _dur_ex:
@@ -3929,7 +3948,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
-            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. The limit is {NO_LIPSYNC_MAX_SEC} seconds — please trim it first."}, status_code=413)
+            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. The limit is {NO_LIPSYNC_MAX_SEC} seconds â€” please trim it first."}, status_code=413)
 
     is_video = ext in VIDEO_EXTS
     if is_video:
@@ -4023,7 +4042,7 @@ def voices(payload: dict = {}):
 
 @app.post("/api/voice_library/search")
 def voice_library_search(req: VoiceLibrarySearchRequest):
-    """Search ElevenLabs' full Voice Library (not just your own account) —
+    """Search ElevenLabs' full Voice Library (not just your own account) â€”
     filterable by language, accent, gender, age, and studio/professional
     quality. Pure search: never adds anything to your account, never touches
     your voice add/edit quota."""
@@ -4045,7 +4064,7 @@ def voice_library_search(req: VoiceLibrarySearchRequest):
 def voice_library_add(req: VoiceLibraryAddRequest):
     """One-time import of a Voice Library voice into your account. Whether this
     counts against your monthly voice add/edit quota is not documented by
-    ElevenLabs — check your subscription page's counter after your first use."""
+    ElevenLabs â€” check your subscription page's counter after your first use."""
     return eleven_service.add_shared_voice(ELEVENLABS_API_KEY, req.public_owner_id, req.voice_id, req.new_name)
 
 @app.post("/api/analyze_speakers")
@@ -4098,7 +4117,7 @@ def clone(req: CloneRequest, request: Request):
         clone_cost = 5
     if bal is not None and bal < clone_cost:
         plural = "s" if clone_cost != 1 else ""
-        return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
+        return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use âž• Buy."}, status_code=402)
     if uid:
         deduct_credits(uid, clone_cost, "clone", req.job_id)
     if engine == "inworld":
@@ -4372,7 +4391,7 @@ def _check_short_payment(req, uid, quote):
     if balance is None:
         return JSONResponse({"error": "Your credit balance could not be checked. Please try again shortly."}, status_code=503)
     if balance < quote["required_balance"]:
-        return JSONResponse({"error": f"You need {quote['required_balance']} credits to start (you have {balance}). This action costs {quote['credits']} credits. Use ➕ Buy to top up."}, status_code=402)
+        return JSONResponse({"error": f"You need {quote['required_balance']} credits to start (you have {balance}). This action costs {quote['credits']} credits. Use âž• Buy to top up."}, status_code=402)
     return None
 
 
@@ -4432,7 +4451,7 @@ def generate(req: GenerateRequest, request: Request):
             return JSONResponse({"error": "Your credit balance could not be checked. Please try again shortly."}, status_code=503)
         min_reserve = int(_get_pricing_config().get("minReserve", 20))
         if bal < min_reserve:
-            return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). Use ➕ Buy to top up."}, status_code=402)
+            return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). Use âž• Buy to top up."}, status_code=402)
     _blk = _storage_block(uid, 0)
     if _blk is not None:
         return _blk          # storage full: delete finished files first (nothing is charged)
@@ -4447,7 +4466,7 @@ def generate(req: GenerateRequest, request: Request):
     if quote is None:
         _resolve_short_voices(req)
     # Keyed by job_id (not a single shared "generate" slot) so two jobs
-    # running at the same time — two users, or two tabs — never overwrite
+    # running at the same time â€” two users, or two tabs â€” never overwrite
     # each other's progress/result, and credits never get charged against
     # the wrong job's character count.
     if not begin_operation(req.job_id):
@@ -4523,9 +4542,7 @@ def room_profile(job_id: str, request: Request):
     except Exception as ex:
         return JSONResponse({"error": "Room sound is not available for this job.", "detail": str(ex)[:160]}, status_code=200)
 
-@app.post("/api/merge_video")
-@resource_meter.metered("shortdub_merge", lambda req, *a, **k: getattr(req, "job_id", ""))
-def merge_video(req: MergeRequest, request: Request):
+def _merge_video_run(req: MergeRequest, request: Request, price):
     if _rate_limited(request, "merge_video", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
     _g = _job_guard(request, req.job_id, allow_empty=False)
@@ -4538,16 +4555,16 @@ def merge_video(req: MergeRequest, request: Request):
     merge_cost = int(_get_pricing_config().get("mergeCredits", 1))
     if merge_cost <= 0:
         merge_cost = 1
-    if bal is not None and bal < merge_cost:
+    if bal is None:
+        return JSONResponse({"error": "We could not verify your balance. Nothing was charged."}, status_code=503)
+    if bal < price["max_total"]:
         plural = "s" if merge_cost != 1 else ""
-        return JSONResponse({"error": f"Insufficient credits (merge costs {merge_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
+        return JSONResponse({"error": f"Insufficient credits (merge costs {merge_cost} credit{plural}). Use âž• Buy."}, status_code=402)
     _sv = find_job_video(req.job_id)
     _blk = _storage_block(uid, _sv.stat().st_size if _sv is not None else 0, OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4")
     if _blk is not None:
         return _blk          # before anything is charged
-    if uid:
-        deduct_credits(uid, merge_cost, "merge", req.job_id)
-
+    # Charge after a successful merge, along with successful music repairs.
     video = find_job_video(req.job_id)
     # Job-scoped filename -- see the comment on CLEANUP_RETENTION_HOURS below
     # for why this used to be a single shared filename for every job on the
@@ -4558,7 +4575,8 @@ def merge_video(req: MergeRequest, request: Request):
         return {"error": "We couldn't find your video or dubbed audio. Please generate the dub first, then merge."}
 
     bg = job_background_audio(req.job_id)
-    final = OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4"
+    published_final = OUTPUT_DIR / f"{req.job_id}_final_dubbed_video.mp4"
+    final = OUTPUT_DIR / f"merge_pending_{req.job_id}.mp4"
 
     # Isolate the dubbed voice from noise before it goes back into the video.
     # Never fails the merge: on any problem the original dubbed audio is used.
@@ -4585,16 +4603,24 @@ def merge_video(req: MergeRequest, request: Request):
         # voices; lower its voice range while the original speakers talk.
         # A steady background sound that the separator filed under "voices" (crowd, machine hum, traffic ...)
         # is rebuilt from the pauses between the speakers when it is clearly missing (never fails the merge).
-        import zlib
-        _bp = bg_duck.prepare_background(bg_to_use, bg.parent / "vocals.wav", UPLOAD_DIR / f"{req.job_id}_audio.wav",
-                                         OUTPUT_DIR, f"merge_{req.job_id}", seed=zlib.crc32(str(req.job_id).encode("utf-8")))
-        print(f"[bg-duck] {req.job_id}: {_bp['note']}")
+        fee = price["music_each"]
+        def allow_music():
+            balance = get_credits(uid)
+            return balance is not None and balance >= merge_cost + fee and price["music_charged"] + fee <= price["music_max"]
+        def charge_music(a, b):
+            if fee and not debit_confirmed(deduct_credits(uid, fee, "short_dub_music_fill", req.job_id)):
+                raise RuntimeError("Music repair payment could not be verified")
+            price["music_charged"] += fee
+        spans = _short_speech_spans(req.job_id, bg)
+        _bp = dub_background.prepare(bg_to_use, bg.parent / "vocals.wav", dub, OUTPUT_DIR,
+            f"merge_{req.job_id}", spans, key=FAL_API_KEY if req.keep_music else "",
+            gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=req.keep_music)
         bg_to_use = _bp["path"]
-        # Laughter, applause and cheers: the separator files them under "voices", so the separated background
-        # has none. They are cut out of the separated voices outside the spoken words and laid back as a layer.
-        _rx = bg_duck.prepare_reactions(bg.parent / "vocals.wav", bg.parent / "speech_spans.json", dub, OUTPUT_DIR,
-                                        f"merge_{req.job_id}", bed_level=_bp.get("bed_level"))
-        print(f"[bg-duck] {req.job_id}: {_rx['note']}")
+        # Use the same original phrase mask for reactions, so no original dialogue is reintroduced there.
+        map_ = OUTPUT_DIR / f"{req.job_id}_merge_speech.json"
+        map_.write_text(json.dumps(spans), encoding="utf-8")
+        _rx = bg_duck.prepare_reactions(bg.parent / "vocals.wav", map_, dub, OUTPUT_DIR, f"merge_{req.job_id}")
+        map_.unlink(missing_ok=True)
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
         ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed, extra_audio=_rx["path"])
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
@@ -4615,7 +4641,13 @@ def merge_video(req: MergeRequest, request: Request):
         marked = bool(_wr["ok"])
         print(f"[watermark] merge {req.job_id}: {'ok' if marked else 'FAILED, delivered without'} ({_wr['reason']})")
 
-    return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background, "watermarked": marked}
+    if not debit_confirmed(deduct_credits(uid, merge_cost, "merge", req.job_id)):
+        final.unlink(missing_ok=True)
+        raise RuntimeError("The merge payment could not be confirmed. Please contact support.")
+    price["merge_charged"] = merge_cost
+    os.replace(final, published_final)
+    return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background,
+            "watermarked": marked, "credits_charged": merge_cost + price["music_charged"]}
 
 # Optional reference photos for Step 7 -- uploaded separately from the
 # /api/lipsync call itself (this just saves them to disk under the job's
@@ -4716,7 +4748,7 @@ def lipsync(req: LipSyncRequest, request: Request):
     if not LIPSYNC_TEST_MODE:
         bal = get_credits(uid) if uid else None
         if bal is not None and bal < lipsync_cost:
-            return JSONResponse({"error": f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use ➕ Buy."}, status_code=402)
+            return JSONResponse({"error": f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use âž• Buy."}, status_code=402)
         if uid:
             deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
 
@@ -4815,7 +4847,7 @@ def cleanup_voices(request: Request, payload: dict = {}):
     }
     # Also remove this job's downloadable voice sample file(s) -- but ONLY
     # when the caller explicitly asks for it via wipe_samples: true (a real
-    # "start fresh" moment: the 🧹 clean-old-clones button, or a workspace
+    # "start fresh" moment: the ðŸ§¹ clean-old-clones button, or a workspace
     # reset). This must NOT happen on the routine after-every-clone
     # auto-cleanup call app.js fires to protect the shared ElevenLabs/Inworld
     # quota (see confirmCloning's wrapper) -- that call passes this same
@@ -4846,7 +4878,7 @@ def download_voice_sample(job_id: str, speaker: str, request: Request):
     _g = _job_guard(request, job_id, allow_empty=False)
     if _g:
         return _g
-    """Serves the isolated voice sample used to create a speaker's clone —
+    """Serves the isolated voice sample used to create a speaker's clone â€”
     NOT the ElevenLabs voice model itself (ElevenLabs does not allow exporting
     cloned voices at all). This is the reference recording assembled from the
     user's own video before upload, kept only until this job's cleanup_voices
@@ -4891,7 +4923,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     bal = get_credits(uid)
     if bal is not None and bal < clone_cost:
         plural = "s" if clone_cost != 1 else ""
-        return JSONResponse({"error": f"Insufficient credits (creating a custom voice costs {clone_cost} credit{plural}). Use ➕ Buy."}, status_code=402)
+        return JSONResponse({"error": f"Insufficient credits (creating a custom voice costs {clone_cost} credit{plural}). Use âž• Buy."}, status_code=402)
     import uuid as _u
     tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
     tmp.write_bytes(data)
@@ -4940,7 +4972,7 @@ def _record_spend(uid, action, credits, job_id=None, generated_seconds=None):
     try:
         body = {"uid": uid, "action": action, "job_id": job_id, "credits": credits}
         # generated_seconds: duration (seconds) of the final dubbed audio this
-        # spend represents — only set for "generate" jobs. Requires the
+        # spend represents â€” only set for "generate" jobs. Requires the
         # credit_spends table to have a generated_seconds numeric column
         # (see the ALTER TABLE note this was introduced with).
         if generated_seconds is not None:
@@ -4961,7 +4993,7 @@ try:
         act = a[2] if len(a) > 2 else k.get("action", "deduction")
         jid = a[3] if len(a) > 3 else k.get("job_id")
         gsec = a[4] if len(a) > 4 else k.get("generated_seconds")
-        # _od (the original deduct_credits) only ever took (uid, amount) — call it
+        # _od (the original deduct_credits) only ever took (uid, amount) â€” call it
         # with exactly that, never with the extra action/job_id tracking args,
         # or it raises "takes 2 positional arguments but 4 were given" and the
         # real credit deduction never happens.
@@ -5080,7 +5112,7 @@ def _ld_pricing():
         "chars_per_credit": int(_num(cfg.get("inworldCharsPerCredit"), 60)) or 60,
         "clone_credits": int(_num(cfg.get("inworldCloneCredits"), 5)),
         "merge_credits": int(_num(cfg.get("mergeCredits"), 1)),
-        "max_min": _num(cfg.get("longDubMaxMin"), 10),
+        "max_min": 60,  # v1.82: a single verified one-hour limit; old persisted ten-minute settings no longer cap uploads
         # lip-sync: same per-second price as Step 7, and its own length limit
         "lipsync_per_sec": _num(cfg.get("lipsyncCreditsPerSec"), 40),
         "lipsync_max_min": _num(cfg.get("longDubLipsyncMaxMin"), 3),
@@ -5097,7 +5129,7 @@ def _ld_refund(uid, amount, job_id):
     amount = int(amount)
     if amount <= 0:
         return True
-    r = _sb_rpc("add_credits", {"uid": uid, "amount": amount})
+    r = _sb_rpc("add_credits", {"uid": uid, "amount": amount}, strict=True)
     _record_spend(uid, "long_dub_refund", -amount, job_id)
     return r
 
@@ -5189,7 +5221,28 @@ def _ld_allowed(uid):
     return False, "Dub Long Video is available with the Studio plan. Upgrade from the Buy menu or the Pricing page."
 
 
-longdub_service.configure(get_credits=get_credits, charge=_ld_charge, refund=_ld_refund, watermark=_wm_needed,
+def _ld_capacity(job, need):
+    with longdub_service.account_lock(job['uid']):
+        return _ld_reserve_capacity(job, need)
+
+
+def _ld_reserve_capacity(job, need):
+    blocked = _storage_block(job["uid"], need, reservation_id=job["id"])
+    if blocked is not None:
+        detail = json.loads(blocked.body)
+        return False, detail.get("error", "Storage unavailable"), blocked.status_code
+    seconds = longdub_service._total_secs(job)
+    scratch = max(disk_guard.WORK_LONG_GB, seconds * 44100 * 4 * 8 / _GB + 0.5)
+    ok, _ = disk_guard.check(int(job.get("size") or 0), scratch, _is_final_output)
+    if not ok:
+        return False, disk_guard.REFUSAL_MESSAGE, 503
+    job['reserved_output_bytes'] = max(0, int(need))
+    job['capacity_reserved'] = True
+    longdub_service._save(job)
+    return True, "", 200
+
+
+longdub_service.configure(capacity=_ld_capacity, get_credits=get_credits, charge=_ld_charge, refund=_ld_refund, watermark=_wm_needed,
                           send_email=_ld_email, email_error=lambda: _ld_email_last.get("reason", ""), pricing=_ld_pricing,
                           log_event=_ld_log_event, allowed=_ld_allowed)
 
@@ -5267,7 +5320,7 @@ def longdub_init(body: LongDubInit, request: Request):
     if blocked:
         return blocked
     _vid = str(body.filename or "").lower().endswith(tuple(longdub_service.VIDEO_EXTS))
-    _blk = _storage_block(uid, int(body.size or 0) if _vid else int((body.size or 0) * 0.2))
+    _blk = _storage_block(uid, dub_review.output_budget(body.size if _vid else 0, 0, _vid))
     if _blk is not None:
         return _blk          # no point in uploading a big file that could not be saved
     _dg_ok, _ = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
@@ -5480,9 +5533,12 @@ def _ld_public_rows(rows, job=None):
             unheard = longdub_service.unheard_ids(job, rows)    # lines where the AI heard no speech (added or timed by hand)
         except Exception:
             unheard = set()
+    overlap_map = dub_review.overlaps(rows)
     out = []
     for r in rows:
         d = {k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "speaker_id", "gender", "emotion", "text", "arabic_text")}
+        d["overlaps"] = overlap_map.get(r.get("segment_id"), [])
+        d["emotion_review"] = dub_review.emotion_review(r)
         d["heard"] = r.get("segment_id") not in unheard
         d["manual_time"] = bool(r.get("manual_time"))
         out.append(d)
@@ -5495,7 +5551,8 @@ def longdub_get_segments(job_id: str, request: Request):
     if err:
         return err
     rows = _ld_public_rows(longdub_service.read_segments(job), job)
-    return {"segments": rows, "status": job.get("status"),
+    return {"segments": rows, "status": job.get("status"), "reviewed_batches": job.get("reviewed_batches", {}),
+            "batches": dub_review.batches(rows, job.get("reviewed_batches")),
             "warnings": job.get("warnings", []), "speaker_list": job.get("speaker_list", []),
             "stated_speakers": job.get("stated_speakers"), "detected_speakers": job.get("detected_speakers")}
 
@@ -5629,6 +5686,10 @@ def longdub_preview(job_id: str, request: Request):
         return JSONResponse({"error": terr}, status_code=503)
     p = longdub_service.dub_price(job)
     p["credits"] = get_credits(uid)
+    try:
+        p["music"] = longdub_service.music_quote(job)
+    except Exception as ex:
+        p["music"] = {"repairs": 0, "max_credits": 0, "error": str(ex)}
     p["tashkeel_added"] = added
     return p
 
@@ -5637,7 +5698,8 @@ class LongDubConfirm(BaseModel):
     expected_due: int = -1
     room: str = ""
     tracks: bool = False        # also keep the dubbed voices and the music / effects as separate files
-    keep_music: bool = True     # keep the music under the original voices where that can be done cleanly (False: silence it there)
+    keep_music: bool = True
+    music_budget: int = 0  # user-confirmed maximum; charge only successful repairs
 
 
 @app.post("/api/longdub/{job_id}/confirm")
@@ -5649,13 +5711,11 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     if blocked:
         return blocked
     _vid = str(job.get("ext") or "").lower() in longdub_service.VIDEO_EXTS
-    _need = int(job.get("size") or 0) if _vid else int((job.get("size") or 0) * 0.2)
-    if body.tracks:
-        _need += int(float(job.get("duration") or 0) * 50000)      # two AAC files at 192 kbit/s
-    _blk = _storage_block(uid, _need)
-    if _blk is not None:
-        return _blk          # before the dubbing is charged
-    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks, body.keep_music)
+    _need = dub_review.output_budget(job.get("size"), job.get("duration"), _vid, body.tracks)
+    permitted, reason, status = _ld_capacity(job, _need)
+    if not permitted:
+        return JSONResponse({"error": reason}, status_code=status)
+    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks, body.keep_music, body.music_budget)
     if not ok:
         extra = {}
         if e[1] == 409 and job.get("status") == "editing":
@@ -5676,7 +5736,7 @@ def longdub_download(job_id: str, request: Request):
         return JSONResponse({"error": "This file has expired or was already deleted."}, status_code=404)
     base = Path(job.get("filename") or "video").stem[:80] or "video"
     ext = p.suffix
-    return FileResponse(p, media_type="video/mp4" if ext == ".mp4" else "audio/mpeg", filename=f"{base}_dubbed{ext}")
+    return FileResponse(p, media_type="video/mp4" if ext == ".mp4" else ("audio/mp4" if ext == ".m4a" else "audio/mpeg"), filename=f"{base}_dubbed{ext}")
 
 
 @app.get("/api/longdub/{job_id}/track/{which}")
@@ -5868,7 +5928,8 @@ _MY_JOB_FILE_SUFFIXES = {
     "video": "_final_dubbed_video.mp4",
     "lipsync": "_final_lipsync.mp4",
     "voices": "_final_voices.m4a",        # long dub: the dubbed voices alone (optional)
-    "effects": "_final_effects.m4a",      # long dub: music and sound effects alone (optional)
+    "effects": "_final_effects.m4a",      # long dub: retained music / effects
+    "corrections": "_final_corrections.m4a",
 }
 
 
@@ -5896,9 +5957,16 @@ def _user_job_ids(uid):
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=job_id,created_at&order=created_at.desc&limit=1000"
     hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
     try:
-        req = _ur.Request(url, headers=hdrs)
-        with _ur.urlopen(req, timeout=10) as r:
-            rows = json.load(r)
+        rows = []
+        for offset in range(0, 200000, 1000):
+            req = _ur.Request(url + f"&offset={offset}", headers=hdrs)
+            with _ur.urlopen(req, timeout=10) as r:
+                page = json.load(r)
+            rows.extend(page)
+            if len(page) < 1000:
+                break
+        else:
+            return None  # refuse a storage check instead of using an incomplete history
     except Exception as e:
         print("[storage] job lookup error:", e)
         return None
@@ -5931,6 +5999,8 @@ def _storage_summary(uid, job_ids=None):
     if jobs is None:
         return None
     used = 0
+    for project in longdub_service.list_jobs_for_uid(uid):
+        jobs.setdefault(project["id"], "")
     for jid in jobs:
         for p in _job_output_files(jid):
             try:
@@ -5940,19 +6010,27 @@ def _storage_summary(uid, job_ids=None):
                 pass
     subscribed, plan_name, gb = False, "", PAYONCE_STORAGE_GB
     try:
-        prof = _read_subscription_profile(uid) if SUPABASE_SERVICE_KEY else {}
-        if (prof or {}).get("subscription_status") == "active":
+        prof = _read_subscription_profile(uid) if SUPABASE_SERVICE_KEY else None
+        if prof is None:
+            return None
+        if prof.get("subscription_status") == "active":
             plan = _get_subscription_plan(prof.get("subscription_plan_key") or "")
             subscribed, plan_name, gb = True, plan.get("name") or "", float(plan.get("storage_gb") or STORAGE_FALLBACK_GB)
     except Exception as ex:
         print("[storage] plan lookup error:", ex)
+        return None
+    # Reference clips belong to the owner and count toward storage, too.
+    for project in longdub_service.list_jobs_for_uid(uid):
+        refdir = longdub_service.job_dir(project["id"]) / "editrefs"
+        if refdir.is_dir():
+            used += sum(p.stat().st_size for p in refdir.glob("*.wav") if p.is_file())
     quota = int(gb * _GB)
     return {"used_bytes": used, "quota_bytes": quota, "quota_gb": gb,
             "percent": round(100.0 * used / quota, 1) if quota > 0 else 100.0,
             "full": used >= quota, "plan_name": plan_name, "subscribed": subscribed}
 
 
-def _storage_block(uid, need_bytes=0, replaces=None):
+def _storage_block(uid, need_bytes=0, replaces=None, reservation_id=None):
     """None when a new file of about need_bytes may be saved, else a 409 JSONResponse telling the user to delete
     finished files first. `replaces` = a file this job will overwrite (its size is given back). Guests and lookup
     failures are never blocked."""
@@ -5961,11 +6039,16 @@ def _storage_block(uid, need_bytes=0, replaces=None):
     try:
         sm = _storage_summary(uid)
     except Exception as ex:
-        print("[storage] check skipped:", ex)
-        return None
+        print("[storage] check failed:", ex)
+        return JSONResponse({"error": "We could not check available storage. Please retry before starting."}, status_code=503)
     if sm is None:
-        return None
+        return JSONResponse({"error": "We could not check available storage. Please retry before starting."}, status_code=503)
     used, quota = sm["used_bytes"], sm["quota_bytes"]
+    for project in longdub_service.list_jobs_for_uid(uid):
+        reserved = project.get('status') in ('accepted', 'analyzing', 'confirmed', 'dubbing') or (
+            project.get('capacity_reserved') and project.get('status') in ('uploading', 'estimated', 'editing') and not project.get('parked_at'))
+        if project.get("id") != reservation_id and reserved:
+            used += int(project.get("reserved_output_bytes") or 0)
     try:
         if replaces is not None and Path(replaces).exists():
             used = max(0, used - Path(replaces).stat().st_size)
@@ -6163,7 +6246,7 @@ def sitemap_xml():
 
     
     # ============================================================
-# ADMIN ROUTES — protected by APP_PASSWORD env var
+# ADMIN ROUTES â€” protected by APP_PASSWORD env var
 # ============================================================
 import hmac
 import time
@@ -6366,7 +6449,7 @@ def _get_pricing_config():
         # Dub Long Video (longdub_service.py): longest video allowed, in
         # minutes, and the per-minute charge for transcribing + speaker
         # detection + translating it. Both editable in the admin panel.
-        "longDubMaxMin": 10,
+        "longDubMaxMin": 60,
         "longDubAnalysisPerMin": 2,
         "longDubFlatCredits": 10,
         "longDubLipsyncMaxMin": 3,
@@ -6527,9 +6610,9 @@ def _gemini_cpc(v):
 
 
 def _save_pricing_config(config):
-    """Saves pricing config to DB (upsert — creates the singleton row if it
+    """Saves pricing config to DB (upsert â€” creates the singleton row if it
     doesn't exist yet, updates it if it does). Previously this used PATCH,
-    which only updates an EXISTING row matching id=eq.singleton — if that
+    which only updates an EXISTING row matching id=eq.singleton â€” if that
     row had never been created, PATCH silently matched zero rows and
     returned success without writing anything, so admin edits looked saved
     but never actually persisted (and public pages kept showing defaults)."""
@@ -6715,7 +6798,7 @@ def admin_login(req: AdminLoginRequest, request: Request):
     return {"token": token}
 def _get_generated_minutes():
     """Aggregate generated-audio duration from credit_spends (action='generate'
-    rows carry a generated_seconds field — see _record_spend). Returns
+    rows carry a generated_seconds field â€” see _record_spend). Returns
     (per_user_seconds: {uid: total_seconds_all_time}, this_month_seconds: float).
     Requires credit_spends to have a generated_seconds numeric column."""
     import urllib.request as _ur
@@ -6809,7 +6892,8 @@ def admin_service_usage(request: Request):
     resend = service_usage_monitor.get_resend_cached()
     r2 = r2_backup.get_storage_usage()
     alibaba = _get_lipsync_spend_this_month()
-    return {"elevenlabs": eleven, "inworld": inworld, "resend": resend, "r2": r2, "alibaba": alibaba}
+    return {"elevenlabs": eleven, "inworld": inworld, "resend": resend, "r2": r2, "alibaba": alibaba,
+            "fal": fal_usage.read(FAL_API_KEY)}
 
 
 _biz_cache = {}   # days -> (epoch, result); a Stripe + database read takes a few seconds, so keep it for a minute
@@ -6953,7 +7037,7 @@ def _http_error_detail(ex):
         if hasattr(ex, "read"):
             body = ex.read().decode("utf-8", errors="ignore")
             if body:
-                detail = f"{detail} — {body}"
+                detail = f"{detail} â€” {body}"
     except Exception:
         pass
     return detail
@@ -6991,7 +7075,7 @@ def _log_spend(uid, action, credits, job_id=None, reason=None):
 
 def _log_audit(target_uid, delta, reason):
     """Helper: insert into credit_audit. Returns True on success, or the
-    error string on failure (same missing-return bug as _log_spend above —
+    error string on failure (same missing-return bug as _log_spend above â€”
     this previously always returned None, masking real insert failures such
     as the credit_audit table not existing in Supabase)."""
     import urllib.request as _ur
@@ -7641,7 +7725,7 @@ def admin_page(request: Request):
 
 
 # ============================================================
-# PUBLIC PRICING — readable by anyone (no auth needed)
+# PUBLIC PRICING â€” readable by anyone (no auth needed)
 # ============================================================
 @app.get("/api/pricing")
 def public_pricing():
@@ -7649,7 +7733,7 @@ def public_pricing():
     per-step charges (transcribeCredits/mergeCredits/charsPerCredit/
     cloneCredits/lipsyncCreditsPerSec) so the app's own credit badges can
     show what a button actually costs instead of a guessed or hardcoded
-    number. No auth required — these are prices, not secrets.
+    number. No auth required â€” these are prices, not secrets.
 
     Also returns voiceEngine (which engine is active for brand-new clones
     right now) plus that engine's own inworldCharsPerCredit/
@@ -7676,7 +7760,7 @@ def public_pricing():
 @app.get("/api/billing/packs")
 def billing_packs_dynamic():
     """Returns credit packs from pricing_config (managed by admin panel),
-    keyed by each pack's own 'key' field — see _keyed_packs(). This is what
+    keyed by each pack's own 'key' field â€” see _keyed_packs(). This is what
     the landing page and the in-app buy modal both fetch to render pack
     cards, and both now loop over whatever keys come back here instead of
     a fixed list, so any number of packs with any keys will show up.
@@ -8106,7 +8190,7 @@ async def diag_bg(job_id: str, request: Request):
 
 
 
-# TEMPORARY DIAGNOSTIC v2 — thorough background audio lookup
+# TEMPORARY DIAGNOSTIC v2 â€” thorough background audio lookup
 @app.get("/api/admin/diag_bg/{job_id}")
 async def diag_bg(job_id: str, request: Request):
     """Diagnostic v2: lists ALL files matching job_id, ALL _separated folders."""
@@ -8175,3 +8259,224 @@ async def diag_bg(job_id: str, request: Request):
     
     return result
 
+
+
+@app.get("/dub-long-edit")
+def longdub_edit_page():
+    return HTMLResponse((BASE_DIR / "dub_long_edit.html").read_text(encoding="utf-8"), headers=_NO_CACHE_HEADERS)
+
+
+@app.post("/api/longdub/{job_id}/review")
+async def longdub_review_page(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    body = await request.json()
+    correction = bool(body.get("correction"))
+    with longdub_service._lock_for(job_id):
+        rows = longdub_edits.rows(job) if correction else longdub_service.read_segments(job)
+        page = int(body.get("page", -1))
+        if page < 0 or page * 10 >= len(rows) or job.get("status") not in ("editing", "done"):
+            return JSONResponse({"error": "Choose a valid group of lines."}, status_code=400)
+        key = "correction_reviewed" if correction else "reviewed_batches"
+        job.setdefault(key, {})[str(page)] = dub_review.batch_hash(rows[page*10:page*10+10])
+        longdub_service._save(job)
+    return {"reviewed_batches": job[key], "batches": dub_review.batches(rows, job[key])}
+
+
+@app.get("/api/longdub/{job_id}/corrections")
+def longdub_corrections_view(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    return err if err else longdub_edits.view(job)
+
+
+@app.put("/api/longdub/{job_id}/corrections")
+def longdub_corrections_save(job_id: str, body: LongDubEdits, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    try:
+        with longdub_service._lock_for(job_id):
+            longdub_edits.edit(job, body.edits)
+        return longdub_edits.view(job)
+    except (ValueError, TypeError, KeyError) as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
+
+
+class LongDubCorrectionSelection(BaseModel):
+    selected: List[str] = []
+    token: str = ""
+
+
+@app.post("/api/longdub/{job_id}/corrections/quote")
+def longdub_corrections_quote(job_id: str, body: LongDubCorrectionSelection, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    try:
+        return longdub_edits.quote(job, body.selected)
+    except (ValueError, TypeError) as ex:
+        return JSONResponse({"error": str(ex)}, status_code=409)
+
+
+@app.post("/api/longdub/{job_id}/corrections/dub")
+def longdub_corrections_dub(job_id: str, body: LongDubCorrectionSelection, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    with longdub_service.account_lock(uid):
+        blocked = _storage_block(uid, longdub_edits.output_budget(job))
+        if blocked is not None: return blocked
+        try:
+            child = longdub_edits.start(job, body.selected, body.token)
+            return longdub_service.public_view(child)
+        except (ValueError, TypeError) as ex:
+            return JSONResponse({"error": str(ex)}, status_code=409)
+
+
+@app.post("/api/longdub/{job_id}/corrections/finish")
+def longdub_corrections_finish(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    try:
+        longdub_edits.finish(job)
+        return {"ok": True}
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=409)
+
+
+@app.post("/api/longdub/{job_id}/corrections/restore")
+def longdub_corrections_restore(job_id: str, body: LongDubReattach, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    if job.get("status") != "done" or longdub_edits.active(job):
+        return JSONResponse({"error": "Wait until the project finishes."}, status_code=409)
+    ok, message = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
+    if not ok: return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE}, status_code=503)
+    ok, child = longdub_service.redo_project(job, uid, for_edits=True)
+    if not ok: return JSONResponse({"error": child[0]}, status_code=child[1])
+    child["restore_for_edits"] = job_id
+    ok, error = longdub_service.restore_init(child, uid, body.filename, body.size)
+    if not ok: return JSONResponse({"error": error[0]}, status_code=error[1])
+    job["edit_restore_id"] = child["id"]
+    longdub_service._save(job); longdub_service._save(child)
+    return longdub_service.public_view(child)
+
+
+
+
+def _short_speech_spans(job_id, bg):
+    rows = (jobs_progress.get(job_id) or {}).get("segments") or []
+    return dub_background.speech_spans(bg.parent / "speech_spans.json", rows)
+
+
+def _short_merge_price(req):
+    merge = max(1, int(_get_pricing_config().get("mergeCredits", 1)))
+    fee = max(0, int(_get_pricing_config().get("musicFillCredits", 10)))
+    video = find_job_video(req.job_id)
+    dub = OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"
+    if video is None or not dub.exists():
+        raise ValueError("Upload the original video and generate its dubbed voices first.")
+    bg = job_background_audio(req.job_id)
+    repairs = 0
+    if bg is not None and req.keep_music:
+        spans = _short_speech_spans(req.job_id, bg)
+        muted = OUTPUT_DIR / f"{req.job_id}_price_muted.wav"
+        clean = dub_background.mute(bg, bg.parent / "vocals.wav", muted, spans)
+        repairs = dub_background.count_repairs(clean, spans, OUTPUT_DIR / f"{req.job_id}_price.pcm", original=bg) if clean == muted else 0
+        if repairs and not FAL_API_KEY:
+            raise ValueError("Music inpainting is temporarily unavailable. Please retry later.")
+    return {"merge": merge, "music_each": fee, "music_repairs": repairs, "music_max": repairs * fee,
+            "music_charged": 0, "max_total": merge + repairs * fee}
+
+
+@app.post("/api/merge_video/quote")
+def merge_video_quote(req: MergeRequest, request: Request):
+    guard = _job_guard(request, req.job_id, allow_empty=False)
+    if guard: return guard
+    uid, error = _paid_uid(request)
+    if error is not None: return error
+    if not begin_operation(req.job_id):
+        return JSONResponse({"error": "Wait for the current operation to finish."}, status_code=409)
+    try:
+        return _short_merge_price(req)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=409)
+    finally:
+        finish_operation(req.job_id)
+
+
+@app.post("/api/merge_video")
+@resource_meter.metered("shortdub_merge", lambda req, *a, **k: getattr(req, "job_id", ""))
+def merge_video(req: MergeRequest, request: Request):
+    guard = _job_guard(request, req.job_id, allow_empty=False)
+    if guard: return guard
+    uid, error = _paid_uid(request)
+    if error is not None: return error
+    if not begin_operation(req.job_id):
+        return JSONResponse({"error": "Wait for the current operation to finish."}, status_code=409)
+    price = None
+    try:
+        price = _short_merge_price(req)
+        if req.accepted_credits != price["max_total"]:
+            return JSONResponse({"error": "The price changed. Check the new price and confirm again."}, status_code=409)
+        return _merge_video_run(req, request, price)
+    except Exception as ex:
+        charged = price.get("music_charged", 0) + price.get("merge_charged", 0) if price else 0
+        if charged:
+            _ld_refund(uid, charged, req.job_id)
+        return JSONResponse({"error": str(ex)}, status_code=503)
+    finally:
+        finish_operation(req.job_id)
+
+
+@app.get("/dub_long_edit.js")
+def longdub_edit_script():
+    return FileResponse(BASE_DIR / "dub_long_edit.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+
+class EmotionReviewRequest(_JobIdModel):
+    segment_id: str = ""
+    start: float = 0
+    end: float = 0
+    emotion: str = "neutral"
+
+
+@app.post("/api/emotion/review")
+def short_emotion_review(body: EmotionReviewRequest, request: Request):
+    guard = _job_guard(request, body.job_id, allow_empty=False)
+    if guard: return guard
+    if _rate_limited(request, "emotion_review", 20, 60):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    source = UPLOAD_DIR / f"{body.job_id}_audio.wav"
+    if not source.exists(): return JSONResponse({"error": "Attach the original audio first."}, status_code=409)
+    duration = ffmpeg_utils.get_media_duration(source)
+    if not math.isfinite(body.start + body.end) or body.start < 0 or body.end <= body.start or body.end > duration or body.end-body.start > 30:
+        return JSONResponse({"error": "Choose a line of at most 30 seconds inside the original audio."}, status_code=400)
+    return _emotion_audio_review(body.job_id, source, body.start, body.end, body.emotion)
+
+
+def _emotion_audio_review(job_id, source, start, end, emotion):
+    # A random local filename prevents two listeners replacing one another's sample.
+    import uuid
+    sample = OUTPUT_DIR / ("style_check_" + uuid.uuid4().hex + ".mp3")
+    try:
+        ffmpeg_utils.cut_audio_segment(str(source), start, end-start, sample)
+        return emotion_review.inspect(job_id, sample, emotion, GEMINI_API_KEY)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=503)
+    finally:
+        sample.unlink(missing_ok=True)
+
+
+@app.post("/api/longdub/{job_id}/emotion/review")
+async def long_emotion_review(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    if _rate_limited(request, "emotion_review", 20, 60):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    body = await request.json()
+    row = next((r for r in longdub_service.read_segments(job) if r["segment_id"] == body.get("segment_id")), None)
+    source = longdub_service._wd(job) / "vocals_mono.wav"
+    if job.get("status") != "editing" or not row or not source.exists():
+        return JSONResponse({"error": "Attach the original file and open a valid line first."}, status_code=409)
+    if row["end"] - row["start"] > 30:
+        return JSONResponse({"error": "Split this line before checking its style."}, status_code=400)
+    return _emotion_audio_review(job_id, source, row["start"], row["end"], row.get("emotion"))
