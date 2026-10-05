@@ -12,7 +12,7 @@ import voice_clean
 import bg_duck
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, UploadFile, File, Form, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, PlainTextResponse
@@ -47,6 +47,8 @@ import resource_meter
 import assistant_service
 import service_usage_monitor
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
+from shortdub_paths import line_audio_path, begin_operation, finish_operation, operation_active
+from shortdub_billing import studio_quote, debit_confirmed
 
 # Sentry: reports unhandled exceptions from the live server automatically.
 # Wrapped in try/except so a missing package or bad DSN never takes the app
@@ -234,6 +236,7 @@ class EmotionRequest(_JobIdModel):
 
 class GenerateRequest(_JobIdModel):
     job_id: str = ""
+    accepted_credits: Optional[int] = None
     segments: List[Segment]
     elevenlabs_api_key: str = ""
     gemini_api_key: str = ""
@@ -261,6 +264,7 @@ class GenerateRequest(_JobIdModel):
 
 class RegenerateLineRequest(_JobIdModel):
     job_id: str = ""
+    accepted_credits: Optional[int] = None
     segment: Segment
     segments: List[Segment] = []
     elevenlabs_api_key: str = ""
@@ -3981,7 +3985,10 @@ def generate_progress(request: Request, job_id: str = ""):
     _g = _job_guard(request, job_id)
     if _g:
         return _g
-    return _public_progress(jobs_progress.get(f"generate_{job_id}", {"status": "not_found"}))
+    progress = jobs_progress.get(f"generate_{job_id}", {"status": "not_found"})
+    if progress.get("status") == "done" and operation_active(job_id):
+        return {"status": "processing", "percent": 99, "status_text": "Completing your audio"}
+    return _public_progress(progress)
 
 @app.get("/api/job_status")
 def job_status(request: Request, job_id: str = ""):
@@ -4293,6 +4300,113 @@ def tashkeel(req: TashkeelRequest, request: Request):
         txt = txt[:-3]
     return {"items": json.loads(txt.strip())}
 
+def _resolve_short_voices(req):
+    voice_ids = list(req.speaker_voices.values()) + ([req.default_voice_id] if req.default_voice_id else [])
+    engines = _voice_engines_for_ids(voice_ids)
+    req.speaker_voice_engines = {spk: engines.get(vid, "elevenlabs") for spk, vid in req.speaker_voices.items() if vid}
+    req.default_voice_engine = engines.get(req.default_voice_id, "elevenlabs") if req.default_voice_id else "elevenlabs"
+
+
+def _short_quote(req, regenerate=False):
+    cfg = _get_pricing_config()
+    characters = {"elevenlabs": 0, "inworld": 0}
+    if regenerate:
+        req.voice_engine = _voice_engines_for_ids([req.voice_id]).get(req.voice_id, "elevenlabs")
+        rows = [(req.segment, req.voice_engine, req.voice_id)]
+    else:
+        if req.tts_provider == "gemini":
+            raise ValueError("A fixed quote is available for studio voices only.")
+        _resolve_short_voices(req)
+        rows = [(s, req.speaker_voice_engines.get(s.speaker, "elevenlabs") if req.speaker_voices.get(s.speaker, "").strip() else req.default_voice_engine,
+                 req.speaker_voices.get(s.speaker, "").strip() or req.default_voice_id.strip()) for s in req.segments]
+    seen = set()
+    for segment, engine, voice_id in rows:
+        if segment.segment_id in seen:
+            raise ValueError("Each line must have a different identifier. Please reload your project.")
+        seen.add(segment.segment_id)
+        if not segment.arabic_text.strip():
+            continue
+        if not voice_id.strip():
+            raise ValueError("Choose a voice for every translated speaker before generating audio.")
+        engine = "inworld" if engine == "inworld" else "elevenlabs"
+        prompt = (inworld_service.instruction_tag(segment.emotion) + segment.arabic_text if engine == "inworld"
+                  else eleven_service._emotion_tags(segment.emotion) + " " + segment.arabic_text)
+        characters[engine] += len(prompt)
+    if not sum(characters.values()):
+        raise ValueError("Fill at least one Arabic translation.")
+    # Regeneration buys only this line's new voice. Analysis is settled with
+    # a full dub; it must not be rebilled with every line or subsequent dub.
+    quote = studio_quote(characters, {} if regenerate else usage_bucket(req.job_id), cfg)
+    quote["required_balance"] = max(quote["credits"], int(cfg.get("minReserve", 20))) if not regenerate else quote["credits"]
+    return quote
+
+
+def _quote_response(req, request, regenerate=False):
+    guard = _job_guard(request, req.job_id, allow_empty=False)
+    if guard is not None:
+        return guard
+    uid, error = _paid_uid(request)
+    if error is not None:
+        return error
+    try:
+        quote = _short_quote(req, regenerate)
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
+    return {key: value for key, value in quote.items() if key != "ai_snapshot"}
+
+
+@app.post("/api/generate/quote")
+def generate_quote(req: GenerateRequest, request: Request):
+    return _quote_response(req, request)
+
+
+@app.post("/api/regenerate_line/quote")
+def regenerate_quote(req: RegenerateLineRequest, request: Request):
+    return _quote_response(req, request, regenerate=True)
+
+
+def _check_short_payment(req, uid, quote):
+    if req.accepted_credits != quote["credits"]:
+        return JSONResponse({"error": "Please check and confirm the current price before starting. The price may have changed."}, status_code=409)
+    balance = get_credits(uid)
+    if balance is None:
+        return JSONResponse({"error": "Your credit balance could not be checked. Please try again shortly."}, status_code=503)
+    if balance < quote["required_balance"]:
+        return JSONResponse({"error": f"You need {quote['required_balance']} credits to start (you have {balance}). This action costs {quote['credits']} credits. Use ➕ Buy to top up."}, status_code=402)
+    return None
+
+
+def _run_short_generate(req, uid, quote):
+    try:
+        eleven_service.generate_worker(req)
+        progress = jobs_progress.get(f"generate_{req.job_id}") or {}
+        if progress.get("status") != "done" or req.job_id in _abandoned_jobs:
+            return
+        if quote is None:  # Legacy API-only Gemini TTS mode keeps its existing variable pricing.
+            _watch_and_deduct(req.job_id, uid, "generate")
+            return
+        result = progress.get("result") or {}
+        balance = deduct_credits(uid, quote["credits"], "generate", req.job_id, result.get("final_duration"))
+        if not debit_confirmed(balance):
+            progress.update(status="error", error="Audio was generated, but payment could not be confirmed. Please contact support before retrying.")
+            return
+        usage_bucket(req.job_id)["shortdub_ai_settled"] = quote["ai_snapshot"]
+        _job_charges[req.job_id] = {"credits_charged": quote["credits"], "balance_after": get_credits(uid) if balance is True else balance}
+    except Exception:
+        jobs_progress[f"generate_{req.job_id}"] = {"status": "error", "error": "Audio generation could not be completed. Please contact support before retrying."}
+    finally:
+        finish_operation(req.job_id)
+
+
+def _short_edit(job_id, operation):
+    if not begin_operation(job_id):
+        return JSONResponse({"error": "This project is already processing audio. Please wait for it to finish."}, status_code=409)
+    try:
+        return operation()
+    finally:
+        finish_operation(job_id)
+
+
 @app.post("/api/generate")
 def generate(req: GenerateRequest, request: Request):
     if _rate_limited(request, "generate", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
@@ -4303,23 +4417,22 @@ def generate(req: GenerateRequest, request: Request):
     uid, _no_acct = _paid_uid(request)
     if _no_acct is not None:
         return _no_acct
-    bal = get_credits(uid)
-    # minReserve (admin-configurable, "💰 Pricing Configuration") is a rough
-    # "don't even start" safety floor, not the actual price -- the real
-    # per-job cost depends on how much text gets generated and is only known
-    # once the job finishes (see _watch_and_deduct below, which reads the
-    # real configured rate).
-    min_reserve = int(_get_pricing_config().get("minReserve", 20))
-    if bal is not None and bal < min_reserve:
-        # This used to describe the per-character rate here ("costs 1 credit
-        # per ~60 characters"), which has nothing to do with why the request
-        # was actually blocked -- a user with, say, 95 credits (far more
-        # than one job would ever cost) would see "you have 95, this costs
-        # 1 credit" and be blocked anyway, which reads as a straight-up bug
-        # report (and was reported as exactly that -- Sept 2026). The real
-        # reason is this reserve floor, a deliberate safety margin so a job
-        # can't finish with a negative balance -- so say that instead.
-        return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). You're only charged for what's actually used. Use ➕ Buy to top up."}, status_code=402)
+    quote = None
+    if req.tts_provider != "gemini":
+        try:
+            quote = _short_quote(req)
+        except ValueError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+        payment_error = _check_short_payment(req, uid, quote)
+        if payment_error is not None:
+            return payment_error
+    if quote is None:
+        bal = get_credits(uid)
+        if bal is None:
+            return JSONResponse({"error": "Your credit balance could not be checked. Please try again shortly."}, status_code=503)
+        min_reserve = int(_get_pricing_config().get("minReserve", 20))
+        if bal < min_reserve:
+            return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). Use ➕ Buy to top up."}, status_code=402)
     _blk = _storage_block(uid, 0)
     if _blk is not None:
         return _blk          # storage full: delete finished files first (nothing is charged)
@@ -4331,21 +4444,20 @@ def generate(req: GenerateRequest, request: Request):
     # even a field the frontend sends yet). This is intentionally NOT
     # "whatever the admin panel's Voice Engine switch currently says" --
     # see GenerateRequest.speaker_voice_engines' comment for why.
-    _voice_ids_in_job = list(req.speaker_voices.values())
-    if req.default_voice_id:
-        _voice_ids_in_job.append(req.default_voice_id)
-    _engines_by_id = _voice_engines_for_ids(_voice_ids_in_job)
-    req.speaker_voice_engines = {
-        spk: _engines_by_id.get(vid, "elevenlabs") for spk, vid in req.speaker_voices.items() if vid
-    }
-    req.default_voice_engine = _engines_by_id.get(req.default_voice_id, "elevenlabs") if req.default_voice_id else "elevenlabs"
+    if quote is None:
+        _resolve_short_voices(req)
     # Keyed by job_id (not a single shared "generate" slot) so two jobs
     # running at the same time — two users, or two tabs — never overwrite
     # each other's progress/result, and credits never get charged against
     # the wrong job's character count.
+    if not begin_operation(req.job_id):
+        return JSONResponse({"error": "This project is already processing audio. Please wait for it to finish."}, status_code=409)
     jobs_progress[f"generate_{req.job_id}"] = {"status": "processing", "percent": 0, "result": None, "error": None}
-    threading.Thread(target=eleven_service.generate_worker, args=(req,), daemon=True).start()
-    _watch_and_deduct(req.job_id, uid, "generate")
+    try:
+        threading.Thread(target=_run_short_generate, args=(req, uid, quote), daemon=True).start()
+    except Exception:
+        finish_operation(req.job_id)
+        raise
     return {"status": "started"}
 
 
@@ -4353,30 +4465,49 @@ def generate(req: GenerateRequest, request: Request):
 def regenerate_line(req: RegenerateLineRequest, request: Request):
     if _rate_limited(request, "regenerate_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
-    _g = _job_guard(request, req.job_id)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
-    req.elevenlabs_api_key = ELEVENLABS_API_KEY
-    req.inworld_api_key = INWORLD_API_KEY
-    req.voice_engine = _voice_engines_for_ids([req.voice_id]).get(req.voice_id, "elevenlabs") if req.voice_id else "elevenlabs"
-    return eleven_service.regenerate_line(req)
+    uid, error = _paid_uid(request)
+    if error is not None:
+        return error
+    def run():
+        try:
+            quote = _short_quote(req, regenerate=True)
+        except ValueError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+        payment_error = _check_short_payment(req, uid, quote)
+        if payment_error is not None:
+            return payment_error
+        req.elevenlabs_api_key = ELEVENLABS_API_KEY
+        req.inworld_api_key = INWORLD_API_KEY
+        result = eleven_service.regenerate_line(req)
+        if result.get("status") != "success" or result.get("error"):
+            return result
+        balance = deduct_credits(uid, quote["credits"], "regenerate", req.job_id)
+        if not debit_confirmed(balance):
+            return JSONResponse({"error": "Audio was regenerated, but payment could not be confirmed. Please contact support before retrying."}, status_code=503)
+        result.update(credits_charged=quote["credits"], balance_after=get_credits(uid) if balance is True else balance)
+        _job_charges[req.job_id] = {"credits_charged": result["credits_charged"], "balance_after": result["balance_after"]}
+        return result
+    return _short_edit(req.job_id, run)
 
 @app.post("/api/restretch_line")
 def restretch_line(req: RegenerateLineRequest, request: Request):
-    _g = _job_guard(request, req.job_id)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
     # Pure editing action for the Step 5.5 Time Stretch dropdown: re-warps the
     # line's already-generated audio to its current setting, no TTS call and
     # no ElevenLabs key needed.
-    return eleven_service.restretch_line(req)
+    return _short_edit(req.job_id, lambda: eleven_service.restretch_line(req))
 
 @app.post("/api/remix_audio")
 def remix_audio(req: RemixRequest, request: Request):
-    _g = _job_guard(request, req.job_id)
+    _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
-    return eleven_service.remix_with_offsets(req)
+    return _short_edit(req.job_id, lambda: eleven_service.remix_with_offsets(req))
 
 @app.get("/api/room_profile")
 def room_profile(job_id: str, request: Request):
@@ -4642,7 +4773,7 @@ def segment_audio(job_id: str, segment_id: str, request: Request):
         return _g
     if _bad_segment_id(segment_id): return JSONResponse({"error": "bad id"}, status_code=400)
     for ext, mt2 in ((".wav", "audio/wav"), (".mp3", "audio/mpeg")):
-        p = OUTPUT_DIR / f"{segment_id}_stretched{ext}"
+        p = line_audio_path(OUTPUT_DIR, job_id, segment_id, "stretched", ext)
         if p.exists():
             fr = FileResponse(p, media_type=mt2); fr.headers["Cache-Control"] = "no-store"; return fr
     return JSONResponse({"error": "not found"}, status_code=404)
@@ -4836,7 +4967,8 @@ try:
         # real credit deduction never happens.
         r = _od(uid, amt)
         try:
-            _record_spend(uid, act or "deduction", amt, jid, gsec)
+            if debit_confirmed(r):
+                _record_spend(uid, act or "deduction", amt, jid, gsec)
         except Exception:
             pass
         return r

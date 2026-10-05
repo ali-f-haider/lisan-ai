@@ -8,6 +8,7 @@ import urllib3
 from elevenlabs.client import ElevenLabs
 
 from config import OUTPUT_DIR
+from shortdub_paths import line_audio_path, clear_line_audio
 from app_state import jobs_progress, usage_bucket
 from ffmpeg_utils import (
     get_media_duration,
@@ -349,6 +350,7 @@ def generate_worker(req):
         bucket = usage_bucket(req.job_id)
         sorted_segments = sorted(req.segments, key=lambda s: s.start)
         generated_files = []
+        clear_line_audio(OUTPUT_DIR, req.job_id)
 
         for i, seg in enumerate(sorted_segments):
             if not seg.arabic_text.strip():
@@ -373,7 +375,7 @@ def generate_worker(req):
                     m = re.search(r"rate=(\d+)", mime)
                     rate = int(m.group(1)) if m else 24000
                     pcm = base64.b64decode(inline.get("data", ""))
-                    raw_path = _save_gemini_audio(pcm, OUTPUT_DIR / f"{seg.segment_id}_raw", rate)
+                    raw_path = _save_gemini_audio(pcm, line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ""), rate)
                     
                     # --- FIX 2: CRASH-PROOF DURATION CALCULATION ---
                     actual_duration = _audio_duration(raw_path, rate)
@@ -396,7 +398,7 @@ def generate_worker(req):
                 try:
                     response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id="eleven_v3")
                     audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
-                    raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
+                    raw_path = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".mp3")
                     raw_path.write_bytes(audio_bytes)
                     actual_duration = get_media_duration(raw_path)
                 except Exception as e:
@@ -413,7 +415,7 @@ def generate_worker(req):
             elif required_tempo > max_tempo: tempo = max_tempo; needs_warning = True
             else: tempo = required_tempo
 
-            stretched_path = OUTPUT_DIR / f"{seg.segment_id}_stretched.wav"
+            stretched_path = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "stretched", ".wav")
             _stretch_to_wav(raw_path, stretched_path, tempo, rate)
             stretched_duration = get_media_duration(stretched_path)
             if stretched_duration <= 0:

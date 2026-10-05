@@ -291,7 +291,7 @@ var T = {
     delModalConfirm: "Yes, delete permanently",
     deleteAccountFailed: "Couldn't delete your account. Please try again or contact support.",
     genericFail: "Something went wrong. Please try again in a moment.",
-    actions: { transcribe: "Transcription", generate: "Voice generation", merge: "Video merge", clone: "Voice cloning", lipsync: "Lip-sync", translate: "Translation", emotions: "Emotion detection", tashkeel: "Diacritics", long_dub_refund: "Refund", admin_adjustment: "Adjustment", long_dub: "Long video dubbing" }
+    actions: { transcribe: "Transcription", generate: "Voice generation", regenerate: "Line regeneration", merge: "Video merge", clone: "Voice cloning", lipsync: "Lip-sync", translate: "Translation", emotions: "Emotion detection", tashkeel: "Diacritics", long_dub_refund: "Refund", admin_adjustment: "Adjustment", long_dub: "Long video dubbing" }
   },
   ar: {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
@@ -365,7 +365,7 @@ var T = {
     delModalConfirm: "نعم، احذف نهائيًا",
     deleteAccountFailed: "تعذّر حذف حسابك. حاول مرة أخرى أو تواصل مع الدعم.",
     genericFail: "حدث خطأ. يُرجى المحاولة بعد قليل.",
-    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", admin_adjustment: "تعديل الرصيد", long_dub: "دبلجة فيديو طويل" }
+    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", regenerate: "إعادة توليد سطر", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", admin_adjustment: "تعديل الرصيد", long_dub: "دبلجة فيديو طويل" }
   }
 }[LANG];
 
@@ -374,6 +374,12 @@ function actionLabel(a) {
   if (T.actions[a]) return T.actions[a];
   if (a.indexOf("long_dub") === 0) return T.actions.long_dub;
   return T.deduction;
+}
+function creditChange(amount) {
+  var value = Number(amount);
+  if (!Number.isFinite(value)) return { text: "—", color: "#6b7280" };
+  return { text: (value < 0 ? "+" : value > 0 ? "−" : "") + Math.abs(value).toLocaleString(),
+           color: value < 0 ? "#059669" : value > 0 ? "#dc2626" : "#6b7280" };
 }
 function safeMsg(m) {
   m = String(m || "");
@@ -567,7 +573,8 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
   var st = document.querySelector("#spendsTable tbody");
   (d.spends || []).forEach(function(s){
     var tr = document.createElement("tr");
-    tr.innerHTML = "<td>" + fmtStamp(s.created_at) + "</td><td>" + actionLabel(s.action) + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id ? "#" + String(s.job_id).slice(0,8) : "") + "</td><td style='color:#dc2626;font-weight:700;'>−" + s.credits + "</td>";
+    var change = creditChange(s.credits);
+    tr.innerHTML = "<td>" + fmtStamp(s.created_at) + "</td><td>" + actionLabel(s.action) + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id ? "#" + String(s.job_id).slice(0,8) : "") + "</td><td style='color:" + change.color + ";font-weight:700;'>" + change.text + "</td>";
     st.appendChild(tr);
   });
   if (!(d.spends || []).length) st.innerHTML = '<tr><td colspan="4" style="color:#6b7280;">' + T.noSpends + '</td></tr>';

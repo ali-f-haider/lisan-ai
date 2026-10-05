@@ -191,7 +191,7 @@ function updateBadges() {
     setBadge("badgeCvUpload", _cloneRate);
     setBadge("badgePrepareClone", 0);
     setBadge("badgeClone", _cloneRate);
-    setBadge("badgeGenerate", usdToCredits(generateEstimateUsd()));
+    setBadge("badgeGenerate", window.currentLang === "ar" ? "تحقق من السعر" : "Check price");
     setBadge("badgeMerge", window._realPricing.mergeCredits);
     // Step 5.5's "Apply changes & rebuild MP3" only re-mixes with ffmpeg (no TTS
     // call), so it's free -- shown explicitly rather than left with no badge.
@@ -413,7 +413,7 @@ function loadProjectFile(evt) {
             workspaceHasMedia = false;
             fetchUsage(); updateBadges();
             validateClonedVoicesAfterLoad();
-        } catch (e) { notify("error", "Load failed: " + e.message); }
+        } catch (e) { notify("error", window.currentLang === "ar" ? "تعذر فتح ملف المشروع. اختر ملف مشروع صالحًا بصيغة .json." : "This project file could not be opened. Choose a valid Lisan AI project (.json)."); }
     };
     reader.readAsText(f); evt.target.value = "";
 }
@@ -1858,33 +1858,53 @@ async function addTashkeel() {
         notify("success", "Tashkeel added to " + done + " unlocked line(s). Locked lines untouched.");
     } catch (e) { notify("error", "Tashkeel failed: " + e.message); }
 }
+async function confirmShortPrice(endpoint, payload) {
+    const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    const quote = await res.json();
+    if (!res.ok || quote.error) throw new Error(quote.error || "The price could not be checked. Please try again.");
+    if (!Number.isInteger(quote.credits) || quote.credits < 1) throw new Error("The price could not be checked. Please try again.");
+    const ar = window.currentLang === "ar";
+    let message = ar ? `التكلفة: ${quote.credits} رصيد.\nالصوت: ${quote.voice_credits} رصيد.` : `Cost: ${quote.credits} credits.\nVoice: ${quote.voice_credits} credits.`;
+    if (quote.analysis_credits) message += ar ? `\nالتحليل والترجمة غير المدفوعين سابقًا: ${quote.analysis_credits} رصيد.` : `\nAnalysis and translation not yet charged: ${quote.analysis_credits} credits.`;
+    if (quote.required_balance > quote.credits) message += ar ? `\nالرصيد المطلوب للبدء: ${quote.required_balance} رصيد.` : `\nBalance required to start: ${quote.required_balance} credits.`;
+    message += ar ? "\nسيتم الخصم بعد نجاح العملية. هل تريد المتابعة؟" : "\nCharged after successful completion. Continue?";
+    const accepted = await LisanDialog.confirm(message, { title: ar ? "تأكيد التكلفة" : "Confirm cost", okText: ar ? "متابعة" : "Continue" });
+    if (accepted) payload.accepted_credits = quote.credits;
+    return accepted;
+}
+
 async function generateAudio() {
     const speakersWithText = [...new Set(segmentsData.filter(s => s.arabic_text.trim()).map(s => s.speaker))];
     const missing = speakersWithText.filter(sp => !speakerVoices[sp]);
     if (missing.length) { notify("error", "No voice for: " + missing.join(", ") + ". Pick voices in Step 4 (or Auto-Assign) first."); return; }
     if (!segmentsData.some(s => s.arabic_text.trim().length > 0)) { notify("error", "Fill at least one Arabic translation."); return; }
-    document.getElementById("generateButton").disabled = true;
-    document.getElementById("genProgress").classList.remove("hidden");
-    notify("info", "Starting Arabic audio generation...");
-    const payload = {
-        job_id: currentJobId || "",
-        segments: segmentsData,
+    const button = document.getElementById("generateButton");
+    if (button.disabled) return;
+    button.disabled = true;
+    // Freeze the submitted text while the user reviews the confirmed price.
+    const payload = JSON.parse(JSON.stringify({
+        job_id: currentJobId || "", segments: segmentsData,
         tts_provider: document.getElementById("ttsProvider").value,
         gemini_voice: document.getElementById("geminiVoice").value,
         speaker_voices: speakerVoices,
-        // No single global tempo_mode anymore — each segment in `segments`
-        // now carries its own tempo_mode (set per-row in the Step 5.5 table).
         duration_mode: document.getElementById("durationMode").value,
-        total_duration: totalDuration,
-        cloned_voice_ids: window.clonedVoiceIds || []
-    };
+        total_duration: totalDuration, cloned_voice_ids: window.clonedVoiceIds || []
+    }));
+    let started = false;
     try {
+        if (!await confirmShortPrice("/api/generate/quote", payload)) return;
+        document.getElementById("genProgress").classList.remove("hidden");
+        notify("info", "Starting Arabic audio generation...");
         const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await res.json();
-        if (data.error) { notify("error", data.error); document.getElementById("generateButton").disabled = false; return; }
+        if (!res.ok || data.error) throw new Error(data.error || "Audio generation could not be started.");
+        started = true;
         if (generatePollTimer) clearInterval(generatePollTimer);
         generatePollTimer = setInterval(checkGenerateProgress, 1000);
-    } catch (e) { notify("error", e.message); document.getElementById("generateButton").disabled = false; }
+    } catch (e) { notify("error", e.message); }
+    finally {
+        if (!started) { button.disabled = false; document.getElementById("genProgress").classList.add("hidden"); }
+    }
 }
 async function regenerateLine(i, btn) {
     const seg = segmentsData[i];
@@ -1892,20 +1912,18 @@ async function regenerateLine(i, btn) {
     const voice_id = speakerVoices[seg.speaker] || "";
     if (!voice_id) { notify("error", "No voice for " + seg.speaker + ". Pick one in Step 4 first."); return; }
     btn.disabled = true; btn.textContent = "⏳";
-    notify("info", `Re-speaking line ${i + 1} only...`);
     try {
+        const payload = JSON.parse(JSON.stringify({
+            job_id: currentJobId || "", segment: seg, segments: segmentsData,
+            voice_id: voice_id, tempo_mode: seg.tempo_mode || "excellent",
+            duration_mode: document.getElementById("durationMode").value, total_duration: totalDuration
+        }));
+        if (!await confirmShortPrice("/api/regenerate_line/quote", payload)) return;
+        notify("info", `Re-speaking line ${i + 1} only...`);
         const res = await fetch("/api/regenerate_line", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                job_id: currentJobId || "",
-                segment: seg,
-                segments: segmentsData,
-                voice_id: voice_id,
-                tempo_mode: seg.tempo_mode || "excellent",
-                duration_mode: document.getElementById("durationMode").value,
-                total_duration: totalDuration
-            })
+            body: JSON.stringify(payload)
         });
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
@@ -1913,9 +1931,11 @@ async function regenerateLine(i, btn) {
             notify("error", "Regenerate failed: " + ((data && (data.error || data.detail)) || "Please try again in a moment."));
             return;
         }
-        const usd = lineCostUsd(seg.arabic_text, seg.emotion);
-        const cr = Math.max(1, usdToCredits(usd));
-        notify("success", `Line ${i + 1} re-spoken. Cost ≈ ${cr} credits. The final audio was rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ This line was sped up as much as allowed." : ""));
+        const cr = data.credits_charged;
+        if (typeof refreshCredits === "function") refreshCredits();
+        notify("success", window.currentLang === "ar"
+            ? `تمت إعادة توليد السطر ${i + 1}. التكلفة: ${cr} رصيد. تم تحديث الصوت النهائي؛ استمع إليه في الخطوة 6 عند ${seg.start} ثانية.` + (data.tempo_warning ? " ⚠️ تمت زيادة سرعة هذا السطر ضمن الحد المسموح." : "")
+            : `Line ${i + 1} re-spoken. Cost: ${cr} credits. The final audio was rebuilt — play Step 6 at ${seg.start}s to hear it.` + (data.tempo_warning ? " ⚠️ This line was sped up as much as allowed." : ""));
         // Keep the timeline's Arabic-audio-duration overlay in sync: a bulk
         // Generate refreshes window._lineDurations via checkGenerateProgress,
         // but re-speaking a single line here never did, so the overlay kept
@@ -3818,7 +3838,6 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
         };
     }
     guard("startTranscribe", 0, "Not enough credits — transcription costs 3 credits.");
-    guard("generateAudio", 20, "Not enough credits — generation costs 1 credit per ~60 characters.");
     guard("mergeVideo", 1, "Not enough credits — merging costs 1 credit.");
     guard("runLipsync", 1, "Not enough credits — lip-sync is billed per second of video.");
 })();

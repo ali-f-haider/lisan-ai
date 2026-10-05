@@ -8,6 +8,7 @@ import urllib3
 from elevenlabs.client import ElevenLabs
 import inworld_service
 from config import OUTPUT_DIR
+from shortdub_paths import line_audio_path, clear_line_audio
 from app_state import jobs_progress, usage_bucket
 from resource_meter import metered as _metered      # measures what each job costs on Railway (see resource_meter.py)
 from ffmpeg_utils import (
@@ -46,8 +47,6 @@ TTS_MODEL_ID = "eleven_v4"
 USER_GAINS = {}
 ROOM_LAST = {}       # job_id -> what the room step did the last time the final MP3 was built
 ROOM_SETTINGS = {}   # job_id -> {"mode": "auto"|"off"|"manual", "rt60": s, "wet_db": dB, "trim_db": dB (Auto only: louder/quieter than measured)}  (Step 5.5 "Room sound")
-OVERLAP_FLAGS = {}  # segment_id -> True: this line may be talked over (intruders not faded)  # job_id -> {segment_id: extra dB from Step 5.5 sliders}
-DEAD_SPACE_FLAGS = {}  # segment_id -> True: this line may stretch into the silent gap before the next line's original start (or, for the last line, to the end of the audio) instead of fading at its own original end
 
 def _apply_room(job_id, output_file, items=None, segments=None):
     """Gives every line of the finished (dry) Arabic mix the room it was spoken in, measured phrase by phrase from the
@@ -526,10 +525,8 @@ def _meter_stage_generate(job_id):
 @_metered("shortdub_generate", lambda req, *a, **k: getattr(req, "job_id", ""), stage_of=_meter_stage_generate)
 def generate_worker(req):
     global eleven_client
-    global OVERLAP_FLAGS
-    global DEAD_SPACE_FLAGS
-    OVERLAP_FLAGS = dict(getattr(req, 'overlap_allowed', None) or {})
-    DEAD_SPACE_FLAGS = dict(getattr(req, 'dead_space_allowed', None) or {})
+    overlap_flags = dict(getattr(req, 'overlap_allowed', None) or {})
+    dead_space_flags = dict(getattr(req, 'dead_space_allowed', None) or {})
     # Keyed by job_id (not a single shared "generate" slot) so concurrent
     # generate jobs — two users, or two tabs — never clobber each other's
     # progress/result. Must match the key main.py's /api/generate and
@@ -546,17 +543,9 @@ def generate_worker(req):
         lines_meta = []
         src_for_loudness = resolve_job_speech(req.job_id)
         spans_for_loudness = job_speech_spans(req.job_id)
-        # Wipe line files from any previous job so stale audio can never leak in
-        for stale in OUTPUT_DIR.glob("*_stretched.*"):
-            try:
-                stale.unlink()
-            except Exception:
-                pass
-        for stale in OUTPUT_DIR.glob("*_raw.*"):
-            try:
-                stale.unlink()
-            except Exception:
-                pass
+        # Only this job's previous takes may be removed. Other jobs and old
+        # unscoped files are never used as a fallback.
+        clear_line_audio(OUTPUT_DIR, req.job_id)
         for i, seg in enumerate(sorted_segments):
             if not seg.arabic_text.strip():
                 continue
@@ -574,7 +563,7 @@ def generate_worker(req):
                     data = json.load(response)
                 record_gemini(req.job_id, data)
                 audio_bytes = base64.b64decode(data["candidates"][0]["content"]["parts"][0]["inlineData"]["data"])
-                raw_filename = f"{seg.segment_id}_raw.wav"
+                raw_filename = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".wav").name
             else:
                 voice_id = req.speaker_voices.get(seg.speaker, "").strip() or req.default_voice_id.strip()
                 if not voice_id:
@@ -601,7 +590,7 @@ def generate_worker(req):
                     # when a job mixes speakers across both engines.
                     bucket["inworld_chars"] += len(tts_text)
                     audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
-                    raw_filename = f"{seg.segment_id}_raw.mp3"
+                    raw_filename = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".mp3").name
                 else:
                     api_key = req.elevenlabs_api_key.strip()
                     if not api_key:
@@ -612,7 +601,7 @@ def generate_worker(req):
                     bucket["eleven_chars"] += len(tts_text)
                     response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
                     audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
-                    raw_filename = f"{seg.segment_id}_raw.mp3"
+                    raw_filename = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".mp3").name
             raw_path = OUTPUT_DIR / raw_filename
             raw_path.write_bytes(audio_bytes)
             actual_duration = get_media_duration(raw_path)
@@ -638,7 +627,7 @@ def generate_worker(req):
                 needs_warning = True
             else:
                 tempo = required_tempo
-            stretched_filename = f"{seg.segment_id}_stretched.wav" if req.tts_provider == "gemini" else f"{seg.segment_id}_stretched.mp3"
+            stretched_filename = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "stretched", ".wav" if req.tts_provider == "gemini" else ".mp3").name
             stretched_path = OUTPUT_DIR / stretched_filename
             if abs(tempo - 1.0) > 0.02:
                 run_ffmpeg(["ffmpeg", "-y", "-i", str(raw_path), "-filter:a", f"atempo={tempo:.6f}", str(stretched_path)])
@@ -692,13 +681,13 @@ def generate_worker(req):
         for i, item in enumerate(generated_files):
             # PATCHED: global overlap check
             allowed_end = final_duration
-            if not DEAD_SPACE_FLAGS.get(item.get("sid", ""), False):
+            if not dead_space_flags.get(item.get("sid", ""), False):
                 allowed_end = min(allowed_end, item["end"])
             for _j in range(len(generated_files)):
                 if _j == i: continue
                 _other = generated_files[_j]
                 _other_start = _other["start"]
-                if OVERLAP_FLAGS.get(item.get("sid", ""), False) or OVERLAP_FLAGS.get(_other.get("sid", ""), False):
+                if overlap_flags.get(item.get("sid", ""), False) or overlap_flags.get(_other.get("sid", ""), False):
                     continue
                 if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
                     allowed_end = _other_start - 0.005
@@ -755,18 +744,16 @@ def generate_worker(req):
         jobs_progress[_pk] = {"status": "error", "percent": 0, "error": friendly_error(e), "result": None}
 
 def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None, dead_space_flags=None):
-    global OVERLAP_FLAGS
-    global DEAD_SPACE_FLAGS
-    if flags: OVERLAP_FLAGS = dict(flags)
-    if dead_space_flags: DEAD_SPACE_FLAGS = dict(dead_space_flags)
     """Rebuild this job's final dubbed audio from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
+    overlap_flags = dict(flags or {})
+    dead_space_flags = dict(dead_space_flags or {})
     active = dict(USER_GAINS.get(job_id or "", {}))
     segs = sorted([s for s in segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
     items = []
     for s in segs:
-        sp = OUTPUT_DIR / f"{s.segment_id}_stretched.wav"
+        sp = line_audio_path(OUTPUT_DIR, job_id, s.segment_id, "stretched", ".wav")
         if not sp.exists():
-            sp = OUTPUT_DIR / f"{s.segment_id}_stretched.mp3"
+            sp = line_audio_path(OUTPUT_DIR, job_id, s.segment_id, "stretched", ".mp3")
         if not sp.exists():
             continue
         items.append({"file": sp.name, "sid": s.segment_id, "start": s.start, "end": s.end,
@@ -784,13 +771,13 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     for i, item in enumerate(items):
         # PATCHED: global overlap check
         allowed_end = final_duration
-        if not DEAD_SPACE_FLAGS.get(item.get("sid", ""), False):
+        if not dead_space_flags.get(item.get("sid", ""), False):
             allowed_end = min(allowed_end, item["end"])
         for _j in range(len(items)):
             if _j == i: continue
             _other = items[_j]
             _other_start = _other["start"]
-            if OVERLAP_FLAGS.get(item.get("sid", ""), False) or OVERLAP_FLAGS.get(_other.get("sid", ""), False):
+            if overlap_flags.get(item.get("sid", ""), False) or overlap_flags.get(_other.get("sid", ""), False):
                 continue
             if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
                 allowed_end = _other_start - 0.005
@@ -877,7 +864,7 @@ def regenerate_line(req):
             bucket["eleven_chars"] += len(tts_text)
             response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
             audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)
-        raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
+        raw_path = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".mp3")
         raw_path.write_bytes(audio_bytes)
         actual = get_media_duration(raw_path)
         if actual <= 0:
@@ -901,7 +888,7 @@ def regenerate_line(req):
             warning = True
         else:
             tempo = required
-        stretched = OUTPUT_DIR / f"{seg.segment_id}_stretched.wav"
+        stretched = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "stretched", ".wav")
         cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
         if abs(tempo - 1.0) > 0.02:
             cmd += ["-filter:a", f"atempo={tempo:.6f}"]
@@ -933,9 +920,9 @@ def restretch_line(req):
         seg = req.segment
         if not (seg.arabic_text or "").strip():
             return {"error": "This line has no Arabic text yet."}
-        raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.mp3"
+        raw_path = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".mp3")
         if not raw_path.exists():
-            raw_path = OUTPUT_DIR / f"{seg.segment_id}_raw.wav"
+            raw_path = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "raw", ".wav")
         if not raw_path.exists():
             return {"error": "not_generated"}
         target_duration = max(seg.end - seg.start, 0.5)
@@ -958,7 +945,7 @@ def restretch_line(req):
             warning = True
         else:
             tempo = required
-        stretched = OUTPUT_DIR / f"{seg.segment_id}_stretched.wav"
+        stretched = line_audio_path(OUTPUT_DIR, req.job_id, seg.segment_id, "stretched", ".wav")
         cmd = ["ffmpeg", "-y", "-i", str(raw_path)]
         if abs(tempo - 1.0) > 0.02:
             cmd += ["-filter:a", f"atempo={tempo:.6f}"]
@@ -980,10 +967,8 @@ def restretch_line(req):
 @_metered("shortdub_rebuild", lambda req, *a, **k: getattr(req, "job_id", ""))
 def remix_with_offsets(req):
     """Rebuild this job's final dubbed audio applying per-segment time offsets AND Step 5.5 volume gains."""
-    global OVERLAP_FLAGS
-    global DEAD_SPACE_FLAGS
-    OVERLAP_FLAGS = dict(getattr(req, 'overlap_allowed', None) or {})
-    DEAD_SPACE_FLAGS = dict(getattr(req, 'dead_space_allowed', None) or {})
+    overlap_flags = dict(getattr(req, 'overlap_allowed', None) or {})
+    dead_space_flags = dict(getattr(req, 'dead_space_allowed', None) or {})
     try:
         gains = dict(getattr(req, "gains", None) or {})
         if gains:
@@ -1010,9 +995,9 @@ def remix_with_offsets(req):
         segs = sorted([s for s in req.segments if (s.arabic_text or "").strip()], key=lambda s: s.start)
         items = []
         for s in segs:
-            sp = OUTPUT_DIR / f"{s.segment_id}_stretched.wav"
+            sp = line_audio_path(OUTPUT_DIR, req.job_id, s.segment_id, "stretched", ".wav")
             if not sp.exists():
-                sp = OUTPUT_DIR / f"{s.segment_id}_stretched.mp3"
+                sp = line_audio_path(OUTPUT_DIR, req.job_id, s.segment_id, "stretched", ".mp3")
             if not sp.exists():
                 continue
             off = float((req.offsets or {}).get(s.segment_id, 0.0) or 0.0)
@@ -1032,13 +1017,13 @@ def remix_with_offsets(req):
         for i, item in enumerate(items):
             # PATCHED: global overlap check
             allowed_end = final_duration
-            if not DEAD_SPACE_FLAGS.get(item.get("sid", ""), False):
+            if not dead_space_flags.get(item.get("sid", ""), False):
                 allowed_end = min(allowed_end, item["end"])
             for _j in range(len(items)):
                 if _j == i: continue
                 _other = items[_j]
                 _other_start = _other["start"]
-                if OVERLAP_FLAGS.get(item.get("sid", ""), False) or OVERLAP_FLAGS.get(_other.get("sid", ""), False):
+                if overlap_flags.get(item.get("sid", ""), False) or overlap_flags.get(_other.get("sid", ""), False):
                     continue
                 if _other_start > item["start"] and _other_start - 0.005 < allowed_end:
                     allowed_end = _other_start - 0.005
