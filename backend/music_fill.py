@@ -41,7 +41,12 @@ MIN_GAP_SEC = 1.0              # shorter holes are not worth a call
 MAX_GAP_SEC = float(os.environ.get("MUSIC_FILL_MAX_GAP_SEC", "20") or 20)
 MAX_GAPS = int(float(os.environ.get("MUSIC_FILL_MAX_GAPS", "200") or 200))
 MAX_TOTAL_SEC = float(os.environ.get("MUSIC_FILL_MAX_SEC", "3600") or 3600)
-STEPS = os.environ.get("MUSIC_FILL_STEPS", "").strip()
+# Fal's request history (fal_request_history.py) shows that every clean result of this model was requested with
+# guidance_scale 1, 50 steps and prompt expansion off, and that every request that left them out, so the model's own
+# defaults applied, came back saturated. They are sent explicitly.
+STEPS = os.environ.get("MUSIC_FILL_STEPS", "50").strip()
+GUIDANCE = os.environ.get("MUSIC_FILL_GUIDANCE", "1").strip()
+OUTPUT_FORMAT = os.environ.get("MUSIC_FILL_FORMAT", "wav").strip().lower() or "wav"
 
 REF_FLOOR_DB = -50.0           # quieter than this is not music
 GAP_BELOW_REF_DB = 30.0        # a hole is this far under the typical music level (digital silence, a hard mute)
@@ -66,7 +71,7 @@ MAX_WALL_SEC = float(os.environ.get("MUSIC_FILL_MAX_WALL_SEC", "900") or 900)   
 
 DEFAULT_PROMPT = ("instrumental background music that continues the same style, instruments, tempo and mood, "
                   "smooth and steady, no vocals, no speech")
-NEGATIVE_PROMPT = "vocals, singing, speech, talking, voice, choir, humming, abrupt change, silence"
+NEGATIVE_PROMPT = "vocals, singing, spoken words, clipping, distortion, harsh noise, watermark, abrupt cutoff"     # the one the clean runs used
 
 
 def _db(x):
@@ -196,7 +201,11 @@ def _fal_run(key, wav_path, m0, m1, prompt):
     url = client.upload_file(str(wav_path))
     args = {"prompt": prompt, "audio_url": url, "mask_start_seconds": round(float(m0), 3),
             "mask_end_seconds": round(float(m1), 3), "negative_prompt": NEGATIVE_PROMPT,
-            "output_format": "wav"}
+            "output_format": OUTPUT_FORMAT, "enable_prompt_expansion": False, "enable_safety_checker": True}
+    try:
+        args["guidance_scale"] = float(GUIDANCE)
+    except ValueError:
+        args["guidance_scale"] = 1.0
     if STEPS.isdigit():
         args["num_inference_steps"] = int(STEPS)
     handle = client.submit(MODEL, arguments=args)

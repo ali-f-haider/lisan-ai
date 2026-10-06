@@ -1,7 +1,7 @@
 """Pure calculations for a short dub's confirmed price (no network calls)."""
 import math
 
-AI_KEYS = ("gemini_in", "gemini_out", "audio_sec")
+AI_KEYS = ("gemini_in", "gemini_out", "gemini_thoughts", "audio_sec")
 
 
 def ai_snapshot(bucket):
@@ -15,7 +15,9 @@ def studio_quote(characters, bucket, config):
     snapshot = ai_snapshot(bucket)
     settled = bucket.get("shortdub_ai_settled") or {}
     pending = {key: max(0, snapshot[key] - float(settled.get(key, 0) or 0)) for key in AI_KEYS}
-    usd = (pending["gemini_in"] + int(pending["audio_sec"] * 258)) / 1e6 * .30 + pending["gemini_out"] / 1e6 * 2.50
+    # Gemini bills its thinking tokens at the output rate, so they count with the answer tokens.
+    usd = ((pending["gemini_in"] + int(pending["audio_sec"] * 258)) / 1e6 * .30
+           + (pending["gemini_out"] + pending["gemini_thoughts"]) / 1e6 * 2.50)
     try:
         multiplier = float(config.get("geminiCreditsPerCent", 1))
     except (TypeError, ValueError):

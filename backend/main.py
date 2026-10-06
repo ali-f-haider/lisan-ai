@@ -1551,7 +1551,7 @@ def _watch_and_deduct(job_id, uid, kind):
                 (int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258))
                 / 1e6
                 * 0.30
-                + int(b.get("gemini_out", 0)) / 1e6 * 2.50
+                + (int(b.get("gemini_out", 0)) + int(b.get("gemini_thoughts", 0))) / 1e6 * 2.50
             )
 
             eleven_rate = int(cfg.get("charsPerCredit", 60)) or 60
@@ -4616,9 +4616,10 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
                 raise RuntimeError("Music repair payment could not be verified")
             price["music_charged"] += fee
         spans = _short_speech_spans(req.job_id, bg)
+        keep_music = bool(req.keep_music and price.get("music_kept", True))  # False: the quote said it cannot be restored
         _bp = dub_background.prepare(bg_to_use, bg.parent / "vocals.wav", dub, OUTPUT_DIR,
-            f"merge_{req.job_id}", spans, key=FAL_API_KEY if req.keep_music else "",
-            gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=req.keep_music)
+            f"merge_{req.job_id}", spans, key=FAL_API_KEY if keep_music else "",
+            gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=keep_music)
         bg_to_use = _bp["path"]
         # Use the same original phrase mask for reactions, so no original dialogue is reintroduced there.
         map_ = OUTPUT_DIR / f"{req.job_id}_merge_speech.json"
@@ -4651,7 +4652,8 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
     price["merge_charged"] = merge_cost
     os.replace(final, published_final)
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background,
-            "watermarked": marked, "credits_charged": merge_cost + price["music_charged"]}
+            "watermarked": marked, "credits_charged": merge_cost + price["music_charged"],
+            "music_kept": bool(price.get("music_kept", True))}
 
 # Optional reference photos for Step 7 -- uploaded separately from the
 # /api/lipsync call itself (this just saves them to disk under the job's
@@ -8450,15 +8452,23 @@ def _short_merge_price(req):
         raise ValueError("Upload the original video and generate its dubbed voices first.")
     bg = job_background_audio(req.job_id)
     repairs = 0
+    music_kept, music_note = True, ""
     if bg is not None and req.keep_music:
         spans = _short_speech_spans(req.job_id, bg)
         muted = OUTPUT_DIR / f"{req.job_id}_price_muted.wav"
         clean = dub_background.mute(bg, bg.parent / "vocals.wav", muted, spans)
-        repairs = dub_background.count_repairs(clean, spans, OUTPUT_DIR / f"{req.job_id}_price.pcm", original=bg) if clean == muted else 0
-        if repairs and not FAL_API_KEY:
-            raise ValueError("Music inpainting is temporarily unavailable. Please retry later.")
+        try:
+            repairs = dub_background.count_repairs(clean, spans, OUTPUT_DIR / f"{req.job_id}_price.pcm", original=bg) if clean == muted else 0
+            if repairs and not FAL_API_KEY:
+                raise ValueError("Music inpainting is temporarily unavailable.")
+        except ValueError as ex:
+            # The music under the speech cannot be rebuilt reliably (almost no clean background is left, or the
+            # silent stretches are too long). The merge is still possible: the background stays silent while the
+            # original speakers talk and is unchanged elsewhere. The quote tells the user, who must accept it.
+            repairs, music_kept, music_note = 0, False, str(ex)
+            print(f"[merge-quote] {req.job_id}: music not preserved: {music_note}")
     return {"merge": merge, "music_each": fee, "music_repairs": repairs, "music_max": repairs * fee,
-            "music_charged": 0, "max_total": merge + repairs * fee}
+            "music_charged": 0, "max_total": merge + repairs * fee, "music_kept": music_kept, "music_note": music_note}
 
 
 @app.post("/api/merge_video/quote")

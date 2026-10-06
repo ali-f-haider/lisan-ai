@@ -115,6 +115,13 @@ class PricingTests(unittest.TestCase):
         q = studio_quote({'elevenlabs': 600}, {'gemini_out': 4160}, {'charsPerCredit': 60, 'geminiCreditsPerCent': 100})
         self.assertEqual((q['voice_credits'], q['analysis_credits'], q['credits']), (10, 104, 114))
 
+    def test_thinking_tokens_are_priced_like_output_tokens(self):
+        # 4000 thinking tokens cost the same as 4000 answer tokens ($0.01 = 1 credit at 1 credit/cent).
+        thought = studio_quote({'elevenlabs': 60}, {'gemini_thoughts': 4000}, {})
+        answer = studio_quote({'elevenlabs': 60}, {'gemini_out': 4000}, {})
+        self.assertEqual(thought['analysis_credits'], answer['analysis_credits'])
+        self.assertEqual(thought['analysis_credits'], 1)
+
     def test_engine_rates_round_separately(self):
         q = studio_quote({'elevenlabs': 61, 'inworld': 101}, {}, {'charsPerCredit': 60, 'inworldCharsPerCredit': 100})
         self.assertEqual(q['credits'], 4)
