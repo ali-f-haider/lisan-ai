@@ -1379,7 +1379,7 @@ async function continueUpload(job, file) {
 }
 
 function finishUpload(job) {
-  uploading = false;
+  uploading = false; lastErr = "";
   $("jobBody").insertAdjacentHTML("beforeend", "<p class='note'>" + esc(T.finishing) + "</p>");
   return api("POST", "/api/longdub/" + job.id + "/finish").then(function (r) {
     if (!r.ok) {
@@ -1422,7 +1422,15 @@ function deleteJob(j) {
     api("DELETE", "/api/longdub/" + j.id).then(function (r) {
       if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
       jobs = jobs.filter(function (x) { return x.id !== j.id; });
-      if (cur && cur.id === j.id) selectJob(null); else renderList();
+      if (cur && cur.id === j.id) { selectJob(null); return; }
+      renderList();
+      // Space was just freed: an old "not enough storage" (or any other) message of the open project is out of date. A finished
+      // upload that was refused for space is checked again by itself (free), anything else just loses the stale message.
+      if (cur && lastErr && !uploading) {
+        lastErr = "";
+        if (cur.status === "uploading" && cur.total_chunks && (cur.received_count || 0) >= cur.total_chunks) finishUpload(cur);
+        else renderJob();
+      }
     });
   });
 }
