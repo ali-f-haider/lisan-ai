@@ -765,7 +765,7 @@ def delete_job(job, uid):
 # the audio again. None of this costs credits.
 
 _MEDIA_FILES = ("audio.wav", "vocals_mono.wav", "background.wav", "vocals.wav", "vocals_normalized.wav", "src.part",
-                "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "price_music_muted.wav",
+                "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "dubbing_bg_bgref.wav", "dubbing_bg_final_bg.wav", "price_music_muted.wav",
                 "preview.mp4", "preview.m4a", "preview.tmp.mp4", "preview.tmp.m4a")
 _MEDIA_DIRS = ("pieces", "vocals", "bg", "asr", "sep")
 
@@ -4355,7 +4355,8 @@ def _run_dubbing(job):
             repaired_ = dub_background.checkpointed_prepare(job, _save, job.get('music_expected_repairs', 0), bg, wd / "vocals_mono.wav", dub_full, wd, "dubbing_bg", spans_,
                 key=FAL_API_KEY if job.get("music_pref") != "silence" else "",
                 gemini_key=GEMINI_API_KEY, allow=allow_fill, on_filled=charge_fill, preserve_music=job.get("music_pref") != "silence",
-                strict=False)      # a music hole that cannot be rebuilt stays silent and the dub goes on; only rebuilt holes are charged
+                strict=False,      # a music hole that cannot be rebuilt stays silent and the dub goes on; only rebuilt holes are charged
+                original=(wd / "audio.wav") if (wd / "audio.wav").exists() else None)
             bg_mix = repaired_["path"]
             job["background_levels"] = repaired_["measurements"]
             _mf_ = repaired_["music_fill"]
@@ -4502,7 +4503,7 @@ def _run_dubbing(job):
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
         # (pauses.json, speech_spans.json and turns.json are tiny and are kept: a "Redo" of this project needs them)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "price_music_muted.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "dubbing_bg_bgref.wav", "dubbing_bg_final_bg.wav", "price_music_muted.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
             try:
                 (wd / f).unlink()
             except Exception:

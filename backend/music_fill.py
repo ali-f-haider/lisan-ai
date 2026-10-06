@@ -82,6 +82,14 @@ GRAIN_SEC = 1.6
 LOCAL_MODE = os.environ.get("MUSIC_FILL_LOCAL_MODE", "auto").strip().lower()   # auto | grain | synth
 SYNTH_FFT = 8192                # resolution of the sound model used when the clean sound next to a hole is short
 SYNTH_MOD_MAX_DB = 2.0          # slow level flutter copied from the real sound is limited to this
+BED_BAND_DB = 3.0               # steady engine: only sound this close to the usual quiet level of the track counts as "the engine" (an event next to the hole is not)
+BED_LOOK_SEC = 12.0             # the level of the engine is taken from this far around a hole
+BED_POOL_SEC = 40.0             # clean engine sound used to model it: the nearest stretches of the whole track, up to this much
+AMBIENCE_MODEL = os.environ.get("MUSIC_FILL_AMBIENCE_MODEL", "0").strip().lower() in ("1", "on", "yes", "true")   # ask the music model to invent engine / wind / crowd sound (unreliable: off)
+SYNTH_CHUNK_SEC = 60.0          # a rebuilt stretch longer than 1.5 x this is made in pieces of this length (memory)
+SEAM_SEC = 0.15                 # a locally rebuilt hole is blended into the real sound this far OUTSIDE of its edges too (no dip at the seam)
+LOCAL_FILL_DB = float(os.environ.get("MUSIC_FILL_LOCAL_DB", "-6") or -6)   # a made-up sound is laid this much under the real sound around it: it is not the original, and the dialogue stays clear
+LOCAL_MIN_GAP_SEC = 0.15        # a steady sound is rebuilt locally for free, so even a short hole is closed (the model is called only for holes of MIN_GAP_SEC and more)
 GRAIN_MAX_HOLE_RATIO = 0.8      # pieces of the real sound are laid down only if the hole is at most this long compared with the sound available (no piece is used twice)
 NEGATIVE_PROMPT = "vocals, singing, spoken words, clipping, distortion, harsh noise, watermark, abrupt cutoff"     # the one the clean runs used
 
@@ -116,18 +124,22 @@ def _levels(pcm):
     return out
 
 
-def find_gaps(db, spans):
+def find_gaps(db, spans, min_len=None, keep_unfillable=False, level_db=None):
     """Holes in the music: stretches inside the speech spans where the track is far under the music level.
-    Returns (gaps [(start_sec, end_sec)], info). Gaps need real music next to them."""
+    Returns (gaps [(start_sec, end_sec)], info). Gaps need real music next to them.
+    keep_unfillable: holes the model cannot take (longer than MAX_GAP_SEC, no music next to them) are returned too, listed in
+    info["local_only"]: only the free local rebuild of a steady sound can fill them. level_db: levels of the same track before the
+    voices were silenced, pauses only (-120 elsewhere): where the usual level comes from when little is left in `db`."""
     info = {"ref_db": None, "music_sec": 0.0, "found": 0, "too_long": 0, "no_context": 0}
     n = len(db)
     if n == 0 or not spans:
         return [], info
-    music = db >= REF_FLOOR_DB
+    ldb = level_db if level_db is not None else db
+    music = ldb >= REF_FLOOR_DB
     info["music_sec"] = round(float(music.sum()) * HOP_SEC, 1)
     if music.sum() * HOP_SEC < MIN_MUSIC_SEC:
         return [], info
-    ref = float(np.median(db[music]))
+    ref = float(np.median(ldb[music]))
     info["ref_db"] = round(ref, 1)
     spk = np.zeros(n, dtype=bool)
     for a, b in spans:
@@ -150,23 +162,35 @@ def find_gaps(db, spans):
     look = int(CTX_LOOK_SEC / HOP_SEC)
     for s, e in runs:
         length = (e - s) * HOP_SEC
-        if length < MIN_GAP_SEC:
+        if length < (MIN_GAP_SEC if min_len is None else min_len):
             continue
-        info["found"] += 1
+        if length >= MIN_GAP_SEC:
+            info["found"] += 1        # a hole the model would be asked about; shorter ones (found only for the free local fill) are not counted
+        else:
+            info["short"] = info.get("short", 0) + 1
+        local_only = False
         if length > MAX_GAP_SEC:
             info["too_long"] += 1
-            continue
+            if not keep_unfillable:
+                continue
+            local_only = True
         near = np.concatenate([db[max(0, s - look):s], db[e:e + look]])
-        if (near >= ctx_rel).sum() * HOP_SEC < CTX_NEED_SEC:
+        if not local_only and (near >= ctx_rel).sum() * HOP_SEC < CTX_NEED_SEC:
             info["no_context"] += 1
-            continue
+            if not keep_unfillable:
+                continue
+            local_only = True
         padded_start = max(0, s - int(round(GAP_PAD_SEC / HOP_SEC)))
         padded_end = min(n, e + int(round(GAP_PAD_SEC / HOP_SEC)))
         remaining = np.concatenate([db[max(0, s - look):padded_start], db[padded_end:e + look]])
-        if (remaining >= ctx_rel).sum() * HOP_SEC < CTX_NEED_SEC:
+        if not local_only and (remaining >= ctx_rel).sum() * HOP_SEC < CTX_NEED_SEC:
             # Never consume the only usable reference when padding a one-second continuation.
             padded_start, padded_end = s, e
         gaps.append((float(padded_start * HOP_SEC), float(padded_end * HOP_SEC)))
+        if local_only:
+            info.setdefault("local_only", []).append(gaps[-1])
+        if length < MIN_GAP_SEC:
+            info.setdefault("short_gaps", []).append(gaps[-1])
     return gaps, info
 
 
@@ -295,13 +319,14 @@ def _seg_db(x):
     return float(_db(((x.astype(np.float32) / 32768.0) ** 2).mean()))
 
 
-def _clean_context(pcm, db, g0, g1, ctx_db):
+def _clean_context(pcm, db, g0, g1, ctx_db, band=None, look_sec=None):
     """The clean sound next to the hole: up to CTX_LOOK_SEC before and after it, only 100 ms frames that are at the level of
     the surrounding sound. Returns a list of float32 (n, 2) arrays, one per uninterrupted stretch of at least 0.4 s."""
     hop = int(RATE * HOP_SEC)
     s, e = int(round(g0 / HOP_SEC)), int(round(g1 / HOP_SEC))
-    look = int(CTX_LOOK_SEC / HOP_SEC)
-    good = db >= ctx_db - CTX_MUSIC_REL_DB
+    look = int((look_sec or CTX_LOOK_SEC) / HOP_SEC)
+    # band given: only sound within `band` dB of ctx_db (the engine itself, not a louder event beside the hole); else everything not far under ctx_db
+    good = (np.abs(db - ctx_db) <= band) if band is not None else (db >= ctx_db - CTX_MUSIC_REL_DB)
     out = []
     for a, b in ((max(0, s - look), s), (e, min(len(db), e + look))):
         i = a
@@ -316,6 +341,60 @@ def _clean_context(pcm, db, g0, g1, ctx_db):
                 out.append(pcm[i * hop:j * hop].astype(np.float32) / 32768.0)
             i = j
     return out
+
+
+def _bed_context(pcm, db, g0, g1, bed, only=None):
+    """All the clean engine sound of the track (frames within BED_BAND_DB of its usual level, stretches of 0.4 s and more), the
+    stretches nearest to the hole first, up to BED_POOL_SEC. The engine is the same everywhere in the track, so the sound far away
+    is as good as the sound beside a hole - and in a track where people speak most of the time there is no sound beside it."""
+    hop = int(RATE * HOP_SEC)
+    good = (np.abs(db - bed) <= BED_BAND_DB)
+    if only is not None:
+        good = good & only[:len(good)]
+    good = good.astype(np.int8)
+    edge = np.flatnonzero(np.diff(np.concatenate(([0], good, [0]))))
+    runs = [(int(a), int(b)) for a, b in zip(edge[0::2], edge[1::2]) if (b - a) * HOP_SEC >= 0.4]
+    mid = (g0 + g1) / 2.0 / HOP_SEC
+    runs.sort(key=lambda r: 0.0 if r[0] <= mid < r[1] else min(abs(r[0] - mid), abs(r[1] - mid)))
+    out, tot = [], 0.0
+    for a, b in runs:
+        out.append(pcm[a * hop:b * hop].astype(np.float32) / 32768.0)
+        tot += (b - a) * HOP_SEC
+        if tot >= BED_POOL_SEC:
+            break
+    return out
+
+
+def _bed_level_near(db, g0, g1, bed):
+    """The level of the engine around this hole: its usual level, or what it is within BED_LOOK_SEC of the hole if it is
+    different there (the plane is nearer, the wind is stronger)."""
+    s0, e0 = int(g0 / HOP_SEC), int(g1 / HOP_SEC)
+    look = int(BED_LOOK_SEC / HOP_SEC)
+    near = np.concatenate([db[max(0, s0 - look):s0], db[e0:e0 + look]])
+    near = near[np.abs(near - bed) <= BED_BAND_DB]
+    return float(np.median(near)) if near.size * HOP_SEC >= 0.5 else float(bed)
+
+
+def _bed_db(db, spans=None):
+    """The usual level (dB) of the quiet, steady sound of the track (an engine, wind, room tone): the most common level of the
+    audible frames outside the speech (2 dB bins). A loud event (a plane passing, a bang) is rare, so it does not move it.
+    None when there is not enough audible sound to say."""
+    n = len(db)
+    ok = db >= REF_FLOOR_DB
+    if spans:
+        for a, b in spans:
+            ok[max(0, int((a - 0.3) / HOP_SEC)):min(n, int((b + 0.3) / HOP_SEC) + 1)] = False
+    vals = db[ok]
+    if vals.size * HOP_SEC < STEADY_MIN_SEC:       # no real pauses: the sound under the speech is not evidence (the voice leaks into it)
+        return None
+    lo = float(np.floor(vals.min()))
+    hist, edges = np.histogram(vals, bins=np.arange(lo, float(vals.max()) + 2.0, 2.0))
+    if hist.size == 0:
+        return None
+    smooth = np.convolve(hist, np.ones(3), mode="same")          # a level and its two neighbours: the densest 6 dB
+    k = int(np.argmax(smooth))
+    sel = vals[(vals >= edges[max(0, k - 1)]) & (vals < edges[min(len(edges) - 1, k + 2)])]
+    return float(np.median(sel)) if sel.size else float(edges[k] + 1.0)
 
 
 def _steadiness_db(segs):
@@ -349,29 +428,31 @@ def _steadiness_db(segs):
     return float(sum(sc * w for sc, w in scores) / sum(w for _, w in scores))
 
 
-def _synth_sound(pool, need):
+def _synth_sound(pool, need, salt=0):
     """A new stretch of `need` samples with the same sound as `pool` (clean, steady sound): the average spectrum of the pool
     (fine resolution, so a hum stays a hum) is applied to fresh random noise, with the slow level flutter of the pool.
     Nothing of the pool is repeated, so a short pool does not turn into an audible loop."""
     n_fft, hop = SYNTH_FFT, SYNTH_FFT // 2
     win = np.hanning(n_fft).astype(np.float32)
-    power = np.zeros((CH, n_fft // 2 + 1), dtype=np.float64)
-    frames = 0
+    all_power = []
     for seg in pool:
         for s in range(0, len(seg) - n_fft + 1, hop):
             chunk = seg[s:s + n_fft]
-            power += np.abs(np.fft.rfft(chunk.T * win, axis=1)) ** 2
-            frames += 1
+            all_power.append(np.abs(np.fft.rfft(chunk.T * win, axis=1)) ** 2)
+    frames = len(all_power)
     if not frames:
         return None
-    power /= frames
+    all_power = np.stack(all_power)
+    # A short blip in the pool (a beep, a click, a bang) would become a tone that never stops. The median over the frames ignores
+    # what is present in only a few of them; for noise it is 0.69 x the mean (hence / ln 2), for a steady tone the mean is smaller.
+    power = np.minimum(all_power.mean(axis=0), np.median(all_power, axis=0) / np.log(2.0)).astype(np.float64)
     mono_all = np.concatenate([x.mean(axis=1) for x in pool])
     rho = 0.0
     if all(len(x) > 1 for x in pool) and CH == 2:
         a = np.concatenate([x[:, 0] for x in pool]); b = np.concatenate([x[:, 1] for x in pool])
         c = np.corrcoef(a, b)[0, 1]
         rho = float(np.clip(c if np.isfinite(c) else 0.0, 0.0, 0.98))
-    rng = np.random.default_rng(int(np.abs(mono_all[:64]).sum() * 1e6) % (2 ** 32))
+    rng = np.random.default_rng((int(np.abs(mono_all[:64]).sum() * 1e6) + 7919 * salt) % (2 ** 32))
     size = 1 << int(np.ceil(np.log2(need + n_fft)))
     common = rng.standard_normal(size).astype(np.float32)
     out = np.zeros((need, CH), dtype=np.float32)
@@ -402,6 +483,31 @@ def _synth_sound(pool, need):
     return out
 
 
+def _synth_long(pool, need):
+    """A long stretch (minutes) made piece by piece of SYNTH_CHUNK_SEC, so memory stays small; the pieces are blended with an
+    equal-power cross-fade and each has its own noise (no repetition)."""
+    over = int(0.5 * RATE)
+    step = int(SYNTH_CHUNK_SEC * RATE)
+    out = np.zeros((need, CH), dtype=np.float32)
+    pos, k = 0, 0
+    fin = np.sin(np.linspace(0.0, np.pi / 2, over, dtype=np.float32))[:, None]
+    fout = np.cos(np.linspace(0.0, np.pi / 2, over, dtype=np.float32))[:, None]
+    while pos < need:
+        n_piece = min(step + over, need - pos)
+        piece = _synth_sound(pool, n_piece, salt=k)
+        if piece is None:
+            return None
+        if pos == 0:
+            out[:n_piece] = piece
+        else:
+            m = min(over, n_piece)
+            out[pos:pos + m] = out[pos:pos + m] * fout[:m] + piece[:m] * fin[:m]
+            out[pos + m:pos + n_piece] = piece[m:]
+        pos += step
+        k += 1
+    return out
+
+
 def _texture_fill(pcm, g0, g1, ctx_db, segs):
     """Fills the hole g0..g1 (seconds) from the clean sound beside it, matched to the level around the hole. Only for steady
     sounds. With plenty of clean sound, overlapping pieces of it are laid one after the other at random places; with little of
@@ -410,10 +516,11 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs):
     have = sum(len(x) for x in pool) / RATE
     if have < 0.6:
         return False, "not enough steady sound next to the hole"
-    need = int(round((g1 - g0) * RATE))
-    use_synth = LOCAL_MODE == "synth" or (LOCAL_MODE != "grain" and (g1 - g0) > have * GRAIN_MAX_HOLE_RATIO)
+    need = int(round((g1 - g0) * RATE)) + 2 * int(SEAM_SEC * RATE)
+    use_synth = LOCAL_MODE == "synth" or (LOCAL_MODE != "grain" and need / RATE > have * GRAIN_MAX_HOLE_RATIO)
     if use_synth:
-        synth = _synth_sound([x for x in segs if len(x) >= SYNTH_FFT * 2] or pool, need)
+        spool = [x for x in segs if len(x) >= SYNTH_FFT * 2] or pool
+        synth = _synth_sound(spool, need) if need <= SYNTH_CHUNK_SEC * RATE * 1.5 else _synth_long(spool, need)
         if synth is not None:
             return _place_fill(pcm, g0, g1, ctx_db, synth, "made new from its sound")
     grain = int(min(GRAIN_SEC, max(0.5, have / 2.0)) * RATE)
@@ -454,15 +561,24 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs):
 def _place_fill(pcm, g0, g1, ctx_db, fillv, how):
     got_db = _seg_db((fillv * 32768.0))
     gain_db = float(np.clip(ctx_db - got_db, -GAIN_MAX_DB, GAIN_MAX_DB)) if np.isfinite(got_db) else 0.0
+    gain_db += LOCAL_FILL_DB
     fillv = fillv * 10 ** (gain_db / 20.0) * 32768.0
-    a, b = int(round(g0 * RATE)), int(round(g1 * RATE))
+    seam = int(SEAM_SEC * RATE)
+    a, b = int(round(g0 * RATE)) - seam, int(round(g1 * RATE)) + seam
+    if a < 0:
+        fillv, a = fillv[-a:], 0
+    b = min(b, a + fillv.shape[0], pcm.shape[0])
     fillv = fillv[:b - a]
-    f = max(1, min(int(XFADE_SEC * RATE), fillv.shape[0] // 3))
-    w = np.ones(fillv.shape[0], dtype=np.float32)
-    w[:f] = np.linspace(0.0, 1.0, f)
-    w[-f:] = np.linspace(1.0, 0.0, f)
+    f = max(1, min(2 * seam, fillv.shape[0] // 3))
+    # equal-power blend over the seams: the real sound beside the hole fades out as the rebuilt sound fades in (two unrelated
+    # noises added with weights 1-w and w would dip by 3 dB in the middle of the seam)
+    ramp = np.linspace(0.0, np.pi / 2, f, dtype=np.float32)
+    w_fill = np.ones(fillv.shape[0], dtype=np.float32)
+    w_cur = np.zeros(fillv.shape[0], dtype=np.float32)
+    w_fill[:f], w_cur[:f] = np.sin(ramp), np.cos(ramp)
+    w_fill[-f:], w_cur[-f:] = np.sin(ramp[::-1]), np.cos(ramp[::-1])
     cur = pcm[a:a + fillv.shape[0]].astype(np.float32)
-    mixed = cur * (1.0 - w[:, None]) + fillv * w[:, None]
+    mixed = cur * w_cur[:, None] + fillv * w_fill[:, None]
     pcm[a:a + fillv.shape[0]] = np.clip(np.rint(mixed), -32768, 32767).astype(np.int16)
     return True, f"steady sound: filled {g1 - g0:.1f} s {how} (set to {got_db + gain_db:.0f} dB)"
 
@@ -524,20 +640,69 @@ def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
     return True, f"filled {g1 - g0:.1f} s (generated {gen_db:.0f} dB, set to {target:.0f} dB)"
 
 
+def steady_engine(muted_path, reference_path, spans):
+    """Can the holes of this track be rebuilt locally from a steady sound (engine, wind, room tone ...) found in the pauses of the
+    reference (the same background before the voices were silenced)? Returns {"ok", "bed_db", "steadiness_db", "pool_sec"}; never raises."""
+    out = {"ok": False, "bed_db": None, "steadiness_db": None, "pool_sec": 0.0}
+    ref_pcm = None
+    raw = Path(str(muted_path) + ".steady.pcm")
+    try:
+        if not (LOCAL_FILL and ENABLED and spans and reference_path):
+            return out
+        _to_pcm(reference_path, raw)
+        n = raw.stat().st_size // (2 * CH)
+        if n < RATE * 3 or n > RATE * MAX_FILE_SEC:
+            return out
+        ref_pcm = np.memmap(raw, dtype="<i2", mode="r", shape=(n, CH))
+        ref_db = _levels(ref_pcm)
+        pause = np.ones(len(ref_db), dtype=bool)
+        for a, b in spans:
+            pause[max(0, int((a - 0.15) / HOP_SEC)):min(len(pause), int((b + 0.15) / HOP_SEC) + 1)] = False
+        bed = _bed_db(ref_db, spans)
+        if bed is None:
+            return out
+        out["bed_db"] = round(bed, 1)
+        mid = (n / RATE) / 2.0
+        segs = _bed_context(ref_pcm, ref_db, mid, mid, bed, only=pause)
+        out["pool_sec"] = round(sum(len(s) for s in segs) / RATE, 1)
+        score = _steadiness_db(segs)
+        if score is not None:
+            out["steadiness_db"] = round(score, 1)
+            out["ok"] = score <= STEADY_MAX_DB
+        return out
+    except Exception:
+        return out
+    finally:
+        if ref_pcm is not None:
+            try:
+                ref_pcm._mmap.close()
+            except Exception:
+                pass
+        try:
+            raw.unlink()
+        except Exception:
+            pass
+
+
 def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=None, runner=None, log=None,
-         allow=None, on_filled=None, progress=None):
+         allow=None, on_filled=None, progress=None, reference=None, reference_pad=0.15):
     """Fills the holes in the background track `bg_path` (the one that voices were silenced in) and writes the result to
     `out_path`. spans = [(start_sec, end_sec)] where the original voices speak. Returns
     {"filled": bool, "reason", "gaps": [{start, end, ok, note}], "filled_sec", "sent_sec", "prompt"}; never raises.
     When nothing was filled, `out_path` is not written.
     allow() -> bool is asked before every call (False = stop calling the model, for example when the user cannot pay);
     on_filled(start_sec, end_sec) is called after each hole that was really filled (the place to charge for it);
-    progress(done, total) is called before each hole is attempted (for a progress bar; errors in it are ignored)."""
+    progress(done, total) is called before each hole is attempted (for a progress bar; errors in it are ignored).
+    reference = the same background BEFORE the voices were silenced (optional): the sound of a steady engine, wind or room tone
+    is learned from it - its pauses between the speakers, which are real, untouched sound of the whole track - and not only
+    from the little that is left in `bg_path`."""
     info = {"filled": False, "reason": "", "gaps": [], "filled_sec": 0.0, "sent_sec": 0.0, "prompt": "", "found": 0}
     runner = runner or _fal_run
     say = log or (lambda m: None)
     raw = Path(str(out_path) + ".mf.pcm")
+    ref_raw = Path(str(out_path) + ".mf.ref.pcm")
     pcm = None
+    ref_pcm = None
     try:
         if not ENABLED:
             info["reason"] = "off (MUSIC_FILL=0)"
@@ -558,7 +723,25 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             return info
         pcm = np.memmap(raw, dtype="<i2", mode="r+", shape=(n, CH))
         db = _levels(pcm)
-        gaps, gi = find_gaps(db, spans)
+        ref_pcm = ref_db = ref_pause = None
+        if reference and LOCAL_FILL:
+            try:
+                _to_pcm(reference, ref_raw)
+                rn = ref_raw.stat().st_size // (2 * CH)
+                if abs(rn - n) <= RATE and rn > RATE * 3:
+                    ref_pcm = np.memmap(ref_raw, dtype="<i2", mode="r", shape=(rn, CH))
+                    ref_db = _levels(ref_pcm)
+                    ref_pause = np.ones(len(ref_db), dtype=bool)          # the pauses between the speakers: real, untouched sound
+                    for a, b in spans:
+                        ref_pause[max(0, int((a - reference_pad) / HOP_SEC)):min(len(ref_pause), int((b + reference_pad) / HOP_SEC) + 1)] = False
+            except Exception as ex:
+                say(f"reference background not usable: {str(ex)[:120]}")
+                if ref_pcm is not None:
+                    ref_pcm._mmap.close()
+                ref_pcm = ref_db = ref_pause = None
+        ref_level = np.where(ref_pause, ref_db, -120.0) if ref_pcm is not None else None     # levels of the pauses before muting
+        gaps, gi = find_gaps(db, spans, min_len=LOCAL_MIN_GAP_SEC if LOCAL_FILL else None,
+                             keep_unfillable=LOCAL_FILL, level_db=ref_level)
         info["found"] = gi["found"]
         if not gaps:
             if gi["music_sec"] < MIN_MUSIC_SEC:
@@ -583,11 +766,15 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             info["prompt"] = prompt_box["text"]
             return prompt_box["text"]
 
-        ctx_ref = float(np.median(db[db >= REF_FLOOR_DB]))
+        audible = db[db >= REF_FLOOR_DB]
+        ctx_ref = float(np.median(audible)) if audible.size else float(gi.get("ref_db") or -40.0)
         budget = MAX_TOTAL_SEC
         ok_n = 0
         t_start = time.time()
         todo = sorted(gaps)
+        local_done = []
+        short_set = set(gi.get("short_gaps", []))
+        local_only_set = set(gi.get("local_only", []))
 
         def level_around(g0, g1, levels):
             hop = int(1 / HOP_SEC)
@@ -597,11 +784,31 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             return float(np.median(near)) if near.size else ctx_ref
 
         # Judge every hole's surroundings before anything is filled, so a filled hole can never count as evidence.
-        steady_of = {}
+        # The engine itself is what counts: sound near the usual quiet level of the track. A loud event beside the hole (a plane
+        # passing) neither makes the engine look unsteady nor sets the level the hole is filled to.
+        steady_of, level_of = {}, {}
+        bed = _bed_db(ref_db if ref_pcm is not None else db, spans) if LOCAL_FILL else None
+        level_db = np.where(ref_pause, ref_db, -120.0) if ref_pcm is not None else db     # the level the pauses (real sound) have
+
+        def engine_pool(g0, g1):
+            """The clean engine sound a hole is rebuilt from: the pauses of the whole track (with the reference), else what is left."""
+            if bed is None:
+                return []
+            if ref_pcm is not None:
+                return _bed_context(ref_pcm, ref_db, g0, g1, bed, only=ref_pause)     # the pauses only: real sound, no leaked voice
+            return _bed_context(pcm, db, g0, g1, bed)
+
         if LOCAL_FILL:
             for g0, g1 in todo:
                 try:
-                    steady_of[(g0, g1)] = _steadiness_db(_clean_context(pcm, db, g0, g1, level_around(g0, g1, db)))
+                    score = None
+                    if bed is not None:
+                        score = _steadiness_db(engine_pool(g0, g1))
+                        if score is not None:
+                            level_of[(g0, g1)] = _bed_level_near(level_db, g0, g1, bed)
+                    if score is None:
+                        score = _steadiness_db(_clean_context(pcm, db, g0, g1, level_around(g0, g1, db)))
+                    steady_of[(g0, g1)] = score
                 except Exception:
                     steady_of[(g0, g1)] = None
         for n_seen, (g0, g1) in enumerate(todo):
@@ -611,7 +818,10 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 except Exception:
                     pass
             ln = g1 - g0
+            short = (g0, g1) in short_set        # too short for the model: only the free local rebuild can fill it, and it is optional
             rec = {"start": round(float(g0), 1), "end": round(float(g1), 1), "ok": False, "note": ""}
+            if short:
+                rec["optional"] = True
             info["gaps"].append(rec)
             if ln > budget:
                 rec["note"] = "over the per-job limit"
@@ -627,12 +837,27 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             if score is not None and score <= STEADY_MAX_DB:
                 rec["steadiness_db"] = round(score, 1)
                 try:
-                    ok, note = _texture_fill(pcm, g0, g1, ctx_db, _clean_context(pcm, db, g0, g1, ctx_db))
+                    if (g0, g1) in level_of:      # the engine itself, at its usual level: not a louder event next to the hole
+                        ok, note = _texture_fill(pcm, g0, g1, level_of[(g0, g1)],
+                                                 engine_pool(g0, g1))
+                    else:
+                        ok, note = _texture_fill(pcm, g0, g1, ctx_db, _clean_context(pcm, db, g0, g1, ctx_db))
                 except Exception as ex:
                     ok, note = False, f"local fill failed: {str(ex)[:160]}"
                 local = ok
                 if not ok:
                     say(f"hole {g0:.1f}-{g1:.1f} s: {note}; asking the model instead")
+            if not local and short:
+                rec["note"] = "too short for the model and no steady sound to rebuild it from"
+                continue
+            if not local and (g0, g1) in local_only_set:
+                rec["note"] = "too long for the model (or no music next to it) and no steady sound to rebuild it from"
+                continue
+            if not local and not AMBIENCE_MODEL and "no music" in get_prompt().lower():
+                # The sound is not music (engine, wind, crowd ...). A music model invents a different one in every hole, so it is
+                # not asked: the hole stays silent rather than getting a sound that does not belong.
+                rec["note"] = "not music and no steady clean sound to rebuild it from; the model is not used for that"
+                continue
             if not local:
                 if allow is not None:
                     try:
@@ -659,6 +884,10 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 budget -= ln
                 info["filled_sec"] = round(float(info["filled_sec"] + ln), 1)
                 db = _levels(pcm)       # later holes see this one as music
+                if local:
+                    local_done.append((g0, g1))
+                for a0, a1 in local_done:    # ... except a hole rebuilt locally: it is made-up sound, never evidence for the next hole
+                    db[max(0, int(a0 / HOP_SEC)):int(a1 / HOP_SEC) + 1] = -120.0
         if ok_n == 0:
             info["reason"] = "no hole could be filled: " + "; ".join(r["note"] for r in info["gaps"])[:300]
             return info
@@ -680,7 +909,12 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
     finally:
         if pcm is not None:
             pcm._mmap.close()
-        for p in (raw, Path(str(out_path) + ".mf.tmp.wav")):
+        if ref_pcm is not None:
+            try:
+                ref_pcm._mmap.close()
+            except Exception:
+                pass
+        for p in (raw, ref_raw, Path(str(out_path) + ".mf.tmp.wav")):
             try:
                 if p.exists():
                     p.unlink()

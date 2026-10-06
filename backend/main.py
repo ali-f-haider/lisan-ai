@@ -4645,7 +4645,8 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
         _bp = dub_background.prepare(bg_to_use, bg.parent / "vocals.wav", dub, OUTPUT_DIR,
             f"merge_{req.job_id}", spans, key=FAL_API_KEY if keep_music else "",
             gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=keep_music,
-            strict=False, progress=music_progress, log=lambda t: print(f"[merge-music] {req.job_id}: {t}"))
+            strict=False, progress=music_progress, log=lambda t: print(f"[merge-music] {req.job_id}: {t}"),
+            original=video if Path(str(video)).exists() else None)
         music_incomplete = bool((_bp.get("music_fill") or {}).get("incomplete"))
         bg_to_use = _bp["path"]
         _merge_say(req.job_id, 82, "Mixing the dubbed voice with the background...")
