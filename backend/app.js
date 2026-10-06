@@ -1263,11 +1263,13 @@ async function mergeVideo() {
         const quote = await quoteResponse.json();
         if (!quoteResponse.ok) throw new Error(quote.error || "Could not check the merge price.");
         if (!Number.isInteger(quote.max_total) || quote.max_total < 1 || !Number.isInteger(quote.music_max) || quote.music_max < 0 || quote.music_max > quote.max_total) throw new Error("Could not verify the merge price.");
-        const question = quote.music_kept === false
-            ? subsText("The original background music cannot be rebuilt reliably for this video (almost all of it is speech). The background will be silent while people speak and unchanged elsewhere. Merge price: " + quote.max_total + " credits. Continue?", "لا يمكن إعادة بناء الموسيقى الأصلية بشكل موثوق في هذا الفيديو (معظمه كلام). سيبقى الصوت الخلفي صامتاً أثناء حديث الأشخاص ودون تغيير في بقية المقاطع. سعر الدمج: " + quote.max_total + " رصيداً. هل تريد المتابعة؟")
-            : subsText("Merge price: up to " + quote.max_total + " credits, including up to " + quote.music_max + " for music inpainting. Only successful repairs are charged. Continue?", "سعر الدمج: بحد أقصى " + quote.max_total + " رصيداً، منها حتى " + quote.music_max + " لإصلاح الموسيقى. تُحاسب فقط على الإصلاحات الناجحة. هل تريد المتابعة؟");
-        const accepted = window.LisanDialog ? await LisanDialog.confirm(question) : window.confirm(question);
-        if (!accepted) { document.getElementById("mergeButton").disabled = false; return; }
+        // Music that cannot be rebuilt (almost all speech): the merge silently keeps the background quiet under speech.
+        // Its price is the plain merge fee already shown on the button, so nothing needs confirming.
+        if (quote.music_kept !== false) {
+            const question = subsText("Merge price: up to " + quote.max_total + " credits, including up to " + quote.music_max + " for music inpainting. Only successful repairs are charged. Continue?", "سعر الدمج: بحد أقصى " + quote.max_total + " رصيداً، منها حتى " + quote.music_max + " لإصلاح الموسيقى. تُحاسب فقط على الإصلاحات الناجحة. هل تريد المتابعة؟");
+            const accepted = window.LisanDialog ? await LisanDialog.confirm(question) : window.confirm(question);
+            if (!accepted) { document.getElementById("mergeButton").disabled = false; return; }
+        }
         const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({},mergePayload,{accepted_credits:quote.max_total})) });
         const data = await res.json();
         document.getElementById("mergeButton").disabled = false;
