@@ -29,6 +29,9 @@ VOICE_GLOBAL_DB = -60.0          # ...or under their loudest moment of all (a st
 VOICE_FLOOR_DB = -85.0
 CONSISTENT_DB = 12.0             # the original may be this much louder than the separated background in a pause (a quiet room tone is taken
                                  # away in part by the separator); much louder than that means something is there the stem did not find
+DIRTY_SHARE = 0.5                # the separated voices are "dirty" when they sound like voice in more than this share of the time nobody speaks
+DIRTY_GAP_DB = 10.0               # ...and what the voices hold in those stretches is at least this much quieter than in the speech
+DIRTY_STEADY_MAX_DB = 4.5        # a crowd / a restaurant murmurs (about 3 dB of variation); music with a beat is 10 and more
 FLOOR_DB = float(os.environ.get('DUB_BG_FLOOR_DB', '-4'))   # under the speech the steady background is at least this far under its pause level
 BED_MIN_POOL_SEC = 1.2
 BED_POOL_MAX_SEC = 40.0
@@ -58,9 +61,13 @@ def _smooth(x, frames):
     return np.convolve(x, np.ones(frames) / frames, mode='same')
 
 
-def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n):
+def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n, info=None):
     """True per 10 ms frame where the original must NOT be used (somebody speaks, or something is there the separator did not
-    explain). `base_pcm` is the separated background as it came out of the separator."""
+    explain). `base_pcm` is the separated background as it came out of the separator.
+    A separator sometimes files the whole scene (a restaurant: the crowd, the dishes, the cutlery) under "voices". Then the voices
+    sound like voice all the time and no pause would ever be found. Such a stem is recognised by being "voice" in most of the time
+    nobody speaks according to the transcript; then only the transcribed words (and their margins) count as speech.
+    `info` (a dict) gets "dirty": True in that case."""
     nf = n // FRAME
     vl = _mono_db(vocal_pcm, nf)
     thr = max(float(vl.max()) + VOICE_GLOBAL_DB, VOICE_FLOOR_DB)
@@ -72,6 +79,14 @@ def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n):
     inside = np.zeros(nf, dtype=bool)
     for a, b in spans:
         inside[max(0, int((a - PAD_SEC) * 100)):min(nf, int((b + PAD_SEC) * 100) + 1)] = True
+    outside = ~inside
+    # ...and what the voices hold there is a murmur, clearly quieter than the speech: when it is as loud as the speech, the transcript
+    # simply missed people talking, and the original must not be laid in there.
+    if (spans and int(outside.sum()) >= 300 and float(voice[outside].mean()) > DIRTY_SHARE and inside.any()
+            and float(np.percentile(vl[outside], 90)) <= float(np.percentile(vl[inside], 90)) - DIRTY_GAP_DB):
+        if info is not None:
+            info['dirty'] = True
+        return inside
     return voice | (inside & ~consistent)
 
 
@@ -135,9 +150,11 @@ def original_in_pauses(base, original, vocals, spans, out_path, log=None, mask_b
         if not _same_recording(m, o, v, n):
             info['reason'] = 'the original recording does not match the separated sound'
             return info
-        speech = speech_frames(m, o, v, spans, n)
+        sinfo = {}
+        speech = speech_frames(m, o, v, spans, n, sinfo)
         w = _weights(speech)
         info['share'] = round(float(w.mean()), 3)
+        info['dirty'] = bool(sinfo.get('dirty'))
         if info['share'] < 0.02:
             info['reason'] = 'no pauses to use'
             return info
@@ -239,7 +256,8 @@ def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, l
         if not _same_recording(b, o, v, n):
             info['reason'] = 'the original recording does not match the separated sound'
             return info
-        speech = speech_frames(b, o, v, spans, n)
+        sinfo = {}
+        speech = speech_frames(b, o, v, spans, n, sinfo)
         free = ~speech
         segs = _pool(o, free, n)
         if sum(len(s) for s in segs) / RATE < BED_MIN_POOL_SEC:
@@ -250,7 +268,7 @@ def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, l
             info['reason'] = 'the background in the pauses is silent'
             return info
         score = music_fill._steadiness_db(segs)
-        if score is None or score > music_fill.STEADY_MAX_DB:
+        if score is None or score > (DIRTY_STEADY_MAX_DB if sinfo.get('dirty') else music_fill.STEADY_MAX_DB):
             info['reason'] = 'the background is not steady, it is not rebuilt'
             return info
         target = _pool_power(segs) * (10.0 ** (floor_db / 10.0))          # power per bin of one analysis frame

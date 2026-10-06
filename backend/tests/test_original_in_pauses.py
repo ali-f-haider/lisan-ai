@@ -150,5 +150,70 @@ class OriginalInPausesTests(unittest.TestCase):
         self.assertTrue(Path(without['path']).exists())
 
 
+class DirtyStemTests(unittest.TestCase):
+    """A restaurant: the separator files the crowd and the dishes under "voices", so its voices sound like voice all the time and
+    its background is nearly empty. The pauses must then be found from the transcribed words."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = Path(self.tmp.name)
+        rng = np.random.default_rng(3)
+        t = np.arange(N) / SR
+        self.crowd = 0.01 * rng.standard_normal(N)
+        self.clink = np.zeros(N)
+        k = int(5.0 * SR)                                                  # a clink in the pause between the two lines
+        self.clink[k:k + 2000] = 0.2 * rng.standard_normal(2000) * np.exp(-np.arange(2000) / 400.0)
+        self.spans = [(8.0, 12.0), (16.0, 22.0)]
+        self.voice = np.zeros(N)
+        for a, b in self.spans:
+            self.voice[int(a * SR):int(b * SR)] = 0.3 * np.sin(2 * np.pi * 220 * t[int(a * SR):int(b * SR)])
+        self.original = self.crowd + self.clink + self.voice
+        sf.write(self.d / 'orig.wav', stereo(self.original), SR, subtype='PCM_16')
+        sf.write(self.d / 'base.wav', stereo(0.02 * self.crowd), SR, subtype='PCM_16')              # an almost empty background
+        sf.write(self.d / 'voice.wav', stereo(self.original), SR, subtype='PCM_16')                 # everything is in the voices
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_pauses_come_from_the_words_and_the_crowd_and_clink_return(self):
+        out = self.d / 'out.wav'
+        info = db_mod.original_in_pauses(self.d / 'base.wav', self.d / 'orig.wav', self.d / 'voice.wav', self.spans, out)
+        self.assertTrue(info['ok'], info)
+        self.assertTrue(info.get('dirty'), info)
+        y, _ = sf.read(out)
+        y = y.mean(axis=1)
+        pause = slice(int(2 * SR), int(4.5 * SR))
+        self.assertLess(abs(20 * np.log10(rms(y[pause]) / rms(self.original[pause]))), 1.0)
+        clink = slice(int(5.0 * SR), int(5.0 * SR) + 2000)
+        self.assertGreater(rms(y[clink]), 0.5 * rms(self.original[clink]))
+        speech = slice(int(9 * SR), int(11 * SR))
+        self.assertLess(rms(y[speech]), 0.1 * rms(self.original[speech]))       # the English voice does not come back
+
+    def test_a_clean_separation_is_not_called_dirty(self):
+        rng = np.random.default_rng(4)
+        room = 0.02 * rng.standard_normal(N)
+        t = np.arange(N) / SR
+        voice = np.zeros(N)
+        for a, b in self.spans:
+            voice[int(a * SR):int(b * SR)] = 0.3 * np.sin(2 * np.pi * 220 * t[int(a * SR):int(b * SR)])
+        sf.write(self.d / 'o2.wav', stereo(room + voice), SR, subtype='PCM_16')
+        sf.write(self.d / 'b2.wav', stereo(0.5 * room), SR, subtype='PCM_16')
+        sf.write(self.d / 'v2.wav', stereo(voice), SR, subtype='PCM_16')
+        info = db_mod.original_in_pauses(self.d / 'b2.wav', self.d / 'o2.wav', self.d / 'v2.wav', self.spans, self.d / 'out2.wav')
+        self.assertTrue(info['ok'], info)
+        self.assertFalse(info.get('dirty'), info)
+
+    def test_speech_the_transcript_missed_is_not_a_crowd(self):
+        t = np.arange(N) / SR
+        voice = np.zeros(N)
+        voice[int(8 * SR):int(28 * SR)] = 0.3 * np.sin(2 * np.pi * 220 * t[int(8 * SR):int(28 * SR)])      # as loud outside the spans as inside
+        rng = np.random.default_rng(5)
+        room = 0.01 * rng.standard_normal(N)
+        sf.write(self.d / 'o3.wav', stereo(room + voice), SR, subtype='PCM_16')
+        sf.write(self.d / 'b3.wav', stereo(0.5 * room), SR, subtype='PCM_16')
+        sf.write(self.d / 'v3.wav', stereo(voice), SR, subtype='PCM_16')
+        info = db_mod.original_in_pauses(self.d / 'b3.wav', self.d / 'o3.wav', self.d / 'v3.wav', [(8.0, 9.0)], self.d / 'out3.wav')
+        self.assertFalse(info.get('dirty'), info)
+
+
 if __name__ == '__main__':
     unittest.main()
