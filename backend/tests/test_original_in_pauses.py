@@ -85,9 +85,33 @@ class OriginalInPausesTests(unittest.TestCase):
         self.assertFalse(info['ok'], info)
         self.assertFalse(out.exists())
 
-    def test_no_pauses_nothing_to_do(self):
+    def test_pauses_are_found_from_the_voices_not_from_the_transcript(self):
+        # a transcript segment covering the whole clip (loose timing) must not hide the real pauses between the words
         info, out = self.blend(spans=[(0.0, 30.0)])
+        self.assertTrue(info['ok'], info)
+        y, _ = sf.read(out)
+        pause = slice(int(2 * SR), int(6 * SR))
+        self.assertLess(abs(rms(y.mean(axis=1)[pause]) / rms(self.room[pause]) - 1), 0.03)
+
+    def test_no_pauses_nothing_to_do(self):
+        t = np.arange(N) / SR
+        talk = 0.3 * np.sin(2 * np.pi * 220 * t)                       # somebody speaks all the time
+        sf.write(self.d / 'talk_orig.wav', stereo(self.room + talk), SR, subtype='PCM_16')
+        sf.write(self.d / 'talk_voice.wav', stereo(talk), SR, subtype='PCM_16')
+        info, out = self.blend(original=self.d / 'talk_orig.wav', vocals=self.d / 'talk_voice.wav', spans=[(0.0, 30.0)])
         self.assertFalse(info['ok'])
+
+    def test_a_voice_the_separator_missed_is_not_laid_in(self):
+        # the separated voices are silent at 24-26 s but the original has a loud voice there: the original is much louder than the
+        # separated background, so it is not a pause
+        t = np.arange(N) / SR
+        extra = np.zeros(N)
+        extra[24 * SR:26 * SR] = 0.3 * np.sin(2 * np.pi * 330 * t[24 * SR:26 * SR])
+        sf.write(self.d / 'orig3.wav', stereo(self.original + extra), SR, subtype='PCM_16')
+        info, out = self.blend(original=self.d / 'orig3.wav', spans=self.spans + [(24.0, 26.0)])
+        self.assertTrue(info['ok'], info)
+        y, _ = sf.read(out)
+        self.assertLess(rms(y.mean(axis=1)[int(24.5 * SR):int(25.5 * SR)]), 0.02)
 
     def test_missing_files_never_raise(self):
         info, _ = self.blend(original=self.d / 'nope.wav')

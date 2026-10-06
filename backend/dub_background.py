@@ -2,11 +2,11 @@
 from pathlib import Path
 import json
 import os
-import wave
 import numpy as np
 import bg_duck
 import dub_audio
 import music_fill
+import pause_bed
 
 
 def speech_spans(map_path, rows=()):
@@ -75,105 +75,8 @@ def count_repairs(muted, spans, raw, original=None):
         Path(raw).unlink(missing_ok=True)
 
 
-PAUSE_PAD_SEC = 0.25      # the original sound is used only this far away from any original speech
-PAUSE_FADE_SEC = 0.15     # and is blended in over this long
-PAUSE_VOICE_REL_DB = -40.0   # a frame where the separated voices are louder than this under their peak is speech, whatever the map says
-_FRAME = 441              # 10 ms at 44.1 kHz
-
-
-def original_in_pauses(base, original, vocals, spans, out_path, log=None):
-    """Writes `out_path` = `base` (a separated background, silenced or repaired under the speech) with the ORIGINAL recording
-    laid in wherever nobody speaks. The separator rewrites the background even where there is nothing to remove (a metallic
-    "machine" noise, and part of a quiet room tone is taken away); the original sound of a pause is the real thing.
-    Only used when the original is the same recording (same length, and voices + background add up to it); otherwise nothing is
-    written. Returns {"ok", "reason", "share"}; never raises."""
-    info = {'ok': False, 'reason': '', 'share': 0.0}
-    out_path = Path(out_path)
-    raws = [out_path.with_name(out_path.name + f'.blend{i}.pcm') for i in range(3)]
-    pcms = []
-    part = out_path.with_name(out_path.name + '.part.wav')
-    try:
-        if not original or not Path(original).exists() or not spans or not Path(base).exists():
-            info['reason'] = 'no original recording to use'
-            return info
-        sources = [base, original, vocals]
-        if vocals is None or not Path(vocals).exists():
-            info['reason'] = 'no separated voices to check the original against'
-            return info
-        for src, raw in zip(sources, raws):
-            music_fill._to_pcm(src, raw)
-            n_ = Path(raw).stat().st_size // 4
-            pcms.append(np.memmap(raw, dtype='<i2', mode='r', shape=(n_, 2)) if n_ else None)
-        if any(p is None for p in pcms):
-            info['reason'] = 'an audio file is empty'
-            return info
-        b, o, v = pcms
-        n = len(b)
-        if abs(len(o) - n) > music_fill.RATE // 4 or abs(len(v) - n) > music_fill.RATE // 4:
-            info['reason'] = 'the original recording has another length than the separated background'
-            return info
-        n = min(n, len(o), len(v))
-        # same recording? voices + background must add up to the original (any gain or small shift breaks it)
-        mid, half = n // 2, min(n, 40 * music_fill.RATE) // 2
-        s0, s1 = max(0, mid - half), min(n, mid + half)
-        om = o[s0:s1].astype(np.float32).mean(axis=1)
-        sm = b[s0:s1].astype(np.float32).mean(axis=1) + v[s0:s1].astype(np.float32).mean(axis=1)
-        if om.std() < 1e-3 or sm.std() < 1e-3 or float(np.corrcoef(om, sm)[0, 1]) < 0.8:
-            info['reason'] = 'the original recording does not match the separated sound'
-            return info
-        # frames (10 ms) that are speech: the speech map plus a margin, and anything the separated voices say
-        nf = n // _FRAME
-        speech = np.zeros(nf + 1, dtype=bool)
-        for a, c in spans:
-            speech[max(0, int((a - PAUSE_PAD_SEC) * 100)):min(nf + 1, int((c + PAUSE_PAD_SEC) * 100) + 1)] = True
-        vl = np.empty(nf)
-        for i in range(0, nf, 6000):
-            j = min(nf, i + 6000)
-            blk = v[i * _FRAME:j * _FRAME].astype(np.float32) / 32768.0
-            vl[i:j] = 10.0 * np.log10((blk ** 2).reshape(j - i, _FRAME, 2).mean(axis=(1, 2)) + 1e-12)
-        loud = vl > (float(vl.max()) + PAUSE_VOICE_REL_DB)
-        k = int(PAUSE_PAD_SEC * 100)
-        loud = np.convolve(loud.astype(np.float32), np.ones(2 * k + 1), mode='same') > 0
-        speech[:nf] |= loud
-        w = (~speech).astype(np.float32)
-        kf = max(1, int(PAUSE_FADE_SEC * 100))
-        w = np.minimum(w, np.convolve(w, np.ones(kf) / kf, mode='same'))     # fades never reach into the speech margin
-        info['share'] = round(float(w.mean()), 3)
-        if info['share'] < 0.02:
-            info['reason'] = 'no pauses to use'
-            return info
-        centers = (np.arange(w.size) + 0.5) * _FRAME
-        with wave.open(str(part), 'wb') as out:
-            out.setnchannels(2)
-            out.setsampwidth(2)
-            out.setframerate(music_fill.RATE)
-            step = 30 * music_fill.RATE
-            for a in range(0, n, step):
-                c = min(n, a + step)
-                wt = np.interp(np.arange(a, c), centers, w)[:, None].astype(np.float32)
-                mixed = b[a:c].astype(np.float32) * (1.0 - wt) + o[a:c].astype(np.float32) * wt
-                out.writeframes(np.clip(np.rint(mixed), -32768, 32767).astype('<i2').tobytes())
-        part.replace(out_path)
-        info['ok'] = True
-        info['reason'] = f"the original sound is used in the pauses ({info['share'] * 100:.0f}% of the time)"
-        return info
-    except Exception as ex:
-        info['reason'] = f'not used ({str(ex)[:160]})'
-        if log:
-            log('original in pauses: ' + info['reason'])
-        return info
-    finally:
-        for p in pcms:
-            if p is not None:
-                try:
-                    p._mmap.close()
-                except Exception:
-                    pass
-        for p in raws + [part]:
-            try:
-                Path(p).unlink(missing_ok=True)
-            except Exception:
-                pass
+# The original recording in the pauses and a steady background held up under the speech: see pause_bed.py
+original_in_pauses = pause_bed.original_in_pauses
 
 
 def short_holes(muted, spans, raw):
@@ -222,7 +125,7 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
     bg_ref = bg
     blend = {'ok': False}
     if original is not None and spans:
-        blend = original_in_pauses(bg, original, vocals, spans, work / f'{tag}_bgref.wav', log=log)
+        blend = pause_bed.original_in_pauses(bg, original, vocals, spans, work / f'{tag}_bgref.wav', log=log)
         if blend['ok']:
             bg_ref = work / f'{tag}_bgref.wav'
             reference = original
@@ -261,7 +164,7 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
     if blend['ok']:
         temps.append(bg_ref)
         final = work / f'{tag}_final_bg.wav'
-        done = original_in_pauses(clean, original, vocals, spans, final, log=log)
+        done = pause_bed.original_in_pauses(clean, original, vocals, spans, final, log=log, mask_base=bg)
         if done['ok']:
             clean = final
             info['original_in_pauses'] = done['reason']
@@ -273,6 +176,17 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
         lower += [(a, b, KEEP_SPEECH_DB) for a, b in spans]
     lower += [(g['start'], g['end'], music_fill.LOCAL_FILL_DB) for g in (info.get('gaps') or []) if g.get('ok') and g.get('local')]
     measurements = dub_audio.match_background(bg_ref, clean, matched, vocals, dub, spans, lower=lower)
+    if blend['ok']:
+        # A quiet steady background (a buzz, a room tone) that the separator took away under the voices comes back there, so it does
+        # not pulse with the original speech. Only for a steady sound; never raises.
+        floored = work / f'{tag}_floor.wav'
+        temps.append(floored)
+        bed = pause_bed.bed_floor(matched, original, vocals, bg, spans, floored, log=log)
+        if bed['ok'] and floored.exists():
+            os.replace(floored, matched)
+            info['steady_bed'] = bed['reason']
+        elif log:
+            log('steady background not restored: ' + bed['reason'])
     return {'path': matched, 'music_fill': info, 'measurements': measurements, 'temps': temps}
 
 

@@ -1,0 +1,319 @@
+"""Pauses and steady beds.
+
+The separated background is a rewritten version of the original recording. Two things go wrong with a quiet, steady background
+(a room tone, an electrical buzz, an engine) when somebody speaks over it:
+
+1. Where nobody speaks, the ORIGINAL recording is the real background. `pause_mask` finds those stretches from the separated
+   voices (not from the transcript: a transcript segment often covers the pauses between its words).
+2. Under the speech the separator takes part of the buzz away together with the voice, so the buzz is loud in every pause and
+   weaker under every word: an audible pulse that follows the original speech ("ghost voice before his words"). `bed_floor`
+   puts back what is missing, with new noise that has the spectrum of the real pauses, so the background never drops more
+   than a few dB under the speech. Only for a steady background (checked), never for music, a battle or a crowd.
+Nothing here raises; on any problem the caller keeps what it had."""
+import os
+import wave
+from pathlib import Path
+
+import numpy as np
+from scipy.ndimage import maximum_filter1d
+from scipy.signal import istft, stft
+
+import music_fill
+
+RATE = music_fill.RATE
+FRAME = 441                      # 10 ms
+PAD_SEC = 0.25                   # how far from any voice the original sound is used
+FADE_SEC = 0.15
+VOICE_LOCAL_DB = -45.0           # a frame is voice when the separated voices are louder than this under their local peak...
+VOICE_GLOBAL_DB = -60.0          # ...or under their loudest moment of all (a stem silence is far lower than both)
+VOICE_FLOOR_DB = -85.0
+CONSISTENT_DB = 12.0             # the original may be this much louder than the separated background in a pause (a quiet room tone is taken
+                                 # away in part by the separator); much louder than that means something is there the stem did not find
+FLOOR_DB = float(os.environ.get('DUB_BG_FLOOR_DB', '-4'))   # under the speech the steady background is at least this far under its pause level
+BED_MIN_POOL_SEC = 1.2
+BED_POOL_MAX_SEC = 40.0
+BED_MIN_RUN_SEC = 0.4
+BED_MIN_DB = -80.0
+N_FFT = 4096
+SYNTH_CAL_DB = 8.9               # what noise added to the cells of an overlapping STFT loses on the way back (measured)
+HOP = 1024
+BLOCK_SEC = 30.0
+CTX_SEC = 1.0
+
+
+def _mono_db(pcm, frames):
+    out = np.empty(frames)
+    for i in range(0, frames, 6000):
+        j = min(frames, i + 6000)
+        blk = pcm[i * FRAME:j * FRAME].astype(np.float32) / 32768.0
+        out[i:j] = 10.0 * np.log10((blk ** 2).reshape(j - i, FRAME, -1).mean(axis=(1, 2)) + 1e-12)
+    return out
+
+
+def _dilate(mask, frames):
+    return np.convolve(mask.astype(np.float32), np.ones(2 * frames + 1), mode='same') > 0
+
+
+def _smooth(x, frames):
+    return np.convolve(x, np.ones(frames) / frames, mode='same')
+
+
+def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n):
+    """True per 10 ms frame where the original must NOT be used (somebody speaks, or something is there the separator did not
+    explain). `base_pcm` is the separated background as it came out of the separator."""
+    nf = n // FRAME
+    vl = _mono_db(vocal_pcm, nf)
+    thr = max(float(vl.max()) + VOICE_GLOBAL_DB, VOICE_FLOOR_DB)
+    local = maximum_filter1d(vl, size=1001, mode='nearest') + VOICE_LOCAL_DB
+    voice = vl > np.maximum(local, thr)
+    voice = _dilate(voice, int(PAD_SEC * 100))
+    ol, bl = _smooth(_mono_db(orig_pcm, nf), 10), _smooth(_mono_db(base_pcm, nf), 10)
+    consistent = ol <= bl + CONSISTENT_DB
+    inside = np.zeros(nf, dtype=bool)
+    for a, b in spans:
+        inside[max(0, int((a - PAD_SEC) * 100)):min(nf, int((b + PAD_SEC) * 100) + 1)] = True
+    return voice | (inside & ~consistent)
+
+
+def _weights(speech):
+    """1 where the original is used, 0 under speech, fading over FADE_SEC (a fade never reaches into the speech margin)."""
+    w = (~speech).astype(np.float32)
+    k = max(1, int(FADE_SEC * 100))
+    return np.minimum(w, _smooth(w, k)).astype(np.float32)
+
+
+def _open(src, raw):
+    music_fill._to_pcm(src, raw)
+    n = Path(raw).stat().st_size // 4
+    return np.memmap(raw, dtype='<i2', mode='r', shape=(n, 2)) if n else None
+
+
+def _close(pcms):
+    for p in pcms:
+        if p is not None:
+            try:
+                p._mmap.close()
+            except Exception:
+                pass
+
+
+def _same_recording(base, orig, voc, n):
+    mid, half = n // 2, min(n, 40 * RATE) // 2
+    s0, s1 = max(0, mid - half), min(n, mid + half)
+    om = orig[s0:s1].astype(np.float32).mean(axis=1)
+    sm = base[s0:s1].astype(np.float32).mean(axis=1) + voc[s0:s1].astype(np.float32).mean(axis=1)
+    return om.std() > 1e-3 and sm.std() > 1e-3 and float(np.corrcoef(om, sm)[0, 1]) >= 0.8
+
+
+def original_in_pauses(base, original, vocals, spans, out_path, log=None, mask_base=None):
+    """`out_path` = `base` with the original recording laid in wherever nobody speaks. mask_base = the separated background
+    the pauses are judged against (default `base`; a muted or repaired track is not a fair judge). Returns {"ok", "reason", "share"}."""
+    info = {'ok': False, 'reason': '', 'share': 0.0}
+    out_path = Path(out_path)
+    srcs = [base, original, vocals, mask_base if mask_base is not None else base]
+    raws = [out_path.with_name(out_path.name + f'.pb{i}.pcm') for i in range(4)]
+    pcms = []
+    part = out_path.with_name(out_path.name + '.part.wav')
+    try:
+        if not original or not Path(original).exists() or not spans or not Path(base).exists():
+            info['reason'] = 'no original recording to use'
+            return info
+        if vocals is None or not Path(vocals).exists():
+            info['reason'] = 'no separated voices to check the original against'
+            return info
+        for s, r in zip(srcs, raws):
+            pcms.append(_open(s, r))
+        if any(p is None for p in pcms):
+            info['reason'] = 'an audio file is empty'
+            return info
+        b, o, v, m = pcms
+        n = len(b)
+        if any(abs(len(x) - n) > RATE // 4 for x in (o, v, m)):
+            info['reason'] = 'the original recording has another length than the separated background'
+            return info
+        n = min(len(b), len(o), len(v), len(m))
+        if not _same_recording(m, o, v, n):
+            info['reason'] = 'the original recording does not match the separated sound'
+            return info
+        speech = speech_frames(m, o, v, spans, n)
+        w = _weights(speech)
+        info['share'] = round(float(w.mean()), 3)
+        if info['share'] < 0.02:
+            info['reason'] = 'no pauses to use'
+            return info
+        nf = n // FRAME
+        centers = (np.arange(nf) + 0.5) * FRAME
+        with wave.open(str(part), 'wb') as out:
+            out.setnchannels(2)
+            out.setsampwidth(2)
+            out.setframerate(RATE)
+            step = 30 * RATE
+            for a in range(0, n, step):
+                c = min(n, a + step)
+                wt = np.interp(np.arange(a, c), centers, w)[:, None].astype(np.float32)
+                mixed = b[a:c].astype(np.float32) * (1.0 - wt) + o[a:c].astype(np.float32) * wt
+                out.writeframes(np.clip(np.rint(mixed), -32768, 32767).astype('<i2').tobytes())
+        part.replace(out_path)
+        info['ok'] = True
+        info['reason'] = f"the original sound is used in the pauses ({info['share'] * 100:.0f}% of the time)"
+        return info
+    except Exception as ex:
+        info['reason'] = f'not used ({str(ex)[:160]})'
+        if log:
+            log('original in pauses: ' + info['reason'])
+        return info
+    finally:
+        _close(pcms)
+        for p in raws + [part]:
+            try:
+                Path(p).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _pool(orig, free, n):
+    """Clean stretches of the original (pauses, at least BED_MIN_RUN_SEC long, trimmed at the edges), at most BED_POOL_MAX_SEC in all."""
+    nf = n // FRAME
+    segs, total, i = [], 0.0, 0
+    trim = 5
+    runs = []
+    while i < nf:
+        if free[i]:
+            j = i
+            while j < nf and free[j]:
+                j += 1
+            if (j - i - 2 * trim) * FRAME / RATE >= BED_MIN_RUN_SEC:
+                runs.append((i + trim, j - trim))
+            i = j
+        else:
+            i += 1
+    runs.sort(key=lambda r: r[0] - r[1])             # longest first
+    for a, c in runs:
+        if total >= BED_POOL_MAX_SEC:
+            break
+        seg = orig[a * FRAME:c * FRAME].astype(np.float32) / 32768.0
+        segs.append(seg)
+        total += len(seg) / RATE
+    return segs
+
+
+def _pool_power(segs):
+    """Per channel and frequency bin: the power of the pool, robust against a blip (mean limited by median / ln 2)."""
+    win = np.hanning(N_FFT).astype(np.float32)
+    out = []
+    for ch in range(2):
+        pw = []
+        for s in segs:
+            for k in range(0, len(s) - N_FFT + 1, HOP):
+                pw.append(np.abs(np.fft.rfft(s[k:k + N_FFT, ch] * win)) ** 2)
+        pw = np.stack(pw)
+        out.append(np.minimum(pw.mean(axis=0), np.median(pw, axis=0) / np.log(2.0)))
+    return np.stack(out)
+
+
+def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, log=None):
+    """Writes `out_path` = `matched` (the finished background) with the steady bed put back where the separator took it away under
+    speech: per frequency bin the level is at least (pause level + floor_db). Only when the sound in the pauses of the original is
+    steady and `original` is the same recording. Returns {"ok", "reason", "added_db"}; never raises."""
+    floor_db = FLOOR_DB if floor_db is None else float(floor_db)
+    info = {'ok': False, 'reason': '', 'added_db': 0.0}
+    out_path = Path(out_path)
+    srcs = [matched, original, vocals, base]
+    raws = [out_path.with_name(out_path.name + f'.bf{i}.pcm') for i in range(4)]
+    pcms = []
+    part = out_path.with_name(out_path.name + '.part.wav')
+    try:
+        if not original or not Path(original).exists() or not vocals or not Path(vocals).exists() or not spans:
+            info['reason'] = 'no original recording to take the steady sound from'
+            return info
+        for s, r in zip(srcs, raws):
+            pcms.append(_open(s, r))
+        if any(p is None for p in pcms):
+            info['reason'] = 'an audio file is empty'
+            return info
+        mt, o, v, b = pcms
+        n = min(len(mt), len(o), len(v), len(b))
+        if any(abs(len(x) - len(mt)) > RATE // 4 for x in (o, v, b)):
+            info['reason'] = 'the original recording has another length than the background'
+            return info
+        if not _same_recording(b, o, v, n):
+            info['reason'] = 'the original recording does not match the separated sound'
+            return info
+        speech = speech_frames(b, o, v, spans, n)
+        free = ~speech
+        segs = _pool(o, free, n)
+        if sum(len(s) for s in segs) / RATE < BED_MIN_POOL_SEC:
+            info['reason'] = 'too little clean sound in the pauses to know the background'
+            return info
+        rms_db = 10.0 * np.log10(float(np.mean(np.concatenate(segs) ** 2)) + 1e-14)
+        if rms_db < BED_MIN_DB:
+            info['reason'] = 'the background in the pauses is silent'
+            return info
+        score = music_fill._steadiness_db(segs)
+        if score is None or score > music_fill.STEADY_MAX_DB:
+            info['reason'] = 'the background is not steady, it is not rebuilt'
+            return info
+        target = _pool_power(segs) * (10.0 ** (floor_db / 10.0))          # power per bin of one analysis frame
+        a_ = np.concatenate([s[:, 0] for s in segs]); b_ = np.concatenate([s[:, 1] for s in segs])
+        c_ = np.corrcoef(a_, b_)[0, 1] if len(a_) > 1 else 0.0
+        rho = float(np.clip(c_ if np.isfinite(c_) else 0.0, 0.0, 0.98))
+        w_free = _weights(speech)
+        under = 1.0 - w_free                                                # 1 under speech, 0 in the pauses
+        nf = n // FRAME
+        frame_t = (np.arange(nf) + 0.5) * FRAME / RATE
+        rng = np.random.default_rng(12345)
+        block, ctx = int(BLOCK_SEC * RATE), int(CTX_SEC * RATE)
+        win_gain = float(np.sum(np.hanning(N_FFT)) / 2.0)                   # scipy's stft scaling (sum of window / 2 for a one-sided spectrum)
+        added = 0.0
+        count = 0
+        with wave.open(str(part), 'wb') as out:
+            out.setnchannels(2)
+            out.setsampwidth(2)
+            out.setframerate(RATE)
+            for a in range(0, n, block):
+                c = min(n, a + block)
+                lo, hi = max(0, a - ctx), min(n, c + ctx)
+                x = mt[lo:hi].astype(np.float32) / 32768.0
+                ys = []
+                common = None
+                for ch in range(2):
+                    f, t, Z = stft(x[:, ch], RATE, window='hann', nperseg=N_FFT, noverlap=N_FFT - HOP, boundary='zeros', padded=True)
+                    # power of one cell in the same units as the pool power (|rfft(frame * hann)|^2): scipy divides by sum(win)
+                    scale = float(np.sum(np.hanning(N_FFT)))
+                    P_cell = (np.abs(Z) * scale) ** 2
+                    deficit = np.maximum(target[ch][:, None] - P_cell, 0.0)
+                    tt = lo / RATE + t
+                    wgt = np.interp(tt, frame_t, under)[None, :]
+                    amp = np.sqrt(deficit * wgt) / scale * (10.0 ** (SYNTH_CAL_DB / 20.0))
+                    noise = rng.standard_normal(Z.shape) + 1j * rng.standard_normal(Z.shape)
+                    if ch == 0:
+                        common = rng.standard_normal(Z.shape) + 1j * rng.standard_normal(Z.shape)
+                    own = noise
+                    mix = np.sqrt(rho) * common + np.sqrt(1.0 - rho) * own
+                    Zn = Z + amp * mix / np.sqrt(2.0)
+                    _, y = istft(Zn, RATE, window='hann', nperseg=N_FFT, noverlap=N_FFT - HOP, boundary=True)
+                    y = y[:hi - lo]
+                    if len(y) < hi - lo:
+                        y = np.pad(y, (0, hi - lo - len(y)))
+                    ys.append(y)
+                    added += float(np.mean(amp ** 2)) / (10.0 ** (SYNTH_CAL_DB / 10.0))
+                    count += 1
+                y = np.stack(ys, axis=1)[a - lo:c - lo]
+                out.writeframes(np.clip(np.rint(y * 32768.0), -32768, 32767).astype('<i2').tobytes())
+        part.replace(out_path)
+        info['ok'] = True
+        info['added_db'] = round(10.0 * np.log10(added / max(1, count) + 1e-20), 1)
+        info['reason'] = f'the steady background is held at least {abs(floor_db):g} dB under its pause level while people speak'
+        return info
+    except Exception as ex:
+        info['reason'] = f'not used ({str(ex)[:160]})'
+        if log:
+            log('bed floor: ' + info['reason'])
+        return info
+    finally:
+        _close(pcms)
+        for p in raws + [part]:
+            try:
+                Path(p).unlink(missing_ok=True)
+            except Exception:
+                pass
