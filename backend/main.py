@@ -4009,6 +4009,22 @@ def generate_progress(request: Request, job_id: str = ""):
         return {"status": "processing", "percent": 99, "status_text": "Completing your audio"}
     return _public_progress(progress)
 
+
+def _merge_say(job_id, percent, text, status="processing"):
+    """What the merge is doing right now, for the progress bar on the Merge button (best effort, never raises)."""
+    try:
+        jobs_progress[f"merge_{job_id}"] = {"status": status, "percent": int(max(0, min(100, percent))), "status_text": text}
+    except Exception:
+        pass
+
+
+@app.get("/api/progress/merge")
+def merge_progress(request: Request, job_id: str = ""):
+    _g = _job_guard(request, job_id, allow_empty=False)
+    if _g:
+        return _g
+    return _public_progress(jobs_progress.get(f"merge_{job_id}", {"status": "not_found"}))
+
 @app.get("/api/job_status")
 def job_status(request: Request, job_id: str = ""):
     """For the main page when it restores a saved session: is the original media of
@@ -4569,6 +4585,7 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
     if _blk is not None:
         return _blk          # before anything is charged
     # Charge after a successful merge, along with successful music repairs.
+    _merge_say(req.job_id, 3, "Preparing your dubbed audio...")
     video = find_job_video(req.job_id)
     # Job-scoped filename -- see the comment on CLEANUP_RETENTION_HOURS below
     # for why this used to be a single shared filename for every job on the
@@ -4595,8 +4612,10 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
         except Exception as _vc_ex:
             print(f"[voice-clean] {req.job_id}: skipped ({_vc_ex})")
 
+    music_incomplete = False
     if bg is not None:
         # Optionally enhance the separated background
+        _merge_say(req.job_id, 8, "Preparing the background sound...")
         bg_to_use = bg
         if req.enhance_background:
             enhanced_bg = OUTPUT_DIR / f"{req.job_id}_bg_enhanced.wav"
@@ -4615,12 +4634,21 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
             if fee and not debit_confirmed(deduct_credits(uid, fee, "short_dub_music_fill", req.job_id)):
                 raise RuntimeError("Music repair payment could not be verified")
             price["music_charged"] += fee
+        def music_progress(done, total):
+            _merge_say(req.job_id, 20 + 60 * done / max(1, total),
+                       f"Rebuilding the background music under the speech: part {done + 1} of {total}. This takes about a minute per part...")
         spans = _short_speech_spans(req.job_id, bg)
         keep_music = bool(req.keep_music and price.get("music_kept", True))  # False: the quote said it cannot be restored
+        _merge_say(req.job_id, 14, "Removing the original voices from the background sound...")
+        # strict=False: a music hole that cannot be rebuilt stays silent instead of failing the whole merge. Only the
+        # holes that were really rebuilt are charged (charge_music runs once per rebuilt hole).
         _bp = dub_background.prepare(bg_to_use, bg.parent / "vocals.wav", dub, OUTPUT_DIR,
             f"merge_{req.job_id}", spans, key=FAL_API_KEY if keep_music else "",
-            gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=keep_music)
+            gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=keep_music,
+            strict=False, progress=music_progress, log=lambda t: print(f"[merge-music] {req.job_id}: {t}"))
+        music_incomplete = bool((_bp.get("music_fill") or {}).get("incomplete"))
         bg_to_use = _bp["path"]
+        _merge_say(req.job_id, 82, "Mixing the dubbed voice with the background...")
         # Use the same original phrase mask for reactions, so no original dialogue is reintroduced there.
         map_ = OUTPUT_DIR / f"{req.job_id}_merge_speech.json"
         map_.write_text(json.dumps(spans), encoding="utf-8")
@@ -4628,6 +4656,7 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
         map_.unlink(missing_ok=True)
         mixed = OUTPUT_DIR / f"merge_mixed_{req.job_id}.wav"
         ffmpeg_utils.mix_two_audio(dub, bg_to_use, mixed, extra_audio=_rx["path"])
+        _merge_say(req.job_id, 90, "Building the final video...")
         ffmpeg_utils.mux_audio_into_video(video, mixed, final)
         for _tmp in [mixed] + list(_bp["temps"]) + list(_rx["temps"]):
             try:
@@ -4653,7 +4682,7 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
     os.replace(final, published_final)
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background,
             "watermarked": marked, "credits_charged": merge_cost + price["music_charged"],
-            "music_kept": bool(price.get("music_kept", True))}
+            "music_kept": bool(price.get("music_kept", True)), "music_incomplete": music_incomplete}
 
 # Optional reference photos for Step 7 -- uploaded separately from the
 # /api/lipsync call itself (this just saves them to disk under the job's
@@ -8501,8 +8530,12 @@ def merge_video(req: MergeRequest, request: Request):
         price = _short_merge_price(req)
         if req.accepted_credits != price["max_total"]:
             return JSONResponse({"error": "The price changed. Check the new price and confirm again."}, status_code=409)
-        return _merge_video_run(req, request, price)
+        _merge_say(req.job_id, 1, "Starting...")
+        _result = _merge_video_run(req, request, price)
+        _merge_say(req.job_id, 100, "Done", status="done" if isinstance(_result, dict) and _result.get("status") == "success" else "error")
+        return _result
     except Exception as ex:
+        _merge_say(req.job_id, 100, "Failed", status="error")
         charged = price.get("music_charged", 0) + price.get("merge_charged", 0) if price else 0
         if charged:
             _ld_refund(uid, charged, req.job_id)
@@ -8518,6 +8551,7 @@ def longdub_edit_script():
 
 
 class EmotionReviewRequest(_JobIdModel):
+    job_id: str = ""
     segment_id: str = ""
     start: float = 0
     end: float = 0

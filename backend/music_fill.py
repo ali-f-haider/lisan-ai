@@ -331,13 +331,14 @@ def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
 
 
 def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=None, runner=None, log=None,
-         allow=None, on_filled=None):
+         allow=None, on_filled=None, progress=None):
     """Fills the holes in the background track `bg_path` (the one that voices were silenced in) and writes the result to
     `out_path`. spans = [(start_sec, end_sec)] where the original voices speak. Returns
     {"filled": bool, "reason", "gaps": [{start, end, ok, note}], "filled_sec", "sent_sec", "prompt"}; never raises.
     When nothing was filled, `out_path` is not written.
     allow() -> bool is asked before every call (False = stop calling the model, for example when the user cannot pay);
-    on_filled(start_sec, end_sec) is called after each hole that was really filled (the place to charge for it)."""
+    on_filled(start_sec, end_sec) is called after each hole that was really filled (the place to charge for it);
+    progress(done, total) is called before each hole is attempted (for a progress bar; errors in it are ignored)."""
     info = {"filled": False, "reason": "", "gaps": [], "filled_sec": 0.0, "sent_sec": 0.0, "prompt": "", "found": 0}
     runner = runner or _fal_run
     say = log or (lambda m: None)
@@ -387,7 +388,13 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         budget = MAX_TOTAL_SEC
         ok_n = 0
         t_start = time.time()
-        for g0, g1 in sorted(gaps):
+        todo = sorted(gaps)
+        for n_seen, (g0, g1) in enumerate(todo):
+            if progress is not None:
+                try:
+                    progress(n_seen, len(todo))
+                except Exception:
+                    pass
             ln = g1 - g0
             rec = {"start": round(float(g0), 1), "end": round(float(g1), 1), "ok": False, "note": ""}
             info["gaps"].append(rec)

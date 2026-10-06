@@ -60,7 +60,8 @@ def count_repairs(muted, spans, raw, original=None):
         Path(raw).unlink(missing_ok=True)
 
 
-def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None, on_filled=None, preserve_music=True):
+def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None, on_filled=None, preserve_music=True,
+            strict=True, progress=None, log=None):
     work = Path(work)
     muted = work / f'{tag}_muted.wav'
     repaired = work / f'{tag}_repaired.wav'
@@ -72,12 +73,19 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
         raise RuntimeError('Music inpainting is unavailable. The background cannot be preserved reliably.')
     if key and clean == muted and required:
         info = music_fill.fill(clean, repaired, spans, key, gemini_key=gemini_key,
-                               allow=allow, on_filled=on_filled)
+                               allow=allow, on_filled=on_filled, progress=progress, log=log)
         if info['filled']:
             clean = repaired
-        if required and (not info['filled'] or any(not g['ok'] for g in info['gaps']) or
-                         int(info.get('found', 0)) > sum(bool(g['ok']) for g in info['gaps'])):
-            raise RuntimeError('Music repair could not finish all silent music sections. ' + info['reason'])
+        incomplete = required and (not info['filled'] or any(not g['ok'] for g in info['gaps']) or
+                                   int(info.get('found', 0)) > sum(bool(g['ok']) for g in info['gaps']))
+        if incomplete:
+            notes = '; '.join(f"{g['start']}-{g['end']} s: {g['note']}" for g in info['gaps'] if not g['ok'])
+            if log:
+                log('music repair incomplete: ' + info['reason'] + (' | ' + notes if notes else ''))
+            if strict:
+                raise RuntimeError('Music repair could not finish all silent music sections. ' + info['reason'])
+            # Not strict: a hole that could not be rebuilt stays silent (it was muted), the repaired ones are kept.
+            info['incomplete'] = True
     measurements = dub_audio.match_background(bg, clean, matched, vocals, dub, spans)
     return {'path': matched, 'music_fill': info, 'measurements': measurements,
             'temps': [muted, repaired, matched]}

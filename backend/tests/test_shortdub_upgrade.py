@@ -440,5 +440,39 @@ class HttpRouteTests(unittest.TestCase):
             self.assertEqual(self.client.get(f'/api/segment_audio/{JOB_B}/seg_0').content, b'audio B')
 
 
+class MergeAndReviewTests(unittest.TestCase):
+    def test_emotion_review_request_carries_the_job_id(self):
+        # Without this field the route crashed on body.job_id (Sentry: 'EmotionReviewRequest' has no attribute 'job_id').
+        tree = ast.parse((ROOT / 'main.py').read_text(encoding='utf-8-sig'))
+        cls = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'EmotionReviewRequest'][0]
+        fields = {n.target.id for n in cls.body if isinstance(n, ast.AnnAssign)}
+        self.assertIn('job_id', fields)
+
+    def merge_price(self, count_repairs):
+        job = JOB_A
+        n = dict(_get_pricing_config=lambda: {'mergeCredits': 2, 'musicFillCredits': 10}, find_job_video=lambda j: Path('v.mp4'),
+                 OUTPUT_DIR=Path(tempfile.gettempdir()), job_background_audio=lambda j: Path('bg.wav'), FAL_API_KEY='key',
+                 _short_speech_spans=lambda j, bg: [(0.0, 4.0)],
+                 dub_background=NS(mute=lambda *a: Path(tempfile.gettempdir()) / f'{job}_price_muted.wav', count_repairs=count_repairs))
+        funcs = source_functions('main.py', ['_short_merge_price'], n)
+        dub = Path(tempfile.gettempdir()) / f'{job}_final_dubbed.mp3'
+        dub.write_bytes(b'x')
+        try:
+            return funcs['_short_merge_price'](NS(job_id=job, keep_music=True))
+        finally:
+            dub.unlink(missing_ok=True)
+
+    def test_too_little_clean_music_means_a_plain_merge_price_and_no_music_charge(self):
+        def refuse(*a, **k):
+            raise ValueError('Removing speech leaves too little clean background to restore reliably.')
+        q = self.merge_price(refuse)
+        self.assertEqual((q['max_total'], q['music_max'], q['music_kept']), (2, 0, False))
+        self.assertIn('too little', q['music_note'])
+
+    def test_music_that_can_be_repaired_is_still_quoted_with_its_maximum(self):
+        q = self.merge_price(lambda *a, **k: 3)
+        self.assertEqual((q['max_total'], q['music_max'], q['music_kept']), (32, 30, True))
+
+
 if __name__ == '__main__':
     unittest.main()

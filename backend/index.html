@@ -112,6 +112,7 @@
     <label>Speaker names (comma separated, optional)</label>
     <input type="text" id="speakerNames" placeholder="Example: Ali, Sara">
     <p class="note">If you give fewer names than the number of speakers, the rest are labeled "Speaker 3", "Speaker 4", etc.</p>
+    <div id="speakerGenderBox" style="display:none;margin-top:6px;"></div>
     <br>
     <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>
     <div id="progressSection" class="hidden">
@@ -144,7 +145,6 @@
                 <th style="width:72px" id="thStart">Start</th>
                 <th style="width:72px" id="thEnd">End</th>
                 <th style="width:100px" id="thSpeaker">Speaker</th>
-                <th style="width:78px" id="thGender">Gender</th>
                 <th style="width:170px" id="thStyle">Style / Emotion</th>
                 <th style="min-width:150px" id="thEnglish">English</th>
                 <th style="min-width:150px" id="thArabic">Arabic</th>
@@ -252,6 +252,16 @@
         <br>
         <button class="green" id="mergeButton" onclick="mergeVideo()">🎬 Merge Audio into Video<span class="badge" id="badgeMerge"></span></button>
         <p class="note">Combines the dubbed Arabic audio with the original background music and video.</p>
+        <div id="mergeProgress" class="hidden" style="margin-top:10px;">
+            <div style="display:flex;justify-content:center;">
+                <picture>
+                    <source srcset="/static/loading-spinner.webp" type="image/webp">
+                    <img src="/static/loading-spinner.gif" alt="" style="width:70px;height:70px;display:block;">
+                </picture>
+            </div>
+            <div class="progress-bar"><div class="progress-fill green" id="mergeProgressFill" style="width:0%"></div></div>
+            <p id="mergeProgressText" class="progress-status">Starting...</p>
+        </div>
     </div>
     <div id="videoResults" class="hidden"></div>
 </div>

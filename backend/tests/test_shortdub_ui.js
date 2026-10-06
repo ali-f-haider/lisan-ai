@@ -131,7 +131,7 @@ test('invalid project JSON is described as a file problem and does not replace t
 test('canceling a merge confirms its full music budget and makes no paid request', async () => {
     const {c,calls,confirmations,elements}=context();
     c.quote={max_total:21,music_max:20};c.accept=false;c.subsText=(en)=>en;c.window.LisanDialog=c.LisanDialog;
-    vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
     await c.mergeVideo();
     assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote']);
     assert.match(confirmations[0],/21 credits/);assert.match(confirmations[0],/20 for music/);
@@ -141,7 +141,7 @@ test('canceling a merge confirms its full music budget and makes no paid request
 test('an invalid merge quote cannot start paid processing', async () => {
     for(const quote of [{max_total:-1,music_max:0},{max_total:'21',music_max:20},{max_total:1,music_max:10}]) {
         const {c,calls,confirmations,elements}=context();c.quote=quote;c.subsText=(en)=>en;
-        vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+        vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
         await c.mergeVideo();assert.equal(calls.length,1);assert.equal(confirmations.length,0);
         assert.equal(elements.get('mergeButton').disabled,false);
     }
@@ -208,11 +208,47 @@ test('choosing the first voice and programmatic auto-assignment refresh the gene
     p.c.document.createElement = tag => { const item=node(); item.tag=tag; nodes.push(item); return item; };
     Object.assign(p.c, {voicePools:{male:[{voice_id:'v1'}],female:[]},clonedBySpeaker:{},speakerChoices:{},speakerVoiceNames:{},speakerVoices:{},
         ensureVoicePools:async()=>true, applyChoice(name){p.c.speakerVoices[name]='v1';}});
+    vm.runInContext(excerpt(app,'var speakerGenderPick = {};', 'function updateSpeakerName('),p.c);
     vm.runInContext(excerpt(app,'async function renderSpeakerVoices()', 'async function ensureVoicePools()'),p.c);
     await p.c.renderSpeakerVoices(); assert.equal(p.badges.at(-1),'—');
-    const select=nodes.find(n=>n.tag==='select'); select.value='male:1'; select.onchange();
+    const select=nodes.filter(n=>n.tag==='select')[1]; select.value='male:1'; select.onchange();
     assert.equal(p.timers.size,1); await p.runTimer(); assert.equal(p.badges.at(-1),114);
     p.c.speakerVoices={};p.c.speakerChoices={};p.c.scheduleGeneratePrice();
     vm.runInContext(excerpt(app,'async function autoAssignVoices()', '// ===== VOICE LIBRARY BROWSER'),p.c);
     await p.c.autoAssignVoices();await p.runTimer();assert.equal(p.badges.at(-1),114);
+});
+
+test('a merge whose music cannot be rebuilt starts at once, with no confirmation, and says so afterwards', async () => {
+    const {c,calls,confirmations,messages}=context();
+    c.quote={max_total:2,music_max:0,music_kept:false};c.subsText=(en)=>en;
+    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);
+    vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    await c.mergeVideo();
+    assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote','/api/merge_video']);
+    assert.equal(confirmations.length,0);
+    assert.equal(calls[1].payload.accepted_credits,2);
+});
+
+test('the merge progress text is translated into Arabic and keeps the part numbers', () => {
+    const {c}=context();
+    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);
+    c.window.currentLang='ar';
+    assert.match(c.mergeStatusText('Rebuilding the background music under the speech: part 2 of 3. This takes about a minute per part...'),/2 من 3/);
+    c.window.currentLang='en';
+    assert.equal(c.mergeStatusText('Mixing the dubbed voice with the background...'),'Mixing the dubbed voice with the background...');
+});
+
+test('a speaker has one gender: Step 1.5 sets it for all lines, Step 4 can change it and swaps a voice of the other gender', () => {
+    const c=vm.createContext({window:{currentLang:'en'},subsText(en){return en;},scheduleGeneratePrice(){},
+        segmentsData:[{speaker:'Ali',gender:'male'},{speaker:'Sara',gender:'male'},{speaker:'Sara',gender:'male'}],
+        speakerChoices:{Sara:'male:1'},speakerVoices:{Sara:'v1'},speakerVoiceNames:{Sara:'x'},
+        voicePools:{male:[{voice_id:'v1'}],female:[{voice_id:'v2'}]},
+        applyChoice(name){const m=c.speakerChoices[name].split(':');c.speakerVoices[name]=c.voicePools[m[0]][+m[1]-1].voice_id;}});
+    vm.runInContext(excerpt(app,'var speakerGenderPick = {};', 'function updateSpeakerName('),c);
+    assert.equal(c.speakerGenderOf('Ali'),'male');
+    c.setSpeakerGender('Sara','female');
+    assert.deepEqual(c.segmentsData.map(s=>s.gender),['male','female','female']);
+    assert.equal(c.speakerGenderOf('Sara'),'female');
+    assert.equal(c.speakerChoices.Sara,'female:1');
+    assert.equal(c.speakerVoices.Sara,'v2');
 });

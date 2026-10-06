@@ -869,11 +869,76 @@ function remapDefaultSpeakerLabels() {
             if (list[idx]) s.speaker = list[idx];
         }
     });
+    // The gender chosen for each speaker in Step 1.5 goes to all of that speaker's lines.
+    (segmentsData || []).forEach(function(s) {
+        var idx = list.indexOf(s.speaker);
+        if (idx >= 0 && speakerGenderPick[idx]) { s.gender = speakerGenderPick[idx]; speakerGenderByName[s.speaker] = speakerGenderPick[idx]; }
+    });
+}
+var speakerGenderPick = {};      // Step 1.5: position of the speaker -> "male" | "female"
+var speakerGenderByName = {};    // speaker name -> gender (from Step 1.5, or changed in the Step 4 table)
+function speakerGenderOf(name) {
+    if (speakerGenderByName[name]) return speakerGenderByName[name];
+    var male = 0, female = 0;   // a loaded project keeps its genders on the lines
+    (segmentsData || []).forEach(function(s) { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
+    return female > male ? "female" : "male";
+}
+function renderSpeakerGenderInputs() {
+    var box = document.getElementById("speakerGenderBox");
+    if (!box) return;
+    var names = computeSpeakerNamesFromInputs();
+    box.innerHTML = "";
+    box.style.display = names.length ? "" : "none";
+    if (!names.length) return;
+    var head = document.createElement("label");
+    head.textContent = subsText("Gender of each speaker", "جنس كل متحدث");
+    box.appendChild(head);
+    names.forEach(function(nm, idx) {
+        var row = document.createElement("div");
+        row.style.cssText = "display:flex;gap:10px;align-items:center;margin:6px 0;";
+        var lab = document.createElement("span");
+        lab.textContent = nm; lab.style.cssText = "min-width:120px;font-weight:600;";
+        var sel = document.createElement("select");
+        sel.style.cssText = "width:auto;";
+        [["male", subsText("Male", "ذكر")], ["female", subsText("Female", "أنثى")]].forEach(function(p) {
+            var o = document.createElement("option"); o.value = p[0]; o.textContent = p[1]; sel.appendChild(o);
+        });
+        sel.value = speakerGenderPick[idx] || "male";
+        speakerGenderPick[idx] = sel.value;
+        sel.onchange = function() { speakerGenderPick[idx] = sel.value; };
+        row.appendChild(lab); row.appendChild(sel); box.appendChild(row);
+    });
+    var note = document.createElement("p");
+    note.className = "note";
+    note.textContent = subsText("Used to pick matching voices automatically. You can still change it in Step 4.", "تُستخدم لاختيار أصوات مناسبة تلقائياً. يمكنك تغييرها لاحقاً في الخطوة 4.");
+    box.appendChild(note);
+}
+function autoPickVoiceFor(name) {
+    var g = speakerGenderOf(name), pool = voicePools[g] || [];
+    if (!pool.length) return;
+    var used = {};
+    Object.keys(speakerVoices).forEach(function(k) { if (k !== name && speakerVoices[k]) used[speakerVoices[k]] = true; });
+    var free = pool.map(function(p, i) { return i; }).filter(function(i) { return !used[pool[i].voice_id]; });
+    var pick = free.length ? free[Math.floor(Math.random() * free.length)] : Math.floor(Math.random() * pool.length);
+    speakerChoices[name] = g + ":" + (pick + 1);
+    applyChoice(name);
+}
+function setSpeakerGender(name, g) {
+    speakerGenderByName[name] = g;
+    (segmentsData || []).forEach(function(s) { if (s.speaker === name) s.gender = g; });
+    var m = (speakerChoices[name] || "").match(/^(male|female):/);
+    if (m && m[1] !== g) {   // the chosen studio voice is of the other gender: pick one of the right gender
+        delete speakerChoices[name]; delete speakerVoices[name]; delete speakerVoiceNames[name];
+        autoPickVoiceFor(name);
+    }
+    scheduleGeneratePrice();
 }
 function updateSpeakerName(i, newName) {
     newName = newName.trim() || `Speaker ${i + 1}`;
     const old = segmentsData[i].speaker;
     segmentsData[i].speaker = newName;
+    var _other = (segmentsData.filter(function(s, k) { return k !== i && s.speaker === newName; })[0] || {}).gender;
+    segmentsData[i].gender = speakerGenderByName[newName] || _other || segmentsData[i].gender;
     if (old !== newName) {
         if (speakerVoices[old] && !speakerVoices[newName]) { speakerVoices[newName] = speakerVoices[old]; speakerVoiceNames[newName] = speakerVoiceNames[old]; speakerChoices[newName] = speakerChoices[old]; clonedBySpeaker[newName] = clonedBySpeaker[old]; }
     }
@@ -968,9 +1033,7 @@ async function autoAssignVoices() {
     names.forEach(name => {
         if (speakerChoices[name]) { applyChoice(name); return; }
         if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
-        let male = 0, female = 0;
-        segmentsData.forEach(s => { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
-        let g = female > male ? "female" : "male";
+        let g = speakerGenderOf(name);
         let pool = voicePools[g];
         if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
         if (!pool.length) return;
@@ -1253,16 +1316,54 @@ async function checkGenerateProgress() {
     }
     if (data.status === "error") { clearInterval(generatePollTimer); document.getElementById("generateButton").disabled = false; notify("error", data.error); }
 }
+// Progress of the merge: spinner, bar and what the server is doing right now (it reports stages while it works).
+function mergeStatusText(t) {
+    if (window.currentLang !== "ar") return t;
+    var m = /^Rebuilding the background music under the speech: part (\d+) of (\d+)/.exec(t || "");
+    if (m) return "جارٍ إعادة بناء الموسيقى الخلفية تحت الكلام: الجزء " + m[1] + " من " + m[2] + ". يستغرق ذلك نحو دقيقة لكل جزء...";
+    var map = [["Starting", "جارٍ البدء..."], ["Preparing your dubbed audio", "جارٍ تجهيز الصوت المدبلج..."], ["Preparing the background", "جارٍ تجهيز الصوت الخلفي..."],
+        ["Removing the original voices", "جارٍ إزالة الأصوات الأصلية من الخلفية..."], ["Mixing the dubbed voice", "جارٍ دمج الصوت المدبلج مع الخلفية..."],
+        ["Building the final video", "جارٍ بناء الفيديو النهائي..."], ["Checking", "جارٍ فحص الفيديو والسعر..."]];
+    for (var i = 0; i < map.length; i++) if ((t || "").indexOf(map[i][0]) === 0) return map[i][1];
+    return t;
+}
+function showMergeProgress(text, percent) {
+    var box = document.getElementById("mergeProgress");
+    if (!box) return;
+    box.classList.remove("hidden");
+    var fill = document.getElementById("mergeProgressFill"), txt = document.getElementById("mergeProgressText");
+    if (fill && fill.style) fill.style.width = Math.max(2, Math.min(100, percent || 0)) + "%";
+    if (txt) txt.textContent = mergeStatusText(text);
+}
+function hideMergeProgress() { var box = document.getElementById("mergeProgress"); if (box) box.classList.add("hidden"); }
+function startMergeProgress(jobId) {
+    showMergeProgress("Starting...", 3);
+    var stopped = false, busy = false;
+    var timer = setInterval(async function() {
+        if (stopped || busy) return;
+        busy = true;
+        try {
+            var r = await fetch("/api/progress/merge?job_id=" + encodeURIComponent(jobId));
+            var d = await r.json();
+            if (!stopped && d && d.status === "processing") showMergeProgress(d.status_text || "Merging...", d.percent || 0);
+        } catch (e) {}
+        busy = false;
+    }, 1500);
+    return function() { stopped = true; clearInterval(timer); hideMergeProgress(); };
+}
 async function mergeVideo() {
     if (!currentJobId) { notify("error", "Please upload your video first."); return; }
     const mergePayload = {job_id:currentJobId, keep_music:true, enhance_background:document.getElementById("enhanceBackground") ? document.getElementById("enhanceBackground").checked : true};
     document.getElementById("mergeButton").disabled = true;
     notify("info", "Merging dubbed audio with video and background music...");
+    let stopMergeProgress = function() {};
     try {
+        showMergeProgress("Checking your video and the price...", 3);
         const quoteResponse = await fetch("/api/merge_video/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mergePayload) });
         const quote = await quoteResponse.json();
         if (!quoteResponse.ok) throw new Error(quote.error || "Could not check the merge price.");
         if (!Number.isInteger(quote.max_total) || quote.max_total < 1 || !Number.isInteger(quote.music_max) || quote.music_max < 0 || quote.music_max > quote.max_total) throw new Error("Could not verify the merge price.");
+        hideMergeProgress();
         // Music that cannot be rebuilt (almost all speech): the merge silently keeps the background quiet under speech.
         // Its price is the plain merge fee already shown on the button, so nothing needs confirming.
         if (quote.music_kept !== false) {
@@ -1270,13 +1371,16 @@ async function mergeVideo() {
             const accepted = window.LisanDialog ? await LisanDialog.confirm(question) : window.confirm(question);
             if (!accepted) { document.getElementById("mergeButton").disabled = false; return; }
         }
+        stopMergeProgress = startMergeProgress(mergePayload.job_id);
         const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({},mergePayload,{accepted_credits:quote.max_total})) });
         const data = await res.json();
+        stopMergeProgress();
         document.getElementById("mergeButton").disabled = false;
         if (data.error) { notify("error", data.error); return; }
         if (currentJobId !== mergePayload.job_id) { notify("success", "Your previous project's merged video is ready on your Account page."); return; }
         const bgNote = !data.has_background ? "⚠️ No background separation available; dubbed vocals only."
             : data.music_kept === false ? "ℹ️ Background sounds are mixed in, but silent while people speak because the original music could not be rebuilt."
+            : data.music_incomplete ? "ℹ️ Some stretches of the background music could not be rebuilt and stay silent while people speak. You were charged only for the parts that were rebuilt."
             : "✅ Background music/sounds mixed with the dubbed vocals.";
         document.getElementById("videoResults").classList.remove("hidden");
         document.getElementById("videoResults").innerHTML = `
@@ -1288,7 +1392,7 @@ async function mergeVideo() {
             </div>`;
         notify("success", "Video merged successfully!");
         if (data.watermarked) notify("info", subsText("Free version: your video carries a small semi-transparent Lisan AI logo. Buy credits or subscribe to make videos without it.", "النسخة المجانية: يحمل الفيديو شعار Lisan AI صغيراً شبه شفاف. اشترِ رصيداً أو اشترك لتصنع فيديوهات بدونه."));
-    } catch (e) { document.getElementById("mergeButton").disabled = false; notify("error", e.message); }
+    } catch (e) { stopMergeProgress(); hideMergeProgress(); document.getElementById("mergeButton").disabled = false; notify("error", e.message); }
 }
 
 async function onLipsyncRefImagesSelected(input) {
@@ -1742,9 +1846,7 @@ async function autoAssignVoices() {
     names.forEach(name => {
         if (speakerChoices[name]) { applyChoice(name); return; }
         if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
-        let male = 0, female = 0;
-        segmentsData.forEach(s => { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
-        let g = female > male ? "female" : "male";
+        let g = speakerGenderOf(name);
         let pool = voicePools[g];
         if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
         if (!pool.length) return;
@@ -2449,9 +2551,7 @@ async function autoAssignVoices() {
     names.forEach(name => {
         if (speakerChoices[name]) { applyChoice(name); return; }
         if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
-        let male = 0, female = 0;
-        segmentsData.forEach(s => { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
-        let g = female > male ? "female" : "male";
+        let g = speakerGenderOf(name);
         let pool = voicePools[g];
         if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
         if (!pool.length) return;
@@ -2601,7 +2701,6 @@ function createRow(seg, i) {
     getSpeakerOptionsList().forEach(function(nm) { var o = mk("option"); o.value = nm; o.textContent = nm; o.selected = (seg.speaker === nm); spS.appendChild(o); });
     spS.onchange = function() { updateSpeakerName(i, spS.value); };
     spCell.appendChild(spS); row.appendChild(spCell);
-    var gCell = mk("td"); var gS = mk("select"); ["male", "female"].forEach(function(v) { var o = mk("option"); o.value = v; o.textContent = v; o.selected = (seg.gender === v); gS.appendChild(o); }); gS.onchange = function() { segmentsData[i].gender = gS.value; }; gCell.appendChild(gS); row.appendChild(gCell);
     var eCell = mk("td");
     var eWrap = mk("div"); eWrap.style.cssText = "display:flex;gap:3px;align-items:center;";
     var eS = mk("select"); eS.style.width = "auto"; eS.style.minWidth = "60px"; eS.style.flex = "none";
@@ -2715,7 +2814,16 @@ async function renderSpeakerVoices() {
     tbody.innerHTML = "";
     names.forEach(function(name) {
         var row = document.createElement("tr");
-        var c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
+        var c1 = document.createElement("td");
+        var nm1 = document.createElement("div"); nm1.textContent = name; nm1.style.fontWeight = "600"; c1.appendChild(nm1);
+        var gs = document.createElement("select"); gs.style.cssText = "width:auto;margin-top:4px;font-size:12px;";
+        gs.title = subsText("Gender", "الجنس");
+        [["male", subsText("Male", "ذكر")], ["female", subsText("Female", "أنثى")]].forEach(function(p) {
+            var o = document.createElement("option"); o.value = p[0]; o.textContent = p[1]; gs.appendChild(o);
+        });
+        gs.value = speakerGenderOf(name);
+        gs.onchange = function() { setSpeakerGender(name, gs.value); renderSpeakerVoices(); };
+        c1.appendChild(gs); row.appendChild(c1);
         var c2 = document.createElement("td");
         var sel = document.createElement("select"); sel.style.width = "100%";
         if (clonedBySpeaker[name]) { var o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o); }
@@ -2728,8 +2836,8 @@ async function renderSpeakerVoices() {
                 var o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
             });
         };
-        addGroup("male", "🎲 Male voice");
-        addGroup("female", "🎲 Female voice");
+        if (speakerGenderOf(name) === "female") { addGroup("female", "🎲 Female voice"); addGroup("male", "🎲 Male voice"); }
+        else { addGroup("male", "🎲 Male voice"); addGroup("female", "🎲 Female voice"); }
         if (!clonedBySpeaker[name] && !voicePools.male.length && !voicePools.female.length) {
             var o = document.createElement("option"); o.value = ""; o.textContent = "— Loading voices… —"; sel.appendChild(o);
         }
@@ -2773,9 +2881,7 @@ async function autoAssignVoices() {
     names.forEach(function(name) {
         if (speakerChoices[name]) { applyChoice(name); return; }
         if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
-        var male = 0, female = 0;
-        segmentsData.forEach(function(s) { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
-        var g = female > male ? "female" : "male";
+        var g = speakerGenderOf(name);
         var pool = voicePools[g];
         if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
         if (!pool.length) return;
@@ -3380,6 +3486,7 @@ function resetWorkspace() {
     // Reset speaker count/names + badges, and hide Step 1.5 until a new file is chosen
     var sc = document.getElementById("speakerCount"); if (sc) sc.value = "";
     var sn = document.getElementById("speakerNames"); if (sn) sn.value = "";
+    speakerGenderPick = {}; speakerGenderByName = {}; renderSpeakerGenderInputs();
     var s15 = document.getElementById("step1_5Card"); if (s15) s15.classList.add("hidden");
     if (typeof updateBadges === "function") updateBadges();
 }
@@ -7610,3 +7717,7 @@ window.cleanOldClones = function () {
 // Text and voice controls update the numeric generation price without opening a dialog.
 document.addEventListener("input", function() { scheduleGeneratePrice(); });
 document.addEventListener("change", function() { scheduleGeneratePrice(); });
+
+document.addEventListener("input", function(e) { if (e.target && (e.target.id === "speakerCount" || e.target.id === "speakerNames")) renderSpeakerGenderInputs(); });
+document.addEventListener("DOMContentLoaded", function() { renderSpeakerGenderInputs(); });
+if (document.readyState !== "loading") renderSpeakerGenderInputs();
