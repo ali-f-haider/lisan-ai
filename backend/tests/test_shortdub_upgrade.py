@@ -260,7 +260,16 @@ class RouteTests(unittest.TestCase):
         self.n['_run_short_generate'](req, 'user', quote)
         self.n['deduct_credits'].assert_called_once_with('user', quote['credits'], 'generate', JOB_A, 4)
         self.assertEqual(self.n['_short_quote'](req)['analysis_credits'], 0)
+        self.assertEqual(self.progress[f'generate_{JOB_A}']['result']['credits_charged'], quote['credits'])
         self.assertFalse(operation_active(JOB_A))
+
+    def test_completed_generation_with_null_result_reports_the_confirmed_charge(self):
+        self.n['eleven_service'].generate_worker.side_effect = lambda _: self.progress.update(
+            {f'generate_{JOB_A}': {'status': 'done', 'result': None}})
+        quote = self.n['_short_quote'](request())
+        self.n['_run_short_generate'](request(), 'user', quote)
+        self.assertEqual(self.progress[f'generate_{JOB_A}']['status'], 'done')
+        self.assertEqual(self.progress[f'generate_{JOB_A}']['result']['credits_charged'], quote['credits'])
 
     def test_failed_generation_debit_keeps_analysis_unsettled(self):
         self.n['deduct_credits'].return_value = None

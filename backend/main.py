@@ -4403,6 +4403,9 @@ def _run_short_generate(req, uid, quote):
             return
         if quote is None:  # Legacy API-only Gemini TTS mode keeps its existing variable pricing.
             _watch_and_deduct(req.job_id, uid, "generate")
+            charged = _job_charges.get(req.job_id, {}).get("credits_charged")
+            if charged is not None:
+                progress["result"] = dict(progress.get("result") or {}, credits_charged=charged)
             return
         result = progress.get("result") or {}
         balance = deduct_credits(uid, quote["credits"], "generate", req.job_id, result.get("final_duration"))
@@ -4411,6 +4414,7 @@ def _run_short_generate(req, uid, quote):
             return
         usage_bucket(req.job_id)["shortdub_ai_settled"] = quote["ai_snapshot"]
         _job_charges[req.job_id] = {"credits_charged": quote["credits"], "balance_after": get_credits(uid) if balance is True else balance}
+        progress["result"] = dict(result, credits_charged=quote["credits"])
     except Exception:
         jobs_progress[f"generate_{req.job_id}"] = {"status": "error", "error": "Audio generation could not be completed. Please contact support before retrying."}
     finally:
@@ -8263,7 +8267,20 @@ async def diag_bg(job_id: str, request: Request):
 
 @app.get("/dub-long-edit")
 def longdub_edit_page():
-    return HTMLResponse((BASE_DIR / "dub_long_edit.html").read_text(encoding="utf-8"), headers=_NO_CACHE_HEADERS)
+    html = (BASE_DIR / "dub_long_edit.html").read_text(encoding="utf-8")
+    if (_get_pricing_config().get("uiStyle") or "classic") == "new":
+        html = html.replace("<body>", '<body class="ui-new">', 1)
+    return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/longdub_editor.css")
+def longdub_editor_css():
+    return FileResponse(BASE_DIR / "longdub_editor.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/longdub_editor.js")
+def longdub_editor_js():
+    return FileResponse(BASE_DIR / "longdub_editor.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
 @app.post("/api/longdub/{job_id}/review")
@@ -8278,7 +8295,10 @@ async def longdub_review_page(job_id: str, request: Request):
         if page < 0 or page * 10 >= len(rows) or job.get("status") not in ("editing", "done"):
             return JSONResponse({"error": "Choose a valid group of lines."}, status_code=400)
         key = "correction_reviewed" if correction else "reviewed_batches"
-        job.setdefault(key, {})[str(page)] = dub_review.batch_hash(rows[page*10:page*10+10])
+        if body.get("reviewed", True):
+            job.setdefault(key, {})[str(page)] = dub_review.batch_hash(rows[page*10:page*10+10])
+        else:
+            job.setdefault(key, {}).pop(str(page), None)
         longdub_service._save(job)
     return {"reviewed_batches": job[key], "batches": dub_review.batches(rows, job[key])}
 
@@ -8304,6 +8324,61 @@ def longdub_corrections_save(job_id: str, body: LongDubEdits, request: Request):
 class LongDubCorrectionSelection(BaseModel):
     selected: List[str] = []
     token: str = ""
+
+
+class LongDubCorrectionAction(BaseModel):
+    segment_id: str = ""
+    position: int = -1
+
+
+@app.post("/api/longdub/{job_id}/corrections/line/{operation}")
+def longdub_correction_line(job_id: str, operation: str, body: LongDubCorrectionAction, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    if operation not in ("insert", "split", "delete", "retranslate", "tashkeel"):
+        return JSONResponse({"error": "Unknown line action."}, status_code=400)
+    if _rate_limited(request, "correction_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    try:
+        new_id = longdub_edits.line_operation(job, operation, body.segment_id, body.position)
+        result = longdub_edits.view(job)
+        result["new_id"] = new_id
+        return result
+    except (ValueError, TypeError, KeyError) as ex:
+        return JSONResponse({"error": str(ex)}, status_code=409)
+
+
+@app.post("/api/longdub/{job_id}/corrections/player")
+async def longdub_correction_player(job_id: str, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    source = longdub_edits.player_source(job)
+    if source is None:
+        return JSONResponse({"error": "Choose the original file in the player, or attach it for audio style checks."}, status_code=409)
+    path = longdub_service.preview_path(source)
+    if not path.exists():
+        # Preparing a read-only preview needs no change to the completed parent's state.
+        preview_job = dict(source, status="editing")
+        path, error = await asyncio.to_thread(longdub_service.ensure_preview, preview_job)
+        if error:
+            return JSONResponse({"error": error[0]}, status_code=error[1])
+    return {"url": f"/api/longdub/{source['id']}/media", "kind": "video" if source.get("has_video") else "audio"}
+
+
+@app.post("/api/longdub/{job_id}/corrections/emotion")
+async def longdub_correction_emotion(job_id: str, body: LongDubCorrectionAction, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    if _rate_limited(request, "emotion_review", 20, 60):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    row = next((r for r in longdub_edits.rows(job) if r["segment_id"] == body.segment_id), None)
+    source = longdub_edits.listening_source(job)
+    audio = longdub_service._wd(source) / "vocals_mono.wav" if source else None
+    if not row or audio is None or not audio.exists():
+        return JSONResponse({"error": "Attach the original file first to check this line's style from audio."}, status_code=409)
+    if row["end"] - row["start"] > 30:
+        return JSONResponse({"error": "Split this line before checking its style."}, status_code=400)
+    return _emotion_audio_review(job_id, audio, row["start"], row["end"], row.get("emotion"))
 
 
 @app.post("/api/longdub/{job_id}/corrections/quote")

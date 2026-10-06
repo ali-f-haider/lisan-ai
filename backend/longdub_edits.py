@@ -19,7 +19,104 @@ def active(parent):
 
 
 def rows(parent):
-    return copy.deepcopy(parent.get('correction_draft') or ld.read_segments(parent))
+    # An empty draft is an intentional deletion of its lines, not a request to restore the original.
+    return copy.deepcopy(parent['correction_draft'] if 'correction_draft' in parent else ld.read_segments(parent))
+
+
+def _editable(parent):
+    if parent.get('status') != 'done' or active(parent):
+        raise ValueError('Wait for this project to finish before editing.')
+
+
+def _save_rows(parent, current):
+    parent['correction_draft'] = sorted(current, key=lambda r: r['start'])
+    ld._save(parent)
+
+
+def line_operation(parent, operation, segment_id, position=-1):
+    """Use the original editor's split/translation/diacritics rules on the separate correction draft."""
+    with ld._lock_for(parent['id']):
+        _editable(parent)
+        current = rows(parent)
+        index = next((i for i, r in enumerate(current) if r['segment_id'] == segment_id), None)
+        if index is None:
+            raise ValueError('Line not found in this project.')
+        row = current[index]
+        new_id = None
+        if operation == 'delete':
+            del current[index]
+        elif operation == 'insert':
+            if len(current) >= ld.MAX_SEGMENTS:
+                raise ValueError('The project has reached its line limit.')
+            start = round(float(row['end']), 3)
+            later = [r['start'] for r in current if r['start'] >= start and r['segment_id'] != segment_id]
+            end = round(min(start + ld.NEW_LINE_SEC, min(later) if later else ld._total_secs(parent)), 3)
+            if end - start < ld.MIN_LINE_SEC:
+                raise ValueError('Make room after this line before inserting a new one.')
+            new_id = 'edit_' + uuid.uuid4().hex
+            current.insert(index + 1, dict(segment_id=new_id, start=start, end=end, text='', arabic_text='',
+                speaker_id=row['speaker_id'], speaker=row.get('speaker'), gender=row.get('gender', 'male'),
+                emotion='neutral', words=[], added=True, manual_time=True))
+        elif operation == 'split':
+            if len(current) >= ld.MAX_SEGMENTS:
+                raise ValueError('The project has reached its line limit.')
+            plan, error = ld._split_plan(row, position)
+            if error:
+                raise ValueError(error)
+            new_id = 'edit_' + uuid.uuid4().hex
+            first, second = copy.deepcopy(row), copy.deepcopy(row)
+            first.update(text=plan['left'], words=plan['w_left'], end=plan['t1'], arabic_text='', manual_time=True)
+            second.update(segment_id=new_id, text=plan['right'], words=plan['w_right'], start=plan['t2'],
+                          arabic_text='', added=True, manual_time=True)
+            translated = ld._translate_batch(parent['id'], [first, second], parent.get('glossary'))
+            if not all(translated.get(r['segment_id'], ('',))[0] for r in (first, second)):
+                raise ValueError('Translation did not finish. The original line was kept.')
+            for part in (first, second):
+                part['arabic_text'], emotion = translated[part['segment_id']]
+                if not part.get('emotion_set'):
+                    part['emotion'] = emotion
+            current[index:index + 1] = [first, second]
+        elif operation == 'retranslate':
+            if not row.get('text', '').strip():
+                raise ValueError('Enter the original text first.')
+            translated = ld._translate_batch(parent['id'], [row], parent.get('glossary'))
+            if not translated.get(segment_id, ('',))[0]:
+                raise ValueError('Translation did not finish. Your text was kept.')
+            row['arabic_text'], emotion = translated[segment_id]
+            if not row.get('emotion_set'):
+                row['emotion'] = emotion
+        elif operation == 'tashkeel':
+            import gemini_service
+            text = row.get('arabic_text', '').strip()
+            if not text:
+                raise ValueError('Enter Arabic text first.')
+            if any(ld._word_needs_tashkeel(w) for w in text.split()):
+                result = gemini_service.add_tashkeel_lines(parent['id'],
+                    [{'segment_id': segment_id, 'arabic_text': text}], ld.GEMINI_API_KEY)
+                if result is None:
+                    raise ValueError('Tashkeel did not finish. Your text was kept.')
+                marked = ld.merge_tashkeel(text, result.get(segment_id, ''))
+                if marked == text:
+                    raise ValueError('No diacritics could be added. Your text was kept.')
+                row['arabic_text'] = marked
+        else:
+            raise ValueError('Unknown line action.')
+        _save_rows(parent, current)
+        return new_id
+
+
+def listening_source(parent):
+    source = restore_source(parent)
+    if source:
+        return source
+    return parent if ld.has_media(parent) else None
+
+
+def player_source(parent):
+    source = listening_source(parent)
+    if source:
+        return source
+    return parent if ld.preview_path(parent).exists() else None
 
 
 def edit(parent, incoming):
@@ -43,13 +140,17 @@ def edit(parent, incoming):
             if change['speaker_id'] not in speakers:
                 raise ValueError('Choose one of this project’s original speakers.')
             row['speaker_id'] = change['speaker_id']
-        if 'emotion' in change:
+        if 'emotion' in change and ld.clean_emotion(change['emotion']) != row.get('emotion', 'neutral'):
             row['emotion'] = ld.clean_emotion(change['emotion'])
             row['emotion_set'] = True
         start, end = float(change.get('start', row['start'])), float(change.get('end', row['end']))
         if not math.isfinite(start + end) or start < 0 or end <= start or end > duration + 0.01:
             raise ValueError('Set finite start/end times inside the original file’s duration.')
         row['start'], row['end'] = start, end
+        if 'manual_time' in change:
+            row['manual_time'] = bool(change['manual_time'])
+        if change.get('emotion_set') is True:
+            row['emotion_set'] = True
     current.sort(key=lambda r: r['start'])
     parent['correction_draft'] = current
     ld._save(parent)
@@ -72,7 +173,7 @@ def view(parent):
     current = rows(parent)
     return {'segments': current, 'batches': dub_review.batches(current, parent.get('correction_reviewed')),
             'overlaps': dub_review.overlaps(current), 'speaker_list': parent.get('speaker_list', []),
-            'duration': ld._total_secs(parent), 'has_assets': bool(background(parent)) and all(
+            'duration': ld._total_secs(parent), 'can_play': bool(player_source(parent)), 'has_assets': bool(background(parent)) and all(
                 (parent.get('edit_assets') and (parent.get('dub') or {}).get('voices', {}).get(s['id'])) or
                 (ld.job_dir(parent['id']) / 'editrefs' / (s['id'] + '.wav')).exists()
                 for s in parent.get('speaker_list', [])),

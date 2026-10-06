@@ -323,6 +323,89 @@ class ProviderTests(unittest.TestCase):
             r=emotion_review.inspect('job',sample,'angry','fake')
         self.assertEqual(r['fallback'],'neutral');self.assertIsNone(r['accuracy'])
 
+class EditorActionTests(unittest.TestCase):
+    def setUp(self): CorrectionTests.setUp(self)
+    def tearDown(self): CorrectionTests.tearDown(self)
+    def test_insert_delete_and_empty_draft_never_restore_original_rows(self):
+        new=edits.line_operation(self.parent,'insert','one')
+        inserted=next(r for r in edits.rows(self.parent) if r['segment_id']==new)
+        self.assertEqual((inserted['start'],inserted['end']),(3,5));self.assertTrue(inserted['manual_time'])
+        self.assertEqual(ld.read_segments(self.parent),self.rows)
+        for row in edits.rows(self.parent):edits.line_operation(self.parent,'delete',row['segment_id'])
+        self.assertEqual(edits.rows(self.parent),[]);self.assertEqual(ld.read_segments(self.parent),self.rows)
+    def test_split_uses_translation_and_preserves_original_and_confirmed_style(self):
+        self.rows[0].update(text='hello everyone',emotion='happy',emotion_set=True)
+        ld._write_segments(self.parent,self.rows)
+        translated=lambda jid,rows,glossary:{r['segment_id']:('مرحبا','sad') for r in rows}
+        with patch.object(ld,'_translate_batch',side_effect=translated):new=edits.line_operation(self.parent,'split','one',6)
+        split=edits.rows(self.parent)[:2]
+        self.assertEqual([r['text'] for r in split],['hello','everyone']);self.assertTrue(all(r['emotion']=='happy' for r in split))
+        self.assertTrue(all(r['arabic_text']=='مرحبا' for r in split));self.assertEqual(split[1]['segment_id'],new)
+        self.assertEqual(ld.read_segments(self.parent),self.rows)
+    def test_failed_split_translation_makes_no_partial_change(self):
+        self.rows[0]['text']='hello everyone';ld._write_segments(self.parent,self.rows)
+        with patch.object(ld,'_translate_batch',return_value={}):
+            with self.assertRaises(ValueError):edits.line_operation(self.parent,'split','one',6)
+        self.assertEqual(edits.rows(self.parent),self.rows);self.assertNotIn('correction_draft',self.parent)
+    def test_retranslation_preserves_confirmed_style_and_original(self):
+        self.rows[0].update(emotion='happy',emotion_set=True);ld._write_segments(self.parent,self.rows)
+        with patch.object(ld,'_translate_batch',return_value={'one':('ترجمة جديدة','sad')}):edits.line_operation(self.parent,'retranslate','one')
+        self.assertEqual(edits.rows(self.parent)[0]['emotion'],'happy');self.assertEqual(ld.read_segments(self.parent),self.rows)
+    def test_tashkeel_adds_marks_without_changing_words_or_original(self):
+        import gemini_service
+        self.rows[0]['arabic_text']='مرحبا';ld._write_segments(self.parent,self.rows)
+        with patch.object(gemini_service,'add_tashkeel_lines',return_value={'one':'مَرْحَبًا'}):edits.line_operation(self.parent,'tashkeel','one')
+        self.assertEqual(edits.rows(self.parent)[0]['arabic_text'],'مَرْحَبًا');self.assertEqual(ld.read_segments(self.parent),self.rows)
+    def test_audio_edits_and_new_line_quote_use_saved_draft(self):
+        new=edits.line_operation(self.parent,'insert','one')
+        edits.edit(self.parent,[dict(segment_id=new,arabic_text='مرحبا',start=4,end=5,manual_time=True)])
+        quote=edits.quote(self.parent,[new]);self.assertEqual(quote['rows'][0]['start'],4);self.assertTrue(quote['rows'][0]['manual_time'])
+        self.assertEqual(quote['clones'],0);self.assertEqual(ld.read_segments(self.parent),self.rows)
+    def test_active_correction_and_unknown_row_reject_line_actions(self):
+        for operation in ['insert','split','delete','retranslate','tashkeel']:
+            with patch.object(edits,'active',return_value=True):
+                with self.assertRaises(ValueError):edits.line_operation(self.parent,operation,'one')
+            with self.assertRaises(ValueError):edits.line_operation(self.parent,operation,'other-project-row')
+        self.assertEqual(ld.read_segments(self.parent),self.rows)
+    def test_review_checkbox_can_be_unchecked_without_affecting_other_pages(self):
+        import asyncio
+        job=dict(self.parent,reviewed_batches={'0':'old','1':'unchanged'})
+        env=dict(_ld_job=lambda *a:('user',job,None),longdub_service=ld,longdub_edits=edits,dub_review=dub_review,Request=NS,
+                 JSONResponse=lambda body,status_code:NS(body=body,status_code=status_code))
+        extract('main.py',['longdub_review_page'],env)
+        async def body():return {'page':0,'reviewed':False}
+        with patch.object(ld,'_save'):
+            asyncio.run(env['longdub_review_page']('owned',NS(json=body)))
+        self.assertEqual(job['reviewed_batches'],{'1':'unchanged'})
+    def test_foreign_project_route_stops_before_line_mutation(self):
+        sentinel=object();operation=Mock()
+        env=dict(_ld_job=lambda *a:(None,None,sentinel),LongDubCorrectionAction=NS,Request=NS,longdub_edits=NS(line_operation=operation))
+        extract('main.py',['longdub_correction_line'],env)
+        result=env['longdub_correction_line']('foreign','delete',NS(segment_id='one'),NS())
+        self.assertIs(result,sentinel);operation.assert_not_called()
+
+class OneSecondMusicTests(unittest.TestCase):
+    def test_one_second_context_is_eligible_without_inventing_a_reference(self):
+        import music_fill
+        db=np.r_[np.full(10,-24.),np.full(50,-120.)]
+        gaps,info=music_fill.find_gaps(db,[(1,6)])
+        self.assertEqual(gaps,[(1.0,6.0)]);self.assertEqual(info['music_sec'],1.0)
+        self.assertEqual(music_fill.find_gaps(np.full(60,-120.),[(0,6)])[0],[])
+        self.assertEqual(music_fill.find_gaps(np.r_[np.full(9,-24.),np.full(51,-120.)],[(.9,6)])[0],[])
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg required')
+    def test_quote_and_fill_agree_for_one_second_music_context(self):
+        import music_fill,dub_background,io,wave
+        rate=music_fill.RATE;t=np.arange(rate*6)/rate;tone=np.repeat((np.sin(2*np.pi*220*t)*2200).astype('<i2')[:,None],2,axis=1)
+        muted=tone.copy();muted[rate:]=0
+        src=DATA/'one-second-context.wav';out=DATA/'one-second-repaired.wav';music_fill._write_wav(src,muted)
+        self.assertEqual(dub_background.count_repairs(src,[(1,6)],DATA/'one-second.pcm',original=src),1)
+        data=io.BytesIO()
+        with wave.open(data,'wb') as audio:audio.setnchannels(2);audio.setsampwidth(2);audio.setframerate(rate);audio.writeframes(tone.tobytes())
+        charges=[];runner=Mock(return_value=data.getvalue())
+        result=music_fill.fill(src,out,[(1,6)],'fake',prompt='instrumental',runner=runner,on_filled=lambda *a:charges.append(a))
+        self.assertTrue(result['filled'],result['reason']);self.assertEqual(runner.call_count,1);self.assertEqual(len(charges),1)
+        self.assertTrue(out.exists());self.assertFalse(Path(str(out)+'.mf.pcm').exists())
+
 if __name__=='__main__':unittest.main()
 
 

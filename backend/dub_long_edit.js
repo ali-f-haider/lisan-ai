@@ -1,40 +1,64 @@
-/* Completed projects stay intact. Saving a draft never replaces a published dub. */
+var EMOTIONS = ["neutral", "happy", "sad", "angry", "fearful", "surprised", "disgusted", "shouting", "whispering", "screaming", "yelling", "crying", "laughing", "sarcastic", "seductive", "narrative", "announcer", "conversational", "depressed", "anxious", "confident", "indifferent", "excited", "serious", "playful", "terrified", "relieved", "thoughtful", "mocking", "pleading", "commanding", "slowly", "rushed", "drawn out", "hesitant", "stammering", "softly", "booming", "sorrowful", "frustrated", "annoyed", "appalled", "awe", "regretful", "resigned", "curious", "deadpan", "tired", "sneezing", "coughing", "sighing", "gasping", "laugh", "sigh", "clear throat", "yawn", "very fast", "very quiet", "high pitch"];
+var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "angry": "غاضب", "fearful": "خائف", "surprised": "متفاجئ", "disgusted": "مشمئز", "shouting": "يصيح", "whispering": "يهمس", "screaming": "يصرخ", "yelling": "ينادي بصوت عالٍ", "crying": "يبكي", "laughing": "يضحك أثناء الكلام", "sarcastic": "ساخر", "seductive": "مُغرٍ", "narrative": "سردي", "announcer": "مذيع", "conversational": "حواري", "depressed": "مكتئب", "anxious": "قلق", "confident": "واثق", "indifferent": "لامبالٍ", "excited": "متحمس", "serious": "جاد", "playful": "مرح", "terrified": "مرعوب", "relieved": "مرتاح", "thoughtful": "متأمل", "mocking": "مستهزئ", "pleading": "متوسل", "commanding": "آمر", "slowly": "ببطء", "rushed": "مستعجل", "drawn out": "مع مدّ الكلمات", "hesitant": "متردد", "stammering": "متلعثم", "softly": "بصوت خافت", "booming": "بصوت جهوري", "sorrowful": "كئيب", "frustrated": "محبط", "annoyed": "منزعج", "appalled": "مصدوم", "awe": "مبهور", "regretful": "نادم", "resigned": "مستسلم", "curious": "فضولي", "deadpan": "ببرود", "tired": "متعب", "sneezing": "يعطس", "coughing": "يسعل", "sighing": "يتنهد", "gasping": "يشهق", "laugh": "ضحكة", "sigh": "تنهيدة", "clear throat": "تنحنح", "yawn": "تثاؤب", "very fast": "سريع جداً", "very quiet": "هادئ جداً", "high pitch": "نبرة عالية"};
+/* Correction edits never replace the original transcript or published dub. */
 (function () {
   'use strict';
-  var lang = localStorage.getItem('lisanEditLang') || 'en', project = null, state = null;
-  var selected = new Set(), page = 0, dirty = false, working = false, pending = null, saveTimer = null, saveFlight = null;
+  var lang = localStorage.getItem('lisan_lang') === 'ar' ? 'ar' : 'en', project = null, state = null;
+  var selected = new Set(), page = 0, dirty = false, working = false, saveTimer = null, saveFlight = null;
+  var manualNoticeId = '', notified = new Set(), pollTimer = null;
   var $ = function(id) { return document.getElementById(id); };
   var tr = function(en, ar) { return lang === 'ar' ? ar : en; };
   async function api(path, method, body) {
     var options = {method:method || 'GET', credentials:'same-origin'};
     if (body) { options.headers = {'Content-Type':'application/json'}; options.body = JSON.stringify(body); }
     var response = await fetch(path, options), data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed');
+    if (!response.ok) throw new Error(data.error || tr('Request failed.', 'تعذّر تنفيذ الطلب.'));
     return data;
   }
-  function error(ex) { $('error').textContent = ex.message || String(ex); }
+  function error(ex) {
+    $('error').textContent = lang === 'ar' ? 'تعذّر إكمال الخطوة. تحقق من التوقيت والملف الأصلي ثم حاول مرة أخرى.' : ex.message || String(ex);
+  }
+  function notify(type, message) {
+    var item = document.createElement('div'); item.className = 'notify ' + type;
+    var text = document.createElement('div'); text.className = 'msg'; text.textContent = message;
+    var close = document.createElement('button'); close.type = 'button'; close.textContent = tr('OK', 'حسناً'); close.onclick = function() { item.remove(); };
+    item.append(text, close); $('notifyPanel').appendChild(item); $('notifyPanel').style.display = 'flex';
+    setTimeout(function() { item.remove(); if (!$('notifyPanel').children.length) $('notifyPanel').style.display = 'none'; }, 10000);
+  }
   function staticText() {
     document.documentElement.lang = lang; document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
-    $('title').textContent = tr('Correct a long dub', 'تصحيح الدبلجة الطويلة');
-    $('back').textContent = tr('Long dubbing', 'الدبلجة الطويلة'); $('appLink').textContent = tr('Main app', 'التطبيق الرئيسي');
+    document.title = tr('Lisan AI — Correct a long dub', 'لسان — تصحيح الدبلجة الطويلة');
+    $('title').textContent = document.title;
+    $('back').textContent = tr('← Long dubbing', '← الدبلجة الطويلة'); $('appLink').textContent = tr('← Back to App', '← العودة إلى التطبيق');
+    $('logout').textContent = tr('Log Out', 'تسجيل الخروج'); $('creditsWord').textContent = tr('credits', 'رصيد');
     $('language').textContent = lang === 'ar' ? 'English' : 'العربية';
     $('chooseLabel').textContent = tr('Choose a completed project', 'اختر مشروعاً مكتملاً');
-    $('intro').textContent = tr('Select only the lines that need another dub. Correct their text, speaker, style or timing, then generate a correction track. Each export keeps the original duration, with no generated voices outside your selected lines.', 'حدد فقط الأسطر التي تحتاج إعادة الدبلجة. صحح النص أو المتحدث أو الأسلوب أو التوقيت ثم أنشئ مسار التصحيحات. يحافظ كل ملف على مدة الأصل، ولا يحتوي على أصوات مولدة خارج الأسطر المحددة.');
-    $('review').textContent = tr('✓ Mark these ten lines reviewed', '✓ تمت مراجعة هذه الأسطر العشرة');
+    $('intro').textContent = tr('Select the lines that need another dub, correct their text or timing, and generate a correction track. Each export keeps the original duration, with no generated voices outside the selected lines.', 'حدد الأسطر التي تحتاج إعادة الدبلجة، وصحح النص أو التوقيت ثم أنشئ مسار التصحيحات. يحافظ كل ملف على مدة الأصل، ولا يحتوي على أصوات مولدة خارج الأسطر المحددة.');
+    $('helpButton').setAttribute('aria-label', tr('Help', 'مساعدة'));
     $('dub').textContent = tr('Dub selected lines', 'دبلجة الأسطر المحددة'); $('finish').textContent = tr('Finish corrections', 'إنهاء التصحيحات');
-    $('trackHelp').textContent = tr('Download either the corrections with the full music/effects layer, or voices only. Use voices only when keeping the existing background in Premiere, DaVinci or CapCut. Each new pass generates only the lines you select.', 'نزّل التصحيحات مع كامل الموسيقى والمؤثرات، أو الأصوات فقط. استخدم الأصوات فقط عند الإبقاء على الخلفية الموجودة في Premiere أو DaVinci أو CapCut. في كل مرة تُولد الأسطر المحددة فقط.');
-    $('recoveryTitle').textContent = tr('Recover editing assets', 'استعادة ملفات التحرير');
-    $('recoveryText').textContent = tr('This older project’s voices/references were deleted. Attach the same original file: its fingerprint is checked, and its audio is prepared without retranscribing. Voice re-cloning and any first background repair are shown in the price before generation.', 'حُذفت أصوات وعينات هذا المشروع القديم. أرفق الملف الأصلي نفسه: يتم التحقق من بصمته وتحضير صوته دون إعادة التفريغ. تظهر تكلفة إعادة استنساخ الصوت وإصلاح الخلفية قبل التوليد.');
+    $('trackHelp').textContent = tr('Use selected voices only when keeping your existing background in Premiere, DaVinci or CapCut. Each new pass generates only the lines you select.', 'استخدم الأصوات المحددة فقط عند الإبقاء على الخلفية الموجودة في برنامج المونتاج. في كل مرة تُولد الأسطر المحددة فقط.');
+    $('recoveryTitle').textContent = tr('Attach the original for editing', 'إرفاق الأصل للتحرير');
+    $('recoveryText').textContent = tr('Attach the same original file if voice references or the background are missing, or to listen to the original audio. It is verified without retranscribing. Any required re-cloning or background repair is included in the generation price.', 'أرفق الملف الأصلي نفسه عند غياب عينات الصوت أو الخلفية، أو للاستماع إلى الصوت الأصلي. يتم التحقق منه دون إعادة التفريغ. تُحتسب إعادة الاستنساخ وإصلاح الخلفية عند الحاجة ضمن سعر التوليد.');
     $('restore').textContent = tr('Attach original file', 'إرفاق الملف الأصلي');
     $('exportsTitle').textContent = tr('Correction exports', 'ملفات التصحيحات');
+    $('timeHeading').textContent = tr('Timing and speaker', 'التوقيت والمتحدث');
+    $('originalHeading').textContent = tr('Original text', 'النص الأصلي'); $('arabicHeading').textContent = tr('Arabic text', 'النص العربي');
   }
-  function setBusy(value) { working = value; document.querySelectorAll('#lines input,#lines textarea,#lines select,#pages button').forEach(function(c) { c.disabled = value; }); ['dub','finish','projects','restore','review'].forEach(function(id) { $(id).disabled = value; }); }
+  function setBusy(value) {
+    working = value;
+    document.querySelectorAll('#lines input,#lines textarea,#lines select,#lines button,#pages button,#pages input,#pagesBottom button,#pagesBottom input').forEach(function(c) { c.disabled = value; });
+    ['dub','finish','projects','restore'].forEach(function(id) { $(id).disabled = value; });
+  }
   function count() { $('selectedCount').textContent = tr(selected.size + ' selected lines', selected.size + ' أسطر محددة'); }
-  function change(row, field, value) {
-    row[field] = value; dirty = true; pending = null;
+  function invalidate(row) {
     var index = state.segments.findIndex(function(r) { return r.segment_id === row.segment_id; });
     var batch = (state.batches || []).find(function(b) { return b.page === Math.floor(index / 10); });
     if (batch) batch.reviewed = false;
+  }
+  function change(row, field, value) {
+    row[field] = value;
+    if (field === 'emotion') row.emotion_set = true;
+    dirty = true; invalidate(row);
     renderPages(); $('saveState').textContent = tr('Unsaved changes', 'تغييرات غير محفوظة');
     clearTimeout(saveTimer); saveTimer = setTimeout(function() { save().catch(error); }, 900);
   }
@@ -49,132 +73,221 @@
     if (!dirty || !project) return;
     var id = project.id, snapshot = JSON.stringify(state.segments);
     var data = await api('/api/longdub/' + id + '/corrections', 'PUT', {edits:JSON.parse(snapshot)});
-    if (project.id !== id) return;
-    if (JSON.stringify(state.segments) === snapshot) { state = data; dirty = false; $('saveState').textContent = tr('Saved', 'تم الحفظ'); renderPages(); }
-    else { dirty = true; }
-  }
-  function renderPages() {
-    $('pages').replaceChildren();
-    (state.batches || []).forEach(function(batch) {
-      var button = document.createElement('button'); button.type = 'button';
-      button.textContent = (batch.reviewed ? '✓ ' : '') + batch.first + '–' + batch.last;
-      button.classList.toggle('checked', batch.reviewed); button.setAttribute('aria-current', batch.page === page ? 'page' : 'false');
-      button.onclick = async function() { try { await save(); page = batch.page; renderLines(); } catch(ex) { error(ex); } };
-      $('pages').appendChild(button);
-    });
-  }
-  function input(parent, label, type, value, onChange) {
-    var wrap = document.createElement('label'); wrap.textContent = label;
-    var control = document.createElement(type === 'textarea' ? 'textarea' : 'input');
-    if (type !== 'textarea') control.type = type;
-    if (type === 'number') { control.step = '.01'; control.min = 0; control.max = state.duration; }
-    if (type === 'textarea') control.maxLength = 2000;
-    control.value = value; control.oninput = function() { onChange(type === 'number' ? Number(control.value) : control.value); };
-    wrap.appendChild(control); parent.appendChild(wrap); return control;
-  }
-  function renderLines() {
-    renderPages(); $('lines').replaceChildren();
-    state.segments.slice(page * 10, page * 10 + 10).forEach(function(row) {
-      var line = document.createElement('div'); line.className = 'line';
-      var tools = document.createElement('div'); var selectLabel = document.createElement('label');
-      var box = document.createElement('input'); box.type = 'checkbox'; box.checked = selected.has(row.segment_id);
-      box.onchange = function() { if (box.checked) selected.add(row.segment_id); else selected.delete(row.segment_id); pending = null; count(); };
-      selectLabel.append(box, document.createTextNode(tr(' Correct this line', ' تصحيح هذا السطر'))); tools.appendChild(selectLabel);
-      input(tools, tr('Start (seconds)', 'البداية بالثواني'), 'number', row.start, function(v) { change(row, 'start', v); });
-      input(tools, tr('End (seconds)', 'النهاية بالثواني'), 'number', row.end, function(v) { change(row, 'end', v); });
-      var speaker = document.createElement('select');
-      state.speaker_list.forEach(function(s) { var option = document.createElement('option'); option.value = s.id; option.textContent = s.name; speaker.appendChild(option); });
-      speaker.value = row.speaker_id; speaker.setAttribute('aria-label', tr('Speaker', 'المتحدث')); speaker.onchange = function() { change(row, 'speaker_id', speaker.value); }; tools.appendChild(speaker);
-      input(tools, tr('Speaking style', 'أسلوب الكلام'), 'text', row.emotion || 'neutral', function(v) { change(row, 'emotion', v); });
-      if ((state.overlaps[row.segment_id] || []).length) { var warn = document.createElement('p'); warn.className = 'warning'; warn.textContent = tr('⚠ Overlaps another line. Check both timings.', '⚠ يتداخل مع سطر آخر. راجع توقيت السطرين.'); tools.appendChild(warn); }
-      var en = document.createElement('div'), ar = document.createElement('div');
-      input(en, tr('Original text', 'النص الأصلي'), 'textarea', row.text || '', function(v) { change(row, 'text', v); }).dir = 'ltr';
-      input(ar, tr('Arabic text', 'النص العربي'), 'textarea', row.arabic_text || '', function(v) { change(row, 'arabic_text', v); }).dir = 'rtl';
-      line.append(tools, en, ar); $('lines').appendChild(line);
-    }); count();
-  }
-  function renderHistory() {
-    $('history').replaceChildren(); $('exports').classList.toggle('hidden', !state.history.length);
-    state.history.forEach(function(job) {
-      var item = document.createElement('div'); var label = document.createElement('p'); label.textContent = job.name + ' — ' + job.status; item.appendChild(label);
-      if (job.status === 'done' && job.file_available) {
-        [['download',tr('Music/effects + selected voices', 'الموسيقى والمؤثرات مع الأصوات المحددة')],['track/voices',tr('Selected voices only', 'الأصوات المحددة فقط')]].forEach(function(pair) {
-          var link = document.createElement('a'); link.href = '/api/longdub/' + job.id + '/' + pair[0]; link.textContent = pair[1]; link.style.marginInlineEnd = '18px'; item.appendChild(link);
-        });
-      }
-      if (job.error) { var note = document.createElement('p'); note.className = 'error'; note.textContent = job.error; item.appendChild(note); }
-      $('history').appendChild(item);
-    });
-  }
-  async function open(id) {
-    if (dirty) await save();
-    selected.clear(); page = 0; pending = null;
-    project = {id:id}; state = await api('/api/longdub/' + id + '/corrections');
-    $('editor').classList.remove('hidden'); $('recovery').classList.toggle('hidden', state.has_assets);
-    $('error').textContent = ''; renderLines(); renderHistory();
-    if (state.busy) poll();
-  }
-  async function poll() {
-    if (!project) return;
-    var id = project.id, data = await api('/api/longdub/' + id + '/corrections');
     if (!project || project.id !== id) return;
-    state.history = data.history; renderHistory();
-    var busy = data.history.find(function(j) { return j.status === 'payment_pending' || j.status === 'dubbing' || j.status === 'confirmed'; });
-    $('progress').textContent = busy ? busy.message + ' ' + (busy.percent || 0) + '%' : '';
-    state.busy = !!busy;
-    setBusy(!!busy);
-    if (busy) setTimeout(function() { poll().catch(error); }, 3000);
-    else { state = data; renderLines(); }
+    if (JSON.stringify(state.segments) === snapshot) {
+      // Keep the row objects bound to the controls; replacing them loses the next keystroke after autosave.
+      var reordered = data.segments.map(function(r) { return r.segment_id; }).join('|') !== state.segments.map(function(r) { return r.segment_id; }).join('|');
+      var active = document.activeElement && document.activeElement.closest('.ld-seg');
+      var anchor = active ? active.dataset.id : state.segments[page*10] && state.segments[page*10].segment_id;
+      var byId = new Map(state.segments.map(function(r) { return [r.segment_id,r]; }));
+      state.segments = data.segments.map(function(r) { return byId.get(r.segment_id); });
+      state.batches = data.batches; state.overlaps = data.overlaps; dirty = false;
+      $('saveState').textContent = tr('Saved', 'تم الحفظ');
+      if(reordered) { page = Math.max(0,Math.floor(state.segments.findIndex(function(r) { return r.segment_id===anchor; })/10)); renderLines(); }
+      else { renderPages(); refreshOverlaps(); }
+    }
   }
-  $('dub').onclick = async function() {
-    $('error').textContent = ''; setBusy(true);
-    try {
-      await save(); var ids = Array.from(selected); var id = project.id;
-      pending = await api('/api/longdub/' + id + '/corrections/quote', 'POST', {selected:ids});
-      var text = tr('Generate ' + ids.length + ' selected lines for ' + pending.due + ' credits?', 'إنشاء ' + ids.length + ' أسطر محددة مقابل ' + pending.due + ' رصيداً؟');
-      if (pending.music.max_credits) text += tr('\nMusic recovery: up to ' + pending.music.max_credits + ' additional credits, charged only for successful repairs.', '\nاستعادة الموسيقى: بحد أقصى ' + pending.music.max_credits + ' رصيداً إضافياً؛ تُحاسب فقط على الإصلاحات الناجحة.');
-      var confirmed = window.LisanDialog ? await LisanDialog.confirm(text) : window.confirm(text);
-      if (!confirmed) return;
-      await api('/api/longdub/' + id + '/corrections/dub', 'POST', {selected:ids, token:pending.token});
-      await poll();
-    } catch(ex) { error(ex); } finally { if (!state.busy) setBusy(false); }
-  };
-  $('review').onclick = async function() { try { await save(); var r = await api('/api/longdub/' + project.id + '/review','POST',{page:page,correction:true}); state.batches = r.batches; renderPages(); } catch(ex) { error(ex); } };
-  $('finish').onclick = async function() {
-    try {
-      var text = tr('Release the saved cloned voices? You can return later, but re-cloning from the saved samples will cost credits.', 'هل تريد تحرير الأصوات المستنسخة المحفوظة؟ يمكنك العودة لاحقاً لكن إعادة الاستنساخ من العينات المحفوظة تتطلب رصيداً.');
-      var yes = window.LisanDialog ? await LisanDialog.confirm(text) : window.confirm(text);
-      if (yes) { await api('/api/longdub/' + project.id + '/corrections/finish','POST',{}); $('progress').textContent = tr('Cloned voices released. Your exports and reference samples remain saved.', 'تم تحرير الأصوات المستنسخة. تظل الملفات والعينات المرجعية محفوظة.'); }
-    } catch(ex) { error(ex); }
-  };
-  $('restore').onclick = async function() {
-    var file = $('original').files[0]; if (!file || !project) return;
+  async function markBatch(batch, checked) {
+    if (working) return;
     setBusy(true);
     try {
-      var restore = await api('/api/longdub/' + project.id + '/corrections/restore','POST',{filename:file.name,size:file.size});
-      var chunk = restore.chunk_bytes || 8 * 1024 * 1024;
-      for (var at = 0, index = 0; at < file.size; at += chunk, index++) {
-        var response = await fetch('/api/longdub/' + restore.id + '/chunk?index=' + index, {method:'PUT',body:file.slice(at,at+chunk)});
-        if (!response.ok) throw new Error((await response.json()).error || 'Upload failed');
-        $('restoreStatus').textContent = tr('Uploading original… ', 'جارٍ رفع الأصل… ') + Math.round((at+chunk)/file.size*100) + '%';
+      await save();
+      var result = await api('/api/longdub/' + project.id + '/review', 'POST', {page:batch.page,correction:true,reviewed:checked});
+      state.batches = result.batches;
+    } catch(ex) { error(ex); }
+    finally { setBusy(false); renderPages(); }
+  }
+  function renderPages() {
+    ['pages','pagesBottom'].forEach(function(id) {
+      $(id).replaceChildren();
+      (state.batches || []).forEach(function(batch) {
+        var group = document.createElement('span'); group.className = 'ld-page-group'; group.classList.toggle('reviewed', batch.reviewed);
+        var button = document.createElement('button'); button.type = 'button'; button.className = 'btn-plain';
+        button.textContent = batch.first + '–' + batch.last; button.disabled = working;
+        button.setAttribute('aria-current', batch.page === page ? 'page' : 'false');
+        button.onclick = async function() { if (working) return; try { await save(); state.segments.sort(function(a,b) { return a.start-b.start; }); page = batch.page; renderLines(); } catch(ex) { error(ex); } };
+        var label = document.createElement('label'), check = document.createElement('input'); check.type = 'checkbox'; check.checked = batch.reviewed; check.disabled = working;
+        label.title = tr('These lines are reviewed', 'تمت مراجعة هذه الأسطر'); check.setAttribute('aria-label', label.title + ' ' + button.textContent);
+        check.onchange = function() { markBatch(batch, check.checked); };
+        label.appendChild(check); group.append(button, label); $(id).appendChild(group);
+      });
+    });
+  }
+  function button(parent, en, ar, callback, danger) {
+    var control = document.createElement('button'); control.type = 'button'; control.className = danger ? 'btn-danger' : 'btn-plain'; control.textContent = tr(en, ar); control.onclick = callback; parent.appendChild(control); return control;
+  }
+  function refreshOverlaps() {
+    document.querySelectorAll('#lines .ld-seg').forEach(function(element) {
+      var overlaps = (state.overlaps[element.dataset.id] || []).length > 0;
+      element.classList.toggle('ld-overlap', overlaps); var warning = element.querySelector('.ld-overlap-warning'); if(warning) warning.classList.toggle('hidden', !overlaps);
+    });
+  }
+  function timeInput(parent, row, field, en, ar) {
+    var wrap = document.createElement('label'); wrap.className = 'ld-tf'; var title = document.createElement('span'); title.textContent = tr(en, ar);
+    var input = document.createElement('input'); input.type = 'number'; input.step = '.001'; input.min = 0; input.max = state.duration; input.value = row[field];
+    input.setAttribute('aria-label', tr(en, ar)); input.onchange = function() { change(row,field,Number(input.value)); };
+    wrap.append(title,input); parent.appendChild(wrap);
+  }
+  function stylePicker(parent,row) {
+    var shell = document.createElement('details'); shell.className = 'ld-edit-style';
+    var summary = document.createElement('summary'); shell.appendChild(summary); var menu = document.createElement('div'); shell.appendChild(menu);
+    var tags = (row.emotion || 'neutral').split(',').map(function(t) { return t.trim(); });
+    function refresh() { summary.textContent = tags.map(function(t) { return lang==='ar' ? EMO_AR[t] || t : t.charAt(0).toUpperCase()+t.slice(1); }).join(lang==='ar' ? '، ' : ', '); }
+    EMOTIONS.forEach(function(tag) {
+      var label=document.createElement('label'), box=document.createElement('input'); box.type='checkbox'; box.checked=tags.includes(tag);
+      label.append(box,document.createTextNode(lang==='ar' ? EMO_AR[tag] || tag : tag.charAt(0).toUpperCase()+tag.slice(1)));
+      box.onchange=function() {
+        if(working) { box.checked=!box.checked; return; }
+        if(box.checked && tags.filter(function(t){return t!=='neutral';}).length>=3 && tag!=='neutral') { box.checked=false; return; }
+        tags=box.checked ? (tag==='neutral' ? ['neutral'] : tags.filter(function(t){return t!=='neutral';}).concat(tag)) : tags.filter(function(t){return t!==tag;});
+        if(!tags.length) tags=['neutral'];
+        menu.querySelectorAll('input').forEach(function(c,i){c.checked=tags.includes(EMOTIONS[i]);}); change(row,'emotion',tags.join(', ')); refresh();
+      };
+      menu.appendChild(label);
+    }); refresh(); parent.appendChild(shell);
+  }
+  async function action(row,operation,extra) {
+    if(working) return;
+    setBusy(true); $('error').textContent='';
+    try {
+      await save(); var data=await api('/api/longdub/'+project.id+'/corrections/line/'+operation,'POST',Object.assign({segment_id:row.segment_id},extra || {}));
+      state=data; dirty=false;
+      var existing=new Set(state.segments.map(function(r){return r.segment_id;})); selected.forEach(function(id){if(!existing.has(id))selected.delete(id);});
+      if(data.new_id) {
+        selected.add(data.new_id); if(operation==='split') selected.add(row.segment_id);
+        manualNoticeId=data.new_id; page=Math.floor(state.segments.findIndex(function(r){return r.segment_id===data.new_id;})/10);
+        notify('info',tr('Enter the start and end times manually for precise placement.','أدخل وقت البداية والنهاية يدوياً لتحديد موضع السطر بدقة.'));
       }
-      await api('/api/longdub/' + restore.id + '/finish','POST',{});
-      var watch = async function() {
-        var job = await api('/api/longdub/' + restore.id); $('restoreStatus').textContent = job.message;
-        if (job.status === 'failed') throw new Error(job.error);
-        if (job.status === 'editing') { $('restoreStatus').textContent = tr('Original audio recovered. Select lines and review the correction price.', 'تمت استعادة الصوت الأصلي. حدد الأسطر وراجع سعر التصحيح.'); setBusy(false); }
-        else setTimeout(function() { watch().catch(function(ex) { error(ex); setBusy(false); }); }, 3000);
-      }; await watch();
-    } catch(ex) { error(ex); setBusy(false); }
+      $('saveState').textContent=tr('Saved','تم الحفظ'); renderLines();
+    } catch(ex) { error(ex); }
+    finally { setBusy(false); }
+  }
+  async function checkStyle(row) {
+    if(working) return; setBusy(true);
+    try {
+      await save(); var result=await api('/api/longdub/'+project.id+'/corrections/emotion','POST',{segment_id:row.segment_id});
+      var style=lang==='ar' ? EMO_AR[result.fallback] || result.fallback : result.fallback;
+      var text=tr('Suggested style: ','الأسلوب المقترح: ')+style+(lang==='en' ? '\n'+result.reason : '')+'\n'+tr('Apply this suggestion?','هل تريد تطبيق هذا الاقتراح؟');
+      if(await LisanDialog.confirm(text)) { change(row,'emotion',result.fallback); await save(); renderLines(); }
+    } catch(ex) { error(ex); }
+    finally { setBusy(false); }
+  }
+  function renderLines() {
+    page=Math.max(0,Math.min(page,Math.ceil(state.segments.length/10)-1)); renderPages(); $('lines').replaceChildren();
+    state.segments.slice(page*10,page*10+10).forEach(function(row,index) {
+      var line=document.createElement('div'); line.className='ld-seg'; line.dataset.id=row.segment_id;
+      var tools=document.createElement('div'); tools.className='ld-time';
+      var label=document.createElement('label'); label.className='ld-select-line'; var box=document.createElement('input'); box.type='checkbox'; box.checked=selected.has(row.segment_id);
+      box.onchange=function(){if(box.checked)selected.add(row.segment_id);else selected.delete(row.segment_id);count();}; label.append(box,document.createTextNode(tr('Correct line ','تصحيح السطر ')+(page*10+index+1))); tools.appendChild(label);
+      timeInput(tools,row,'start','Start','البداية'); timeInput(tools,row,'end','End','النهاية');
+      var speaker=document.createElement('select'); state.speaker_list.forEach(function(s){var opt=document.createElement('option');opt.value=s.id;opt.textContent=s.name;speaker.appendChild(opt);}); speaker.value=row.speaker_id;speaker.setAttribute('aria-label',tr('Speaker','المتحدث'));speaker.onchange=function(){change(row,'speaker_id',speaker.value);};tools.appendChild(speaker);
+      var warning=document.createElement('p');warning.className='ld-time-notice ld-overlap-warning hidden';warning.textContent=tr('⚠ Overlaps another line. Check both timings.','⚠ يتداخل مع سطر آخر. راجع توقيت السطرين.');tools.appendChild(warning);
+      if(manualNoticeId===row.segment_id){var notice=document.createElement('p');notice.className='ld-time-notice';notice.setAttribute('role','status');notice.textContent=tr('Set both times manually for precise placement.','أدخل الوقتين يدوياً لتحديد الموضع بدقة.');tools.appendChild(notice);}
+      var original=document.createElement('textarea'); original.className='en'; original.dir='ltr'; original.maxLength=2000; original.value=row.text||''; original.setAttribute('aria-label',tr('Original text','النص الأصلي')); original.oninput=function(){change(row,'text',original.value);};
+      var caret=false; ['click','keyup','select'].forEach(function(event){original.addEventListener(event,function(){caret=true;});});
+      var controls=document.createElement('div');controls.className='ld-lbtns';tools.appendChild(controls);
+      button(controls,'Enter man.','إدخال يدوي',function(){openPlayer(row);});
+      button(controls,'Split at cursor','تقسيم عند المؤشر',function(){if(!caret){notify('info',tr('Click between two words in the original text, then split.','انقر بين كلمتين في النص الأصلي ثم اضغط التقسيم.'));return;}action(row,'split',{position:original.selectionStart});});
+      button(controls,'+ Insert a line after','+ إدراج سطر بعده',function(){action(row,'insert');});
+      button(controls,'Delete line','حذف السطر',async function(){if(await LisanDialog.confirm(tr('Delete this correction line? The first dub stays saved.','حذف هذا السطر من التصحيحات؟ تظل الدبلجة الأولى محفوظة.'),{danger:true}))action(row,'delete');},true);
+      var wrap=document.createElement('div');wrap.className='ld-arwrap';var arabic=document.createElement('textarea');arabic.className='ar';arabic.dir='rtl';arabic.maxLength=2000;arabic.value=row.arabic_text||'';arabic.classList.toggle('missing',!arabic.value.trim());arabic.setAttribute('aria-label',tr('Arabic text','النص العربي'));
+      var foot=document.createElement('div');foot.className='ld-arfoot';var countText=document.createElement('span');countText.className='ld-cnt';function updateCount(){countText.textContent=arabic.value.length+tr(' characters',' حرفاً');}updateCount();arabic.oninput=function(){change(row,'arabic_text',arabic.value);arabic.classList.toggle('missing',!arabic.value.trim());updateCount();};
+      var right=document.createElement('div');right.className='ld-foot-r';stylePicker(right,row);
+      button(right,'Check style from audio','فحص الأسلوب بالصوت',function(){checkStyle(row);});
+      button(right,'Tashkeel','تشكيل',function(){action(row,'tashkeel');});button(right,'Translate again','أعد الترجمة',function(){action(row,'retranslate');});
+      foot.append(countText,right);wrap.append(arabic,foot);line.append(tools,original,wrap);$('lines').appendChild(line);
+    });count();refreshOverlaps();setBusy(working);
+  }
+  function statusText(job) {
+    if(lang==='en')return job.message||job.status;
+    return ({done:'اكتملت التصحيحات',failed:'تعذّر إكمال التصحيحات',dubbing:'جارٍ توليد التصحيحات',confirmed:'التصحيحات في قائمة الانتظار',payment_pending:'جارٍ التحقق من الرصيد'})[job.status]||'جارٍ معالجة المشروع';
+  }
+  function cost(job) { return Object.values(job.paid||{}).reduce(function(sum,value){return sum+(Number.isFinite(value)?value:0);},0); }
+  function renderHistory() {
+    $('history').replaceChildren();$('exports').classList.toggle('hidden',!state.history.length);
+    state.history.forEach(function(job){
+      var item=document.createElement('div');item.className='ld-list-item';var content=document.createElement('div'),label=document.createElement('strong');label.textContent=job.name;content.appendChild(label);var status=document.createElement('p');status.className='ld-plain-note';status.textContent=statusText(job)+(job.status==='done' ? tr(' · Cost: ',' · التكلفة: ')+cost(job)+tr(' credits',' رصيد') : '');content.appendChild(status);
+      if(job.status==='done'&&job.file_available){var links=document.createElement('div');links.className='ld-downloads';[['download',tr('Music/effects + selected voices','الموسيقى والمؤثرات مع الأصوات المحددة')],['track/voices',tr('Selected voices only','الأصوات المحددة فقط')]].forEach(function(pair){var link=document.createElement('a');link.className='ld-dl';link.href='/api/longdub/'+job.id+'/'+pair[0];link.textContent=pair[1];links.appendChild(link);});content.appendChild(links);}
+      if(job.error){var note=document.createElement('p');note.className='ld-err';note.textContent=lang==='ar' ? 'تعذّر إكمال هذا التصدير. راجع الملف الأصلي والتوقيت.' : job.error;content.appendChild(note);}
+      item.appendChild(content);$('history').appendChild(item);
+    });
+  }
+  function progress(job,override) {
+    var percent=Math.max(0,Math.min(100,Number(job.percent)||0));$('genProgress').classList.remove('hidden');$('progressFill').style.width=percent+'%';$('progressBar').setAttribute('aria-valuenow',String(percent));$('progress').textContent=percent+'% — '+(override||statusText(job));
+  }
+  async function refreshCredits() { var data=await api('/api/longdub');$('balance').textContent=data.credits==null ? '…' : data.credits; }
+  async function open(id) {
+    if(working)return;setBusy(true);
+    try{if(dirty)await save();clearTimeout(pollTimer);selected.clear();page=0;manualNoticeId='';project={id:id};state=null;$('editor').classList.add('hidden');$('recovery').classList.add('hidden');
+      state=await api('/api/longdub/'+id+'/corrections');notified=new Set(state.history.filter(function(j){return j.status==='done';}).map(function(j){return j.id;}));$('editor').classList.remove('hidden');$('recovery').classList.toggle('hidden',state.has_assets&&state.can_play);$('error').textContent='';$('genProgress').classList.add('hidden');renderLines();renderHistory();if(state.busy)await poll();}
+    finally{if(!state||!state.busy)setBusy(false);}
+  }
+  async function poll() {
+    if(!project)return;var id=project.id,data;
+    try{data=await api('/api/longdub/'+id+'/corrections');}
+    catch(ex){if(project&&project.id===id){error(ex);pollTimer=setTimeout(function(){poll().catch(error);},3000);}return;}
+    if(!project||project.id!==id)return;$('error').textContent='';
+    state.history=data.history;renderHistory();var busy=data.history.find(function(j){return ['payment_pending','dubbing','confirmed'].includes(j.status);});state.busy=!!busy;setBusy(!!busy);
+    if(busy){progress(busy);pollTimer=setTimeout(function(){poll().catch(error);},3000);}
+    else{var finished=data.history.filter(function(j){return j.status==='done'&&!notified.has(j.id);});finished.forEach(function(j){notified.add(j.id);notify('success',tr('Correction tracks ready. Cost: ','ملفات التصحيحات جاهزة. التكلفة: ')+cost(j)+tr(' credits.',' رصيد.'));progress(j);});var failed=data.history.find(function(j){return j.status==='failed';});if(!finished.length&&failed)progress(failed);state=data;renderLines();await refreshCredits().catch(function(){$('balance').textContent='…';});}
+  }
+  $('dub').onclick=async function(){
+    if(working)return;$('error').textContent='';setBusy(true);
+    try{
+      await save();var ids=Array.from(selected),id=project.id;
+      var quote=await api('/api/longdub/'+id+'/corrections/quote','POST',{selected:ids});
+      if(!Number.isInteger(quote.max_total)||quote.max_total<1)throw new Error(tr('The price is unavailable.','السعر غير متاح.'));
+      if(ids.length>1){var question=tr('Dub '+ids.length+' selected lines for up to '+quote.max_total+' credits?','دبلجة '+ids.length+' أسطر محددة بحد أقصى '+quote.max_total+' رصيداً؟');if(!await LisanDialog.confirm(question))return;}
+      var job=await api('/api/longdub/'+id+'/corrections/dub','POST',{selected:ids,token:quote.token});state.busy=true;progress(job);await poll();await refreshCredits().catch(function(){$('balance').textContent='…';});
+    }catch(ex){error(ex);}finally{if(!state||!state.busy)setBusy(false);}
   };
-  $('projects').onchange = function() { if (this.value) open(this.value).catch(error); };
-  $('language').onclick = function() { lang = lang === 'en' ? 'ar' : 'en'; localStorage.setItem('lisanEditLang',lang); staticText(); if(state) renderLines(); };
-  $('helpButton').onclick = function() { this.parentElement.classList.toggle('open'); };
-  window.addEventListener('beforeunload',function(e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  $('finish').onclick=async function(){if(working)return;try{if(await LisanDialog.confirm(tr('Release the saved cloned voices? Later re-cloning will cost credits.','تحرير الأصوات المستنسخة المحفوظة؟ تُحتسب إعادة الاستنساخ لاحقاً من الرصيد.'))){await api('/api/longdub/'+project.id+'/corrections/finish','POST',{});notify('success',tr('Cloned voices released. Your exports and reference samples remain saved.','تم تحرير الأصوات المستنسخة. تظل الملفات والعينات المرجعية محفوظة.'));}}catch(ex){error(ex);}};
+  $('restore').onclick=async function(){
+    var file=$('original').files[0];if(!file||!project||working)return;setBusy(true);
+    try{var restored=await api('/api/longdub/'+project.id+'/corrections/restore','POST',{filename:file.name,size:file.size}),chunk=restored.chunk_bytes||8*1024*1024;
+      for(var at=0,index=0;at<file.size;at+=chunk,index++){var response=await fetch('/api/longdub/'+restored.id+'/chunk?index='+index,{method:'PUT',body:file.slice(at,at+chunk)});if(!response.ok)throw new Error((await response.json()).error||'Upload failed');var percent=Math.min(100,Math.round(Math.min(at+chunk,file.size)/file.size*100));$('restoreStatus').textContent=tr('Uploading original… ','جارٍ رفع الأصل… ')+percent+'%';progress({percent:percent},tr('Uploading original…','جارٍ رفع الأصل…'));}
+      await api('/api/longdub/'+restored.id+'/finish','POST',{});
+      var watch=async function(){var job=await api('/api/longdub/'+restored.id);progress(job,tr('Preparing original audio…','جارٍ تحضير الصوت الأصلي…'));if(job.status==='failed')throw new Error(job.error);if(job.status==='editing'){$('restoreStatus').textContent=tr('Original audio recovered.','تمت استعادة الصوت الأصلي.');setBusy(false);state=await api('/api/longdub/'+project.id+'/corrections');renderLines();}else pollTimer=setTimeout(function(){watch().catch(function(ex){error(ex);setBusy(false);});},3000);};await watch();
+    }catch(ex){error(ex);setBusy(false);}
+  };
+  async function openPlayer(row) {
+    if(working)return;
+    var overlay=document.createElement('div');overlay.className='ld-pl-overlay';var panel=document.createElement('div');panel.className='ld-pl ld-edit-player';overlay.appendChild(panel);
+    var title=document.createElement('h4');title.textContent=tr('Set this line’s times by ear','تحديد توقيت السطر بالاستماع');panel.appendChild(title);
+    var media=document.createElement('video');media.controls=true;media.preload='metadata';panel.appendChild(media);
+    var clock=document.createElement('div');clock.className='ld-pl-time';clock.textContent='0.000';panel.appendChild(clock);
+    var seek=document.createElement('input');seek.type='range';seek.min=0;seek.max=state.duration;seek.step='.001';seek.value=row.start;seek.setAttribute('aria-label',tr('Playback position','موضع التشغيل'));panel.appendChild(seek);seek.oninput=function(){media.currentTime=Number(seek.value);};media.ontimeupdate=function(){clock.textContent=media.currentTime.toFixed(3);seek.value=media.currentTime;};
+    var controls=document.createElement('div');controls.className='ld-pl-row';panel.appendChild(controls);
+    var play=button(controls,'Play','تشغيل',function(){range=false;if(media.paused)media.play().catch(function(){});else media.pause();});
+    media.addEventListener('play',function(){play.textContent=tr('Pause','إيقاف مؤقت');});
+    media.addEventListener('pause',function(){play.textContent=tr('Play','تشغيل');});
+    [-1,-.1,-.01,.01,.1,1].forEach(function(step){button(controls,(step>0?'+':'')+step+' s',(step>0?'+':'')+step+' ث',function(){media.currentTime=Math.max(0,Math.min(state.duration,media.currentTime+step));});});
+    var speed=document.createElement('select');[.5,.75,1,1.25,1.5].forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v+'×';speed.appendChild(o);});speed.value='1';speed.setAttribute('aria-label',tr('Playback speed','سرعة التشغيل'));speed.onchange=function(){media.playbackRate=Number(speed.value);};controls.appendChild(speed);
+    var marks=document.createElement('div');marks.className='ld-pl-marks';panel.appendChild(marks);
+    function mark(value,en,ar){var box=document.createElement('div');box.className='ld-pl-mark';var label=document.createElement('b');label.textContent=tr(en,ar);var input=document.createElement('input');input.type='number';input.step='.001';input.min=0;input.max=state.duration;input.value=value;input.setAttribute('aria-label',tr(en,ar));box.append(label,input);var buttons=document.createElement('div');buttons.className='btns';button(buttons,'Set to current time','التعيين للوقت الحالي',function(){input.value=media.currentTime.toFixed(3);});button(buttons,'Go to time','الانتقال للوقت',function(){media.currentTime=Number(input.value);});box.appendChild(buttons);marks.appendChild(box);return input;}
+    var start=mark(row.start,'Start','البداية'),end=mark(row.end,'End','النهاية'),range=false;
+    button(controls,'Play this range','تشغيل هذا النطاق',function(){range=true;media.currentTime=Number(start.value);media.play().catch(function(){});});media.addEventListener('timeupdate',function(){if(range&&media.currentTime>=Number(end.value)){media.pause();range=false;}});
+    var file=document.createElement('input');file.type='file';file.accept='video/*,audio/*,.mp4,.mkv,.mov,.webm,.mp3,.wav,.m4a';file.className='hidden';panel.appendChild(file);var localUrl=null;
+    button(controls,'Choose original file','اختيار الملف الأصلي',function(){file.click();});file.onchange=function(){if(file.files[0]){if(localUrl)URL.revokeObjectURL(localUrl);localUrl=URL.createObjectURL(file.files[0]);media.src=localUrl;}};
+    var note=document.createElement('p');note.className='ld-pl-err';panel.appendChild(note);
+    var foot=document.createElement('div');foot.className='ld-pl-foot';panel.appendChild(foot);
+    function close(){media.pause();overlay.remove();if(localUrl)URL.revokeObjectURL(localUrl);document.removeEventListener('keydown',keys);}
+    function keys(event){if(event.key==='Escape')close();}document.addEventListener('keydown',keys);
+    button(foot,'Discard','إلغاء',close);
+    var accept=button(foot,'Save & close','حفظ وإغلاق',async function(){var a=Number(start.value),b=Number(end.value);if(!Number.isFinite(a+b)||a<0||b<=a||b>state.duration){note.textContent=tr('Set valid times inside the original duration.','أدخل وقتين صالحين ضمن مدة الأصل.');return;}accept.disabled=true;try{change(row,'start',a);change(row,'end',b);change(row,'manual_time',true);await save();close();state.segments.sort(function(a,b){return a.start-b.start;});renderLines();}catch(ex){note.textContent=ex.message;accept.disabled=false;}});accept.className='green';
+    document.body.appendChild(overlay);
+    try{var source=await api('/api/longdub/'+project.id+'/corrections/player','POST',{});if(overlay.isConnected){media.src=source.url;if(source.kind==='audio')media.classList.add('audio');media.onloadedmetadata=function(){media.currentTime=row.start;};}}
+    catch(ex){note.textContent=tr('Choose the original file above to listen and set the times.','اختر الملف الأصلي أعلاه للاستماع وتحديد التوقيت.');}
+  }
+  $('projects').onchange=function(){if(this.value)open(this.value).catch(error);};
+  $('language').onclick=function(){localStorage.setItem('lisan_lang',lang==='en'?'ar':'en');location.reload();};
+  $('back').onclick=function(){location.href='/dub-long';};$('appLink').onclick=function(){location.href='/app';};
+  $('logout').onclick=function(){fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login';});};
+  function dark(on){document.body.classList.toggle('dark',on);localStorage.setItem('lisan_dark_mode',on?'1':'0');$('darkModeBtn').textContent=on?'☀️':'🌙';}
+  dark(localStorage.getItem('lisan_dark_mode')!=='0');$('darkModeBtn').onclick=function(){dark(!document.body.classList.contains('dark'));};
+  $('helpButton').onclick=function(){var open=this.parentElement.classList.toggle('open');this.setAttribute('aria-expanded',String(open));};
+  window.addEventListener('keydown',function(e){if(e.key==='Escape'){$('helpButton').parentElement.classList.remove('open');$('helpButton').setAttribute('aria-expanded','false');$('helpButton').blur();}});
+  window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
   staticText();
-  api('/api/longdub').then(function(data) {
-    $('balance').textContent = data.credits == null ? tr('Balance unavailable', 'الرصيد غير متاح') : data.credits + tr(' credits', ' رصيداً');
-    $('projects').replaceChildren(); var initial = document.createElement('option'); initial.value = ''; initial.textContent = tr('Choose a project…','اختر مشروعاً…'); $('projects').appendChild(initial);
-    data.jobs.filter(function(j) { return j.status === 'done' && !j.edit_of; }).forEach(function(job) { var option = document.createElement('option'); option.value = job.id; option.textContent = job.name; $('projects').appendChild(option); });
-  }).catch(function(ex) { $('balance').textContent = ex.message; });
+  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;$('projects').appendChild(option);});}).catch(error);
 })();

@@ -46,9 +46,9 @@ STEPS = os.environ.get("MUSIC_FILL_STEPS", "").strip()
 REF_FLOOR_DB = -50.0           # quieter than this is not music
 GAP_BELOW_REF_DB = 30.0        # a hole is this far under the typical music level (digital silence, a hard mute)
 CTX_MUSIC_REL_DB = 12.0        # context frames must be within this of the typical level to count as music
-CTX_NEED_SEC = 2.0             # music needed next to a hole (within CTX_LOOK_SEC on either side)
+CTX_NEED_SEC = 1.0             # a one-second clean musical reference is enough to attempt continuation
 CTX_LOOK_SEC = 6.0
-MIN_MUSIC_SEC = 3.0            # music in the whole track, or there is nothing to continue
+MIN_MUSIC_SEC = 1.0            # measured clean music; never use the removed speech as a reference
 GAP_PAD_SEC = 0.1
 JOIN_HOLES_SEC = 0.5           # two holes closer than this are one hole
 CONTEXT_SEC = 10.0             # music sent to the model on each side of a hole
@@ -143,7 +143,13 @@ def find_gaps(db, spans):
         if (near >= ctx_rel).sum() * HOP_SEC < CTX_NEED_SEC:
             info["no_context"] += 1
             continue
-        gaps.append((float(max(0.0, s * HOP_SEC - GAP_PAD_SEC)), float(min(n * HOP_SEC, e * HOP_SEC + GAP_PAD_SEC))))
+        padded_start = max(0, s - int(round(GAP_PAD_SEC / HOP_SEC)))
+        padded_end = min(n, e + int(round(GAP_PAD_SEC / HOP_SEC)))
+        remaining = np.concatenate([db[max(0, s - look):padded_start], db[padded_end:e + look]])
+        if (remaining >= ctx_rel).sum() * HOP_SEC < CTX_NEED_SEC:
+            # Never consume the only usable reference when padding a one-second continuation.
+            padded_start, padded_end = s, e
+        gaps.append((float(padded_start * HOP_SEC), float(padded_end * HOP_SEC)))
     return gaps, info
 
 

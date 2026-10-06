@@ -26,20 +26,21 @@ function context() {
         segmentsData: [{ segment_id: 'seg_0', arabic_text: 'مرحبا', emotion: 'neutral', speaker: 'Speaker 1', start: 0 }],
         speakerVoices: { 'Speaker 1': 'voice' }, currentJobId: 'a'.repeat(32), totalDuration: 4,
         generatePollTimer: null, checkGenerateProgress() {}, clearInterval() {}, setInterval() { return 1; },
+        setBadge() {}, subsText(en, ar) { return c.window.currentLang === "ar" ? ar : en; },
         fetchUsage() {}, refreshCredits() {}, notify(type, text) { messages.push({ type, text }); },
         LisanDialog: { async confirm(message) { confirmations.push(message); return c.accept; } },
         accept: true, quote: { credits: 114, voice_credits: 10, analysis_credits: 104, required_balance: 114 },
         async fetch(url, options) {
             const payload = JSON.parse(options.body);
             calls.push({ url, payload });
-            if (url.endsWith('/quote')) return { ok: true, async json() { return c.quote; } };
+            if (url.endsWith('/quote')) return { ok: true, async json() { if(c.beforeQuote)c.beforeQuote(); return c.quote; } };
             return { ok: true, async json() { return url.endsWith('regenerate_line') ? { status: 'success', credits_charged: 2 } : { status: 'started' }; } };
         }
     });
     elements.set('ttsProvider', { value: 'elevenlabs' });
     elements.set('geminiVoice', { value: 'Kore' });
     elements.set('durationMode', { value: 'exact' });
-    vm.runInContext(excerpt(app, 'async function confirmShortPrice(', '// Pure editing action'), c);
+    vm.runInContext(excerpt(app, 'function shortGeneratePayload(', '// Pure editing action'), c);
     return { c, calls, messages, confirmations, elements };
 }
 
@@ -54,21 +55,20 @@ test('refunds display a green positive amount, spending displays a red negative 
     assert.equal(c.creditChange('garbage').text, '—');
 });
 
-test('canceling the generation price check starts no paid request and unlocks the button', async () => {
-    const { c, calls, elements } = context();
+test('generation checks the complete price and starts without a confirmation dialog', async () => {
+    const { c, calls, confirmations } = context();
     c.accept = false;
     await c.generateAudio();
-    assert.deepEqual(calls.map(x => x.url), ['/api/generate/quote']);
-    assert.equal(elements.get('generateButton').disabled, false);
+    assert.deepEqual(calls.map(x => x.url), ['/api/generate/quote','/api/generate']);
+    assert.equal(confirmations.length,0);
+    assert.equal(calls[1].payload.accepted_credits,114);
 });
 
-test('generation displays all 114 credits including analysis and submits the confirmed price', async () => {
-    const { c, calls, confirmations } = context();
+test('generation notification includes all 114 credits, including unsettled analysis', async () => {
+    const { c, calls, messages } = context();
     await c.generateAudio();
-    assert.match(confirmations[0], /Cost: 114 credits/);
-    assert.match(confirmations[0], /not yet charged: 104 credits/);
-    assert.equal(calls[1].payload.accepted_credits, 114);
-    assert.equal(calls[1].url, '/api/generate');
+    assert.ok(messages.some(m => m.text.includes('Cost: 114 credits.')));
+    assert.equal(calls[1].payload.accepted_credits,114);
 });
 
 test('an unavailable or invalid quote prevents generation', async () => {
@@ -81,36 +81,29 @@ test('an unavailable or invalid quote prevents generation', async () => {
     }
 });
 
-test('text edits during confirmation do not change the paid submission', async () => {
+test('text edits during the price request do not change the paid submission', async () => {
     const { c, calls } = context();
-    c.LisanDialog.confirm = async () => { c.segmentsData[0].arabic_text = 'different text'; return true; };
+    c.beforeQuote = () => { c.segmentsData[0].arabic_text = 'different text'; };
     await c.generateAudio();
     assert.equal(calls[1].payload.segments[0].arabic_text, 'مرحبا');
 });
 
-test('canceling line regeneration starts no paid request', async () => {
-    const { c, calls } = context();
-    c.accept = false;
-    const button = { disabled: false, textContent: '' };
-    await c.regenerateLine(0, button);
-    assert.deepEqual(calls.map(x => x.url), ['/api/regenerate_line/quote']);
-    assert.equal(button.disabled, false);
+test('an invalid single-line quote makes no paid request and unlocks the control', async () => {
+    const { c, calls } = context();c.quote={credits:-1};
+    const button={disabled:false,textContent:''};await c.regenerateLine(0,button);
+    assert.deepEqual(calls.map(x => x.url),['/api/regenerate_line/quote']);assert.equal(button.disabled,false);
 });
 
-test('regeneration reports the actual server charge and confirms it first', async () => {
-    const { c, calls, messages } = context();
-    c.quote = { credits: 2, voice_credits: 2, analysis_credits: 0, required_balance: 2 };
-    await c.regenerateLine(0, { disabled: false, textContent: '' });
-    assert.equal(calls[1].payload.accepted_credits, 2);
-    assert.ok(messages.some(m => m.type === 'success' && m.text.includes('Cost: 2 credits.')));
+test('single-line regeneration has no modal, even above one credit, and reports the server charge', async () => {
+    const { c, calls, messages, confirmations }=context();c.quote={credits:20};
+    await c.regenerateLine(0,{disabled:false,textContent:''});
+    assert.equal(confirmations.length,0);assert.equal(calls[1].payload.accepted_credits,20);
+    assert.ok(messages.some(m => m.type==='success'&&m.text.includes('Cost: 2 credits.')));
 });
 
-test('Arabic confirmations include the quote and analysis breakdown', async () => {
-    const { c, confirmations } = context();
-    c.window.currentLang = 'ar';
-    await c.generateAudio();
-    assert.match(confirmations[0], /114 رصيد/);
-    assert.match(confirmations[0], /104 رصيد/);
+test('Arabic generation notification shows its numeric price without a confirmation', async () => {
+    const { c, messages, confirmations }=context();c.window.currentLang='ar';await c.generateAudio();
+    assert.equal(confirmations.length,0);assert.ok(messages.some(m => m.text.includes('114 رصيد')));
 });
 
 test('Arabic regeneration success reports the actual charge', async () => {
@@ -152,4 +145,74 @@ test('an invalid merge quote cannot start paid processing', async () => {
         await c.mergeVideo();assert.equal(calls.length,1);assert.equal(confirmations.length,0);
         assert.equal(elements.get('mergeButton').disabled,false);
     }
+});
+
+test('another generation click during its quote request cannot submit twice', async () => {
+    const {c,calls}=context();var release;const gate=new Promise(resolve=>{release=resolve;});var original=c.fetch;
+    c.fetch=async function(url,options){if(url==='/api/generate/quote')await gate;return original(url,options);};
+    var first=c.generateAudio();await c.generateAudio();release();await first;
+    assert.equal(calls.filter(x=>x.url==='/api/generate').length,1);
+});
+
+function priceContext() {
+    const result = context(), timers = new Map(), badges = [];
+    let sequence = 0;
+    result.c.setTimeout = callback => { timers.set(++sequence, callback); return sequence; };
+    result.c.clearTimeout = id => timers.delete(id);
+    result.c.setBadge = (id, value) => badges.push(value);
+    result.timers = timers; result.badges = badges;
+    result.runTimer = async () => {
+        const [id, callback] = timers.entries().next().value;
+        timers.delete(id); await callback();
+    };
+    return result;
+}
+
+test('repeated unchanged updates retain the pending numeric price request', async () => {
+    const p = priceContext();
+    p.c.scheduleGeneratePrice(); p.c.scheduleGeneratePrice(); p.c.scheduleGeneratePrice();
+    assert.equal(p.timers.size, 1);
+    await p.runTimer();
+    assert.deepEqual(p.badges, ['…', 114]);
+    assert.deepEqual(p.calls.map(x => x.url), ['/api/generate/quote']);
+});
+
+test('a late quote cannot replace the price of newly edited text', async () => {
+    const p = priceContext(); let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    p.c.fetch = async (url, options) => {
+        const text = JSON.parse(options.body).segments[0].arabic_text;
+        if (text === 'مرحبا') await gate;
+        return { ok: true, async json() { return { credits: text === 'مرحبا' ? 114 : 7 }; } };
+    };
+    p.c.scheduleGeneratePrice(); const earlier = p.runTimer();
+    p.c.segmentsData[0].arabic_text = 'new translation';
+    p.c.scheduleGeneratePrice(); await p.runTimer(); release(); await earlier;
+    assert.equal(p.badges.at(-1), 7);
+    assert.equal(p.badges.includes(114), false);
+});
+
+test('an unavailable price displays a dash and can be requested again', async () => {
+    const p = priceContext(); p.c.quote = { credits: '114' };
+    p.c.scheduleGeneratePrice(); await p.runTimer();
+    assert.equal(p.badges.at(-1), '—');
+    p.c.quote = { credits: 6 }; p.c.scheduleGeneratePrice(); await p.runTimer();
+    assert.equal(p.badges.at(-1), 6);
+});
+
+test('choosing the first voice and programmatic auto-assignment refresh the generation price', async () => {
+    const p = priceContext(), nodes = [];
+    const node = () => ({style:{},children:[],appendChild(child){this.children.push(child);},innerHTML:''});
+    const tbody = node();
+    p.c.document.querySelector = () => tbody;
+    p.c.document.createElement = tag => { const item=node(); item.tag=tag; nodes.push(item); return item; };
+    Object.assign(p.c, {voicePools:{male:[{voice_id:'v1'}],female:[]},clonedBySpeaker:{},speakerChoices:{},speakerVoiceNames:{},speakerVoices:{},
+        ensureVoicePools:async()=>true, applyChoice(name){p.c.speakerVoices[name]='v1';}});
+    vm.runInContext(excerpt(app,'async function renderSpeakerVoices()', 'async function ensureVoicePools()'),p.c);
+    await p.c.renderSpeakerVoices(); assert.equal(p.badges.at(-1),'—');
+    const select=nodes.find(n=>n.tag==='select'); select.value='male:1'; select.onchange();
+    assert.equal(p.timers.size,1); await p.runTimer(); assert.equal(p.badges.at(-1),114);
+    p.c.speakerVoices={};p.c.speakerChoices={};p.c.scheduleGeneratePrice();
+    vm.runInContext(excerpt(app,'async function autoAssignVoices()', '// ===== VOICE LIBRARY BROWSER'),p.c);
+    await p.c.autoAssignVoices();await p.runTimer();assert.equal(p.badges.at(-1),114);
 });

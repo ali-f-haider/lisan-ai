@@ -6,158 +6,7 @@
 <title>Lisan AI — Dub Long Video</title>
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="stylesheet" href="/styles.css">
-<style>
-  .ld-wrap { max-width: 1100px; margin: 0 auto; padding: 0 12px 60px; }
-  .ld-drop {
-    border: 2px dashed var(--border); border-radius: 12px; padding: 34px 16px; text-align: center;
-    cursor: pointer; transition: border-color .2s, background .2s; margin-top: 12px;
-  }
-  .ld-drop:hover, .ld-drop.over { border-color: var(--accent); background: var(--muted-surface); }
-  .ld-drop strong { display: block; font-size: 16px; margin-bottom: 6px; }
-  .ld-spkask { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-  .ld-spkask label { margin: 0; }
-  .ld-spkask input { width: 80px; }
-  .ld-projfields { margin-top: 14px; display: grid; gap: 10px; }
-  .ld-projfields label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-  .ld-projfields input, .ld-projfields textarea { width: 100%; box-sizing: border-box; }
-  .ld-projfields textarea { min-height: 62px; resize: vertical; font: inherit; }
-  .ld-projhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
-  .ld-projhead .pname { font-size: 17px; font-weight: 700; word-break: break-word; }
-  .ld-projhead .pdesc { color: var(--text-muted); font-size: 13px; margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
-  .ld-unheard { grid-column: 1 / -1; background: rgba(217,119,6,.12); border-left: 3px solid var(--warning); padding: 7px 12px; border-radius: 8px; font-size: 12.5px; line-height: 1.5; }
-  html[dir="rtl"] .ld-unheard { border-left: none; border-right: 3px solid var(--warning); }
-  .ld-pl-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.6); z-index: 99990; display: flex; align-items: flex-start; justify-content: center; padding: 16px; overflow-y: auto; }
-  .ld-pl { background: var(--card); color: var(--text); border-radius: 14px; width: 100%; max-width: 760px; padding: 18px 20px 20px; box-shadow: 0 20px 60px rgba(0,0,0,.35); margin: auto; }
-  .ld-pl h4 { margin: 0 0 4px; font-size: 16px; }
-  .ld-pl video { width: 100%; max-height: 34vh; background: #000; border-radius: 10px; display: block; margin-top: 10px; }
-  .ld-pl video.audio { height: 0; max-height: 0; margin: 0; }
-  .ld-pl-time { font-size: 34px; font-weight: 700; text-align: center; margin: 10px 0 2px; font-variant-numeric: tabular-nums; letter-spacing: .5px; direction: ltr; }
-  .ld-pl-time small { font-size: 15px; font-weight: 500; color: var(--text-muted); }
-  .ld-pl input[type=range] { width: 100%; margin: 6px 0; direction: ltr; }
-  .ld-pl-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; align-items: center; margin: 8px 0; }
-  .ld-pl-row button { padding: 6px 11px; font-size: 13px; }
-  .ld-pl-row label { white-space: nowrap; font-size: 12.5px; color: var(--text-muted); display: inline-flex; gap: 5px; align-items: center; }
-  .ld-pl-row select { padding: 4px 6px; font-size: 13px; }
-  .ld-pl-marks { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
-  .ld-pl-mark { border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
-  .ld-pl-mark b { display: block; font-size: 13px; margin-bottom: 6px; }
-  .ld-pl-mark input { width: 100%; box-sizing: border-box; text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; direction: ltr; margin-bottom: 6px; }
-  .ld-pl-mark .btns { display: flex; gap: 6px; flex-wrap: wrap; }
-  .ld-pl-mark .btns button { padding: 5px 10px; font-size: 12.5px; flex: 1; }
-  .ld-pl-info { text-align: center; font-size: 13px; color: var(--text-muted); margin: 8px 0 2px; }
-  .ld-pl-err { color: var(--error); font-size: 13px; text-align: center; margin: 6px 0; }
-  .ld-pl-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; position: sticky; bottom: 0; background: var(--card); padding-top: 10px; }
-  .ld-pl-keys { font-size: 11.5px; color: var(--text-muted); text-align: center; margin-top: 6px; }
-  @media (max-width: 560px) { .ld-pl-marks { grid-template-columns: 1fr; } .ld-pl-time { font-size: 28px; } }
-  .ld-lipask { margin-top: 16px; }
-  .ld-subask { margin-top: 16px; }
-  .ld-subrow { margin: 12px 0 4px; }
-  body a.ld-dl, body.dark a.ld-dl, body.ui-new a.ld-dl, body.dark.ui-new a.ld-dl { color: #fff; }
-  .ld-gloss, .ld-extra { border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; margin: 10px 0 14px; }
-  .ld-gloss summary { cursor: pointer; }
-  .ld-gloss textarea { width: 100%; box-sizing: border-box; min-height: 96px; resize: vertical; font: inherit; line-height: 1.5; }
-  .ld-extra a.ld-dl { margin: 4px 8px 4px 0; padding: 9px 18px; }
-  html[dir="rtl"] .ld-extra a.ld-dl { margin: 4px 0 4px 8px; }
-  .ld-lipres { margin: 10px 0 4px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
-  .ld-lipres select { padding: 6px 8px; font-size: 14px; width: auto; max-width: 100%; }
-  .ld-lipres.hidden { display: none; }
-  .ld-room { margin: 12px 0 2px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 14px; }
-  .ld-room select { padding: 6px 8px; font-size: 14px; width: auto; max-width: 100%; }
-  .ld-lipask .ld-radio { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; cursor: pointer; font-size: 14px; line-height: 1.5; }
-  .ld-lipask .ld-radio input { width: auto; margin-top: 4px; flex: none; }
-  .ld-lipask .ld-radio.off { opacity: .55; cursor: not-allowed; }
-  .ld-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-  .ld-table td { padding: 9px 6px; border-bottom: 1px solid var(--border); font-size: 14px; vertical-align: top; }
-  .ld-table td.num { text-align: end; font-weight: 700; white-space: nowrap; }
-  .ld-table tr.total td { border-bottom: none; font-size: 16px; font-weight: 800; color: var(--primary-fg); padding-top: 14px; }
-  .ld-table .sub { display: block; font-size: 12px; color: var(--text-muted); font-weight: 400; margin-top: 2px; }
-  .ld-row-btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
-  .ld-err { color: var(--error); font-size: 14px; margin-top: 10px; font-weight: 600; }
-  .ld-warn { background: rgba(217,119,6,.12); border-left: 3px solid var(--warning); padding: 8px 12px; border-radius: 8px; font-size: 13px; margin: 8px 0; }
-  .ld-status { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 12px; background: var(--muted-surface); color: var(--text-muted); }
-  .ld-status.ok { color: var(--success); }
-  .ld-status.bad { color: var(--error); }
-  .ld-list-item { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; border-top: 1px solid var(--border); padding: 12px 0; }
-  .ld-list-item:first-child { border-top: none; }
-  .ld-list-name { font-weight: 700; word-break: break-all; }
-  .ld-list-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
-  .btn-danger {
-    padding: 10px 20px; background: var(--card); color: var(--error); border: 1px solid #fecaca;
-    border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
-  }
-  .btn-danger:hover { background: rgba(248,113,113,.12); transform: none; }
-  body.dark .btn-danger { border-color: #7f1d1d; }
-  .btn-plain { background: var(--logout-bg); color: var(--text-muted); border: 1px solid var(--border); }
-  .btn-plain:hover { background: var(--logout-hover-bg); }
-  a.ld-dl { display: inline-block; padding: 12px 24px; background: var(--success); color: #fff; border-radius: 8px; font-weight: 700; text-decoration: none; }
-
-  .ld-terms { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 12px 0; background: var(--muted-surface); }
-  .ld-terms h4 { margin: 0 0 6px; font-size: 14px; }
-  .ld-terms ul { margin: 6px 18px; padding: 0; font-size: 13px; line-height: 1.6; }
-  .ld-agree { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
-  .ld-agree input { width: auto; margin-top: 3px; }
-  .ld-times { font-size: 14px; margin: 8px 0; }
-  .ld-upsell { text-align: center; padding: 10px 0; }
-
-  /* Editor */
-  .ld-edhead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-  .ld-saved { font-size: 13px; color: var(--text-muted); }
-  .ld-spkpanel { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin: 10px 0 16px; }
-  .ld-spkpanel h4 { margin: 0 0 4px; font-size: 15px; }
-  .ld-spkrow { display: flex; gap: 10px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-  .ld-spkrow input { max-width: 260px; }
-  .ld-spkrow .cnt { font-size: 12px; color: var(--text-muted); min-width: 70px; }
-  .ld-seg { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 10px; padding: 12px 0; border-top: 1px solid var(--border); align-items: start; }
-  .ld-seg:first-child { border-top: none; }
-  .ld-time { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
-  .ld-time b { display: block; color: var(--text); font-size: 13px; }
-  .ld-time select { margin-top: 6px; padding: 6px 8px; font-size: 13px; }
-  .ld-tf { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 12px; }
-  .ld-tf span { width: 30px; }
-  .ld-tf input.ld-t { width: 92px; padding: 5px 6px; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; }
-  .ld-terr { color: var(--error); font-size: 11px; margin: 2px 0 4px; line-height: 1.4; }
-  .ld-lbtns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-  .ld-lbtns button { padding: 4px 10px; font-size: 12px; }
-  .ld-seg textarea { min-height: 54px; width: 100%; resize: vertical; line-height: 1.5; }
-  .ld-seg textarea.missing { border-color: var(--error); }
-  .ld-arwrap { display: flex; flex-direction: column; gap: 6px; }
-  .ld-arwrap textarea { direction: rtl; text-align: right; font-size: 16px; }
-  .ld-arfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .ld-arfoot button { padding: 5px 12px; font-size: 12px; }
-  .ld-arfoot .ld-emosel { padding: 4px 6px; font-size: 12px; max-width: 150px; min-width: 0; flex: 0 1 auto; width: auto; }
-  .ld-cnt { font-size: 11px; color: var(--text-muted); }
-  .ld-arfoot .ld-foot-r { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
-  .ld-emobtn { display: inline-flex; align-items: center; gap: 6px; max-width: 210px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: inherit; border-radius: 8px; }
-  .ld-emobtn span.t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .ld-emopanel { position: fixed; z-index: 400; width: 240px; max-height: 300px; overflow-y: auto; background: var(--card); color: var(--text);
-    border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35); padding: 6px; }
-  .ld-emopanel .hint { font-size: 11px; color: var(--text-muted); padding: 4px 8px 6px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
-  .ld-emopanel .hint.warn { color: var(--warning); }
-  .ld-emopanel label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: 13px; cursor: pointer; margin: 0; }
-  .ld-emopanel label:hover { background: var(--muted-surface); }
-  .ld-emopanel label.off { opacity: .45; cursor: not-allowed; }
-  .ld-emopanel input { width: auto; margin: 0; flex: none; }
-  .ld-colhead { display: grid; grid-template-columns: 190px 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
-  @media (max-width: 720px) {
-    .ld-seg, .ld-colhead { grid-template-columns: 1fr; }
-    .ld-colhead { display: none; }
-    .card { margin: 10px 0; padding: 18px; }
-  }
-  html[dir="rtl"] .ld-wrap { direction: rtl; }
-  html[dir="rtl"] .note { border-left: none; border-right: 3px solid var(--accent); }
-  html[dir="rtl"] .ld-warn { border-left: none; border-right: 3px solid var(--warning); }
-  html[dir="rtl"] .ld-seg textarea.en { direction: ltr; text-align: left; }
-  html[dir="rtl"] #userBar { direction: rtl; }
-
-.ld-help {display:inline-block;position:relative;margin-inline-start:8px;vertical-align:middle}
-.ld-help>button {border:1px solid #818cf8;border-radius:50%;width:24px;height:24px;padding:0;font-weight:bold;cursor:pointer}
-.ld-help-content {display:none;position:absolute;z-index:20;inset-inline-start:0;top:30px;width:min(530px,75vw);padding:16px;background:var(--card,#202127);border:1px solid #818cf8;border-radius:10px;box-shadow:0 6px 20px #0006;color:var(--text,#e5e7eb)}
-.ld-help:hover .ld-help-content,.ld-help:focus-within .ld-help-content,.ld-help.open .ld-help-content {display:block}
-.ld-pages {display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:8px;z-index:5;padding:10px;background:var(--card,#202127);border-radius:8px;margin:12px 0}
-.ld-pages .reviewed {border:1px solid #22c55e;color:#22c55e}
-.ld-overlap {border-inline-start:4px solid #f59e0b}
-.ld-time-notice {padding:8px;border:1px solid #818cf8;border-radius:6px;margin:8px 0;font-size:13px}
-</style>
+<link rel="stylesheet" href="/longdub_editor.css">
 </head>
 <body>
 <div id="userBar">
@@ -177,7 +26,7 @@
 <div class="ld-wrap">
 
   <div class="card" id="introCard">
-    <h3 id="introHeading">🎞️ Dub Long Video</h3><a href="/dub-long-edit" class="btn-plain">✎ Edit completed projects / تعديل المشاريع المكتملة</a>
+    <h3 id="introHeading">🎞️ Dub Long Video</h3><button type="button" class="btn-plain" id="editCompletedBtn" onclick="location.href='/dub-long-edit'"></button>
     <p id="introText" class="note"></p>
     <ol id="introSteps" style="margin:10px 22px;line-height:1.7;font-size:14px;"></ol>
   </div>
@@ -241,6 +90,7 @@
 </div>
 
 <script src="/dialogs.js"></script>
+<script src="/longdub_editor.js"></script>
 <script>
 // ---- Dark mode (same key + logic as account.html) ----
 (function () {
@@ -838,6 +688,7 @@ function applyStaticText() {
   $("logoutBtn").textContent = T.logout;
   $("langBtn").textContent = LANG === "ar" ? "English" : "العربية";
   $("introHeading").textContent = T.introHeading;
+  $("editCompletedBtn").textContent = LANG === "ar" ? "✎ تعديل المشاريع المكتملة" : "✎ Edit completed projects";
   $("uploadHeading").textContent = T.uploadHeading;
   $("projNameLabel").textContent = T.projNameLabel; $("projName").placeholder = T.projNamePh;
   $("projDescLabel").textContent = T.projDescLabel; $("projDesc").placeholder = T.projDescPh;
@@ -1628,6 +1479,7 @@ function renderEditor() {
   body.appendChild(reviewNavigation());
   segs.slice(reviewPage * 10, reviewPage * 10 + 10).forEach(function (s) { list.appendChild(buildRow(s)); });
   body.appendChild(list);
+  body.appendChild(reviewNavigation("reviewPagesBottom"));
   var foot = document.createElement("div"); foot.id = "confirmArea";
   body.appendChild(foot);
   renderSpeakers();
@@ -1638,22 +1490,34 @@ function renderEditor() {
 }
 
 
-function reviewNavigation() {
-  var nav = document.createElement("div"); nav.id = "reviewPages"; nav.className = "ld-pages";
+function reviewNavigation(id) {
+  var nav = document.createElement("div"); nav.id = id || "reviewPages"; nav.className = "ld-pages";
+  if (id) nav.classList.add("ld-pages-bottom");
   reviewPage = Math.max(0, Math.min(reviewPage, Math.ceil(segs.length / 10) - 1));
   for (var i = 0; i < Math.ceil(segs.length / 10); i++) (function(page) {
+    var group = document.createElement("span"); group.className = "ld-page-group";
+    var checked = !!reviewedBatches[String(page)]; group.classList.toggle("reviewed", checked);
     var b = document.createElement("button"); b.type = "button"; b.className = "btn-plain";
-    b.textContent = (reviewedBatches[String(page)] ? "✓ " : "") + (page * 10 + 1) + "–" + Math.min(page * 10 + 10, segs.length);
-    b.classList.toggle("reviewed", !!reviewedBatches[String(page)]); b.setAttribute("aria-current", page === reviewPage ? "page" : "false");
-    b.onclick = function() { flushSave().then(function() { if (saving || Object.keys(dirty).length) { alertMsg(T.saveFailed); return; } reviewPage = page; renderEditor(); }); }; nav.appendChild(b);
+    b.textContent = (page * 10 + 1) + "–" + Math.min(page * 10 + 10, segs.length);
+    b.setAttribute("aria-current", page === reviewPage ? "page" : "false");
+    b.onclick = function() { flushSave().then(function() { if (saving || Object.keys(dirty).length) { alertMsg(T.saveFailed); return; } reviewPage = page; renderEditor(); }); };
+    var label = document.createElement("label"), check = document.createElement("input"); check.type = "checkbox"; check.checked = checked;
+    label.title = LANG === "ar" ? "تمت مراجعة هذه الأسطر" : "These lines are reviewed";
+    check.setAttribute("aria-label", label.title + " " + b.textContent);
+    check.onchange = function() {
+      var reviewed = check.checked; check.disabled = true;
+      flushSave().then(function() {
+        if (saving || Object.keys(dirty).length) return {ok:false,data:{error:T.saveFailed}};
+        return api("POST", "/api/longdub/" + cur.id + "/review", {page:page,reviewed:reviewed});
+      }).then(function(r) {
+        if (!r.ok) { check.checked = checked; alertMsg(r.data.error || T.genericErr); return; }
+        reviewedBatches = r.data.reviewed_batches || {};
+        ["reviewPages","reviewPagesBottom"].forEach(function(id) { var old = $(id); if(old) old.replaceWith(reviewNavigation(id === "reviewPages" ? null : id)); });
+      }).finally(function() { check.disabled = false; });
+    };
+    label.appendChild(check); group.appendChild(b); group.appendChild(label); nav.appendChild(group);
   })(i);
-  var check = document.createElement("button"); check.type = "button"; check.className = "green";
-  check.textContent = LANG === "ar" ? "✓ تمت مراجعة هذه الأسطر" : "✓ Mark these lines reviewed";
-  check.onclick = function() { flushSave().then(function() {
-    if (saving || Object.keys(dirty).length) return {ok:false,data:{error:T.saveFailed}};
-    return api("POST", "/api/longdub/" + cur.id + "/review", {page:reviewPage});
-  }).then(function(r) { if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; } reviewedBatches = r.data.reviewed_batches || {}; nav.replaceWith(reviewNavigation()); }); };
-  nav.appendChild(check); return nav;
+  return nav;
 }
 function hiddenHelp(id, labelId) {
   var content = $(id), label = $(labelId); if (!content || !label) return;

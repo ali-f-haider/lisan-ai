@@ -191,7 +191,7 @@ function updateBadges() {
     setBadge("badgeCvUpload", _cloneRate);
     setBadge("badgePrepareClone", 0);
     setBadge("badgeClone", _cloneRate);
-    setBadge("badgeGenerate", window.currentLang === "ar" ? "تحقق من السعر" : "Check price");
+    scheduleGeneratePrice();
     setBadge("badgeMerge", window._realPricing.mergeCredits);
     // Step 5.5's "Apply changes & rebuild MP3" only re-mixes with ffmpeg (no TTS
     // call), so it's free -- shown explicitly rather than left with no badge.
@@ -1236,7 +1236,9 @@ async function checkGenerateProgress() {
         clearInterval(generatePollTimer);
         document.getElementById("generateButton").disabled = false;
         const r = data.result || {};
-        notify("success", "Arabic audio generated and merged.");
+        notify("success", window.currentLang === "ar"
+                ? "تم توليد الصوت العربي. التكلفة: " + r.credits_charged + " رصيد."
+                : "Arabic audio generated. Cost: " + r.credits_charged + " credits.");
         document.getElementById("resultSection").classList.remove("hidden");
         document.getElementById("audioResults").innerHTML = `
             ${resultSummaryHtml(r)}
@@ -1864,19 +1866,45 @@ async function addTashkeel() {
         notify("success", "Tashkeel added to " + done + " unlocked line(s). Locked lines untouched.");
     } catch (e) { notify("error", "Tashkeel failed: " + e.message); }
 }
-async function confirmShortPrice(endpoint, payload) {
+function shortGeneratePayload() {
+    return JSON.parse(JSON.stringify({
+        job_id: currentJobId || "", segments: segmentsData,
+        tts_provider: document.getElementById("ttsProvider").value,
+        gemini_voice: document.getElementById("geminiVoice").value,
+        speaker_voices: speakerVoices,
+        duration_mode: document.getElementById("durationMode").value,
+        total_duration: totalDuration, cloned_voice_ids: window.clonedVoiceIds || []
+    }));
+}
+var generateQuoteTimer = null, generateQuoteSerial = 0, generateQuoteStamp = "";
+function scheduleGeneratePrice() {
+    var badge = document.getElementById("badgeGenerate");
+    if (!badge) return;
+    var payload = shortGeneratePayload(), stamp = JSON.stringify(payload);
+    if (stamp === generateQuoteStamp) return;
+    clearTimeout(generateQuoteTimer);
+    generateQuoteStamp = stamp;
+    var serial = ++generateQuoteSerial;
+    var translated = payload.segments.filter(s => (s.arabic_text || "").trim());
+    if (!payload.job_id || !translated.length || translated.some(s => !payload.speaker_voices[s.speaker])) { setBadge("badgeGenerate", "—"); return; }
+    setBadge("badgeGenerate", "…");
+    generateQuoteTimer = setTimeout(async function() {
+        try {
+            var response = await fetch("/api/generate/quote", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+            var quote = await response.json();
+            if (serial !== generateQuoteSerial || stamp !== JSON.stringify(shortGeneratePayload())) return;
+            if (!response.ok || !Number.isInteger(quote.credits) || quote.credits < 1) throw new Error("Unavailable quote");
+            setBadge("badgeGenerate", quote.credits);
+        } catch(e) { if(serial === generateQuoteSerial) { setBadge("badgeGenerate", "—"); generateQuoteStamp = ""; } }
+    }, 400);
+}
+async function quoteShortPrice(endpoint, payload) {
     const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const quote = await res.json();
-    if (!res.ok || quote.error) throw new Error(quote.error || "The price could not be checked. Please try again.");
-    if (!Number.isInteger(quote.credits) || quote.credits < 1) throw new Error("The price could not be checked. Please try again.");
-    const ar = window.currentLang === "ar";
-    let message = ar ? `التكلفة: ${quote.credits} رصيد.\nالصوت: ${quote.voice_credits} رصيد.` : `Cost: ${quote.credits} credits.\nVoice: ${quote.voice_credits} credits.`;
-    if (quote.analysis_credits) message += ar ? `\nالتحليل والترجمة غير المدفوعين سابقًا: ${quote.analysis_credits} رصيد.` : `\nAnalysis and translation not yet charged: ${quote.analysis_credits} credits.`;
-    if (quote.required_balance > quote.credits) message += ar ? `\nالرصيد المطلوب للبدء: ${quote.required_balance} رصيد.` : `\nBalance required to start: ${quote.required_balance} credits.`;
-    message += ar ? "\nسيتم الخصم بعد نجاح العملية. هل تريد المتابعة؟" : "\nCharged after successful completion. Continue?";
-    const accepted = await LisanDialog.confirm(message, { title: ar ? "تأكيد التكلفة" : "Confirm cost", okText: ar ? "متابعة" : "Continue" });
-    if (accepted) payload.accepted_credits = quote.credits;
-    return accepted;
+    if (!res.ok || quote.error || !Number.isInteger(quote.credits) || quote.credits < 1)
+        throw new Error(quote.error || subsText("The price is unavailable. Please try again.", "السعر غير متاح. حاول مرة أخرى."));
+    payload.accepted_credits = quote.credits;
+    return quote;
 }
 
 async function generateAudio() {
@@ -1887,20 +1915,14 @@ async function generateAudio() {
     const button = document.getElementById("generateButton");
     if (button.disabled) return;
     button.disabled = true;
-    // Freeze the submitted text while the user reviews the confirmed price.
-    const payload = JSON.parse(JSON.stringify({
-        job_id: currentJobId || "", segments: segmentsData,
-        tts_provider: document.getElementById("ttsProvider").value,
-        gemini_voice: document.getElementById("geminiVoice").value,
-        speaker_voices: speakerVoices,
-        duration_mode: document.getElementById("durationMode").value,
-        total_duration: totalDuration, cloned_voice_ids: window.clonedVoiceIds || []
-    }));
+    // Snapshot the click's exact text and voice choices before checking its server price.
+    const payload = shortGeneratePayload();
     let started = false;
     try {
-        if (!await confirmShortPrice("/api/generate/quote", payload)) return;
+        const quote = await quoteShortPrice("/api/generate/quote", payload);
+        setBadge("badgeGenerate", quote.credits);
         document.getElementById("genProgress").classList.remove("hidden");
-        notify("info", "Starting Arabic audio generation...");
+        notify("info", subsText("Generating Arabic audio. Cost: ", "جارٍ توليد الصوت العربي. التكلفة: ") + quote.credits + subsText(" credits.", " رصيد."));
         const res = await fetch("/api/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error || "Audio generation could not be started.");
@@ -1924,7 +1946,7 @@ async function regenerateLine(i, btn) {
             voice_id: voice_id, tempo_mode: seg.tempo_mode || "excellent",
             duration_mode: document.getElementById("durationMode").value, total_duration: totalDuration
         }));
-        if (!await confirmShortPrice("/api/regenerate_line/quote", payload)) return;
+        await quoteShortPrice("/api/regenerate_line/quote", payload);
         notify("info", `Re-speaking line ${i + 1} only...`);
         const res = await fetch("/api/regenerate_line", {
             method: "POST",
@@ -2715,6 +2737,7 @@ async function renderSpeakerVoices() {
         row.appendChild(c2);
         tbody.appendChild(row);
     });
+    scheduleGeneratePrice();
 }
 
 async function ensureVoicePools() {
@@ -3201,7 +3224,11 @@ checkGenerateProgress = async function () {
             if (btn) btn.disabled = false;
 
             var r = data.result || {};
-            notify("success", "Arabic audio generated and merged.");
+            generateQuoteStamp = "";
+            scheduleGeneratePrice();
+            notify("success", window.currentLang === "ar"
+                ? "تم توليد الصوت العربي. التكلفة: " + r.credits_charged + " رصيد."
+                : "Arabic audio generated. Cost: " + r.credits_charged + " credits.");
 
             document.getElementById("resultSection").classList.remove("hidden");
             document.getElementById("audioResults").innerHTML =
@@ -7573,3 +7600,7 @@ window.cleanOldClones = function () {
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 })();
+
+// Text and voice controls update the numeric generation price without opening a dialog.
+document.addEventListener("input", function() { scheduleGeneratePrice(); });
+document.addEventListener("change", function() { scheduleGeneratePrice(); });
