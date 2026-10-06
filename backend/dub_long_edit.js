@@ -34,7 +34,6 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     $('language').textContent = lang === 'ar' ? 'English' : 'العربية';
     $('chooseLabel').textContent = tr('Choose a completed project', 'اختر مشروعاً مكتملاً');
     $('intro').textContent = tr('Select the lines that need another dub, correct their text or timing, and generate a correction track. Each export keeps the original duration, with no generated voices outside the selected lines.', 'حدد الأسطر التي تحتاج إعادة الدبلجة، وصحح النص أو التوقيت ثم أنشئ مسار التصحيحات. يحافظ كل ملف على مدة الأصل، ولا يحتوي على أصوات مولدة خارج الأسطر المحددة.');
-    $('helpButton').setAttribute('aria-label', tr('Help', 'مساعدة'));
     $('dub').textContent = tr('Dub selected lines', 'دبلجة الأسطر المحددة'); $('finish').textContent = tr('Finish corrections', 'إنهاء التصحيحات');
     $('trackHelp').textContent = tr('Use selected voices only when keeping your existing background in Premiere, DaVinci or CapCut. Each new pass generates only the lines you select.', 'استخدم الأصوات المحددة فقط عند الإبقاء على الخلفية الموجودة في برنامج المونتاج. في كل مرة تُولد الأسطر المحددة فقط.');
     $('recoveryTitle').textContent = tr('Attach the original for editing', 'إرفاق الأصل للتحرير');
@@ -286,8 +285,6 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   $('logout').onclick=function(){fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login';});};
   function dark(on){document.body.classList.toggle('dark',on);localStorage.setItem('lisan_dark_mode',on?'1':'0');$('darkModeBtn').textContent=on?'☀️':'🌙';}
   dark(localStorage.getItem('lisan_dark_mode')!=='0');$('darkModeBtn').onclick=function(){dark(!document.body.classList.contains('dark'));};
-  $('helpButton').onclick=function(){var open=this.parentElement.classList.toggle('open');this.setAttribute('aria-expanded',String(open));};
-  window.addEventListener('keydown',function(e){if(e.key==='Escape'){$('helpButton').parentElement.classList.remove('open');$('helpButton').setAttribute('aria-expanded','false');$('helpButton').blur();}});
   window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
   staticText();
   api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;$('projects').appendChild(option);});}).catch(error);

@@ -982,3 +982,25 @@ body.lang-ar .contact-icon-btn { right: auto; left: 24px; }
     margin: 0;
 }
 .modal-close:hover { background: var(--modal-close-hover-bg); color: var(--text); }
+/* ===== Step 6: player built into the timeline ===== */
+#audioResults audio { display: none; }
+.tl-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 4px 0 8px; }
+body button.tl-play { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 38px; height: 38px; min-width: 38px; padding: 0; margin: 0; border-radius: 50%; border: 0; background: var(--primary); color: #fff; box-shadow: 0 2px 8px -2px rgba(26,35,126,.55); transform: none; }
+body button.tl-play:hover:not(:disabled) { background: var(--primary-light); transform: scale(1.06); }
+body button.tl-play:active:not(:disabled) { transform: scale(.97); }
+body button.tl-play:disabled { opacity: .45; box-shadow: none; }
+body button.tl-play:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(99,102,241,.4); }
+.tl-play svg { width: 18px; height: 18px; display: block; }
+.tl-play .tl-ico-pause { display: none; }
+.tl-play.playing .tl-ico-play { display: none; }
+.tl-play.playing .tl-ico-pause { display: block; }
+.tl-time { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: .2px; min-width: 104px; }
+.tl-title { font-size: 13px; font-weight: 600; color: var(--text-muted); display: inline-flex; align-items: center; }
+.tl-ovl { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-muted); cursor: pointer; margin-bottom: 0; }
+#timelineWrap .tl-ruler { cursor: pointer; }
+#timelinePlayhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ef4444; z-index: 20; pointer-events: none; box-shadow: 0 0 6px rgba(239,68,68,.7); display: none; }
+#timelinePlayhead .tl-ph-handle { position: absolute; top: 0; left: -8px; width: 18px; height: 22px; pointer-events: auto; cursor: grab; touch-action: none; }
+#timelinePlayhead .tl-ph-handle::before { content: ""; position: absolute; left: 1px; top: 1px; border-left: 8px solid transparent; border-right: 8px solid transparent; border-top: 13px solid #ef4444; filter: drop-shadow(0 1px 2px rgba(0,0,0,.55)); transition: transform .12s; transform-origin: 50% 0; }
+#timelinePlayhead .tl-ph-handle:hover::before { transform: scale(1.18); }
+#timelineWrap.tl-dragging, #timelineWrap.tl-dragging * { cursor: grabbing !important; user-select: none; }
+#timelineWrap.tl-dragging #timelinePlayhead .tl-ph-handle::before { transform: scale(1.25); }

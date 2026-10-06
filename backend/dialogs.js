@@ -710,3 +710,211 @@
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
     else start();
 })();
+
+/* Lisan AI help tips -- ONE look for every "?" button and hover bubble on the
+   main app, the Account page, Dub Long Video and Correct a long dub.
+
+   API:
+     LisanTip.attach(host, sources, {label})
+         Adds a small "?" button at the end of `host` (usually a heading or a
+         label). `sources` is an element, an array of elements, a string or a
+         function returning a string. Source elements are hidden in the page
+         and their CURRENT html is shown in the bubble each time it opens, so
+         text that the page changes later (language switch, live numbers) is
+         always up to date.
+     data-tip-src            on a note element: it moves behind a "?" button
+                             placed in data-tip-host (an element id) or, by
+                             default, in the first heading of its card.
+     data-tip="text"         on any element: plain hover/focus bubble, no "?".
+     title="..."             on the top bar and round icon buttons is turned
+                             into the same bubble automatically (no native
+                             yellow box).
+   Colors come from the page's CSS variables, so light/dark mode, Classic/New
+   style and Arabic (right-to-left) all follow the page automatically. */
+(function () {
+    if (window.LisanTip) return;
+
+    var CSS = [
+        ".lt-src{display:none !important;}",
+        "button.lt-btn,.lt-bubble{--lt-accent:var(--primary-fg,#4f46e5);}",
+        "html body button.lt-btn{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;flex:none;width:20px;height:20px;min-width:20px;max-width:20px;padding:0;margin:0 0 0 8px;margin-inline-start:8px;margin-inline-end:0;vertical-align:middle;position:relative;top:-1px;border-radius:50%;border:1.5px solid rgba(99,102,241,.4);border:1.5px solid color-mix(in srgb,var(--lt-accent,#6366f1) 42%,transparent);background:rgba(99,102,241,.1);background:color-mix(in srgb,var(--lt-accent,#6366f1) 10%,transparent);color:var(--lt-accent,#4f46e5);font-size:12px;line-height:1;cursor:help;box-shadow:none;transform:none !important;opacity:1;transition:background .15s,color .15s,border-color .15s,box-shadow .15s;}",
+        "html body button.lt-btn svg{width:12px;height:12px;display:block;pointer-events:none;}",
+        "html body button.lt-btn:hover,html body button.lt-btn[aria-expanded='true']{background:var(--lt-accent,#4f46e5);border-color:var(--lt-accent,#4f46e5);color:var(--card,#fff);box-shadow:0 2px 8px -2px rgba(79,70,229,.55);}",
+        "html body button.lt-btn:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(99,102,241,.35);}",
+        ".lt-bubble{position:fixed;left:0;top:0;z-index:100001;box-sizing:border-box;width:max-content;max-width:min(360px,calc(100vw - 24px));padding:12px 15px 12px 17px;border-radius:12px;background:var(--card,#ffffff);color:var(--text,#1a1a2e);border:1px solid rgba(99,102,241,.35);border-color:color-mix(in srgb,var(--lt-accent,#6366f1) 32%,var(--border,#e5e7eb));box-shadow:0 14px 34px -10px rgba(15,23,42,.34),0 2px 8px rgba(15,23,42,.1);font-size:13px;line-height:1.6;font-weight:400;text-align:start;white-space:normal;overflow-wrap:anywhere;opacity:0;visibility:hidden;transform:translateY(5px);transition:opacity .15s ease,transform .15s ease,visibility 0s linear .15s;pointer-events:none;}",
+        ".lt-bubble.lt-on{opacity:1;visibility:visible;transform:none;transition:opacity .15s ease,transform .15s ease;pointer-events:auto;}",
+        ".lt-bubble.lt-above{transform:translateY(-5px);}",
+        ".lt-bubble.lt-above.lt-on{transform:none;}",
+        ".lt-bubble::before{content:'';position:absolute;inset-block:11px;inset-inline-start:0;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,var(--lt-accent,#6366f1),var(--accent,#38bdf8));}",
+        "[dir=rtl] .lt-bubble::before{border-radius:3px 0 0 3px;}",
+        ".lt-bubble .lt-arrow{position:absolute;width:10px;height:10px;margin-left:-5px;background:var(--card,#ffffff);border:1px solid rgba(99,102,241,.35);border-color:color-mix(in srgb,var(--lt-accent,#6366f1) 32%,var(--border,#e5e7eb));transform:rotate(45deg);}",
+        ".lt-bubble:not(.lt-above) .lt-arrow{top:-6px;border-right:0;border-bottom:0;}",
+        ".lt-bubble.lt-above .lt-arrow{bottom:-6px;border-left:0;border-top:0;}",
+        ".lt-bubble p{margin:0;}",
+        ".lt-bubble p+p,.lt-bubble ol,.lt-bubble ul{margin-top:8px;}",
+        ".lt-bubble ol,.lt-bubble ul{margin-bottom:0;padding-inline-start:20px;padding-inline-end:0;}",
+        ".lt-bubble li+li{margin-top:4px;}",
+        ".lt-bubble strong{font-weight:600;color:var(--text,#1a1a2e);}",
+        ".lt-bubble a{color:var(--primary-fg,#3949ab);}",
+        "@media (prefers-reduced-motion:reduce){.lt-bubble,.lt-bubble.lt-on{transition:none;}}"
+    ].join("\n");
+
+    var ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.7 6.2a2.4 2.4 0 1 1 3.8 1.95C8.6 8.8 8 9.3 8 10.4"/><circle cx="8" cy="13" r=".55" fill="currentColor"/></svg>';
+    var AUTO_SEL = "#userBar a[title],#userBar button[title],#userBar span[title],.contact-icon-btn[title],#darkModeBtn[title],.btn-logout[title],#timelineWrap [title]";
+    var registry = [], bubble = null, arrow = null, body = null, cur = null, pinned = false, showT = 0, hideT = 0, uid = 0;
+
+    function addCss() {
+        if (document.getElementById("lt-css")) return;
+        var s = document.createElement("style"); s.id = "lt-css"; s.textContent = CSS;
+        (document.head || document.documentElement).appendChild(s);
+    }
+    function isAr() {
+        return document.documentElement.lang === "ar" || document.documentElement.dir === "rtl" ||
+            (document.body && document.body.classList.contains("lang-ar"));
+    }
+    function ensureBubble() {
+        if (bubble) return;
+        bubble = document.createElement("div"); bubble.className = "lt-bubble"; bubble.id = "ltBubble"; bubble.setAttribute("role", "tooltip");
+        arrow = document.createElement("span"); arrow.className = "lt-arrow";
+        body = document.createElement("div"); body.className = "lt-body";
+        bubble.appendChild(arrow); bubble.appendChild(body); document.body.appendChild(bubble);
+        bubble.addEventListener("mouseenter", function () { clearTimeout(hideT); });
+        bubble.addEventListener("mouseleave", function () { if (!pinned) schedHide(); });
+    }
+    function cleanHtml(h) {
+        return String(h || "").replace(/^\s*(?:💡|👉|ℹ️|ⓘ)\s*/, "").trim();
+    }
+    function contentOf(entry) {
+        var parts = [];
+        entry.sources.forEach(function (s) {
+            var h = "";
+            if (typeof s === "function") h = s();
+            else if (typeof s === "string") h = s;
+            else if (s && s.nodeType === 1) {
+                h = s.innerHTML;
+                if (s.tagName === "OL" || s.tagName === "UL") { parts.push("<" + s.tagName.toLowerCase() + ">" + h + "</" + s.tagName.toLowerCase() + ">"); return; }
+            }
+            h = cleanHtml(h);
+            if (h) parts.push("<p>" + h + "</p>");
+        });
+        return parts.join("");
+    }
+    function place() {
+        if (!cur || !bubble) return;
+        var r = cur.el.getBoundingClientRect(), vw = document.documentElement.clientWidth, vh = window.innerHeight;
+        var w = bubble.offsetWidth, h = bubble.offsetHeight, gap = 11;
+        var left = r.left + r.width / 2 - w / 2;
+        left = Math.max(8, Math.min(left, vw - w - 8));
+        var below = r.bottom + gap + h <= vh - 8 || r.top - gap - h < 8;
+        var top = below ? r.bottom + gap : r.top - gap - h;
+        bubble.classList.toggle("lt-above", !below);
+        bubble.style.left = Math.round(left) + "px"; bubble.style.top = Math.round(top) + "px";
+        var ax = r.left + r.width / 2 - left; ax = Math.max(16, Math.min(ax, w - 16));
+        arrow.style.left = Math.round(ax) + "px";
+    }
+    function show(entry, pin) {
+        ensureBubble(); clearTimeout(showT); clearTimeout(hideT);
+        var html = entry.text != null ? null : contentOf(entry);
+        if (entry.text != null) body.textContent = entry.text; else { if (!html) return; body.innerHTML = html; }
+        bubble.dir = entry.text != null ? "auto" : (isAr() ? "rtl" : "ltr");
+        if (cur && cur.el !== entry.el) cur.el.setAttribute("aria-expanded", "false");
+        cur = entry; pinned = !!pin;
+        if (entry.el.getAttribute("aria-haspopup") === "true") entry.el.setAttribute("aria-expanded", "true");
+        entry.el.setAttribute("aria-describedby", "ltBubble");
+        bubble.classList.add("lt-on"); place();
+    }
+    function hide() {
+        clearTimeout(showT); clearTimeout(hideT);
+        if (bubble) bubble.classList.remove("lt-on");
+        if (cur) { cur.el.setAttribute("aria-expanded", "false"); cur.el.removeAttribute("aria-describedby"); }
+        cur = null; pinned = false;
+    }
+    function schedHide() { clearTimeout(hideT); hideT = setTimeout(hide, 140); }
+    function schedShow(entry) { clearTimeout(hideT); clearTimeout(showT); showT = setTimeout(function () { show(entry, false); }, 90); }
+
+    function bind(entry, clickable) {
+        var el = entry.el;
+        el.addEventListener("mouseenter", function () { if (!pinned) schedShow(entry); });
+        el.addEventListener("mouseleave", function () { clearTimeout(showT); if (!pinned) schedHide(); });
+        el.addEventListener("focus", function () { if (!pinned) schedShow(entry); });
+        el.addEventListener("blur", function () { if (!pinned) schedHide(); });
+        if (clickable) el.addEventListener("click", function (e) {
+            e.preventDefault(); e.stopPropagation();
+            if (cur && cur.el === el && pinned) hide(); else show(entry, true);
+        });
+    }
+
+    function attach(host, sources, opts) {
+        if (!host) return null;
+        addCss();
+        var list = (Array.isArray(sources) ? sources : [sources]).filter(function (s) { return s != null; });
+        list.forEach(function (s) { if (s && s.nodeType === 1) { s.classList.add("lt-src"); s.setAttribute("data-tip-done", "1"); } });
+        var existing = host.querySelector(":scope > button.lt-btn");
+        if (existing && existing._lt) { existing._lt.sources = existing._lt.sources.concat(list); return existing; }
+        var b = document.createElement("button"); b.type = "button"; b.className = "lt-btn";
+        b.setAttribute("aria-haspopup", "true"); b.setAttribute("aria-expanded", "false");
+        b.setAttribute("aria-label", (opts && opts.label) || (isAr() ? "مساعدة" : "Help"));
+        b.innerHTML = ICON;
+        var entry = { el: b, sources: list }; b._lt = entry;
+        bind(entry, true);
+        entry.host = host; registry.push(entry); host.appendChild(b);
+        return b;
+    }
+
+    function hostFor(src) {
+        var id = src.getAttribute("data-tip-host");
+        if (id) { var h = document.getElementById(id) || document.querySelector(id); if (h) return h; }
+        var card = src.closest(".card");
+        return (card && card.querySelector("h3")) || null;
+    }
+    function scan(root) {
+        if (cur && !document.documentElement.contains(cur.el)) hide();
+        registry.forEach(function (e) { if (e.el.parentNode !== e.host && document.documentElement.contains(e.host)) e.host.appendChild(e.el); });
+        (root || document).querySelectorAll("[data-tip-src]:not([data-tip-done])").forEach(function (src) {
+            var host = hostFor(src); if (host) attach(host, src);
+        });
+        (root || document).querySelectorAll("[data-tip]:not([data-lt-bound])").forEach(function (el) {
+            el.setAttribute("data-lt-bound", "1");
+            var entry = { el: el, sources: [], text: el.getAttribute("data-tip") };
+            Object.defineProperty(entry, "text", { get: function () { return el.getAttribute("data-tip"); } });
+            bind(entry, false);
+        });
+        (root || document).querySelectorAll(AUTO_SEL).forEach(convertTitle);
+    }
+    function convertTitle(el) {
+        var t = el.getAttribute && el.getAttribute("title");
+        if (!t) return;
+        if (!el.getAttribute("aria-label") && !el.textContent.trim()) el.setAttribute("aria-label", t);
+        el.removeAttribute("title"); el.setAttribute("data-tip", t);
+        if (!el.hasAttribute("data-lt-bound")) scan_one(el);
+    }
+    function scan_one(el) {
+        el.setAttribute("data-lt-bound", "1");
+        var entry = { el: el, sources: [] };
+        Object.defineProperty(entry, "text", { get: function () { return el.getAttribute("data-tip"); } });
+        bind(entry, false);
+    }
+
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && cur) { var b = cur.el; hide(); if (b.focus && b.classList.contains("lt-btn")) b.focus(); } });
+    document.addEventListener("click", function (e) { if (cur && pinned && !(bubble && bubble.contains(e.target)) && e.target !== cur.el && !cur.el.contains(e.target)) hide(); });
+    window.addEventListener("resize", place); window.addEventListener("scroll", place, true);
+
+    var pend = 0;
+    function later() { if (pend) return; pend = setTimeout(function () { pend = 0; scan(); }, 30); }
+    function start() {
+        addCss(); scan();
+        try {
+            new MutationObserver(function (muts) {
+                var need = false;
+                for (var i = 0; i < muts.length; i++) {
+                    var m = muts[i];
+                    if (m.type === "attributes") { if (m.target.matches && m.target.matches(AUTO_SEL)) convertTitle(m.target); }
+                    else if (m.addedNodes && m.addedNodes.length) need = true;
+                }
+                if (need) later();
+            }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
+        } catch (e) {}
+    }
+    window.LisanTip = { attach: attach, scan: scan, hide: hide };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
+})();

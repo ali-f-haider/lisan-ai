@@ -1528,14 +1528,8 @@ function reviewNavigation(id) {
   return nav;
 }
 function hiddenHelp(id, labelId) {
-  var content = $(id), label = $(labelId); if (!content || !label) return;
-  var shell = document.createElement("span"); shell.className = "ld-help";
-  var button = document.createElement("button"); button.type = "button"; button.textContent = "?";
-  button.setAttribute("aria-label", LANG === "ar" ? "مساعدة" : "Help"); button.setAttribute("aria-controls", id);
-  button.setAttribute("aria-expanded", "false");
-  button.onclick = function() { shell.classList.toggle("open"); button.setAttribute("aria-expanded", shell.classList.contains("open") ? "true" : "false"); };
-  shell.onkeydown = function(e) { if (e.key === "Escape") { shell.classList.remove("open"); button.blur(); } };
-  content.classList.add("ld-help-content"); shell.appendChild(button); shell.appendChild(content); label.appendChild(shell);
+  var content = $(id), label = $(labelId); if (!content || !label || !window.LisanTip) return;
+  LisanTip.attach(label, content, { label: LANG === "ar" ? "مساعدة" : "Help" });
 }
 // ---- speakers panel
 function renderSpeakers() {

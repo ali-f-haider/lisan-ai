@@ -3241,6 +3241,7 @@ function renderTimeline() {
     var scale = W / total;
     var ruler = document.createElement("div");
     ruler.style.cssText = "position:relative;height:24px;border-bottom:1px solid #475569;background:#0f172a;";
+    ruler.className = "tl-ruler";
     var step = total <= 10 ? 1 : total <= 30 ? 5 : total <= 120 ? 10 : total <= 600 ? 30 : 60;
     for (var t = 0; t <= total; t += step) {
         var mark = document.createElement("div");
@@ -4444,7 +4445,7 @@ var volOrigAudio = null;
     card.className = "card hidden";
     card.id = "volumeSection";
     card.innerHTML = '<h3>Step 5.5: Volume Match & Per-Line Mix</h3>' +
-        '<p class="note" id="volumeMatchNote">Each slider shows the loudness (in dB) of that Arabic line. It starts at the level measured from the original speaker\'s voice (see <strong>Original level</strong>), not at zero. Play ▶ a dubbed line, move the slider to make it louder or quieter (live preview), then apply to rebuild the final MP3. Generating again resets the sliders to the original levels.</p>' +
+        '<p class="note" id="volumeMatchNote" data-tip-src>Each slider shows the loudness (in dB) of that Arabic line. It starts at the level measured from the original speaker\'s voice (see <strong>Original level</strong>), not at zero. Play ▶ a dubbed line, move the slider to make it louder or quieter (live preview), then apply to rebuild the final MP3. Generating again resets the sliders to the original levels.</p>' +
         '<div class="table-wrap"><table id="volumeTable"><thead><tr><th>#</th><th>Speaker</th><th>Line</th><th>▶ Orig</th><th>🔊 Dub</th><th>Auto</th><th style="min-width:130px">Volume</th><th></th></tr></thead><tbody></tbody></table></div>' +
         '<button id="applyVolumesBtn" class="green">🔊 Apply changes & rebuild MP3<span class="badge" id="badgeApplyVolumes"></span></button> ' +
         '<button id="resetVolumesBtn" class="blue">↺ Reset All Sliders</button>';
@@ -6886,77 +6887,165 @@ window.cleanOldClones = function () {
         }
     }
 
-    // --- Playhead marker: follows the Step 6 results <audio> element ---
+    // --- Player built into the timeline: play/pause button, time read-out and a red marker with a
+    //     triangle handle that can be dragged (or the ruler clicked) to jump anywhere, like a real player.
+    //     The Step 6 <audio> element is still the one that plays (it is just hidden); everything else
+    //     in the app that reloads or reads it keeps working unchanged. ---
+    function player() { return document.querySelector("#audioResults audio"); }
     function timelineScale() {
         var wrap = document.getElementById("timelineWrap");
         if (!wrap || !segmentsData || !segmentsData.length) return null;
         var total = timelineSpan();
-        return { wrap: wrap, scale: (wrap.clientWidth || 900) / total };
+        return { wrap: wrap, scale: (wrap.clientWidth || 900) / total, width: wrap.clientWidth || 900 };
+    }
+    function fmtTime(t) {
+        t = Math.max(0, t || 0);
+        var m = Math.floor(t / 60), sec = t - m * 60;
+        return m + ":" + (sec < 10 ? "0" : "") + sec.toFixed(1);
     }
     function ensurePlayhead(wrap) {
         var m = document.getElementById("timelinePlayhead");
         if (!m) {
             m = document.createElement("div");
             m.id = "timelinePlayhead";
-            m.style.cssText = "position:absolute;top:0;bottom:0;width:2px;background:#ef4444;z-index:20;pointer-events:none;display:none;box-shadow:0 0 4px rgba(239,68,68,0.8);";
-            wrap.appendChild(m);
-        } else if (m.parentNode !== wrap) {
-            wrap.appendChild(m);
+            var h = document.createElement("div");
+            h.className = "tl-ph-handle"; h.id = "tlPhHandle";
+            h.setAttribute("role", "slider"); h.setAttribute("aria-label", "Playback position"); h.tabIndex = 0;
+            h.addEventListener("pointerdown", startDrag);
+            h.addEventListener("keydown", function (e) {
+                var au = player(); if (!au) return;
+                var step = e.shiftKey ? 5 : 1;
+                if (e.key === "ArrowRight") { e.preventDefault(); seekTo(au.currentTime + step); }
+                else if (e.key === "ArrowLeft") { e.preventDefault(); seekTo(au.currentTime - step); }
+                else if (e.key === " " || e.key === "Enter") { e.preventDefault(); togglePlay(); }
+            });
+            m.appendChild(h);
         }
+        if (m.parentNode !== wrap) wrap.appendChild(m);
         return m;
     }
-    var phRaf = null;
-    function tickPlayhead(audio) {
-        var g = timelineScale();
-        if (!g) { phRaf = null; return; }
+    function setPos(g, t) {
         var m = ensurePlayhead(g.wrap);
-        m.style.left = Math.max(0, audio.currentTime * g.scale) + "px";
-        if (audio.paused || audio.ended) { phRaf = null; return; }
-        phRaf = requestAnimationFrame(function () { tickPlayhead(audio); });
+        var x = Math.max(0, Math.min(t * g.scale, g.width));
+        m.style.left = x + "px"; m.style.display = "block";
+        var h = m.firstChild;
+        // keep the whole triangle visible at both ends of the ruler
+        var hl = Math.max(0, Math.min(x - 9, g.width - 18));
+        h.style.left = (hl - (x - 1)) + "px";
     }
-    function attachPlayhead(audio) {
-        if (!audio || audio.dataset.playheadHooked) return;
-        audio.dataset.playheadHooked = "1";
-        audio.addEventListener("play", function () {
-            var g = timelineScale(); if (!g) return;
-            ensurePlayhead(g.wrap).style.display = "block";
-            if (phRaf) cancelAnimationFrame(phRaf);
-            tickPlayhead(audio);
-        });
-        audio.addEventListener("pause", function () { if (phRaf) { cancelAnimationFrame(phRaf); phRaf = null; } });
-        audio.addEventListener("ended", function () {
-            if (phRaf) { cancelAnimationFrame(phRaf); phRaf = null; }
-            var m = document.getElementById("timelinePlayhead");
-            if (m) m.style.display = "none";
-        });
-        audio.addEventListener("seeked", function () {
-            var g = timelineScale(); if (!g) return;
-            var m = ensurePlayhead(g.wrap);
-            m.style.left = Math.max(0, audio.currentTime * g.scale) + "px";
+    var dragging = false, phRaf = null, lastLang = null;
+    var timeNode = null;
+    function setText(el, txt) {
+        // character-data edits only: the page-wide DOM watchdog listens for child additions/removals, so a
+        // text node that is updated in place never wakes it (this runs several times a second while playing).
+        if (!el) return;
+        var n = el.firstChild;
+        if (!n || n.nodeType !== 3) { el.textContent = txt; return; }
+        if (n.nodeValue !== txt) n.nodeValue = txt;
+    }
+    function syncTransport() {
+        var au = player(), btn = document.getElementById("tlPlay"), tm = document.getElementById("tlTime");
+        var ar = window.currentLang === "ar";
+        if (btn) {
+            var playing = !!(au && !au.paused && !au.ended);
+            btn.disabled = !au;
+            btn.classList.toggle("playing", playing);
+            var lab = playing ? (ar ? "إيقاف مؤقت" : "Pause") : (ar ? "تشغيل" : "Play");
+            if (btn.getAttribute("aria-label") !== lab) btn.setAttribute("aria-label", lab);
+        }
+        var dur = au && isFinite(au.duration) ? au.duration : 0;
+        setText(tm, fmtTime(au ? au.currentTime : 0) + " / " + fmtTime(dur));
+        if (lastLang !== ar) {
+            lastLang = ar;
+            var ti = document.getElementById("tlTitle");
+            if (ti) setText(ti, ar ? "المشغّل والخط الزمني" : "Player & Fine-Tune Timeline");
+        }
+        var m = document.getElementById("tlPhHandle");
+        if (m) { m.setAttribute("aria-valuemin", "0"); m.setAttribute("aria-valuemax", String(Math.round(dur))); m.setAttribute("aria-valuenow", String(Math.round(au ? au.currentTime : 0))); }
+    }
+    function syncPlayhead() {
+        var g = timelineScale(), au = player();
+        if (!g) return;
+        if (!dragging) setPos(g, au ? au.currentTime : 0);
+    }
+    function tick() {
+        syncPlayhead(); syncTransport();
+        var au = player();
+        if (au && !au.paused && !au.ended) phRaf = requestAnimationFrame(tick); else phRaf = null;
+    }
+    function kick() { if (!phRaf) phRaf = requestAnimationFrame(tick); }
+    function togglePlay() {
+        var au = player(); if (!au) return;
+        if (au.paused || au.ended) { var pr = au.play(); if (pr && pr.catch) pr.catch(function () {}); } else au.pause();
+    }
+    function seekTo(t) {
+        var au = player(), g = timelineScale(); if (!au || !g) return;
+        var dur = isFinite(au.duration) && au.duration > 0 ? au.duration : g.width / g.scale;
+        t = Math.max(0, Math.min(t, dur));
+        try { au.currentTime = t; } catch (e) {}
+        setPos(g, t); syncTransport();
+    }
+    function seekFromX(clientX) {
+        var g = timelineScale(); if (!g) return;
+        seekTo((clientX - g.wrap.getBoundingClientRect().left) / g.scale);
+    }
+    function startDrag(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        var g = timelineScale(); if (!g || !player()) return;
+        e.preventDefault(); e.stopPropagation();
+        dragging = true; g.wrap.classList.add("tl-dragging");
+        var target = e.currentTarget;
+        try { if (e.pointerId !== undefined && target.setPointerCapture) target.setPointerCapture(e.pointerId); } catch (err) {}
+        seekFromX(e.clientX);
+        function move(ev) { seekFromX(ev.clientX); }
+        function up() {
+            dragging = false; g.wrap.classList.remove("tl-dragging");
+            document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); document.removeEventListener("pointercancel", up);
+            syncPlayhead();
+        }
+        document.addEventListener("pointermove", move); document.addEventListener("pointerup", up); document.addEventListener("pointercancel", up);
+    }
+    function hookRuler() {
+        var wrap = document.getElementById("timelineWrap");
+        var ruler = wrap && wrap.querySelector(".tl-ruler");
+        if (ruler && !ruler.dataset.seekHooked) {
+            ruler.dataset.seekHooked = "1";
+            ruler.addEventListener("pointerdown", startDrag);
+        }
+    }
+    function hookAudio(au) {
+        if (!au || au.dataset.playheadHooked) return;
+        au.dataset.playheadHooked = "1";
+        ["play", "playing"].forEach(function (n) { au.addEventListener(n, function () { syncTransport(); kick(); }); });
+        ["pause", "ended", "seeked", "seeking", "timeupdate", "loadedmetadata", "durationchange", "emptied", "loadeddata"].forEach(function (n) {
+            au.addEventListener(n, function () { syncTransport(); syncPlayhead(); });
         });
     }
     function scanForPlayer() {
-        var au = document.querySelector("#audioResults audio");
-        if (au) attachPlayhead(au);
+        var au = player();
+        if (au) hookAudio(au);
+        syncTransport(); syncPlayhead();
     }
+    var playBtn = document.getElementById("tlPlay");
+    if (playBtn) playBtn.addEventListener("click", togglePlay);
     scanForPlayer();
     var audioResultsEl = document.getElementById("audioResults");
     if (audioResultsEl && typeof MutationObserver !== "undefined") {
         new MutationObserver(scanForPlayer).observe(audioResultsEl, { childList: true, subtree: true });
     }
+    window.addEventListener("resize", function () { syncPlayhead(); });
 
-    // Both the tooltip pass and the playhead re-attach need to run after every
-    // timeline render (renderTimeline wipes #timelineWrap's contents each time).
+    // Both the tooltip pass and the marker need to run after every timeline render (renderTimeline wipes
+    // #timelineWrap's contents each time).
     if (typeof renderTimeline === "function") {
         var _rtTipPh = renderTimeline;
         renderTimeline = function () {
             var r = _rtTipPh.apply(this, arguments);
             applySegmentTooltips();
-            var au = document.querySelector("#audioResults audio");
-            if (au && !au.paused) {
-                var g = timelineScale();
-                if (g) { var m = ensurePlayhead(g.wrap); m.style.display = "block"; m.style.left = Math.max(0, au.currentTime * g.scale) + "px"; }
-            }
+            hookRuler();
+            var g = timelineScale();
+            if (g) { var au = player(); if (au) hookAudio(au); setPos(g, au ? au.currentTime : 0); }
+            syncTransport();
             return r;
         };
     }
