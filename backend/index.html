@@ -5,12 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lisan AI Studio</title>
 <link rel="stylesheet" href="/styles.css">
-<style>html.dp,html.dp body{background:#0f172a}</style>
+<style>html.dp,html.dp body{background:#0f172a}
+/* Loading screen: the app stays hidden until the account (name, credits) is known, so nothing jumps in a few seconds later. */
+#appGate{position:fixed;top:0;right:0;bottom:0;left:0;z-index:100000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#f5f7fb;color:#1a237e;font:600 15px Inter,Segoe UI,Arial,sans-serif}
+html.dp #appGate{background:#0f172a;color:#e5e7eb}
+#appGate.gone{display:none}</style>
 <script>try{if(localStorage.getItem("lisan_dark_mode")!=="0")document.documentElement.className+=" dp"}catch(e){}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
+<div id="appGate" role="status" aria-live="polite">
+    <picture>
+        <source srcset="/static/loading-spinner.webp" type="image/webp">
+        <img src="/static/loading-spinner.gif" alt="" style="width:80px;height:80px;display:block;">
+    </picture>
+    <div id="appGateText">Loading your account…</div>
+</div>
+<script>
+(function () {
+    try { if (localStorage.getItem("lisan_lang") === "ar") { document.getElementById("appGateText").textContent = "جارٍ تحميل حسابك…"; } } catch (e) {}
+    var done = false;
+    window.hideAppGate = function () { if (done) return; done = true; var g = document.getElementById("appGate"); if (g) g.className = "gone"; };
+    setTimeout(window.hideAppGate, 10000);   // never keep anyone out of the app if the account call is slow or fails
+})();
+</script>
 <!-- Mobile block: Step 2's editing table alone has 9 columns of controls --
      no responsive tweak makes that genuinely usable on a phone, so below
      768px this masks the page and asks the person to switch to a computer
@@ -144,7 +163,7 @@
                 <th style="width:36px" id="thNum">#</th>
                 <th style="width:72px" id="thStart">Start</th>
                 <th style="width:72px" id="thEnd">End</th>
-                <th style="width:100px" id="thSpeaker">Speaker</th>
+                <th style="width:138px" id="thSpeaker">Speaker</th>
                 <th style="width:170px" id="thStyle">Style / Emotion</th>
                 <th style="min-width:150px" id="thEnglish">English</th>
                 <th style="min-width:150px" id="thArabic">Arabic</th>

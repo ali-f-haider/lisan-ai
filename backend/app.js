@@ -317,6 +317,32 @@ function parseSBV(text) { const cues = []; text.replace(/\r/g, "").split(/\n\s*\
 // with the words of the transcript, so a subtitle of a whole film, or one on another clock, works: only the part that
 // belongs to this video is used and the rest is ignored. The subtitle's wording replaces what the AI heard.
 function subsText(en, ar) { return window.currentLang === "ar" ? ar : en; }
+// A loading panel (the Lisan spinner and a short text) for waits of a few seconds, so the page never looks frozen.
+// It blocks clicks while it is shown so the same action cannot be started twice. Always call hideBusy() in a finally.
+var _busyCount = 0;
+function showBusy(en, ar) {
+    _busyCount++;
+    var box = document.getElementById("busyOverlay");
+    if (!box) {
+        box = document.createElement("div"); box.id = "busyOverlay"; box.setAttribute("role", "status");
+        box.style.cssText = "position:fixed;inset:0;z-index:99990;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(15,23,42,.45);";
+        var card = document.createElement("div");
+        card.style.cssText = "background:#fff;color:#1a237e;border-radius:14px;padding:22px 30px;display:flex;flex-direction:column;align-items:center;gap:8px;box-shadow:0 10px 40px rgba(0,0,0,.3);max-width:80vw;text-align:center;";
+        var pic = document.createElement("picture");
+        var src = document.createElement("source"); src.srcset = "/static/loading-spinner.webp"; src.type = "image/webp";
+        var img = document.createElement("img"); img.src = "/static/loading-spinner.gif"; img.alt = ""; img.style.cssText = "width:70px;height:70px;display:block;";
+        pic.appendChild(src); pic.appendChild(img);
+        var txt = document.createElement("div"); txt.id = "busyOverlayText"; txt.style.cssText = "font-weight:700;font-size:15px;";
+        card.appendChild(pic); card.appendChild(txt); box.appendChild(card); document.body.appendChild(box);
+    }
+    document.getElementById("busyOverlayText").textContent = subsText(en, ar);
+    box.style.display = "flex";
+}
+function hideBusy() {
+    _busyCount = Math.max(0, _busyCount - 1);
+    var box = document.getElementById("busyOverlay");
+    if (box && !_busyCount) box.style.display = "none";
+}
 const SUBS_REASON_AR = {
     empty: "ملف الترجمة فارغ.",
     too_big: "ملف الترجمة كبير جدًا. يجب أن يكون ملف ترجمة عاديًا لفيلم أو فيديو واحد.",
@@ -1978,6 +2004,7 @@ async function autoTranslate() {
     const unlocked = segmentsData.filter(s => !s.locked);
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
+    showBusy("Translating to Arabic… this takes a few seconds.", "جارٍ الترجمة إلى العربية… يستغرق ذلك بضع ثوانٍ.");
     try {
         const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId || "", segments: unlocked }) });
         const data = await res.json();
@@ -1990,7 +2017,7 @@ async function autoTranslate() {
         renderTable();
         notify("success", "Translation complete. " + matched + " segments translated. Locked lines untouched.");
         fetchUsage();
-    } catch (e) { notify("error", e.message); }
+    } catch (e) { notify("error", e.message); } finally { hideBusy(); }
 }
 async function detectEmotions() {
     if (!currentJobId) { notify("error", "Transcribe first."); return; }
@@ -2009,6 +2036,7 @@ async function addTashkeel() {
     const targets = segmentsData.filter(s => (s.arabic_text || "").trim().length > 0 && !s.locked);
     if (!targets.length) { notify("error", "No unlocked Arabic text found. Locked lines are skipped."); return; }
     notify("info", "Adding tashkeel to " + targets.length + " unlocked line(s)...");
+    showBusy("Adding tashkeel… this takes a few seconds.", "جارٍ إضافة التشكيل… يستغرق ذلك بضع ثوانٍ.");
     try {
         const res = await fetch("/api/tashkeel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: targets.map(s => ({ segment_id: s.segment_id, arabic_text: s.arabic_text })) }) });
         const data = await res.json();
@@ -2020,7 +2048,7 @@ async function addTashkeel() {
         });
         renderTable();
         notify("success", "Tashkeel added to " + done + " unlocked line(s). Locked lines untouched.");
-    } catch (e) { notify("error", "Tashkeel failed: " + e.message); }
+    } catch (e) { notify("error", "Tashkeel failed: " + e.message); } finally { hideBusy(); }
 }
 function shortGeneratePayload() {
     return JSON.parse(JSON.stringify({
@@ -2621,11 +2649,12 @@ async function autoAssignVoices() {
         var credNum = document.getElementById("creditsNum");
         if (nameEl) nameEl.textContent = data.name || "";
         if (!data.is_guest && credEl && credNum) {
-            credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "â€¦";
+            credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "…";
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
-    }).catch(function() {});
+        if (window.hideAppGate) window.hideAppGate();
+    }).catch(function() { if (window.hideAppGate) window.hideAppGate(); });
 })();
 
 
@@ -2676,11 +2705,12 @@ function onVoiceConsentChanged(checkbox) {
         var credNum = document.getElementById("creditsNum");
         if (nameEl) nameEl.textContent = data.name || "";
         if (!data.is_guest && credEl && credNum) {
-            credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "â€¦";
+            credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "…";
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
-    }).catch(function() {});
+        if (window.hideAppGate) window.hideAppGate();
+    }).catch(function() { if (window.hideAppGate) window.hideAppGate(); });
 })();
 
 function doLogout() {
@@ -2701,7 +2731,7 @@ function doLogout() {
 function refreshCredits() {
     fetch("/api/user/info").then(function(r) { if (!r.ok) throw new Error("Account unavailable"); return r.json(); }).then(function(data) {
         var credNum = document.getElementById("creditsNum");
-        if (credNum && !data.is_guest) credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "â€¦";
+        if (credNum && !data.is_guest) credNum.textContent = Number.isFinite(data.credits) && data.credits >= 0 ? data.credits : "…";
     }).catch(function() {});
 }
 
