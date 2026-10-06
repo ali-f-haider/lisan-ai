@@ -69,8 +69,16 @@ MAX_FILE_SEC = 3600.0
 CALL_TIMEOUT_SEC = 240
 MAX_WALL_SEC = float(os.environ.get("MUSIC_FILL_MAX_WALL_SEC", "900") or 900)     # all holes of one job together
 
-DEFAULT_PROMPT = ("instrumental background music that continues the same style, instruments, tempo and mood, "
-                  "smooth and steady, no vocals, no speech")
+DEFAULT_PROMPT = ("the same background sound continues exactly as before: same instruments or sound sources, tempo, texture "
+                  "and loudness, smooth and steady, no vocals, no speech")
+AMBIENCE_NEGATIVE = ", music, melody, drums, rhythm, beat"     # added when the sound is not music (engine, wind, crowd ...)
+
+# A hole in a steady sound (engine hum, wind, room tone, a held drone) is rebuilt from the clean sound next to it, locally
+# and for free. A music model asked to continue it invents music that was never there.
+LOCAL_FILL = os.environ.get("MUSIC_FILL_LOCAL", "1").strip().lower() not in ("0", "off", "no", "false")
+STEADY_MAX_DB = float(os.environ.get("MUSIC_FILL_STEADY_DB", "2.5") or 2.5)   # band levels vary less than this over time = steady
+STEADY_MIN_SEC = 1.2                                                          # least clean sound needed to judge it
+GRAIN_SEC = 1.6
 NEGATIVE_PROMPT = "vocals, singing, spoken words, clipping, distortion, harsh noise, watermark, abrupt cutoff"     # the one the clean runs used
 
 
@@ -200,7 +208,8 @@ def _fal_run(key, wav_path, m0, m1, prompt):
     client = fal_client.SyncClient(key=key)
     url = client.upload_file(str(wav_path))
     args = {"prompt": prompt, "audio_url": url, "mask_start_seconds": round(float(m0), 3),
-            "mask_end_seconds": round(float(m1), 3), "negative_prompt": NEGATIVE_PROMPT,
+            "mask_end_seconds": round(float(m1), 3),
+            "negative_prompt": NEGATIVE_PROMPT + (AMBIENCE_NEGATIVE if "no music" in prompt.lower() else ""),
             "output_format": OUTPUT_FORMAT, "enable_prompt_expansion": False, "enable_safety_checker": True}
     try:
         args["guidance_scale"] = float(GUIDANCE)
@@ -249,9 +258,12 @@ def describe_music(gemini_key, pcm, loud_db, log=None):
         import gemini_service
         payload = {"contents": [{"parts": [
             {"inline_data": {"mime_type": "audio/wav", "data": base64.b64encode(raw).decode("ascii")}},
-            {"text": ("Describe ONLY the background music in this clip for an AI music generator, as one short line of "
-                      "comma separated tags: genre or mood, main instruments, tempo, energy. No vocals. No sentences, "
-                      "at most 25 words. Return just the line.")}]}],
+            {"text": ("This is the background sound of a film clip (the voices were taken out). Answer with ONE line. "
+                      "If there is real music, start with MUSIC: and give comma separated tags: genre or mood, main "
+                      "instruments, tempo, energy. If there is NO music (engine noise, wind, crowd, machinery, room tone, "
+                      "silence), start with AMBIENCE: and describe the sound itself as comma separated tags: what makes "
+                      "it, steady or changing, pitch, texture. Never invent music that is not there. No vocals. "
+                      "No sentences, at most 25 words. Return just the line.")}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 512}}
         data, err = gemini_service.call_gemini(gemini_key, payload, timeout=60)
         if data is None:
@@ -260,6 +272,12 @@ def describe_music(gemini_key, pcm, loud_db, log=None):
             return ""
         txt = data["candidates"][0]["content"]["parts"][0]["text"].strip().strip("`").strip()
         txt = " ".join(txt.split())[:240]
+        low = txt.lower()
+        if low.startswith("ambience:") or low.startswith("ambient:"):
+            tags = txt.split(":", 1)[1].strip(" ,.")
+            return (tags + ", continuous background sound only, no music, no melody, no drums, no rhythm") if tags else ""
+        if low.startswith("music:"):
+            txt = txt.split(":", 1)[1].strip(" ,.")
         return txt
     except Exception as ex:
         if log:
@@ -271,6 +289,109 @@ def _seg_db(x):
     if x.shape[0] == 0:
         return -120.0
     return float(_db(((x.astype(np.float32) / 32768.0) ** 2).mean()))
+
+
+def _clean_context(pcm, db, g0, g1, ctx_db):
+    """The clean sound next to the hole: up to CTX_LOOK_SEC before and after it, only 100 ms frames that are at the level of
+    the surrounding sound. Returns a list of float32 (n, 2) arrays, one per uninterrupted stretch of at least 0.4 s."""
+    hop = int(RATE * HOP_SEC)
+    s, e = int(round(g0 / HOP_SEC)), int(round(g1 / HOP_SEC))
+    look = int(CTX_LOOK_SEC / HOP_SEC)
+    good = db >= ctx_db - CTX_MUSIC_REL_DB
+    out = []
+    for a, b in ((max(0, s - look), s), (e, min(len(db), e + look))):
+        i = a
+        while i < b:
+            if not good[i]:
+                i += 1
+                continue
+            j = i
+            while j < b and good[j]:
+                j += 1
+            if (j - i) * HOP_SEC >= 0.4:
+                out.append(pcm[i * hop:j * hop].astype(np.float32) / 32768.0)
+            i = j
+    return out
+
+
+def _steadiness_db(segs):
+    """How much the sound changes over time: the median over 8 frequency bands of the standard deviation (dB) of the band level,
+    averaged over ~0.25 s. About 0.5-2 for an engine, wind or room tone; 3 and more for music with a beat or changing notes.
+    None when there is too little sound to judge."""
+    n_fft, hop = 2048, 1024
+    win = np.hanning(n_fft).astype(np.float32)
+    freqs = np.fft.rfftfreq(n_fft, 1.0 / RATE)
+    edges = np.geomspace(100.0, 10000.0, 9)
+    scores = []
+    total = 0.0
+    for seg in segs:
+        mono = seg.mean(axis=1)
+        if len(mono) < n_fft * 3:
+            continue
+        frames = 1 + (len(mono) - n_fft) // hop
+        idx = np.arange(n_fft)[None, :] + hop * np.arange(frames)[:, None]
+        power = np.abs(np.fft.rfft(mono[idx] * win, axis=1)) ** 2
+        bands = np.stack([power[:, (freqs >= lo) & (freqs < hi)].sum(axis=1) for lo, hi in zip(edges[:-1], edges[1:])], axis=1)
+        k = 10                                           # ~0.23 s
+        if bands.shape[0] < k + 8:
+            continue
+        kernel = np.ones(k) / k
+        smooth = np.stack([np.convolve(bands[:, b], kernel, mode="valid") for b in range(bands.shape[1])], axis=1)
+        level = _db(smooth)
+        scores.append((float(np.median(level.std(axis=0))), len(mono) / RATE))
+        total += len(mono) / RATE
+    if total < STEADY_MIN_SEC or not scores:
+        return None
+    return float(sum(sc * w for sc, w in scores) / sum(w for _, w in scores))
+
+
+def _texture_fill(pcm, g0, g1, ctx_db, segs):
+    """Fills the hole g0..g1 (seconds) from the clean sound beside it: overlapping pieces of it are laid one after the other at
+    random places (never the same loop twice in a row), matched to the level around the hole. Only for steady sounds."""
+    pool = [x for x in segs if len(x) >= int(0.5 * RATE)]
+    have = sum(len(x) for x in pool) / RATE
+    if have < 0.6:
+        return False, "not enough steady sound next to the hole"
+    need = int(round((g1 - g0) * RATE))
+    grain = int(min(GRAIN_SEC, max(0.5, have / 2.0)) * RATE)
+    fade = grain // 3
+    rng = np.random.default_rng(int(g0 * 1000) % (2 ** 32))
+    out = np.zeros((need + 2 * grain, CH), dtype=np.float32)
+    pos, last = 0, None
+    ramp = np.linspace(0.0, np.pi / 2, fade, dtype=np.float32)
+    fin, fout = np.sin(ramp)[:, None], np.cos(ramp)[:, None]
+    while pos < need:
+        k = int(rng.integers(len(pool)))
+        seg = pool[k]
+        g = min(grain, len(seg))
+        if g <= fade + 8:
+            k = int(np.argmax([len(x) for x in pool]))
+            seg, g = pool[k], min(grain, len(pool[k]))
+        st = int(rng.integers(0, len(seg) - g + 1))
+        if last is not None and last == (k, st // (RATE // 2)) and len(seg) - g > RATE // 2:
+            st = (st + RATE // 2) % (len(seg) - g + 1)
+        last = (k, st // (RATE // 2))
+        chunk = seg[st:st + g]
+        if pos == 0:
+            out[:g] = chunk
+        else:
+            out[pos:pos + fade] = out[pos:pos + fade] * fout + chunk[:fade] * fin
+            out[pos + fade:pos + g] = chunk[fade:]
+        pos += g - fade
+    fillv = out[:need]
+    got_db = _seg_db((fillv * 32768.0))
+    gain_db = float(np.clip(ctx_db - got_db, -GAIN_MAX_DB, GAIN_MAX_DB)) if np.isfinite(got_db) else 0.0
+    fillv = fillv * 10 ** (gain_db / 20.0) * 32768.0
+    a, b = int(round(g0 * RATE)), int(round(g1 * RATE))
+    fillv = fillv[:b - a]
+    f = max(1, min(int(XFADE_SEC * RATE), fillv.shape[0] // 3))
+    w = np.ones(fillv.shape[0], dtype=np.float32)
+    w[:f] = np.linspace(0.0, 1.0, f)
+    w[-f:] = np.linspace(1.0, 0.0, f)
+    cur = pcm[a:a + fillv.shape[0]].astype(np.float32)
+    mixed = cur * (1.0 - w[:, None]) + fillv * w[:, None]
+    pcm[a:a + fillv.shape[0]] = np.clip(np.rint(mixed), -32768, 32767).astype(np.int16)
+    return True, f"steady sound: filled {g1 - g0:.1f} s from the sound beside it (set to {got_db + gain_db:.0f} dB)"
 
 
 def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
@@ -379,16 +500,37 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             keep = sorted(sorted(gaps, key=lambda g: g[1] - g[0], reverse=True)[:MAX_GAPS])
             info["reason_cap"] = f"{len(gaps)} holes, filling the {MAX_GAPS} longest"
             gaps = keep
-        music_prompt = prompt
-        if not music_prompt:
-            desc = describe_music(gemini_key, pcm, db, log=say) if gemini_key else ""
-            music_prompt = (desc + ", instrumental, no vocals, no speech") if desc else DEFAULT_PROMPT
-        info["prompt"] = music_prompt
+        prompt_box = {"text": prompt or ""}
+
+        def get_prompt():
+            # Asked only when a hole really needs the model; a steady sound is filled locally and needs no description.
+            if not prompt_box["text"]:
+                desc = describe_music(gemini_key, pcm, db, log=say) if gemini_key else ""
+                prompt_box["text"] = (desc + (", no vocals, no speech" if "no music" in desc else ", instrumental, no vocals, no speech")) if desc else DEFAULT_PROMPT
+            info["prompt"] = prompt_box["text"]
+            return prompt_box["text"]
+
         ctx_ref = float(np.median(db[db >= REF_FLOOR_DB]))
         budget = MAX_TOTAL_SEC
         ok_n = 0
         t_start = time.time()
         todo = sorted(gaps)
+
+        def level_around(g0, g1, levels):
+            hop = int(1 / HOP_SEC)
+            s0, e0 = int(g0 / HOP_SEC), int(g1 / HOP_SEC)
+            near = np.concatenate([levels[max(0, s0 - 6 * hop):s0], levels[e0:e0 + 6 * hop]])
+            near = near[near >= ctx_ref - CTX_MUSIC_REL_DB]
+            return float(np.median(near)) if near.size else ctx_ref
+
+        # Judge every hole's surroundings before anything is filled, so a filled hole can never count as evidence.
+        steady_of = {}
+        if LOCAL_FILL:
+            for g0, g1 in todo:
+                try:
+                    steady_of[(g0, g1)] = _steadiness_db(_clean_context(pcm, db, g0, g1, level_around(g0, g1, db)))
+                except Exception:
+                    steady_of[(g0, g1)] = None
         for n_seen, (g0, g1) in enumerate(todo):
             if progress is not None:
                 try:
@@ -404,29 +546,39 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             if time.time() - t_start > MAX_WALL_SEC:
                 rec["note"] = "out of time"
                 continue
-            if allow is not None:
+            # level of the sound right around this hole
+            ctx_db = level_around(g0, g1, db)
+            score = steady_of.get((g0, g1))
+            local = False
+            ok, note = False, ""
+            if score is not None and score <= STEADY_MAX_DB:
+                rec["steadiness_db"] = round(score, 1)
                 try:
-                    permitted = bool(allow())
-                except Exception:
-                    permitted = False
-                if not permitted:
-                    rec["note"] = "not enough credits to repair this one"
-                    continue
-            # level of the music right around this hole
-            hop = int(1 / HOP_SEC)
-            s, e = int(g0 / HOP_SEC), int(g1 / HOP_SEC)
-            near = np.concatenate([db[max(0, s - 6 * hop):s], db[e:e + 6 * hop]])
-            near = near[near >= ctx_ref - CTX_MUSIC_REL_DB]
-            ctx_db = float(np.median(near)) if near.size else ctx_ref
-            try:
-                ok, note = _fill_one(pcm, g0, g1, ctx_db, key, music_prompt, runner, say)
-            except Exception as ex:
-                ok, note = False, f"call failed: {str(ex)[:160]}"
-            rec["ok"], rec["note"] = ok, note
-            info["sent_sec"] = round(info["sent_sec"] + min(MAX_WINDOW_SEC, max(MIN_WINDOW_SEC, ln + 2 * CONTEXT_SEC)), 1)
+                    ok, note = _texture_fill(pcm, g0, g1, ctx_db, _clean_context(pcm, db, g0, g1, ctx_db))
+                except Exception as ex:
+                    ok, note = False, f"local fill failed: {str(ex)[:160]}"
+                local = ok
+                if not ok:
+                    say(f"hole {g0:.1f}-{g1:.1f} s: {note}; asking the model instead")
+            if not local:
+                if allow is not None:
+                    try:
+                        permitted = bool(allow())
+                    except Exception:
+                        permitted = False
+                    if not permitted:
+                        rec["note"] = "not enough credits to repair this one"
+                        continue
+                try:
+                    ok, note = _fill_one(pcm, g0, g1, ctx_db, key, get_prompt(), runner, say)
+                except Exception as ex:
+                    ok, note = False, f"call failed: {str(ex)[:160]}"
+                info["sent_sec"] = round(info["sent_sec"] + min(MAX_WINDOW_SEC, max(MIN_WINDOW_SEC, ln + 2 * CONTEXT_SEC)), 1)
+            rec["ok"], rec["note"], rec["local"] = ok, note, local
             if ok:
                 ok_n += 1
-                if on_filled is not None:
+                info["local_filled_sec"] = round(float(info.get("local_filled_sec", 0.0) + (ln if local else 0.0)), 1)
+                if on_filled is not None and not local:     # a steady sound is rebuilt locally: it costs nothing, so it is not charged
                     try:
                         on_filled(g0, g1)
                     except Exception as ex:

@@ -474,5 +474,31 @@ class MergeAndReviewTests(unittest.TestCase):
         self.assertEqual((q['max_total'], q['music_max'], q['music_kept']), (32, 30, True))
 
 
+class MusicFillAmbienceTests(unittest.TestCase):
+    """Engine noise must not be rebuilt as invented music (the Airplane clip)."""
+    def _segs(self, kind):
+        import numpy as np
+        import music_fill as mf
+        t = np.arange(int(mf.RATE * 4)) / mf.RATE
+        rng = np.random.default_rng(1)
+        if kind == 'engine':
+            x = 0.05 * np.sin(2 * np.pi * 110 * t) + 0.03 * rng.standard_normal(len(t))
+        else:
+            beat = (np.sin(2 * np.pi * 2 * t) > 0.6).astype(float)
+            x = 0.3 * beat * np.sin(2 * np.pi * (200 + 300 * (np.floor(t * 4) % 3)) * t) + 0.01 * rng.standard_normal(len(t))
+        return [np.stack([x, x], axis=1).astype(np.float32)]
+
+    def test_engine_is_steady_and_music_with_a_beat_is_not(self):
+        import music_fill as mf
+        engine, music = mf._steadiness_db(self._segs('engine')), mf._steadiness_db(self._segs('music'))
+        self.assertLess(engine, mf.STEADY_MAX_DB)
+        self.assertGreater(music, mf.STEADY_MAX_DB)
+
+    def test_too_little_sound_is_not_judged(self):
+        import numpy as np
+        import music_fill as mf
+        self.assertIsNone(mf._steadiness_db([np.zeros((mf.RATE // 2, 2), dtype=np.float32)]))
+
+
 if __name__ == '__main__':
     unittest.main()
