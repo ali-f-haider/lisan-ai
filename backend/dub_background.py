@@ -18,10 +18,12 @@ def speech_spans(map_path, rows=()):
     return spans
 
 
-# Experimental, off by default: keep the REAL background under the speech (bg_duck's own "keep" mode: the leftover of the voice is
+# Keep the REAL background under the speech (bg_duck's own "keep" mode: the leftover of the voice is
 # subtracted and the result is checked against the voice; a stretch that fails the check is silenced, and the repair below then fills it).
 # For a changing background (a battle, traffic, a crowd) the real sound is the only thing that sounds right; a rebuilt steady bed does not.
-KEEP_UNDER_SPEECH = os.environ.get('DUB_BG_KEEP', '0').strip().lower() in ('1', 'on', 'yes', 'true')
+KEEP_UNDER_SPEECH = os.environ.get('DUB_BG_KEEP', '1').strip().lower() in ('1', 'on', 'yes', 'true')
+# ...and a little lower than the original while the Arabic speaks (the leftover of a voice in it is masked, the dialogue stays clear)
+KEEP_SPEECH_DB = float(os.environ.get('DUB_BG_KEEP_DB', '-3'))
 
 
 def mute(bg, vocals, destination, spans):
@@ -264,7 +266,13 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
             clean = final
             info['original_in_pauses'] = done['reason']
             temps.append(final)
-    measurements = dub_audio.match_background(bg_ref, clean, matched, vocals, dub, spans)
+    # Levels: the final level matching restores the original loudness, so "lower" has to be told to it: what was rebuilt locally
+    # (an engine, wind, a room tone) is laid LOCAL_FILL_DB under it, the real background kept under the speech KEEP_SPEECH_DB.
+    lower = []
+    if KEEP_UNDER_SPEECH and KEEP_SPEECH_DB:
+        lower += [(a, b, KEEP_SPEECH_DB) for a, b in spans]
+    lower += [(g['start'], g['end'], music_fill.LOCAL_FILL_DB) for g in (info.get('gaps') or []) if g.get('ok') and g.get('local')]
+    measurements = dub_audio.match_background(bg_ref, clean, matched, vocals, dub, spans, lower=lower)
     return {'path': matched, 'music_fill': info, 'measurements': measurements, 'temps': temps}
 
 

@@ -35,7 +35,7 @@ def profile(path, raw):
         Path(raw).unlink(missing_ok=True)
 
 
-def gain_plan(original_bg, repaired_bg, original_voice=None, dubbed_voice=None, spans=()):
+def gain_plan(original_bg, repaired_bg, original_voice=None, dubbed_voice=None, spans=(), lower=()):
     n = len(repaired_bg)
     reference = np.zeros(n)
     reference[:min(n, len(original_bg))] = original_bg[:n]
@@ -53,6 +53,13 @@ def gain_plan(original_bg, repaired_bg, original_voice=None, dubbed_voice=None, 
                 target[i:j] = reference[i:j] * np.clip(vd / vo, 0.25, 4)
             measurements.append({'start': a, 'end': b, 'original_voice_rms': vo,
                                  'original_background_rms': bg, 'dubbed_voice_rms': vd})
+    if lower:       # (start s, end s, dB): the background is wanted this much lower there (a later entry replaces an earlier one)
+        adjust = np.zeros(n)
+        for a, b, db in lower:
+            i, j = max(0, int(a * 2)), min(n, int(np.ceil(b * 2)))
+            if j > i:
+                adjust[i:j] = float(db)
+        target = target * 10.0 ** (adjust / 20.0)
     gain = np.ones(n)
     usable = repaired_bg > 1e-6
     gain[usable] = np.clip(target[usable] / repaired_bg[usable], 0.25, 4)
@@ -60,7 +67,7 @@ def gain_plan(original_bg, repaired_bg, original_voice=None, dubbed_voice=None, 
     return gain, measurements
 
 
-def match_background(original_bg, repaired_bg, out_path, original_voice=None, dubbed_voice=None, spans=()):
+def match_background(original_bg, repaired_bg, out_path, original_voice=None, dubbed_voice=None, spans=(), lower=()):
     paths, maps = [], []
     out_path = Path(out_path)
     tmp = out_path.with_name(out_path.name + '.part.wav')
@@ -77,7 +84,7 @@ def match_background(original_bg, repaired_bg, out_path, original_voice=None, du
             powers.append(levels(pcm))
         if powers[0] is None or powers[1] is None:
             raise ValueError('Background references are missing')
-        gains, measurements = gain_plan(*powers, spans=spans)
+        gains, measurements = gain_plan(*powers, spans=spans, lower=lower)
         source = maps[1]
         centers = (np.arange(len(gains)) + 0.5) * HOP
         with wave.open(str(tmp), 'wb') as out:

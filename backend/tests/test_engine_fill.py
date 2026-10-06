@@ -117,10 +117,10 @@ class EngineFillTests(unittest.TestCase):
         self.assertLess(abs(np.corrcoef(a, b)[0, 1]), 0.5)      # the engine's own steady tones correlate a little, noise does not
         self.assertTrue(np.isfinite(out).all())
 
-    def test_keeping_the_real_background_under_speech_is_an_opt_in(self):
+    def test_keeping_the_real_background_under_speech_is_on_and_can_be_switched_off(self):
         import dub_background
         from unittest.mock import patch
-        self.assertFalse(dub_background.KEEP_UNDER_SPEECH)           # off unless DUB_BG_KEEP is set
+        self.assertTrue(dub_background.KEEP_UNDER_SPEECH)            # on unless DUB_BG_KEEP=0 (it checks every stretch itself)
         seen = {}
 
         def fake(bg, vocals, dest, **kw):
@@ -128,10 +128,10 @@ class EngineFillTests(unittest.TestCase):
             return {'muted': True, 'reason': ''}
         with patch.object(dub_background.bg_duck, 'mute_speech', fake):
             dub_background.mute('a', 'b', 'c', [(0, 1)])
-            self.assertFalse(seen['keep'])
-            with patch.object(dub_background, 'KEEP_UNDER_SPEECH', True):
-                dub_background.mute('a', 'b', 'c', [(0, 1)])
             self.assertTrue(seen['keep'])
+            with patch.object(dub_background, 'KEEP_UNDER_SPEECH', False):
+                dub_background.mute('a', 'b', 'c', [(0, 1)])
+            self.assertFalse(seen['keep'])
 
     def test_nothing_is_charged(self):
         charged = []
@@ -179,6 +179,40 @@ class EngineFillTests(unittest.TestCase):
         info = self.fill(prompt='wind, gusts, continuous background sound only, no music, no melody')
         self.assertEqual(self.calls, [], 'a non-music sound is never sent to the music model')
         self.assertFalse(any(g['ok'] and not g['local'] for g in info['gaps']))
+
+
+    def test_the_final_level_keeps_what_was_asked_to_be_lower(self):
+        # the last level matching used to bring a rebuilt hole back to the original loudness (-6 dB never reached the video)
+        import dub_background
+        from unittest.mock import patch
+        voice = np.zeros_like(self.real)
+        t = np.arange(len(voice)) / SR
+        for a, b in self.spans:
+            voice[int(a * SR):int(b * SR)] = 0.2 * np.sin(2 * np.pi * 250 * t[int(a * SR):int(b * SR)])
+        sf.write(self.dir / 'v.wav', stereo(voice), SR, subtype='PCM_16')
+        sf.write(self.dir / 'dub.wav', stereo(voice), SR, subtype='PCM_16')
+        with patch.object(dub_background, 'KEEP_UNDER_SPEECH', False):        # every hole is muted and rebuilt
+            r = dub_background.prepare(self.dir / 'real.wav', self.dir / 'v.wav', self.dir / 'dub.wav', self.dir, 'lv', self.spans,
+                                       key='k', allow=lambda: False, strict=False)
+        self.assertTrue(r['music_fill']['filled'], r['music_fill'])
+        y, _ = sf.read(r['path'])
+        y = y.mean(axis=1)
+        self.assertLess(abs(db(y[int(21 * SR):int(26 * SR)]) - (db(self.real[int(21 * SR):int(26 * SR)]) + mf.LOCAL_FILL_DB)), 1.5)
+        self.assertLess(abs(db(y[int(1 * SR):int(5 * SR)]) - db(self.real[int(1 * SR):int(5 * SR)])), 1.0)     # a pause stays as it was
+
+    def test_the_kept_background_is_a_little_lower_under_the_speech(self):
+        import dub_background
+        voice = np.zeros_like(self.real)
+        t = np.arange(len(voice)) / SR
+        for a, b in self.spans:
+            voice[int(a * SR):int(b * SR)] = 0.2 * np.sin(2 * np.pi * 250 * t[int(a * SR):int(b * SR)])
+        sf.write(self.dir / 'v.wav', stereo(voice), SR, subtype='PCM_16')
+        sf.write(self.dir / 'dub.wav', stereo(voice), SR, subtype='PCM_16')
+        r = dub_background.prepare(self.dir / 'real.wav', self.dir / 'v.wav', self.dir / 'dub.wav', self.dir, 'kp', self.spans,
+                                   key='k', allow=lambda: False, strict=False)
+        y, _ = sf.read(r['path'])
+        y = y.mean(axis=1)
+        self.assertLess(abs(db(y[int(8 * SR):int(11 * SR)]) - (db(self.real[int(8 * SR):int(11 * SR)]) + dub_background.KEEP_SPEECH_DB)), 1.5)
 
 
 if __name__ == '__main__':
