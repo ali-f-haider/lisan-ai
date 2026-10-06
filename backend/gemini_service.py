@@ -337,6 +337,7 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
             "total": len(segments), "emotions": {}, "errors": [],
         }
         emotions_result = {}
+        skipped = []        # lines whose style could not be heard: they keep what they had
         errors = []
         bucket = usage_bucket(job_id)
 
@@ -350,8 +351,9 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
                 segment_file = OUTPUT_DIR / f"emotion_{job_id}_{seg.segment_id}.mp3"
                 duration = seg.end - seg.start
                 if duration < 0.3:
-                    emotions_result[seg.segment_id] = "neutral"
-                    jobs_progress[progress_key]["emotions"] = emotions_result.copy()
+                    # Too short to hear anything: the line keeps the style it has (never a made-up "neutral").
+                    skipped.append(seg.segment_id)
+                    jobs_progress[progress_key]["skipped"] = list(skipped)
                     continue
 
                 cut_audio_segment(input_path, seg.start, duration, segment_file,
@@ -359,9 +361,14 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
 
                 bucket["audio_sec"] += duration
                 review = inspect_audio_style(job_id, segment_file, seg.emotion if hasattr(seg, "emotion") else "neutral", api_key)
-                emotions_result[seg.segment_id] = review['fallback']
-                jobs_progress[progress_key].setdefault('reviews', {})[seg.segment_id] = review
-                jobs_progress[progress_key]["emotions"] = emotions_result.copy()
+                if review.get('detected'):
+                    emotions_result[seg.segment_id] = review['fallback']
+                    jobs_progress[progress_key].setdefault('reviews', {})[seg.segment_id] = review
+                    jobs_progress[progress_key]["emotions"] = emotions_result.copy()
+                else:
+                    # The listener was not sure (short, noisy or unclear clip): the line keeps the style it has.
+                    skipped.append(seg.segment_id)
+                    jobs_progress[progress_key]["skipped"] = list(skipped)
 
                 try:
                     segment_file.unlink()
@@ -371,13 +378,14 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
             except Exception as e:
                 errors.append(f"{seg.segment_id}: {str(e)}")
                 print(f"[emotions] {job_id}: {seg.segment_id}: {str(e)[:300]}")
-                emotions_result[seg.segment_id] = "neutral"
-                jobs_progress[progress_key]["emotions"] = emotions_result.copy()
+                skipped.append(seg.segment_id)       # a failed check never changes the line's style
+                jobs_progress[progress_key]["skipped"] = list(skipped)
                 jobs_progress[progress_key]["errors"] = _public_errors(errors)
 
         jobs_progress[progress_key]["status"] = "done"
         jobs_progress[progress_key]["percent"] = 100
         jobs_progress[progress_key]["emotions"] = emotions_result
+        jobs_progress[progress_key]["skipped"] = list(skipped)
         jobs_progress[progress_key]["errors"] = _public_errors(errors)
 
     except Exception as e:
@@ -409,4 +417,7 @@ def inspect_audio_style(job_id, audio, selected, api_key):
     suggested = normalize_emotions(result.get('suggested') or 'neutral', min_tags=1)
     return {'suggested': suggested, 'uncertain': result['uncertain'],
             'reason': str(result.get('reason') or '')[:240], 'accuracy': None,
-            'fallback': 'neutral' if result['uncertain'] else suggested}
+            # Unsure (short, noisy or unclear clip) means nothing was detected: the caller keeps the line's current style.
+            # "neutral" is only ever returned when the listener really heard a neutral delivery.
+            'detected': not result['uncertain'],
+            'fallback': '' if result['uncertain'] else suggested}

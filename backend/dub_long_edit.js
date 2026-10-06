@@ -166,6 +166,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     if(working) return; setBusy(true);
     try {
       await save(); var result=await api('/api/longdub/'+project.id+'/corrections/emotion','POST',{segment_id:row.segment_id});
+      if(!result.fallback) { notify('info',tr('The style could not be heard clearly in this clip (too short or unclear), so the current style was kept.','لم يتبيّن الأسلوب بوضوح من هذا المقطع (قصير جدًا أو غير واضح)، لذلك أُبقي الأسلوب الحالي.')); return; }
       var style=lang==='ar' ? EMO_AR[result.fallback] || result.fallback : result.fallback;
       var text=tr('Suggested style: ','الأسلوب المقترح: ')+style+(lang==='en' ? '\n'+result.reason : '')+'\n'+tr('Apply this suggestion?','هل تريد تطبيق هذا الاقتراح؟');
       if(await LisanDialog.confirm(text)) { change(row,'emotion',result.fallback); await save(); renderLines(); }

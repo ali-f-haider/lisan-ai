@@ -3346,14 +3346,20 @@ def music_quote(job):
     bg = wd / "background.wav"
     if not bg.exists():
         return {"repairs": 0, "max_credits": 0}
-    spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job))
-    muted = wd / "price_music_muted.wav"
-    clean = dub_background.mute(bg, wd / "vocals_mono.wav", muted, spans)
-    count = dub_background.count_repairs(clean, spans, wd / "price_music.pcm", original=bg) if clean == muted else 0
-    if count and (not FAL_API_KEY or not music_fill.ENABLED):
-        raise ValueError("Music inpainting is unavailable. Please retry when the music service is available.")
     fee = max(0, int(Hooks.pricing().get("music_fill_credits", 10)))
-    return {"repairs": count, "max_credits": count * fee, "each": fee}
+    try:
+        spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job))
+        muted = wd / "price_music_muted.wav"
+        clean = dub_background.mute(bg, wd / "vocals_mono.wav", muted, spans)
+        count = dub_background.count_repairs(clean, spans, wd / "price_music.pcm", original=bg) if clean == muted else 0
+        if count and (not FAL_API_KEY or not music_fill.ENABLED):
+            raise ValueError("Music inpainting is unavailable right now.")
+    except Exception as ex:
+        # The music under the speech cannot be rebuilt (or the music service is down): no question is asked and nothing is
+        # charged. The background is silent while people speak and unchanged elsewhere.
+        print(f"[longdub] {job.get('id')}: music not preserved: {str(ex)[:300]}")
+        return {"repairs": 0, "max_credits": 0, "each": fee, "kept": False, "note": str(ex)[:300]}
+    return {"repairs": count, "max_credits": count * fee, "each": fee, "kept": True}
 
 
 def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, music_budget=0):
@@ -3392,6 +3398,8 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
         mq = music_quote(job) if keep_music else {"max_credits": 0}
     except Exception as ex:
         return False, (str(ex), 503)
+    if mq.get("kept") is False:
+        keep_music = False      # the quote already said the music cannot be rebuilt: silent background, no charge
     if mq["max_credits"] != int(music_budget):
         return False, ("The music repair price changed. Review the new maximum price.", 409)
     bal = Hooks.get_credits(uid)
@@ -4346,10 +4354,15 @@ def _run_dubbing(job):
                 _save(job)
             repaired_ = dub_background.checkpointed_prepare(job, _save, job.get('music_expected_repairs', 0), bg, wd / "vocals_mono.wav", dub_full, wd, "dubbing_bg", spans_,
                 key=FAL_API_KEY if job.get("music_pref") != "silence" else "",
-                gemini_key=GEMINI_API_KEY, allow=allow_fill, on_filled=charge_fill, preserve_music=job.get("music_pref") != "silence")
+                gemini_key=GEMINI_API_KEY, allow=allow_fill, on_filled=charge_fill, preserve_music=job.get("music_pref") != "silence",
+                strict=False)      # a music hole that cannot be rebuilt stays silent and the dub goes on; only rebuilt holes are charged
             bg_mix = repaired_["path"]
             job["background_levels"] = repaired_["measurements"]
-            _ev(job, "background_music_fill", "ok", repaired_["music_fill"]["reason"])
+            _mf_ = repaired_["music_fill"]
+            if _mf_.get("incomplete") or _mf_.get("unavailable"):
+                _ev(job, "background_music_fill", "info", "some music sections could not be rebuilt and stay silent while people speak: " + str(_mf_.get("reason") or "")[:400])
+            else:
+                _ev(job, "background_music_fill", "ok", _mf_["reason"])
         # Laughter, applause and cheers: the separator files them under "voices", so the separated background
         # has none. They are cut out of the separated voices outside the spoken words and laid back as their own layer.
         react = None

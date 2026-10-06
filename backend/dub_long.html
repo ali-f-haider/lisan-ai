@@ -2014,6 +2014,7 @@ function buildRow(s) {
     flushSave().then(function() { return api("POST", "/api/longdub/" + cur.id + "/emotion/review", {segment_id:s.segment_id}); }).then(function(r) {
       if (!r.ok) { alertMsg(r.data.error || T.genericErr); return; }
       var v = r.data.fallback;
+      if (!v) { alertMsg(LANG === "ar" ? "لم يتبيّن الأسلوب بوضوح من هذا المقطع (قصير جدًا أو غير واضح)، لذلك أُبقي الأسلوب الحالي." : "The style could not be heard clearly in this clip (too short or unclear), so the current style was kept."); return; }
       var msg = (LANG === "ar" ? "الأسلوب المقترح: " : "Suggested style: ") + v + "\n" + r.data.reason + "\n" + (LANG === "ar" ? "هل تريد تطبيقه؟" : "Apply this suggestion?");
       var ask = window.LisanDialog ? LisanDialog.confirm(msg) : Promise.resolve(window.confirm(msg));
       ask.then(function(yes) { if (yes) { s.emotion = v; queueSave(s.segment_id, "emotion", v); renderEditor(); } });

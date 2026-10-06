@@ -500,5 +500,75 @@ class MusicFillAmbienceTests(unittest.TestCase):
         self.assertIsNone(mf._steadiness_db([np.zeros((mf.RATE // 2, 2), dtype=np.float32)]))
 
 
+class EmotionKeepsCurrentStyleTests(unittest.TestCase):
+    """'neutral' is only a default: a clip that cannot be heard must not overwrite the line's emotion."""
+    def _answer(self, **kw):
+        import json
+        return {'candidates': [{'content': {'parts': [{'text': json.dumps(kw)}]}}]}
+
+    def test_uncertain_listening_returns_no_style(self):
+        import gemini_service as g
+        from unittest.mock import patch
+        a = self._answer(suggested='angry', uncertain=True, reason='noisy')
+        with patch.object(g, 'call_gemini', return_value=(a, None)), patch.object(g, 'record_gemini'), \
+                patch.object(g.Path, 'read_bytes', return_value=b'x'):
+            r = g.inspect_audio_style('job', 'x.mp3', 'sad', 'key')
+        self.assertEqual((r['fallback'], r['detected']), ('', False))
+
+    def test_a_clear_neutral_delivery_is_still_reported_as_neutral(self):
+        import gemini_service as g
+        from unittest.mock import patch
+        a = self._answer(suggested='neutral', uncertain=False, reason='calm')
+        with patch.object(g, 'call_gemini', return_value=(a, None)), patch.object(g, 'record_gemini'), \
+                patch.object(g.Path, 'read_bytes', return_value=b'x'):
+            r = g.inspect_audio_style('job', 'x.mp3', 'sad', 'key')
+        self.assertEqual((r['fallback'], r['detected']), ('neutral', True))
+
+    def test_detect_all_skips_short_unsure_and_failed_lines(self):
+        import gemini_service as g
+        from unittest.mock import patch
+        segs = [NS(segment_id=i, start=0, end=e, emotion='sad') for i, e in (('short', .2), ('unsure', 3), ('boom', 3), ('good', 3))]
+        def inspect(job, f, sel, key):
+            if job and f.name.endswith('_unsure.mp3'):
+                return {'fallback': '', 'detected': False, 'reason': 'noisy'}
+            if f.name.endswith('_boom.mp3'):
+                raise ValueError('listening failed')
+            return {'fallback': 'happy', 'detected': True, 'reason': ''}
+        with patch.object(g, 'cut_audio_segment'), patch.object(g, 'inspect_audio_style', side_effect=inspect), \
+                patch.object(g.time, 'sleep'):
+            g.detect_emotions_worker('jobx', 'a.wav', 'key', segs)
+        out = g.jobs_progress['emotions_jobx']
+        self.assertEqual(out['status'], 'done')
+        self.assertEqual(out['emotions'], {'good': 'happy'})
+        self.assertEqual(sorted(out['skipped']), ['boom', 'short', 'unsure'])
+
+
+class LongDubMusicFallbackTests(unittest.TestCase):
+    def test_background_prepare_that_cannot_rebuild_music_stays_silent_when_not_strict(self):
+        import dub_background as d
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(d, 'mute', return_value=Path(folder) / 'dubbing_bg_muted.wav'), \
+                patch.object(d, 'count_repairs', side_effect=ValueError('too little clean background')), \
+                patch.object(d.dub_audio, 'match_background', return_value={}):
+            r = d.prepare('bg', 'v', 'dub', folder, 'dubbing_bg', [], key='k', strict=False)
+            self.assertTrue(r['music_fill']['unavailable'])
+            with self.assertRaises(ValueError):
+                d.prepare('bg', 'v', 'dub', folder, 'dubbing_bg', [], key='k', strict=True)
+
+    def test_long_dub_quote_falls_back_to_silent_background_without_error_or_charge(self):
+        import longdub_service as ld
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            wd = Path(folder)
+            (wd / 'background.wav').write_bytes(b'x')
+            with patch.object(ld, '_wd', return_value=wd), patch.object(ld, 'read_segments', return_value=[]), \
+                    patch.object(ld.dub_background, 'speech_spans', return_value=[]), \
+                    patch.object(ld.dub_background, 'mute', side_effect=RuntimeError('boom')):
+                q = ld.music_quote({'id': 'j'})
+        self.assertEqual((q['max_credits'], q['repairs'], q['kept']), (0, 0, False))
+        self.assertNotIn('error', q)
+
+
 if __name__ == '__main__':
     unittest.main()

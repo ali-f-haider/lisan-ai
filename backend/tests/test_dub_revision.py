@@ -53,7 +53,7 @@ class AccountTests(unittest.TestCase):
     def test_failed_merge_refunds_repair_and_unlocks(self):
         refund,unlock=Mock(),Mock()
         price={'max_total':11,'music_charged':10}
-        env=dict(MergeRequest=NS,Request=NS,_job_guard=Mock(return_value=None),_paid_uid=Mock(return_value=('uid',None)),begin_operation=Mock(return_value=True),finish_operation=unlock,_short_merge_price=Mock(return_value=price),_merge_video_run=Mock(side_effect=RuntimeError('mock final debit failure')),_ld_refund=refund,JSONResponse=lambda data,status_code:NS(status_code=status_code))
+        env=dict(_merge_say=Mock(),MergeRequest=NS,Request=NS,_job_guard=Mock(return_value=None),_paid_uid=Mock(return_value=('uid',None)),begin_operation=Mock(return_value=True),finish_operation=unlock,_short_merge_price=Mock(return_value=price),_merge_video_run=Mock(side_effect=RuntimeError('mock final debit failure')),_ld_refund=refund,JSONResponse=lambda data,status_code:NS(status_code=status_code))
         extract('main.py',['merge_video'],env)
         r=env['merge_video'](NS(job_id='owned',accepted_credits=11),NS())
         self.assertEqual(r.status_code,503);refund.assert_called_once_with('uid',10,'owned');unlock.assert_called_once_with('owned')
@@ -65,7 +65,7 @@ class AccountTests(unittest.TestCase):
             (output/'owned_final_dubbed_video.mp4').write_bytes(b'previous successful export')
             price={'max_total':1,'music_charged':0};refund,unlock,debit=Mock(),Mock(),Mock(return_value=99)
             mux=lambda video,audio,final:final.write_bytes(b'pending export')
-            env=dict(MergeRequest=NS,Request=NS,_rate_limited=Mock(return_value=False),HEAVY_RATE_MAX=1,HEAVY_RATE_WINDOW_SEC=1,
+            env=dict(_merge_say=Mock(),MergeRequest=NS,Request=NS,_rate_limited=Mock(return_value=False),HEAVY_RATE_MAX=1,HEAVY_RATE_WINDOW_SEC=1,
                 _job_guard=Mock(return_value=None),_paid_uid=Mock(return_value=('uid',None)),get_credits=lambda uid:100,
                 _get_pricing_config=lambda:{'mergeCredits':1},find_job_video=lambda jid:video,_storage_block=Mock(return_value=None),
                 OUTPUT_DIR=output,job_background_audio=Mock(return_value=None),voice_clean=NS(ENABLED=False),
@@ -257,7 +257,7 @@ class AudioTests(unittest.TestCase):
         samples[:10*44100]=2000; samples[15*44100:]=2000
         source, out=DATA/'paid-music.wav', DATA/'paid-repaired.wav'
         music_fill._write_wav(source,samples)
-        with patch.object(music_fill,'_fill_one',return_value=(True,'mock success')):
+        with patch.object(music_fill,'LOCAL_FILL',False),patch.object(music_fill,'_fill_one',return_value=(True,'mock success')):
             result=music_fill.fill(source,out,[(10,15)],'fake',prompt='instrumental',on_filled=Mock(side_effect=RuntimeError('mock debit failure')))
         self.assertFalse(result['filled']);self.assertFalse(out.exists())
         self.assertFalse(Path(str(out)+'.mf.pcm').exists())
@@ -316,12 +316,12 @@ class ProviderTests(unittest.TestCase):
         import urllib.error
         def fail(*a):raise urllib.error.HTTPError('url',403,'forbidden',{},None)
         r=fal_usage.read('fake',fail);self.assertIsNone(r['balance']);self.assertIn('admin-scoped',r['note'])
-    def test_uncertain_emotion_neutral_without_accuracy_claim(self):
+    def test_uncertain_emotion_keeps_current_style_without_accuracy_claim(self):
         sample=DATA/'style.mp3';sample.write_bytes(b'fake')
         answer={'candidates':[{'content':{'parts':[{'text':json.dumps({'suggested':'angry','uncertain':True,'reason':'ambiguous'})}]}}]}
         with patch.object(emotion_review.gemini_service,'call_gemini',return_value=(answer,None)),patch.object(emotion_review.gemini_service,'record_gemini'):
             r=emotion_review.inspect('job',sample,'angry','fake')
-        self.assertEqual(r['fallback'],'neutral');self.assertIsNone(r['accuracy'])
+        self.assertEqual(r['fallback'],'');self.assertFalse(r['detected']);self.assertIsNone(r['accuracy'])
 
 class EditorActionTests(unittest.TestCase):
     def setUp(self): CorrectionTests.setUp(self)

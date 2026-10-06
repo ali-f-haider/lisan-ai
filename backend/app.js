@@ -1835,7 +1835,8 @@ async function checkEmotionProgress() {
             if (clean && !seg.emotion_set) { seg.emotion = clean; seg.emotion_review = (data.reviews || {})[seg.segment_id]; updated++; }
         });
         renderTable();
-        notify("success", `Emotion detection complete. ${updated} segments updated.`);
+        const keptStyle = (data.skipped || []).length;
+        notify("success", `Emotion detection complete. ${updated} segments updated.` + (keptStyle ? ` ${keptStyle} kept their current style (too short or unclear to hear).` : ""));
         (data.errors || []).forEach(e => notify("info", "⚠️ " + e));
         document.getElementById("emotionProgress").classList.add("hidden");
         fetchUsage();
@@ -2777,6 +2778,7 @@ function createRow(seg, i) {
         try {
             var response = await fetch("/api/emotion/review", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({job_id:currentJobId,segment_id:seg.segment_id,start:seg.start,end:seg.end,emotion:seg.emotion})});
             var result = await response.json(); if (!response.ok) throw new Error(result.error || "Style check failed");
+            if (!result.fallback) { notify("info", subsText("The style could not be heard clearly in this clip (too short or unclear), so the current style was kept.", "لم يتبيّن الأسلوب بوضوح من هذا المقطع (قصير جدًا أو غير واضح)، لذلك أُبقي الأسلوب الحالي.")); return; }
             var yes = await LisanDialog.confirm(subsText("Suggested style: ", "الأسلوب المقترح: ") + result.fallback + "\n" + result.reason + "\n" + subsText("Apply?", "هل تريد تطبيقه؟"));
             if (yes) { seg.emotion = result.fallback; seg.emotion_set = true; eI.value = seg.emotion; updateBadges(); }
         } catch(ex) { notify("error",ex.message); } finally { checkStyle.disabled = false; }

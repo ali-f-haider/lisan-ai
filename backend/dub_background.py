@@ -68,9 +68,19 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
     matched = work / f'{tag}_matched.wav'
     clean = mute(bg, vocals, muted, spans)
     info = {'filled': False, 'reason': 'Music repair was not requested', 'gaps': []}
-    required = count_repairs(clean, spans, work / f'{tag}_inspect.pcm', original=bg) if clean == muted and preserve_music else 0
-    if required and (not key or not music_fill.ENABLED):
-        raise RuntimeError('Music inpainting is unavailable. The background cannot be preserved reliably.')
+    try:
+        required = count_repairs(clean, spans, work / f'{tag}_inspect.pcm', original=bg) if clean == muted and preserve_music else 0
+        if required and (not key or not music_fill.ENABLED):
+            raise RuntimeError('Music inpainting is unavailable. The background cannot be preserved reliably.')
+    except (ValueError, RuntimeError) as ex:
+        if strict:
+            raise
+        # Not strict: the music cannot be rebuilt, so the background stays silent while people speak (nothing is charged).
+        if log:
+            log('music not rebuilt: ' + str(ex))
+        required = 0
+        info['reason'] = 'The original music could not be rebuilt, so the background is silent while people speak: ' + str(ex)
+        info['unavailable'] = True
     if key and clean == muted and required:
         info = music_fill.fill(clean, repaired, spans, key, gemini_key=gemini_key,
                                allow=allow, on_filled=on_filled, progress=progress, log=log)
