@@ -79,6 +79,10 @@ LOCAL_FILL = os.environ.get("MUSIC_FILL_LOCAL", "1").strip().lower() not in ("0"
 STEADY_MAX_DB = float(os.environ.get("MUSIC_FILL_STEADY_DB", "2.5") or 2.5)   # band levels vary less than this over time = steady
 STEADY_MIN_SEC = 1.2                                                          # least clean sound needed to judge it
 GRAIN_SEC = 1.6
+LOCAL_MODE = os.environ.get("MUSIC_FILL_LOCAL_MODE", "auto").strip().lower()   # auto | grain | synth
+SYNTH_FFT = 8192                # resolution of the sound model used when the clean sound next to a hole is short
+SYNTH_MOD_MAX_DB = 2.0          # slow level flutter copied from the real sound is limited to this
+GRAIN_MAX_HOLE_RATIO = 0.8      # pieces of the real sound are laid down only if the hole is at most this long compared with the sound available (no piece is used twice)
 NEGATIVE_PROMPT = "vocals, singing, spoken words, clipping, distortion, harsh noise, watermark, abrupt cutoff"     # the one the clean runs used
 
 
@@ -345,19 +349,79 @@ def _steadiness_db(segs):
     return float(sum(sc * w for sc, w in scores) / sum(w for _, w in scores))
 
 
+def _synth_sound(pool, need):
+    """A new stretch of `need` samples with the same sound as `pool` (clean, steady sound): the average spectrum of the pool
+    (fine resolution, so a hum stays a hum) is applied to fresh random noise, with the slow level flutter of the pool.
+    Nothing of the pool is repeated, so a short pool does not turn into an audible loop."""
+    n_fft, hop = SYNTH_FFT, SYNTH_FFT // 2
+    win = np.hanning(n_fft).astype(np.float32)
+    power = np.zeros((CH, n_fft // 2 + 1), dtype=np.float64)
+    frames = 0
+    for seg in pool:
+        for s in range(0, len(seg) - n_fft + 1, hop):
+            chunk = seg[s:s + n_fft]
+            power += np.abs(np.fft.rfft(chunk.T * win, axis=1)) ** 2
+            frames += 1
+    if not frames:
+        return None
+    power /= frames
+    mono_all = np.concatenate([x.mean(axis=1) for x in pool])
+    rho = 0.0
+    if all(len(x) > 1 for x in pool) and CH == 2:
+        a = np.concatenate([x[:, 0] for x in pool]); b = np.concatenate([x[:, 1] for x in pool])
+        c = np.corrcoef(a, b)[0, 1]
+        rho = float(np.clip(c if np.isfinite(c) else 0.0, 0.0, 0.98))
+    rng = np.random.default_rng(int(np.abs(mono_all[:64]).sum() * 1e6) % (2 ** 32))
+    size = 1 << int(np.ceil(np.log2(need + n_fft)))
+    common = rng.standard_normal(size).astype(np.float32)
+    out = np.zeros((need, CH), dtype=np.float32)
+    for ch in range(CH):
+        own = rng.standard_normal(size).astype(np.float32)
+        white = np.sqrt(rho) * common + np.sqrt(1.0 - rho) * own
+        amp = np.sqrt(power[ch] / (np.sum(win ** 2) + 1e-9))
+        h = np.fft.irfft(amp, n_fft)                         # zero-phase filter of the pool's spectrum
+        h = np.roll(h, n_fft // 2) * np.hanning(n_fft)
+        y = np.fft.irfft(np.fft.rfft(white) * np.fft.rfft(h, size), size)[n_fft // 2:n_fft // 2 + need]
+        out[:, ch] = y
+    # slow level flutter (an engine is never perfectly flat): same size as in the real sound, at most SYNTH_MOD_MAX_DB
+    h100 = int(0.1 * RATE)
+    levels = []
+    for seg in pool:
+        m = seg.mean(axis=1)
+        for s in range(0, len(m) - h100 + 1, h100):
+            levels.append(_db(float((m[s:s + h100] ** 2).mean())))
+    if len(levels) >= 6:
+        flut = float(min(np.std(levels), SYNTH_MOD_MAX_DB))
+        z = np.convolve(rng.standard_normal(need + int(RATE)), np.ones(int(0.4 * RATE)) / (0.4 * RATE), "same")[:need]
+        z = z / (z.std() + 1e-9)
+        out *= (10.0 ** (flut * z / 20.0))[:, None].astype(np.float32)
+    ref_rms = float(np.sqrt(np.mean(np.concatenate(pool) ** 2)))
+    got_rms = float(np.sqrt(np.mean(out ** 2)))
+    if got_rms > 0 and ref_rms > 0:
+        out *= ref_rms / got_rms
+    return out
+
+
 def _texture_fill(pcm, g0, g1, ctx_db, segs):
-    """Fills the hole g0..g1 (seconds) from the clean sound beside it: overlapping pieces of it are laid one after the other at
-    random places (never the same loop twice in a row), matched to the level around the hole. Only for steady sounds."""
+    """Fills the hole g0..g1 (seconds) from the clean sound beside it, matched to the level around the hole. Only for steady
+    sounds. With plenty of clean sound, overlapping pieces of it are laid one after the other at random places; with little of
+    it (a loop would be heard) a new stretch of the same sound is made from its spectrum instead."""
     pool = [x for x in segs if len(x) >= int(0.5 * RATE)]
     have = sum(len(x) for x in pool) / RATE
     if have < 0.6:
         return False, "not enough steady sound next to the hole"
     need = int(round((g1 - g0) * RATE))
+    use_synth = LOCAL_MODE == "synth" or (LOCAL_MODE != "grain" and (g1 - g0) > have * GRAIN_MAX_HOLE_RATIO)
+    if use_synth:
+        synth = _synth_sound([x for x in segs if len(x) >= SYNTH_FFT * 2] or pool, need)
+        if synth is not None:
+            return _place_fill(pcm, g0, g1, ctx_db, synth, "made new from its sound")
     grain = int(min(GRAIN_SEC, max(0.5, have / 2.0)) * RATE)
     fade = grain // 3
     rng = np.random.default_rng(int(g0 * 1000) % (2 ** 32))
     out = np.zeros((need + 2 * grain, CH), dtype=np.float32)
     pos, last = 0, None
+    used = []                      # (segment, start, end) already laid down: new pieces avoid them so nothing is heard twice
     ramp = np.linspace(0.0, np.pi / 2, fade, dtype=np.float32)
     fin, fout = np.sin(ramp)[:, None], np.cos(ramp)[:, None]
     while pos < need:
@@ -368,6 +432,12 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs):
             k = int(np.argmax([len(x) for x in pool]))
             seg, g = pool[k], min(grain, len(pool[k]))
         st = int(rng.integers(0, len(seg) - g + 1))
+        for _try in range(30):
+            clash = any(u[0] == k and min(st + g, u[2]) - max(st, u[1]) > 0.15 * g for u in used)
+            if not clash:
+                break
+            st = int(rng.integers(0, len(seg) - g + 1))
+        used.append((k, st, st + g))
         if last is not None and last == (k, st // (RATE // 2)) and len(seg) - g > RATE // 2:
             st = (st + RATE // 2) % (len(seg) - g + 1)
         last = (k, st // (RATE // 2))
@@ -378,7 +448,10 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs):
             out[pos:pos + fade] = out[pos:pos + fade] * fout + chunk[:fade] * fin
             out[pos + fade:pos + g] = chunk[fade:]
         pos += g - fade
-    fillv = out[:need]
+    return _place_fill(pcm, g0, g1, ctx_db, out[:need], "from the sound beside it")
+
+
+def _place_fill(pcm, g0, g1, ctx_db, fillv, how):
     got_db = _seg_db((fillv * 32768.0))
     gain_db = float(np.clip(ctx_db - got_db, -GAIN_MAX_DB, GAIN_MAX_DB)) if np.isfinite(got_db) else 0.0
     fillv = fillv * 10 ** (gain_db / 20.0) * 32768.0
@@ -391,7 +464,7 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs):
     cur = pcm[a:a + fillv.shape[0]].astype(np.float32)
     mixed = cur * (1.0 - w[:, None]) + fillv * w[:, None]
     pcm[a:a + fillv.shape[0]] = np.clip(np.rint(mixed), -32768, 32767).astype(np.int16)
-    return True, f"steady sound: filled {g1 - g0:.1f} s from the sound beside it (set to {got_db + gain_db:.0f} dB)"
+    return True, f"steady sound: filled {g1 - g0:.1f} s {how} (set to {got_db + gain_db:.0f} dB)"
 
 
 def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):

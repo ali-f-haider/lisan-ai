@@ -570,5 +570,70 @@ class LongDubMusicFallbackTests(unittest.TestCase):
         self.assertNotIn('error', q)
 
 
+class SteadySoundFillTests(unittest.TestCase):
+    """A hole in an engine hum must not be filled with a short loop of the little clean sound beside it (the Airplane clip)."""
+    @staticmethod
+    def _engine(sec, seed):
+        import numpy as np
+        import music_fill as mf
+        rng = np.random.default_rng(seed)
+        n = int(sec * mf.RATE)
+        t = np.arange(n) / mf.RATE
+        x = (0.06 * np.sin(2 * np.pi * 110 * t) + 0.03 * np.sin(2 * np.pi * 220 * t + 1)) * (1 + 0.25 * np.sin(2 * np.pi * 100 * t))
+        x = x + np.convolve(rng.standard_normal(n), np.ones(8) / 8, 'same') * 0.08
+        return np.stack([x, x * 0.9], axis=1).astype(np.float32)
+
+    @staticmethod
+    def _loopiness(y):
+        import numpy as np
+        import music_fill as mf
+        e = int(0.3 * mf.RATE)
+        m = y[e:-e].mean(axis=1)
+        n_fft, hop = 2048, 1024
+        frames = 1 + (len(m) - n_fft) // hop
+        idx = np.arange(n_fft)[None, :] + hop * np.arange(frames)[:, None]
+        spec = np.log(np.abs(np.fft.rfft(m[idx] * np.hanning(n_fft), axis=1))[:, 5:400] + 1e-6)
+        spec -= spec.mean(0, keepdims=True)
+        spec /= np.linalg.norm(spec, axis=1, keepdims=True) + 1e-9
+        best = 0.0
+        for lag in range(int(0.3 * mf.RATE / hop), min(frames - 4, int(len(m) / mf.RATE / 2 * mf.RATE / hop))):
+            best = max(best, float((spec[:-lag] * spec[lag:]).sum(1).mean()))
+        return best
+
+    def _fill(self, mode, pool_sec=1.4, hole_sec=10.0):
+        import numpy as np
+        import music_fill as mf
+        ctx = self._engine(pool_sec, 1)
+        pcm = np.zeros((int((hole_sec + 4) * mf.RATE), 2), dtype=np.int16)
+        old = mf.LOCAL_MODE
+        mf.LOCAL_MODE = mode
+        try:
+            ok, msg = mf._texture_fill(pcm, 2.0, 2.0 + hole_sec, mf._seg_db(ctx * 32768.0), [ctx[:len(ctx) // 2], ctx[len(ctx) // 2:]])
+        finally:
+            mf.LOCAL_MODE = old
+        y = pcm[int(2.0 * mf.RATE):int((2.0 + hole_sec) * mf.RATE)].astype(np.float32) / 32768.0
+        return ok, msg, y
+
+    def test_short_clean_sound_is_not_turned_into_a_loop(self):
+        ok, msg, y = self._fill('auto')
+        self.assertTrue(ok)
+        self.assertIn('made new', msg)
+        self.assertLess(self._loopiness(y), 0.2)
+        ok, msg, y_loop = self._fill('grain')       # what the old method did with so little sound
+        self.assertGreater(self._loopiness(y_loop), 0.4)
+
+    def test_made_sound_has_the_level_of_the_sound_around_it(self):
+        import numpy as np
+        import music_fill as mf
+        ok, msg, y = self._fill('auto')
+        ref = self._engine(10.0, 5)
+        self.assertLess(abs(mf._seg_db(y * 32768.0) - mf._seg_db(ref * 32768.0)), 2.0)
+
+    def test_plenty_of_clean_sound_still_uses_real_pieces_of_it(self):
+        ok, msg, y = self._fill('auto', pool_sec=20.0, hole_sec=5.0)
+        self.assertTrue(ok)
+        self.assertIn('from the sound beside it', msg)
+
+
 if __name__ == '__main__':
     unittest.main()
