@@ -8033,3 +8033,40 @@ if (document.readyState !== "loading") renderSpeakerGenderInputs();
     if (sec) new MutationObserver(function() { var now = !sec.classList.contains("hidden"); if (now && !was) later(); was = now; }).observe(sec, { attributes: true, attributeFilter: ["class"] });
     if (results) new MutationObserver(function() { if (sec && !sec.classList.contains("hidden")) later(); }).observe(results, { childList: true });
 })();
+
+// ===== Final Duration Mode only applies to audio files =====
+// "Extend duration" lets the Arabic audio run past the end of the original. A merged video always ends where the
+// original video ends (the audio is cut there), so for a video the choice does nothing: it is hidden and kept on
+// "Exact input duration". Checked on a light timer because the video flag is set in many places.
+(function () {
+    function sync() {
+        var wrap = document.getElementById("durationModeWrap"), sel = document.getElementById("durationMode");
+        if (!wrap || !sel) return;
+        var hide = !!isVideoUpload;
+        if (wrap.style.display !== (hide ? "none" : "")) wrap.style.display = hide ? "none" : "";
+        if (hide && sel.value !== "exact") sel.value = "exact";
+    }
+    sync();
+    setInterval(sync, 600);
+})();
+
+// ===== Video-only options are hidden when the user works with an audio file =====
+// Lip-sync (Step 1 choice) and "Enhance Background Audio" (used only when the dub is merged into a video) do
+// nothing for an MP3/WAV. Hidden, and lip-sync is un-ticked so the 15 s lip-sync length limit cannot apply to audio.
+(function () {
+    var AUDIO_EXT = /\.(mp3|wav|m4a|aac|flac|ogg|oga|opus|wma)$/i;
+    function chosenIsAudio() {
+        var fi = document.getElementById("audioFile"), f = fi && fi.files && fi.files[0];
+        return !!(f && ((f.type && f.type.indexOf("audio/") === 0) || AUDIO_EXT.test(f.name || "")));
+    }
+    function show(el, on) { if (el && el.style.display !== (on ? "" : "none")) el.style.display = on ? "" : "none"; }
+    function sync() {
+        var audio = chosenIsAudio();
+        var ls = document.getElementById("lipsyncChoiceSection"), cb = document.getElementById("lipsyncWantedCheckbox");
+        show(ls, !audio);
+        if (audio && cb && cb.checked) { cb.checked = false; if (typeof onLipsyncChoiceChanged === "function") onLipsyncChoiceChanged(cb); }
+        show(document.getElementById("enhanceBgRow"), !(audio || (currentJobId && !isVideoUpload)));
+    }
+    sync();
+    setInterval(sync, 600);
+})();
