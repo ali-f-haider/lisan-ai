@@ -128,14 +128,41 @@ test('invalid project JSON is described as a file problem and does not replace t
     assert.doesNotMatch(notifications[0], /Connection problem|Load failed/);
 });
 
-test('canceling a merge confirms its full music budget and makes no paid request', async () => {
-    const {c,calls,confirmations,elements}=context();
-    c.quote={max_total:21,music_max:20};c.accept=false;c.subsText=(en)=>en;c.window.LisanDialog=c.LisanDialog;
-    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+test('a merge that costs more than the price on the button is not started; the button shows the new price', async () => {
+    const {c,calls,confirmations,messages}=context();
+    c.quote={max_total:21,music_max:20};c.subsText=(en)=>en;c.window._mergeShownTotal=2;
+    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);
+    vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    c.window._mergeShownTotal=2;
     await c.mergeVideo();
     assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote']);
-    assert.match(confirmations[0],/21 credits/);assert.match(confirmations[0],/20 for music/);
-    assert.equal(elements.get('mergeButton').disabled,false);
+    assert.equal(confirmations.length,0);
+    assert.equal(c.window._mergeShownTotal,21);
+    assert.match(messages.at(-1).text,/21 credits/);
+});
+
+test('a merge at the price shown on the button starts at once, with no confirmation box', async () => {
+    const {c,calls,confirmations,elements}=context();
+    c.quote={max_total:32,music_max:30};c.subsText=(en)=>en;
+    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);
+    vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    c.window._mergeShownTotal=32;
+    await c.mergeVideo();
+    assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote','/api/merge_video']);
+    assert.equal(confirmations.length,0);
+    assert.equal(calls[1].payload.accepted_credits,32);
+    assert.match(elements.get('mergePriceNote').textContent,/up to 32 credits, including up to 30 for music inpainting. Only successful repairs are charged./);
+});
+
+test('a click before any price was shown only shows the price', async () => {
+    const {c,calls}=context();
+    c.quote={max_total:2,music_max:0};c.subsText=(en)=>en;
+    vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);
+    vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    c.window._mergeShownTotal=null;
+    await c.mergeVideo();
+    assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote']);
+    assert.equal(c.window._mergeShownTotal,2);
 });
 
 test('an invalid merge quote cannot start paid processing', async () => {
@@ -211,7 +238,12 @@ test('choosing the first voice and programmatic auto-assignment refresh the gene
     vm.runInContext(excerpt(app,'var speakerGenderPick = {};', 'function updateSpeakerName('),p.c);
     vm.runInContext(excerpt(app,'async function renderSpeakerVoices()', 'async function ensureVoicePools()'),p.c);
     await p.c.renderSpeakerVoices(); assert.equal(p.badges.at(-1),'—');
-    const select=nodes.filter(n=>n.tag==='select')[1]; select.value='male:1'; select.onchange();
+    // Gender is two radio buttons in the voice cell; the speaker cell holds exactly the name (older patches that add
+    // custom, cloned and saved voices find the row and its dropdown that way).
+    assert.equal(nodes.filter(n=>n.tag==='input'&&n.type==='radio').length,2);
+    assert.equal(nodes.filter(n=>n.tag==='td')[0].textContent,'Speaker 1');
+    assert.equal(nodes.filter(n=>n.tag==='select').length,1);
+    const select=nodes.find(n=>n.tag==='select'); select.value='male:1'; select.onchange();
     assert.equal(p.timers.size,1); await p.runTimer(); assert.equal(p.badges.at(-1),114);
     p.c.speakerVoices={};p.c.speakerChoices={};p.c.scheduleGeneratePrice();
     vm.runInContext(excerpt(app,'async function autoAssignVoices()', '// ===== VOICE LIBRARY BROWSER'),p.c);
@@ -223,6 +255,7 @@ test('a merge whose music cannot be rebuilt starts at once, with no confirmation
     c.quote={max_total:2,music_max:0,music_kept:false};c.subsText=(en)=>en;
     vm.runInContext(excerpt(app,'function mergeStatusText(', '\nasync function mergeVideo()'),c);
     vm.runInContext(excerpt(app,'async function mergeVideo()', '\nasync function'),c);
+    c.window._mergeShownTotal=2;
     await c.mergeVideo();
     assert.deepEqual(calls.map(x=>x.url),['/api/merge_video/quote','/api/merge_video']);
     assert.equal(confirmations.length,0);

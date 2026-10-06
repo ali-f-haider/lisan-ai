@@ -192,7 +192,7 @@ function updateBadges() {
     setBadge("badgePrepareClone", 0);
     setBadge("badgeClone", _cloneRate);
     scheduleGeneratePrice();
-    setBadge("badgeMerge", window._realPricing.mergeCredits);
+    setBadge("badgeMerge", window._mergeQuoteBusy ? "…" : (window._mergeShownTotal != null ? window._mergeShownTotal : window._realPricing.mergeCredits));
     // Step 5.5's "Apply changes & rebuild MP3" only re-mixes with ffmpeg (no TTS
     // call), so it's free -- shown explicitly rather than left with no badge.
     setBadge("badgeApplyVolumes", 0);
@@ -883,6 +883,23 @@ function speakerGenderOf(name) {
     (segmentsData || []).forEach(function(s) { if (s.speaker === name) { if (s.gender === "female") female++; else male++; } });
     return female > male ? "female" : "male";
 }
+// Two radio buttons (Male / Female) for one speaker; onPick(gender) is called when the person picks one.
+function genderRadios(name, group, onPick, current) {
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;gap:16px;align-items:center;margin-bottom:6px;font-size:13px;";
+    var cur = current || speakerGenderOf(name);
+    [["male", subsText("Male", "ذكر")], ["female", subsText("Female", "أنثى")]].forEach(function(p) {
+        var label = document.createElement("label");
+        label.style.cssText = "display:flex;gap:5px;align-items:center;margin:0;cursor:pointer;font-weight:400;";
+        var radio = document.createElement("input");
+        radio.type = "radio"; radio.name = group; radio.value = p[0]; radio.checked = (cur === p[0]);
+        radio.style.cssText = "width:auto;margin:0;";
+        radio.onchange = function() { if (radio.checked) onPick(p[0]); };
+        var text = document.createElement("span"); text.textContent = p[1];
+        label.appendChild(radio); label.appendChild(text); wrap.appendChild(label);
+    });
+    return wrap;
+}
 function renderSpeakerGenderInputs() {
     var box = document.getElementById("speakerGenderBox");
     if (!box) return;
@@ -898,15 +915,10 @@ function renderSpeakerGenderInputs() {
         row.style.cssText = "display:flex;gap:10px;align-items:center;margin:6px 0;";
         var lab = document.createElement("span");
         lab.textContent = nm; lab.style.cssText = "min-width:120px;font-weight:600;";
-        var sel = document.createElement("select");
-        sel.style.cssText = "width:auto;";
-        [["male", subsText("Male", "ذكر")], ["female", subsText("Female", "أنثى")]].forEach(function(p) {
-            var o = document.createElement("option"); o.value = p[0]; o.textContent = p[1]; sel.appendChild(o);
-        });
-        sel.value = speakerGenderPick[idx] || "male";
-        speakerGenderPick[idx] = sel.value;
-        sel.onchange = function() { speakerGenderPick[idx] = sel.value; };
-        row.appendChild(lab); row.appendChild(sel); box.appendChild(row);
+        speakerGenderPick[idx] = speakerGenderPick[idx] || "male";
+        var radios = genderRadios(nm, "step1Gender_" + idx, function(g) { speakerGenderPick[idx] = g; }, speakerGenderPick[idx]);
+        radios.style.marginBottom = "0";
+        row.appendChild(lab); row.appendChild(radios); box.appendChild(row);
     });
     var note = document.createElement("p");
     note.className = "note";
@@ -1335,6 +1347,39 @@ function showMergeProgress(text, percent) {
     if (fill && fill.style) fill.style.width = Math.max(2, Math.min(100, percent || 0)) + "%";
     if (txt) txt.textContent = mergeStatusText(text);
 }
+// The price of the merge is shown on the Merge button (and the line under it) before anyone clicks.
+window._mergeShownTotal = null;
+function showMergeQuote(quote) {
+    window._mergeShownTotal = quote.max_total;
+    setBadge("badgeMerge", quote.max_total);
+    var note = document.getElementById("mergePriceNote");
+    if (!note) return;
+    note.textContent = quote.music_kept === false
+        ? subsText("Merge price: " + quote.max_total + " credits. The original music cannot be rebuilt reliably (almost all of it is speech), so the background stays silent while people speak.",
+                   "سعر الدمج: " + quote.max_total + " رصيداً. لا يمكن إعادة بناء الموسيقى الأصلية بشكل موثوق (معظم الفيديو كلام)، لذلك يبقى الصوت الخلفي صامتاً أثناء حديث الأشخاص.")
+        : quote.music_max > 0
+        ? subsText("Merge price: up to " + quote.max_total + " credits, including up to " + quote.music_max + " for music inpainting. Only successful repairs are charged.",
+                   "سعر الدمج: بحد أقصى " + quote.max_total + " رصيداً، منها حتى " + quote.music_max + " لإصلاح الموسيقى. تُحاسب فقط على الإصلاحات الناجحة.")
+        : subsText("Merge price: " + quote.max_total + " credits.", "سعر الدمج: " + quote.max_total + " رصيداً.");
+}
+function validMergeQuote(quote) {
+    return Number.isInteger(quote.max_total) && quote.max_total >= 1 && Number.isInteger(quote.music_max) && quote.music_max >= 0 && quote.music_max <= quote.max_total;
+}
+var mergeQuoteSerial = 0;
+async function refreshMergePrice() {
+    var sec = document.getElementById("mergeSection");
+    if (!currentJobId || !sec || sec.classList.contains("hidden")) return;
+    var serial = ++mergeQuoteSerial, jobId = currentJobId;
+    window._mergeQuoteBusy = true; window._mergeShownTotal = null; setBadge("badgeMerge", "…");
+    try {
+        var res = await fetch("/api/merge_video/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: jobId, keep_music: true, enhance_background: false }) });
+        var quote = await res.json();
+        if (serial !== mergeQuoteSerial || jobId !== currentJobId) return;
+        if (res.ok && validMergeQuote(quote)) showMergeQuote(quote);
+        else setBadge("badgeMerge", window._realPricing.mergeCredits);
+    } catch (e) { if (serial === mergeQuoteSerial) setBadge("badgeMerge", window._realPricing.mergeCredits); }
+    if (serial === mergeQuoteSerial) window._mergeQuoteBusy = false;
+}
 function hideMergeProgress() { var box = document.getElementById("mergeProgress"); if (box) box.classList.add("hidden"); }
 function startMergeProgress(jobId) {
     showMergeProgress("Starting...", 3);
@@ -1355,22 +1400,24 @@ async function mergeVideo() {
     if (!currentJobId) { notify("error", "Please upload your video first."); return; }
     const mergePayload = {job_id:currentJobId, keep_music:true, enhance_background:document.getElementById("enhanceBackground") ? document.getElementById("enhanceBackground").checked : true};
     document.getElementById("mergeButton").disabled = true;
-    notify("info", "Merging dubbed audio with video and background music...");
     let stopMergeProgress = function() {};
     try {
         showMergeProgress("Checking your video and the price...", 3);
         const quoteResponse = await fetch("/api/merge_video/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mergePayload) });
         const quote = await quoteResponse.json();
         if (!quoteResponse.ok) throw new Error(quote.error || "Could not check the merge price.");
-        if (!Number.isInteger(quote.max_total) || quote.max_total < 1 || !Number.isInteger(quote.music_max) || quote.music_max < 0 || quote.music_max > quote.max_total) throw new Error("Could not verify the merge price.");
+        if (!validMergeQuote(quote)) throw new Error("Could not verify the merge price.");
         hideMergeProgress();
-        // Music that cannot be rebuilt (almost all speech): the merge silently keeps the background quiet under speech.
-        // Its price is the plain merge fee already shown on the button, so nothing needs confirming.
-        if (quote.music_kept !== false) {
-            const question = subsText("Merge price: up to " + quote.max_total + " credits, including up to " + quote.music_max + " for music inpainting. Only successful repairs are charged. Continue?", "سعر الدمج: بحد أقصى " + quote.max_total + " رصيداً، منها حتى " + quote.music_max + " لإصلاح الموسيقى. تُحاسب فقط على الإصلاحات الناجحة. هل تريد المتابعة؟");
-            const accepted = window.LisanDialog ? await LisanDialog.confirm(question) : window.confirm(question);
-            if (!accepted) { document.getElementById("mergeButton").disabled = false; return; }
+        // No confirmation box: the price is on the button. Only if the real price is higher than the one that was shown
+        // (the audio changed since) is nothing started, and the button shows the new price first.
+        const shown = window._mergeShownTotal;
+        showMergeQuote(quote);
+        if (shown == null || quote.max_total > shown) {
+            document.getElementById("mergeButton").disabled = false;
+            notify("info", subsText("The merge price is now " + quote.max_total + " credits. Check the price on the button, then click Merge again.", "سعر الدمج الآن " + quote.max_total + " رصيداً. تحقق من السعر على الزر ثم اضغط دمج مرة أخرى."));
+            return;
         }
+        notify("info", "Merging dubbed audio with video and background music...");
         stopMergeProgress = startMergeProgress(mergePayload.job_id);
         const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({},mergePayload,{accepted_credits:quote.max_total})) });
         const data = await res.json();
@@ -2814,17 +2861,10 @@ async function renderSpeakerVoices() {
     tbody.innerHTML = "";
     names.forEach(function(name) {
         var row = document.createElement("tr");
-        var c1 = document.createElement("td");
-        var nm1 = document.createElement("div"); nm1.textContent = name; nm1.style.fontWeight = "600"; c1.appendChild(nm1);
-        var gs = document.createElement("select"); gs.style.cssText = "width:auto;margin-top:4px;font-size:12px;";
-        gs.title = subsText("Gender", "الجنس");
-        [["male", subsText("Male", "ذكر")], ["female", subsText("Female", "أنثى")]].forEach(function(p) {
-            var o = document.createElement("option"); o.value = p[0]; o.textContent = p[1]; gs.appendChild(o);
-        });
-        gs.value = speakerGenderOf(name);
-        gs.onchange = function() { setSpeakerGender(name, gs.value); renderSpeakerVoices(); };
-        c1.appendChild(gs); row.appendChild(c1);
+        // Cell 0 must hold exactly the speaker's name: the patches that add custom / cloned / saved voices find a row by it.
+        var c1 = document.createElement("td"); c1.textContent = name; c1.style.fontWeight = "600"; row.appendChild(c1);
         var c2 = document.createElement("td");
+        c2.appendChild(genderRadios(name, "spkGender_" + names.indexOf(name), function(g) { setSpeakerGender(name, g); renderSpeakerVoices(); }));
         var sel = document.createElement("select"); sel.style.width = "100%";
         if (clonedBySpeaker[name]) { var o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o); }
         var addGroup = function(g, label) {
@@ -3487,6 +3527,7 @@ function resetWorkspace() {
     var sc = document.getElementById("speakerCount"); if (sc) sc.value = "";
     var sn = document.getElementById("speakerNames"); if (sn) sn.value = "";
     speakerGenderPick = {}; speakerGenderByName = {}; renderSpeakerGenderInputs();
+    window._mergeShownTotal = null; window._mergeQuoteBusy = false; mergeQuoteSerial++;
     var s15 = document.getElementById("step1_5Card"); if (s15) s15.classList.add("hidden");
     if (typeof updateBadges === "function") updateBadges();
 }
@@ -7721,3 +7762,10 @@ document.addEventListener("change", function() { scheduleGeneratePrice(); });
 document.addEventListener("input", function(e) { if (e.target && (e.target.id === "speakerCount" || e.target.id === "speakerNames")) renderSpeakerGenderInputs(); });
 document.addEventListener("DOMContentLoaded", function() { renderSpeakerGenderInputs(); });
 if (document.readyState !== "loading") renderSpeakerGenderInputs();
+// Quote the merge as soon as the Merge button appears, and again whenever a new dub is shown, so its price is on the button.
+(function () {
+    var sec = document.getElementById("mergeSection"), results = document.getElementById("audioResults"), timer = null, was = sec ? !sec.classList.contains("hidden") : false;
+    function later() { clearTimeout(timer); timer = setTimeout(function() { refreshMergePrice(); }, 800); }
+    if (sec) new MutationObserver(function() { var now = !sec.classList.contains("hidden"); if (now && !was) later(); was = now; }).observe(sec, { attributes: true, attributeFilter: ["class"] });
+    if (results) new MutationObserver(function() { if (sec && !sec.classList.contains("hidden")) later(); }).observe(results, { childList: true });
+})();
