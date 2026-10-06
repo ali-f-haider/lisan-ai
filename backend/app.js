@@ -78,6 +78,7 @@ function notify(type, msg) {
     const m = document.createElement("div");
     m.className = "msg";
     m.textContent = (type === "error") ? friendly(msg) : msg;
+    recordNotification(type, m.textContent);
     const ok = document.createElement("button");
     ok.textContent = "OK";
 	ok.onclick = () => { div.remove(); if (!panel.children.length) panel.style.display = "none"; };
@@ -86,6 +87,143 @@ function notify(type, msg) {
     while (panel.children.length > 6) panel.removeChild(panel.firstChild);
 	setTimeout(() => { if (div.parentNode) { div.remove(); if (!panel.children.length) panel.style.display = "none"; } }, NOTIFY_AUTO_CLOSE_MS);
 }
+
+// ===== Notification history (this session only) =====
+// Every message that appears as a pop-up is also written to a list the user can open with the small V tab under Log Out,
+// because the pop-ups disappear after 10 seconds. The list is kept in this browser tab only (it is NOT sent to the server or
+// saved in the database); it is emptied on Log Out and when a different account opens the page.
+const NOTIFY_LOG_KEY = "lisan_notify_log", NOTIFY_LOG_OWNER_KEY = "lisan_notify_log_owner", NOTIFY_LOG_MAX = 200;
+var notifyLog = [], notifyUnread = 0, notifyHistoryOpen = false;
+try {
+    var _savedNotifyLog = JSON.parse(sessionStorage.getItem(NOTIFY_LOG_KEY) || "[]");
+    if (Array.isArray(_savedNotifyLog)) notifyLog = _savedNotifyLog.filter(function (x) { return x && typeof x.text === "string" && isFinite(x.t); }).slice(-NOTIFY_LOG_MAX);
+} catch (e) { notifyLog = []; }
+function saveNotifyLog() { try { sessionStorage.setItem(NOTIFY_LOG_KEY, JSON.stringify(notifyLog)); } catch (e) {} }
+function clearNotifyLog() {
+    notifyLog = []; notifyUnread = 0; saveNotifyLog();
+    if (typeof renderNotifyHistory === "function") renderNotifyHistory();
+}
+// Called when the account is known: a log that belongs to another account is dropped.
+function notifyLogForUser(name) {
+    try {
+        var owner = sessionStorage.getItem(NOTIFY_LOG_OWNER_KEY);
+        if (owner !== null && owner !== String(name || "")) clearNotifyLog();
+        sessionStorage.setItem(NOTIFY_LOG_OWNER_KEY, String(name || ""));
+    } catch (e) {}
+}
+function recordNotification(type, text) {
+    try {
+        text = String(text == null ? "" : text);
+        if (!text.trim()) return;
+        notifyLog.push({ t: Date.now(), type: (type === "error" || type === "success") ? type : "info", text: text });
+        if (notifyLog.length > NOTIFY_LOG_MAX) notifyLog = notifyLog.slice(-NOTIFY_LOG_MAX);
+        if (!notifyHistoryOpen) notifyUnread++;
+        saveNotifyLog();
+        if (typeof renderNotifyHistory === "function") renderNotifyHistory();
+    } catch (e) { /* the history must never break a notification */ }
+}
+function notifyTimeText(t) {
+    var d = new Date(t), now = new Date();
+    var time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return d.toDateString() === now.toDateString() ? time : d.toLocaleDateString() + " " + time;
+}
+function copyTextToClipboard(text) {
+    var fallback = function () {
+        var ta = document.createElement("textarea"); ta.value = text; ta.style.cssText = "position:fixed;left:-9999px;top:0;";
+        document.body.appendChild(ta); ta.select();
+        var ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta); return ok;
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(function () { return true; }, function () { return fallback(); });
+    }
+    return Promise.resolve(fallback());
+}
+function notifyHistoryLine(item) { return "[" + notifyTimeText(item.t) + "] " + item.text; }
+function placeNotifyHistoryUI() {
+    var bar = document.getElementById("userBar"), tab = document.getElementById("notifyHistoryBtn");
+    if (!bar || !tab) return;
+    var r = bar.getBoundingClientRect();
+    document.documentElement.style.setProperty("--ubh", Math.round(r.bottom) + "px");
+    var out = bar.querySelector('button[onclick="doLogout()"]') || bar.querySelector("button.btn-logout");        // the tab hangs under the Log Out button
+    if (out) {
+        var o = out.getBoundingClientRect();
+        tab.style.left = Math.max(4, Math.round(o.left + o.width / 2 - 17)) + "px";
+        tab.style.right = "auto";
+    }
+}
+function renderNotifyHistory() {
+    var tab = document.getElementById("notifyHistoryBtn"), box = document.getElementById("notifyHistoryPanel");
+    if (!tab || !box) return;
+    var T = {
+        title: subsText("Notifications from this session", "إشعارات هذه الجلسة"),
+        tab: subsText("Notification history", "سجل الإشعارات"),
+        copyAll: subsText("Copy all", "نسخ الكل"), copy: subsText("Copy", "نسخ"), copied: subsText("Copied", "تم النسخ"),
+        clear: subsText("Clear", "مسح"), close: subsText("Close", "إغلاق"),
+        empty: subsText("No notifications yet. Messages that pop up on the right appear here and stay until you close this page.",
+                        "لا توجد إشعارات بعد. الرسائل التي تظهر على اليمين تبقى هنا حتى تغلق هذه الصفحة."),
+        note: subsText("Kept in this browser tab only, not saved on our servers.", "تُحفظ في تبويب المتصفح هذا فقط، ولا تُخزَّن على خوادمنا.")
+    };
+    tab.title = T.tab; tab.setAttribute("aria-label", T.tab);
+    var dot = tab.querySelector(".nh-dot");
+    if (dot) {
+        dot.style.display = notifyUnread > 0 && !notifyHistoryOpen ? "block" : "none";
+        dot.className = "nh-dot" + (notifyLog.slice(-notifyUnread).some(function (x) { return x.type === "error"; }) ? " nh-err" : "");
+    }
+    if (!notifyHistoryOpen) return;
+    box.innerHTML = "";
+    var head = document.createElement("div"); head.className = "nh-head";
+    var h = document.createElement("strong"); h.textContent = T.title; head.appendChild(h);
+    var btns = document.createElement("span"); btns.className = "nh-btns";
+    var bAll = document.createElement("button"); bAll.type = "button"; bAll.textContent = T.copyAll; bAll.disabled = !notifyLog.length;
+    bAll.onclick = function () { copyTextToClipboard(notifyLog.map(notifyHistoryLine).join("\n")).then(function () { bAll.textContent = T.copied; setTimeout(function () { bAll.textContent = T.copyAll; }, 1500); }); };
+    var bClr = document.createElement("button"); bClr.type = "button"; bClr.textContent = T.clear; bClr.disabled = !notifyLog.length; bClr.onclick = clearNotifyLog;
+    var bX = document.createElement("button"); bX.type = "button"; bX.textContent = "✕"; bX.title = T.close; bX.setAttribute("aria-label", T.close); bX.onclick = function () { toggleNotifyHistory(false); };
+    btns.appendChild(bAll); btns.appendChild(bClr); btns.appendChild(bX); head.appendChild(btns); box.appendChild(head);
+    var list = document.createElement("div"); list.className = "nh-list";
+    if (!notifyLog.length) {
+        var e = document.createElement("div"); e.className = "nh-empty"; e.textContent = T.empty; list.appendChild(e);
+    }
+    notifyLog.slice().reverse().forEach(function (item) {
+        var row = document.createElement("div"); row.className = "nh-item " + item.type;
+        var time = document.createElement("div"); time.className = "nh-time"; time.textContent = notifyTimeText(item.t);
+        var text = document.createElement("div"); text.className = "nh-text"; text.textContent = item.text;
+        var c = document.createElement("button"); c.type = "button"; c.className = "nh-copy"; c.textContent = T.copy;
+        c.onclick = function () { copyTextToClipboard(notifyHistoryLine(item)).then(function () { c.textContent = T.copied; setTimeout(function () { c.textContent = T.copy; }, 1500); }); };
+        row.appendChild(time); row.appendChild(text); row.appendChild(c); list.appendChild(row);
+    });
+    box.appendChild(list);
+    var foot = document.createElement("div"); foot.className = "nh-foot"; foot.textContent = T.note; box.appendChild(foot);
+}
+function toggleNotifyHistory(open) {
+    notifyHistoryOpen = typeof open === "boolean" ? open : !notifyHistoryOpen;
+    var box = document.getElementById("notifyHistoryPanel"), tab = document.getElementById("notifyHistoryBtn");
+    if (!box || !tab) return;
+    if (notifyHistoryOpen) notifyUnread = 0;
+    box.style.display = notifyHistoryOpen ? "flex" : "none";
+    tab.setAttribute("aria-expanded", notifyHistoryOpen ? "true" : "false");
+    tab.classList.toggle("open", notifyHistoryOpen);
+    placeNotifyHistoryUI();
+    renderNotifyHistory();
+}
+function buildNotifyHistoryUI() {
+    if (document.getElementById("notifyHistoryBtn") || !document.body) return;
+    var tab = document.createElement("button"); tab.type = "button"; tab.id = "notifyHistoryBtn"; tab.setAttribute("aria-expanded", "false");
+    tab.innerHTML = '<svg viewBox="0 0 24 12" width="16" height="8" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 2l9 8 9-8"/></svg><span class="nh-dot" style="display:none"></span>';
+    tab.onclick = function () { toggleNotifyHistory(); };
+    var box = document.createElement("div"); box.id = "notifyHistoryPanel"; box.setAttribute("role", "dialog"); box.style.display = "none";
+    document.body.appendChild(tab); document.body.appendChild(box);
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape" && notifyHistoryOpen) toggleNotifyHistory(false); });
+    document.addEventListener("click", function (e) {
+        if (!notifyHistoryOpen) return;
+        if (e.target.closest && (e.target.closest("#notifyHistoryPanel") || e.target.closest("#notifyHistoryBtn"))) return;
+        toggleNotifyHistory(false);
+    });
+    window.addEventListener("resize", placeNotifyHistoryUI);
+    placeNotifyHistoryUI(); renderNotifyHistory();
+    setTimeout(placeNotifyHistoryUI, 800); setTimeout(placeNotifyHistoryUI, 3000);   // the bar's contents (name, credits) fill in after load
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", buildNotifyHistoryUI); else buildNotifyHistoryUI();
 
 // Credits per cent of Gemini cost, set in the admin page (1 = a credit per cent). Applies to Translate, Tashkeel and Emotions.
 function geminiCredits(usd) { return usdToCredits(usd * (window._realPricing.geminiCreditsPerCent || 1)); }
@@ -2653,6 +2791,8 @@ async function autoAssignVoices() {
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
+        notifyLogForUser(data.name || data.email || "");
+        if (typeof placeNotifyHistoryUI === "function") placeNotifyHistoryUI();
         if (window.hideAppGate) window.hideAppGate();
     }).catch(function() { if (window.hideAppGate) window.hideAppGate(); });
 })();
@@ -2709,11 +2849,14 @@ function onVoiceConsentChanged(checkbox) {
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
+        notifyLogForUser(data.name || data.email || "");
+        if (typeof placeNotifyHistoryUI === "function") placeNotifyHistoryUI();
         if (window.hideAppGate) window.hideAppGate();
     }).catch(function() { if (window.hideAppGate) window.hideAppGate(); });
 })();
 
 function doLogout() {
+    try { sessionStorage.removeItem(NOTIFY_LOG_KEY); sessionStorage.removeItem(NOTIFY_LOG_OWNER_KEY); } catch (e) {}
     fetch("/api/logout", { method: "POST" }).then(function() {
         // Also clear Supabase session if available
         if (typeof window.supabase !== "undefined" && window.__SUPABASE_URL) {

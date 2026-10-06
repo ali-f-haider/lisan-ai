@@ -586,7 +586,7 @@ table textarea {
 /* Notifications */
 #notifyPanel {
     position: fixed;
-    top: 80px;
+    top: calc(var(--ubh, 56px) + 30px);
     right: 20px;
     z-index: 9999;
     display: none;
@@ -597,6 +597,41 @@ table textarea {
     pointer-events: none;
 }
 #notifyPanel .notify { pointer-events: auto; }
+
+/* Notification history: a small V tab hanging under the Log Out button, and the list it opens (this session only) */
+#notifyHistoryBtn {
+    position: fixed; top: var(--ubh, 56px); right: 24px; z-index: 10001;
+    width: 34px; height: 16px; padding: 0; margin: 0; border: 0; border-radius: 0 0 8px 8px;
+    background: var(--bg); color: var(--text-muted); opacity: .75; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; box-shadow: none;
+}
+#notifyHistoryBtn:hover, #notifyHistoryBtn.open { opacity: 1; color: var(--text); background: var(--bg); }
+#notifyHistoryBtn.open svg { transform: rotate(180deg); }
+#notifyHistoryBtn .nh-dot { position: absolute; top: 2px; right: 3px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+#notifyHistoryBtn .nh-dot.nh-err { background: var(--error); }
+#notifyHistoryPanel {
+    position: fixed; top: calc(var(--ubh, 56px) + 20px); right: 20px; z-index: 10000;
+    width: 400px; max-width: calc(100vw - 40px); max-height: calc(100vh - var(--ubh, 56px) - 50px);
+    display: none; flex-direction: column; background: var(--card); color: var(--text);
+    border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-lg); overflow: hidden;
+    font-size: 13px; line-height: 1.45;
+}
+#notifyHistoryPanel .nh-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+#notifyHistoryPanel .nh-btns { display: flex; gap: 6px; }
+#notifyHistoryPanel .nh-btns button, #notifyHistoryPanel .nh-copy {
+    background: none; color: var(--text-muted); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; margin: 0; font-size: 12px; cursor: pointer; font-family: inherit; box-shadow: none;
+}
+#notifyHistoryPanel .nh-btns button:hover:not(:disabled), #notifyHistoryPanel .nh-copy:hover { color: var(--text); background: rgba(127,127,127,.12); }
+#notifyHistoryPanel .nh-btns button:disabled { opacity: .4; cursor: default; }
+#notifyHistoryPanel .nh-list { overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+#notifyHistoryPanel .nh-item { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: start; padding: 8px 10px; border-radius: 8px; border-left: 4px solid var(--accent); background: rgba(127,127,127,.08); }
+#notifyHistoryPanel .nh-item.success { border-left-color: var(--success); }
+#notifyHistoryPanel .nh-item.error { border-left-color: var(--error); }
+#notifyHistoryPanel .nh-time { color: var(--text-muted); font-size: 11px; white-space: nowrap; padding-top: 2px; }
+#notifyHistoryPanel .nh-text { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; cursor: text; }
+#notifyHistoryPanel .nh-empty { color: var(--text-muted); padding: 14px 6px; text-align: center; }
+#notifyHistoryPanel .nh-foot { color: var(--text-muted); font-size: 11px; padding: 6px 14px 8px; border-top: 1px solid var(--border); }
+@media (max-width: 768px) { #notifyHistoryPanel { right: 8px; } }
 
 .notify {
     padding: 14px 18px;

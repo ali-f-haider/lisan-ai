@@ -262,6 +262,26 @@ THE TIMELINE (short dub, Step 6 Final Result: button "Fine-Tune Timeline")
 - Order of work: do the timeline BEFORE "Merge Audio into Video", because the merge uses the latest rebuilt audio. If a line is simply too long or wrong, fix the text and use the circular-arrows button (re-speak this line) instead; the timeline only moves lines, it does not shorten them.
 - Dub Long Video has no drag timeline: there you change a line's time in the review step (the times of the line, or Enter man.).
 
+NOTIFICATION HISTORY (main app and short dub; free)
+- The pop-up messages on the right (for example "Transcription complete", "Voices auto-assigned" or an error) disappear after 10 seconds. Every one of them is also written to a list: a small V-shaped arrow hangs just under the "Log Out" button, below the top bar. Clicking it opens "Notifications from this session": newest first, each with the time it appeared, in its colour (blue = information, green = success, red = problem).
+- The customer can read the messages, select and copy any text, press "Copy" on one message or "Copy all", and "Clear" to empty the list. A small dot on the arrow means there are messages that were not opened yet (red if one of them is a problem). Esc or a click outside closes it.
+- Why it exists: if the customer left the computer while a job ran, a message that appeared in the meantime is still there when they come back.
+- Privacy: the list is kept in that browser tab only. It is NOT saved on our servers or in the account, it is emptied on Log Out, and it is gone when the tab is closed. So it cannot be read from another device or after logging in somewhere else.
+- It lists only the pop-up messages of the main app page. Dub Long Video has its own messages and does not have this list yet.
+
+SPEAKER GENDER AND VOICES (short dub)
+- In Step 1.5 (Speaker Setup) the customer can mark each speaker as male or female (round buttons next to each speaker name). In Step 4 (voices) the same male/female choice is next to each speaker's voice list; the voices of that gender are listed first, and "Auto-Assign All" gives each speaker a voice of the matching gender. There is no gender column in the Step 2 table any more.
+- Dub Long Video does not need the gender: it clones each speaker's own voice.
+
+THE STYLE / EMOTION CHECK FROM THE AUDIO (short dub)
+- "Check from audio" on a line and "Detect Emotions from Voice" listen to the original voice. If the clip is too short, noisy or unclear, the AI does not guess: the line KEEPS the style it already had (it is never replaced by "neutral"), and a message says so. "neutral" is only suggested when the voice really sounds calm.
+
+MERGE AUDIO INTO VIDEO: THE PRICE AND THE MUSIC (short dub, Step 6)
+- The button shows its full price. There is no confirmation box: pressing the button starts the merge at that price. If the price changed in the meantime, the merge does not start and the button shows the new price.
+- When the original background music has to be rebuilt where people speak, the price says "up to N credits, including up to M for music repair"; only the music sections that were really rebuilt are charged. A music section that cannot be rebuilt stays silent while people speak, the merge still finishes, and nothing is charged for it. If almost the whole background is speech, the music is not rebuilt at all: the background is silent while people speak and unchanged elsewhere, and the merge costs only the merge price.
+- While merging, a progress bar and a short text show what is happening (rebuilding the music can take about a minute per section).
+- A steady background sound such as an engine hum, wind or room noise is rebuilt from the clean sound next to it, for free (it is not charged).
+
 SHORT-DUB PROGRESS
 - While a short dub is processing the site itself says: keep this page open, do not refresh the page, some steps (speaker detection) stay at one percentage for a while, and if the percentage moves everything is fine.
 
