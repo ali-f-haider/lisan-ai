@@ -375,11 +375,13 @@ function actionLabel(a) {
   if (a.indexOf("long_dub") === 0) return T.actions.long_dub;
   return T.deduction;
 }
-function creditChange(amount) {
+function creditChange(amount, action) {
   var value = Number(amount);
   if (!Number.isFinite(value)) return { text: "—", color: "#6b7280" };
-  return { text: (value < 0 ? "+" : value > 0 ? "−" : "") + Math.abs(value).toLocaleString(),
-           color: value < 0 ? "#059669" : value > 0 ? "#dc2626" : "#6b7280" };
+  var refund = /refund/i.test(String(action || "")) || (value < 0 && action !== "admin_adjustment");
+  var refunded = (typeof LANG !== "undefined" && LANG === "ar") ? "مستردّ" : "refunded";
+  return { text: refund ? Math.abs(value).toLocaleString() + " " + refunded : (value < 0 ? "+" : value > 0 ? "−" : "") + Math.abs(value).toLocaleString(),
+           color: refund || value < 0 ? "#059669" : value > 0 ? "#dc2626" : "#6b7280" };
 }
 function safeMsg(m) {
   m = String(m || "");
@@ -573,7 +575,7 @@ fetch("/api/account/summary").then(function(r){return r.json();}).then(function(
   var st = document.querySelector("#spendsTable tbody");
   (d.spends || []).forEach(function(s){
     var tr = document.createElement("tr");
-    var change = creditChange(s.credits);
+    var change = creditChange(s.credits, s.action);
     tr.innerHTML = "<td>" + fmtStamp(s.created_at) + "</td><td>" + actionLabel(s.action) + "</td><td style='font-size:11px;color:#6b7280;'>" + (s.job_id ? "#" + String(s.job_id).slice(0,8) : "") + "</td><td style='color:" + change.color + ";font-weight:700;'>" + change.text + "</td>";
     st.appendChild(tr);
   });

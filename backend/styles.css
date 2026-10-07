@@ -536,6 +536,8 @@ table select {
     padding: 6px 8px;
     font-size: 13px;
 }
+#segmentsTable .sd-waqf { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+#segmentsTable .sd-waqf select { width: auto; padding: 4px 6px; font-size: 12px; }
 
 table textarea {
     padding: 6px 8px;

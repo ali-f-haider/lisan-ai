@@ -40,14 +40,15 @@ function context() {
     elements.set('ttsProvider', { value: 'elevenlabs' });
     elements.set('geminiVoice', { value: 'Kore' });
     elements.set('durationMode', { value: 'exact' });
+    vm.runInContext(excerpt(app, 'function shortWaqfMode(', '\nfunction saveProject('), c);
     vm.runInContext(excerpt(app, 'function shortGeneratePayload(', '// Pure editing action'), c);
     return { c, calls, messages, confirmations, elements };
 }
 
-test('refunds display a green positive amount, spending displays a red negative amount', () => {
+test('refunds display a plain positive refunded amount, spending displays a red negative amount', () => {
     const c = vm.createContext({});
     vm.runInContext(excerpt(account, 'function creditChange(', 'function safeMsg('), c);
-    assert.equal(c.creditChange(-3).text, '+3');
+    assert.equal(c.creditChange(-3).text, '3 refunded');
     assert.equal(c.creditChange(-3).color, '#059669');
     assert.equal(c.creditChange(3).text, '−3');
     assert.equal(c.creditChange(3).color, '#dc2626');
@@ -119,12 +120,14 @@ test('invalid project JSON is described as a file problem and does not replace t
     const current = [{ segment_id: 'existing' }];
     const c = vm.createContext({ window: { currentLang: 'en' }, segmentsData: current,
         notify(type, text) { notifications.push(text); },
+        subsText(en, ar) { return c.window.currentLang === "ar" ? ar : en; },
         FileReader: class { readAsText() { this.result = '{bad json'; this.onload(); } }
     });
+    vm.runInContext(excerpt(app, 'function shortWaqfMode(', '\nfunction saveProject('), c);
     vm.runInContext(excerpt(app, 'function loadProjectFile(', '// Cloned/custom voices'), c);
     c.loadProjectFile({ target: { files: [{}], value: 'test' } });
     assert.equal(c.segmentsData, current);
-    assert.match(notifications[0], /valid Lisan AI project/);
+    assert.match(notifications[0], /another saved Lisan AI project/);
     assert.doesNotMatch(notifications[0], /Connection problem|Load failed/);
 });
 
@@ -284,4 +287,141 @@ test('a speaker has one gender: Step 1.5 sets it for all lines, Step 4 can chang
     assert.equal(c.speakerGenderOf('Sara'),'female');
     assert.equal(c.speakerChoices.Sara,'female:1');
     assert.equal(c.speakerVoices.Sara,'v2');
+});
+
+function waqfEditor() {
+    const { c, calls, messages } = context();
+    const wrappers = [];
+    class Element {
+        constructor(tag) { this.tagName = tag; this.children = []; this.style = {}; this.attributes = {}; this.value = ''; this.textContent = ''; }
+        appendChild(child) { this.children.push(child); if (child.className === 'sd-waqf') wrappers.push(child); return child; }
+        setAttribute(name, value) { this.attributes[name] = value; }
+        get options() { return this.children.filter(child => child.tagName === 'option'); }
+        querySelector(tag) { for (const child of this.children) { if (child.tagName === tag) return child; const nested = child.querySelector(tag); if (nested) return nested; } return null; }
+    }
+    c.document.createElement = tag => new Element(tag);
+    c.document.querySelectorAll = () => wrappers;
+    c.updateBadges = () => { c.badgeUpdates = (c.badgeUpdates || 0) + 1; };
+    c.getSpeakerOptionsList = () => ['Speaker 1']; c.EMOTIONS = ['neutral']; c.EXTRA_STYLE_TAGS = [];
+    vm.runInContext(excerpt(app, 'function shortWaqfLabels(', '// ===== CLONE ANALYSIS'), c);
+    return { c, calls, messages, wrappers, Element };
+}
+
+test('short editor builds the matching picker and changing it keeps Arabic text intact with no request', () => {
+    const { c, calls } = waqfEditor();
+    const seg = c.segmentsData[0]; seg.arabic_text = 'شُكْرًا!';
+    const row = c.createRow(seg, 0), select = row.querySelector('textarea').tagName;
+    assert.equal(select, 'textarea');
+    const wrap = row.children[6].children.find(child => child.className === 'sd-waqf');
+    assert.ok(wrap, 'picker follows the Arabic textarea');
+    const picker = wrap.querySelector('select');
+    assert.equal(picker.value, 'auto'); assert.equal(seg.waqf, 'auto');
+    assert.deepEqual(picker.options.map(o => [o.value, o.textContent]), [['auto','Auto'],['stop','Stop'],['join','Join']]);
+    for (const mode of ['stop','join','auto']) { picker.value = mode; picker.onchange(); assert.equal(seg.waqf, mode); }
+    assert.equal(seg.arabic_text, 'شُكْرًا!'); assert.equal(c.badgeUpdates, 3); assert.equal(calls.length, 0);
+});
+
+test('picker translates existing controls without changing their choice or rebuilding text inputs', () => {
+    const { c, wrappers } = waqfEditor(); c.segmentsData[0].waqf = 'join';
+    const row = c.createRow(c.segmentsData[0], 0), input = row.children[6].children[0]; input.value = 'unsaved edit';
+    c.window.currentLang = 'ar'; c.updateShortWaqfLabels();
+    assert.equal(wrappers[0].querySelector('select').value, 'join');
+    assert.deepEqual(wrappers[0].querySelector('select').options.map(o => o.textContent), ['تلقائي','وقف','وصل']);
+    assert.equal(wrappers[0].querySelector('select').attributes['aria-label'], 'نهاية السطر');
+    assert.equal(input.value, 'unsaved edit');
+    c.window.currentLang = 'en'; c.updateShortWaqfLabels();
+    assert.equal(wrappers[0].querySelector('span').textContent, 'Line ending');
+});
+
+test('generation quote and submission carry every line ending and leave the source text untouched', async () => {
+    const { c, calls } = context();
+    c.segmentsData = ['auto','stop','join',undefined,'invalid'].map((waqf, i) => ({segment_id:'seg_'+i,arabic_text:'شُكْرًا.',speaker:'Speaker 1',waqf}));
+    const original = JSON.stringify(c.segmentsData);
+    await c.generateAudio();
+    for (const call of calls) assert.deepEqual(call.payload.segments.map(s => s.waqf), ['auto','stop','join','auto','auto']);
+    assert.equal(JSON.stringify(c.segmentsData), original);
+});
+
+test('re-speaking uses the selected ending and all neighboring endings in its confirmed snapshot', async () => {
+    for (const mode of ['auto','stop','join',undefined]) {
+        const { c, calls } = context(); c.segmentsData[0].waqf = mode;
+        c.segmentsData.push({segment_id:'next',arabic_text:'أهلًا.',speaker:'Speaker 1',waqf:'join'});
+        c.beforeQuote = () => { c.segmentsData[0].waqf = 'changed after quote'; };
+        await c.regenerateLine(0, {disabled:false,textContent:''});
+        assert.equal(calls.length, 2);
+        for (const call of calls) { assert.equal(call.payload.segment.waqf, mode || 'auto'); assert.equal(call.payload.segments[0].waqf, mode || 'auto'); assert.equal(call.payload.segments[1].waqf, 'join'); assert.equal(call.payload.segment.arabic_text, 'مرحبا'); }
+    }
+});
+
+test('project save and load preserve all choices and old projects default to auto', () => {
+    const { c } = context(); let saved;
+    c.originalSegments = []; c.isVideoUpload = false; c.speakerVoiceNames = {}; c.speakerChoices = {}; c.clonedBySpeaker = {};
+    c.downloadText = (name, text) => { saved = JSON.parse(text); };
+    vm.runInContext(excerpt(app, 'function saveProject(', '// Cloned/custom voices'), c);
+    c.segmentsData = ['auto','stop','join',undefined,'bad'].map((waqf,i) => ({segment_id:'seg_'+i,arabic_text:'جِدًّا.',waqf}));
+    const original = JSON.stringify(c.segmentsData); c.saveProject();
+    assert.deepEqual(saved.segments.map(s => s.waqf), ['auto','stop','join','auto','auto']);
+    assert.equal(JSON.stringify(c.segmentsData), original);
+    c.FileReader = class { readAsText() { this.result = JSON.stringify(saved); this.onload(); } };
+    c.renderTable = c.renderSpeakerVoices = c.validateClonedVoicesAfterLoad = c.showMediaBanner = () => {};
+    c.loadProjectFile({target:{files:[{}],value:'project'}});
+    assert.deepEqual(Array.from(c.segmentsData, s => s.waqf), ['auto','stop','join','auto','auto']);
+    assert.ok(c.segmentsData.every(s => s.arabic_text === 'جِدًّا.'));
+    saved = {segments:[{arabic_text:'أَهْلًا.'}]}; c.loadProjectFile({target:{files:[{}],value:'old'}});
+    assert.equal(c.segmentsData[0].waqf, 'auto'); assert.equal(c.segmentsData[0].arabic_text, 'أَهْلًا.');
+});
+
+test('refund labels handle both record signs and Arabic without mislabeling an admin grant', () => {
+    const c = vm.createContext({LANG:'en'});
+    vm.runInContext(excerpt(account, 'function creditChange(', 'function safeMsg('), c);
+    for (const amount of [3, -3]) {
+        assert.equal(c.creditChange(amount, 'long_dub_refund').text, '3 refunded');
+        assert.equal(c.creditChange(amount, 'long_dub_refund').color, '#059669');
+    }
+    assert.equal(c.creditChange(-3, 'admin_adjustment').text, '+3');
+    c.LANG = 'ar'; assert.equal(c.creditChange(-3, 'long_dub_refund').text, '3 مستردّ');
+    assert.equal(c.creditChange(3, 'generate').text, '−3');
+    assert.ok(account.includes('creditChange(s.credits, s.action)'));
+});
+
+test('damaged project files and read errors give one clear sentence and keep the current workspace', () => {
+    for (const lang of ['en','ar']) {
+        for (const fixture of ['{bad','null','{}','{"segments":[null]}','{"segments":[5]}','{"segments":[[]]}','read error','read throws']) {
+            const { c, messages } = context(); c.window.currentLang = lang;
+            const current = c.segmentsData; c.workspaceHasMedia = true;
+            c.projectWasLoaded = false; let banners = 0; c.showMediaBanner = () => { banners++; };
+            c.FileReader = class { readAsText() { if (fixture === 'read throws') throw new Error('read failed'); if (fixture === 'read error') { this.onerror(); return; } this.result = fixture; this.onload(); } };
+            vm.runInContext(excerpt(app, 'function loadProjectFile(', '// Cloned/custom voices'), c);
+            c.loadProjectFile({target:{files:[{}],value:'bad'}});
+            assert.equal(c.segmentsData, current); assert.equal(c.workspaceHasMedia, true); assert.equal(c.projectWasLoaded, false); assert.equal(banners, 0);
+            assert.equal(messages.length, 1); assert.equal(messages[0].type, 'error');
+            assert.match(messages[0].text, lang === 'ar' ? /اختر ملف مشروع محفوظًا آخر/ : /choose another saved Lisan AI project/);
+            assert.equal((messages[0].text.match(/[.!?](?=\s|$)/g) || []).length, 1);
+        }
+    }
+});
+
+test('only successful project reads disable media and show the loaded-project banner', () => {
+    const { c, messages } = context(); let reader, banners = 0;
+    c.workspaceHasMedia = true; c.originalSegments = []; c.isVideoUpload = false;
+    c.FileReader = class { readAsText() { reader = this; } };
+    c.showMediaBanner = () => { banners++; }; c.renderTable = c.renderSpeakerVoices = c.validateClonedVoicesAfterLoad = () => {};
+    vm.runInContext(excerpt(app, 'function loadProjectFile(', '// Cloned/custom voices'), c);
+    c.loadProjectFile({target:{files:[{}],value:'good'}});
+    assert.equal(c.workspaceHasMedia, true); assert.equal(banners, 0); assert.equal(messages.length, 0);
+    reader.result = JSON.stringify({segments:[{segment_id:'loaded',arabic_text:'مرحبا',waqf:'stop'}]}); reader.onload();
+    assert.equal(c.workspaceHasMedia, false); assert.equal(banners, 1);
+    assert.equal(c.segmentsData[0].waqf, 'stop'); assert.equal(messages.filter(m => m.type === 'success').length, 1);
+    assert.doesNotMatch(app, /loadProjectFile = function \(ev\)/);
+});
+
+test('timeline help is short, translated and contains no vendor names or technical wording', () => {
+    const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const note = html.match(/<p[^>]*data-tip-host="tlTitle"[^>]*>([^<]*)<\/p>/)[1];
+    assert.ok(note.length < 160); assert.match(note, /Play to listen/); assert.match(note, /apply your changes/);
+    assert.doesNotMatch(note, /ElevenLabs|Gemini|Inworld|Fal|MP3|segments|rebuild/i);
+    const pair = app.match(/\["Play to listen[^\n]+/)[0];
+    const texts = JSON.parse(pair.replace(/,\s*$/,''));
+    assert.equal(texts[0], note); assert.match(texts[1], /طبّق التغييرات/);
+    assert.doesNotMatch(texts[1], /ElevenLabs|Gemini|Inworld|Fal|MP3|مقاطع|إعادة بناء/i);
 });

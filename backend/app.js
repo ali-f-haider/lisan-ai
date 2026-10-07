@@ -543,10 +543,13 @@ function downloadText(filename, text) { const blob = new Blob([text], { type: "t
 function exportSRT() { const rows = segmentsData.slice().sort((a, b) => a.start - b.start); let out = "", n = 0; rows.forEach(s => { const t = (s.arabic_text || "").trim() || (s.text || "").trim(); if (!t) return; n++; out += `${n}\n${fmtSRT(s.start)} --> ${fmtSRT(s.end)}\n${t}\n\n`; }); if (!n) { notify("error", "Nothing to export."); return; } downloadText("dubbed_subtitles.srt", out); notify("success", "SRT exported."); }
 function exportSBV() { const rows = segmentsData.slice().sort((a, b) => a.start - b.start); let out = "", n = 0; rows.forEach(s => { const t = (s.arabic_text || "").trim() || (s.text || "").trim(); if (!t) return; n++; out += `${fmtSBV(s.start)},${fmtSBV(s.end)}\n${t}\n\n`; }); if (!n) { notify("error", "Nothing to export."); return; } downloadText("dubbed_subtitles.sbv", out); notify("success", "SBV exported."); }
 
+function shortWaqfMode(mode) {
+    return ["auto", "stop", "join"].indexOf(mode) >= 0 ? mode : "auto";
+}
 function saveProject() {
     downloadText("dubbing_project.json", JSON.stringify({
         app: "ai-dubbing-mvp", version: 1, job_id: currentJobId, total_duration: totalDuration, is_video: isVideoUpload,
-        segments: segmentsData, original_segments: originalSegments,
+        segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })), original_segments: originalSegments,
         speaker_voices: speakerVoices, speaker_voice_names: speakerVoiceNames,
         speaker_choices: speakerChoices, cloned_by_speaker: clonedBySpeaker
     }, null, 2));
@@ -555,11 +558,13 @@ function saveProject() {
 function loadProjectFile(evt) {
     const f = evt.target.files[0]; if (!f) return;
     const reader = new FileReader();
+    const fileError = () => notify("error", subsText("This project file could not be opened; choose another saved Lisan AI project (.json).", "تعذّر فتح ملف المشروع؛ اختر ملف مشروع محفوظًا آخر من Lisan AI بصيغة .json."));
+    reader.onerror = fileError;
     reader.onload = () => {
         try {
             const p = JSON.parse(String(reader.result));
-            if (!p || !Array.isArray(p.segments)) throw new Error("Bad project file");
-            segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, tempo_mode: s.tempo_mode || "excellent", words: Array.isArray(s.words) ? s.words : [] }));
+            if (!p || !Array.isArray(p.segments) || p.segments.some(s => !s || typeof s !== "object" || Array.isArray(s))) throw new Error("Bad project file");
+            segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, tempo_mode: s.tempo_mode || "excellent", waqf: shortWaqfMode(s.waqf), words: Array.isArray(s.words) ? s.words : [] }));
             originalSegments = Array.isArray(p.original_segments) ? p.original_segments : [];
             speakerVoices = p.speaker_voices || {};
             speakerVoiceNames = p.speaker_voice_names || {};
@@ -575,11 +580,13 @@ function loadProjectFile(evt) {
             projectWasLoaded = true;
             notify("success", "Project loaded. Please upload the matching audio/video file to enable preview, re-speak, and other functions.");
             workspaceHasMedia = false;
+            showMediaBanner();
             fetchUsage(); updateBadges();
             validateClonedVoicesAfterLoad();
-        } catch (e) { notify("error", window.currentLang === "ar" ? "تعذر فتح ملف المشروع. اختر ملف مشروع صالحًا بصيغة .json." : "This project file could not be opened. Choose a valid Lisan AI project (.json)."); }
+        } catch (e) { fileError(); }
     };
-    reader.readAsText(f); evt.target.value = "";
+    try { reader.readAsText(f); } catch (e) { fileError(); }
+    evt.target.value = "";
 }
 
 // Cloned/custom voices are deleted from the voice account automatically (they're
@@ -2190,7 +2197,7 @@ async function addTashkeel() {
 }
 function shortGeneratePayload() {
     return JSON.parse(JSON.stringify({
-        job_id: currentJobId || "", segments: segmentsData,
+        job_id: currentJobId || "", segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })),
         tts_provider: document.getElementById("ttsProvider").value,
         gemini_voice: document.getElementById("geminiVoice").value,
         speaker_voices: speakerVoices,
@@ -2264,7 +2271,8 @@ async function regenerateLine(i, btn) {
     btn.disabled = true; btn.textContent = "⏳";
     try {
         const payload = JSON.parse(JSON.stringify({
-            job_id: currentJobId || "", segment: seg, segments: segmentsData,
+            job_id: currentJobId || "", segment: Object.assign({}, seg, { waqf: shortWaqfMode(seg.waqf) }),
+            segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })),
             voice_id: voice_id, tempo_mode: seg.tempo_mode || "excellent",
             duration_mode: document.getElementById("durationMode").value, total_duration: totalDuration
         }));
@@ -2887,6 +2895,24 @@ generateAudio = function() {
 };
 
 // ===== FIXED TABLE ROW (locked = yellow, alternating) =====
+function shortWaqfLabels(wrap) {
+    wrap.title = subsText("How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line. The text itself is never changed.", "كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي. النص نفسه لا يتغيّر.");
+    var title = subsText("Line ending", "نهاية السطر");
+    wrap.querySelector("span").textContent = title;
+    var select = wrap.querySelector("select"); select.setAttribute("aria-label", title);
+    [["Auto", "تلقائي"], ["Stop", "وقف"], ["Join", "وصل"]].forEach(function(o, i) { select.options[i].textContent = subsText(o[0], o[1]); });
+}
+function updateShortWaqfLabels() {
+    document.querySelectorAll("#segmentsTable .sd-waqf").forEach(shortWaqfLabels);
+}
+function shortWaqfPicker(parent, seg) {
+    var wrap = document.createElement("label"); wrap.className = "sd-waqf";
+    var title = document.createElement("span"), select = document.createElement("select");
+    ["auto", "stop", "join"].forEach(function(value) { var option = document.createElement("option"); option.value = value; select.appendChild(option); });
+    seg.waqf = shortWaqfMode(seg.waqf); select.value = seg.waqf;
+    select.onchange = function() { seg.waqf = shortWaqfMode(select.value); updateBadges(); };
+    wrap.appendChild(title); wrap.appendChild(select); shortWaqfLabels(wrap); parent.appendChild(wrap);
+}
 function createRow(seg, i) {
     var row = document.createElement("tr");
     if (seg.locked) row.className = "locked";
@@ -2960,7 +2986,7 @@ function createRow(seg, i) {
     var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function() {
         segmentsData[i].arabic_text = arT.value; updateBadges();
         if (typeof buildVolumeTable === "function") buildVolumeTable(window._volumeLines || []);
-    }; arCell.appendChild(arT); row.appendChild(arCell);
+    }; arCell.appendChild(arT); shortWaqfPicker(arCell, seg); row.appendChild(arCell);
     var aCell = mk("td");
     var pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = function() { previewRow(i, pb); };
     var rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = function() { regenerateLine(i, rb); };
@@ -3835,18 +3861,7 @@ function hideMediaBanner() {
     }
 });
 
-// Mark workspace as media-less after loading a JSON project
-(function () {
-    if (typeof loadProjectFile !== "function") return;
-    var orig = loadProjectFile;
-    loadProjectFile = function (ev) {
-        var r = orig(ev);
-        workspaceHasMedia = false;
-        showMediaBanner();
-        notify("info", "Project loaded. Original media is not on the server — media features are disabled (see the yellow notice).");
-        return r;
-    };
-})();
+// loadProjectFile marks the workspace as media-less only after a project is read successfully.
 
 // Reset also restores media flag + hides banner + clears result flags
 (function () {
@@ -5238,7 +5253,7 @@ window.cleanOldClones = function () {
         ["Listen to ready-made Arabic voices below. To use one, select it from the dropdown in the table.", "استمع إلى أصوات عربية جاهزة أدناه. لاستخدام أحدها، اخترْه من القائمة المنسدلة في الجدول."],
         ["👉 Select a voice for each speaker from the dropdown below.", "👉 اختر صوتًا لكل متحدث من القائمة المنسدلة أدناه."],
         ["💡 Voice generation supports emotions and cloned voices. Costs are shown in credits (100 credits = $1).", "💡 يدعم توليد الصوت المشاعر والأصوات المستنسخة. تُعرض التكلفة بالائتمانات (100 ائتمان = 1 دولار)."],
-        ["Drag each block left/right to align it with the lip movement. Blocks stop at adjacent segments to prevent overlap. Then confirm to rebuild the MP3.", "اسحب كل كتلة يسارًا/يمينًا لمطابقة حركة الشفاه. تتوقف الكتل عند المقاطع المجاورة لمنع التداخل، ثم أكّد لإعادة بناء MP3."],
+        ["Play to listen, move the red marker to choose a moment, and drag a line to adjust its timing; apply your changes when finished.", "شغّل للاستماع، وحرّك المؤشر الأحمر لاختيار اللحظة، واسحب السطر لضبط توقيته؛ ثم طبّق التغييرات عند الانتهاء."],
         ["Combines the dubbed Arabic audio with the original background music and video.", "يدمج الصوت العربي المدبلج مع موسيقى الخلفية الأصلية والفيديو."],
         ["Questions, feedback, or need help? Send us a message and we'll get back to you by email.", "أسئلة أو ملاحظات أو تحتاج مساعدة؟ أرسل لنا رسالة وسنرد عليك بالبريد الإلكتروني."],
         ["Removes low rumble and adds clarity to the voice. Instant, with no AI processing.", "يزيل الضجيج المنخفض ويضيف وضوحًا للصوت. فوري ودون معالجة بالذكاء الاصطناعي."],
@@ -5572,6 +5587,7 @@ window.cleanOldClones = function () {
             // by renderLipsyncChoiceNote()'s definition).
             if (typeof renderLipsyncChoiceNote === "function") renderLipsyncChoiceNote();
             if (typeof renderLipsyncRes === "function") renderLipsyncRes();
+            updateShortWaqfLabels();
             // the language swap above puts the banner's own placeholder rate back: show the real one again
             if (typeof updateBadges === "function") updateBadges();
         } catch (e) { console.error("applyLang:", e); }
