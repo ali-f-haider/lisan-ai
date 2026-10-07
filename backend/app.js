@@ -1055,6 +1055,11 @@ function remapDefaultSpeakerLabels() {
 }
 var speakerGenderPick = {};      // Step 1.5: position of the speaker -> "male" | "female"
 var speakerGenderByName = {};    // speaker name -> gender (from Step 1.5, or changed in the Step 4 table)
+var speakerGenderAuto = {};      // names whose gender was detected by Auto-Assign (not chosen by the person)
+var speakerAgeByName = {};       // speaker name -> "child" | "young" | "adult" | "senior" (only what the person chose)
+var speakerChoiceAuto = {};      // names whose voice was picked by Auto-Assign
+var speakerMatchNote = {};       // speaker name -> short plain-language hint shown under the voice
+function explicitGender(name) { return !!(speakerGenderByName[name] && !speakerGenderAuto[name]); }
 function speakerGenderOf(name) {
     if (speakerGenderByName[name]) return speakerGenderByName[name];
     var male = 0, female = 0;   // a loaded project keeps its genders on the lines
@@ -1065,7 +1070,7 @@ function speakerGenderOf(name) {
 function genderRadios(name, group, onPick, current) {
     var wrap = document.createElement("div");
     wrap.style.cssText = "display:flex;gap:16px;align-items:center;margin-bottom:6px;font-size:13px;";
-    var cur = current || speakerGenderOf(name);
+    var cur = (current !== undefined) ? current : speakerGenderOf(name);     // "" = nothing picked yet
     [["male", subsText("Male", "ذكر")], ["female", subsText("Female", "أنثى")]].forEach(function(p) {
         var label = document.createElement("label");
         label.style.cssText = "display:flex;gap:5px;align-items:center;margin:0;cursor:pointer;font-weight:400;";
@@ -1093,14 +1098,13 @@ function renderSpeakerGenderInputs() {
         row.style.cssText = "display:flex;gap:10px;align-items:center;margin:6px 0;";
         var lab = document.createElement("span");
         lab.textContent = nm; lab.style.cssText = "min-width:120px;font-weight:600;";
-        speakerGenderPick[idx] = speakerGenderPick[idx] || "male";
-        var radios = genderRadios(nm, "step1Gender_" + idx, function(g) { speakerGenderPick[idx] = g; }, speakerGenderPick[idx]);
+        var radios = genderRadios(nm, "step1Gender_" + idx, function(g) { speakerGenderPick[idx] = g; }, speakerGenderPick[idx] || "");
         radios.style.marginBottom = "0";
         row.appendChild(lab); row.appendChild(radios); box.appendChild(row);
     });
     var note = document.createElement("p");
     note.className = "note";
-    note.textContent = subsText("Used to pick matching voices automatically. You can still change it in Step 4.", "تُستخدم لاختيار أصوات مناسبة تلقائياً. يمكنك تغييرها لاحقاً في الخطوة 4.");
+    note.textContent = subsText("Optional. Leave it empty and Lisan AI will work it out from the voice when you press Auto-Assign. You can change it in Step 4.", "اختياري. اتركه فارغاً وسيحدده Lisan AI من الصوت عند الضغط على التعيين التلقائي. يمكنك تغييره في الخطوة 4.");
     box.appendChild(note);
 }
 function autoPickVoiceFor(name) {
@@ -1114,7 +1118,7 @@ function autoPickVoiceFor(name) {
     applyChoice(name);
 }
 function setSpeakerGender(name, g) {
-    speakerGenderByName[name] = g;
+    speakerGenderByName[name] = g; delete speakerGenderAuto[name];
     (segmentsData || []).forEach(function(s) { if (s.speaker === name) s.gender = g; });
     var m = (speakerChoices[name] || "").match(/^(male|female):/);
     if (m && m[1] !== g) {   // the chosen studio voice is of the other gender: pick one of the right gender
@@ -1122,6 +1126,36 @@ function setSpeakerGender(name, g) {
         autoPickVoiceFor(name);
     }
     scheduleGeneratePrice();
+}
+// How old the person says (or the match heard) a speaker sounds; used to pick a voice of a similar age.
+function ageWordOf(age) {
+    return {child: subsText("child", "طفل"), young: subsText("young", "شاب"), adult: subsText("adult", "بالغ"), senior: subsText("older", "كبير في السن")}[age] || "";
+}
+function ageSelectFor(name) {
+    var sel = document.createElement("select");
+    sel.style.cssText = "width:auto;margin:0 0 6px 0;font-size:13px;";
+    sel.title = subsText("How old this speaker sounds. Used to pick a voice of a similar age.", "كم يبدو عمر هذا المتحدث. يُستخدم لاختيار صوت بعمر مشابه.");
+    [["", subsText("Age: detect automatically", "العمر: اكتشاف تلقائي")], ["child", subsText("Age: child", "العمر: طفل")], ["young", subsText("Age: young", "العمر: شاب")],
+     ["adult", subsText("Age: adult", "العمر: بالغ")], ["senior", subsText("Age: older", "العمر: كبير في السن")]].forEach(function(p) {
+        var o = document.createElement("option"); o.value = p[0]; o.textContent = p[1]; sel.appendChild(o);
+    });
+    sel.value = speakerAgeByName[name] || "";
+    sel.onchange = function() {
+        if (sel.value) speakerAgeByName[name] = sel.value; else delete speakerAgeByName[name];
+        if (speakerChoiceAuto[name]) {    // the voice was picked by Auto-Assign: pick again with the new age
+            delete speakerChoices[name]; delete speakerVoices[name]; delete speakerVoiceNames[name]; delete speakerChoiceAuto[name];
+            autoAssignVoices();
+        }
+    };
+    return sel;
+}
+function matchNoteText(m) {
+    if (!m) return "";
+    var heard = [ageWordOf(m.age), m.gender === "female" ? subsText("female", "أنثى") : (m.gender === "male" ? subsText("male", "ذكر") : "")].filter(Boolean).join(" ");
+    var text = heard ? subsText("Heard: " + heard + " voice. ", "الصوت الأصلي: " + heard + ". ") : "";
+    text += m.fit === "rough" ? subsText("No close match in the library. Cloning this speaker will sound closer.", "لا يوجد صوت قريب في المكتبة. استنساخ صوت هذا المتحدث سيكون أقرب.")
+                              : subsText("Picked the closest match.", "تم اختيار أقرب صوت.");
+    return text;
 }
 function updateSpeakerName(i, newName) {
     newName = newName.trim() || `Speaker ${i + 1}`;
@@ -3157,6 +3191,7 @@ async function renderSpeakerVoices() {
         var c2 = document.createElement("td");
         c2.appendChild(genderRadios(name, "spkGender_" + names.indexOf(name), function(g) { setSpeakerGender(name, g); renderSpeakerVoices(); }));
         var sel = document.createElement("select"); sel.style.width = "100%";
+        var ageSel = ageSelectFor(name);
         if (clonedBySpeaker[name]) { var o = document.createElement("option"); o.value = "clone"; o.textContent = "🎙️ Cloned voice (from video)"; sel.appendChild(o); }
         var addGroup = function(g, label) {
             // No cap here — list every voice in the pool (used to stop at 8
@@ -3173,12 +3208,19 @@ async function renderSpeakerVoices() {
             var o = document.createElement("option"); o.value = ""; o.textContent = "— Loading voices… —"; sel.appendChild(o);
         }
         sel.value = speakerChoices[name] || "";
-        sel.onchange = function() { speakerChoices[name] = sel.value; applyChoice(name); renderSpeakerVoices(); };
+        sel.onchange = function() { speakerChoices[name] = sel.value; delete speakerChoiceAuto[name]; delete speakerMatchNote[name]; applyChoice(name); renderSpeakerVoices(); };
+        c2.appendChild(ageSel);
         c2.appendChild(sel);
         var info = document.createElement("div");
         info.style.cssText = "font-size:12px;color:#6b7280;margin-top:4px;";
         info.textContent = speakerVoiceNames[name] || "";
         c2.appendChild(info);
+        if (speakerMatchNote[name] && speakerChoiceAuto[name]) {
+            var hint = document.createElement("div");
+            hint.style.cssText = "font-size:12px;color:#6b7280;margin-top:2px;";
+            hint.textContent = speakerMatchNote[name];
+            c2.appendChild(hint);
+        }
         row.appendChild(c2);
         tbody.appendChild(row);
     });
@@ -3209,22 +3251,82 @@ async function autoAssignVoices() {
     var names = [];
     var seen = {};
     segmentsData.forEach(function(s) { var n = s.speaker || "Speaker 1"; if (!seen[n]) { seen[n] = true; names.push(n); } });
+    var todo = [];
     names.forEach(function(name) {
         if (speakerChoices[name]) { applyChoice(name); return; }
         if (clonedBySpeaker[name]) { speakerChoices[name] = "clone"; applyChoice(name); return; }
-        var g = speakerGenderOf(name);
-        var pool = voicePools[g];
-        if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
-        if (!pool.length) return;
-        var usedIds = {};
-        Object.values(speakerVoices).forEach(function(v) { usedIds[v] = true; });
-        var freeIdx = pool.map(function(p, i) { return i; }).filter(function(i) { return !usedIds[pool[i].voice_id]; });
-        var pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
-        speakerChoices[name] = g + ":" + (pick + 1);
-        applyChoice(name);
+        todo.push(name);
+    });
+    var match = todo.length ? await matchSpeakerVoices(todo, names) : null;
+    var rough = 0;
+    todo.forEach(function(name) {
+        var m = match && match.speakers ? match.speakers[name] : null;
+        if (m && m.gender && !explicitGender(name)) {        // what the voice sounds like; the person's own choice is never overridden
+            speakerGenderByName[name] = m.gender; speakerGenderAuto[name] = true;
+            (segmentsData || []).forEach(function(s) { if ((s.speaker || "Speaker 1") === name) s.gender = m.gender; });
+        }
+        var choice = m ? choiceForVoiceId(m.best) : "";
+        if (choice) {
+            speakerChoices[name] = choice; speakerChoiceAuto[name] = true; speakerMatchNote[name] = matchNoteText(m);
+            if (m.fit === "rough") rough++;
+            applyChoice(name);
+            return;
+        }
+        randomVoiceChoice(name);
     });
     renderSpeakerVoices();
-    notify("success", "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
+    notify("success", match ? subsText("Voices matched to your speakers. Change any speaker's voice in the Step 4 table.", "تمت مطابقة الأصوات مع المتحدثين. يمكنك تغيير صوت أي متحدث في جدول الخطوة 4.")
+                            : "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
+    if (rough) notify("info", subsText("For " + rough + " speaker(s) the library has no close match. Cloning their voice will sound closer.", "لا يوجد في المكتبة صوت قريب لـ " + rough + " من المتحدثين. استنساخ أصواتهم سيكون أقرب."));
+}
+
+// The old way, still used when matching is unavailable: a random unused voice of the speaker's gender.
+function randomVoiceChoice(name) {
+    var g = speakerGenderOf(name);
+    var pool = voicePools[g];
+    if (!pool.length) { g = (g === "male" ? "female" : "male"); pool = voicePools[g]; }
+    if (!pool.length) return;
+    var usedIds = {};
+    Object.values(speakerVoices).forEach(function(v) { usedIds[v] = true; });
+    var freeIdx = pool.map(function(p, i) { return i; }).filter(function(i) { return !usedIds[pool[i].voice_id]; });
+    var pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
+    speakerChoices[name] = g + ":" + (pick + 1);
+    applyChoice(name);
+}
+
+function choiceForVoiceId(voiceId) {
+    if (!voiceId) return "";
+    var found = "";
+    ["male", "female"].forEach(function(g) {
+        var i = (voicePools[g] || []).findIndex(function(v) { return v.voice_id === voiceId; });
+        if (i >= 0 && !found) found = g + ":" + (i + 1);
+    });
+    return found;
+}
+
+// Ask the server which library voices fit these speakers (age, pitch, tone). Returns null on any problem.
+async function matchSpeakerVoices(todo, names) {
+    try {
+        if (typeof currentJobId === "undefined" || !currentJobId || typeof fetch !== "function") return null;
+        var taken = [];
+        names.forEach(function(n) { if (todo.indexOf(n) < 0 && speakerVoices[n]) taken.push(speakerVoices[n]); });
+        var body = {
+            job_id: currentJobId,
+            speakers: todo.map(function(n) { return {name: n, gender: explicitGender(n) ? speakerGenderByName[n] : "", age: speakerAgeByName[n] || ""}; }),
+            segments: (segmentsData || []).filter(function(s) { return todo.indexOf(s.speaker || "Speaker 1") >= 0 && isFinite(+s.start) && isFinite(+s.end) && +s.end > +s.start; })
+                .map(function(s) { return {speaker: s.speaker || "Speaker 1", start: +s.start, end: +s.end}; }),
+            taken: taken, listen: true
+        };
+        if (typeof showBusy === "function") showBusy("Matching voices to your speakers...", "جارٍ مطابقة الأصوات مع المتحدثين...");
+        try {
+            var res = await fetch("/api/voices/match", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+            if (!res.ok) return null;
+            var data = await res.json();
+            return data && data.speakers ? data : null;
+        } finally {
+            if (typeof hideBusy === "function") hideBusy();
+        }
+    } catch (e) { return null; }
 }
 
 // ===== VOICE LIBRARY BROWSER (preview the SAME voices offered in the Step 4 =====
@@ -3818,7 +3920,7 @@ function resetWorkspace() {
     // Reset speaker count/names + badges, and hide Step 1.5 until a new file is chosen
     var sc = document.getElementById("speakerCount"); if (sc) sc.value = "";
     var sn = document.getElementById("speakerNames"); if (sn) sn.value = "";
-    speakerGenderPick = {}; speakerGenderByName = {}; renderSpeakerGenderInputs();
+    speakerGenderPick = {}; speakerGenderByName = {}; speakerGenderAuto = {}; speakerAgeByName = {}; speakerChoiceAuto = {}; speakerMatchNote = {}; renderSpeakerGenderInputs();
     window._mergeShownTotal = null; window._mergeQuoteBusy = false; mergeQuoteSerial++;
     var s15 = document.getElementById("step1_5Card"); if (s15) s15.classList.add("hidden");
     if (typeof updateBadges === "function") updateBadges();

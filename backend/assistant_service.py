@@ -278,7 +278,7 @@ NOTIFICATION HISTORY (main app and short dub; free)
 - It lists only the pop-up messages of the main app page. Dub Long Video has its own messages and does not have this list yet.
 
 SPEAKER GENDER AND VOICES (short dub)
-- In Step 1.5 (Speaker Setup) the customer can mark each speaker as male or female (round buttons next to each speaker name). In Step 4 (voices) the same male/female choice is next to each speaker's voice list; the voices of that gender are listed first, and "Auto-Assign All" gives each speaker a voice of the matching gender. There is no gender column in the Step 2 table any more.
+- In Step 1.5 (Speaker Setup) the customer can mark each speaker as male or female (round buttons next to each speaker name). In Step 4 (voices) the same male/female choice is next to each speaker's voice list, with an optional Age choice (child, young, adult, older); the voices of that gender are listed first. The male/female choice in Step 1.5 is optional: if it is left empty, "Auto-Assign All" works out the gender from the voice. "Auto-Assign All" listens to each speaker and gives them the library voice that fits best in gender, age, pitch and tone (two speakers never get the same voice). A short note under the voice says what it heard. If the library has no close match it says so and suggests cloning that speaker. Customers can change the Age or pick any voice by hand. Listening to the speakers adds a very small amount to the AI-steps part of the Generate price. There is no gender column in the Step 2 table any more.
 - Dub Long Video does not need the gender: it clones each speaker's own voice.
 
 THE STYLE / EMOTION CHECK FROM THE AUDIO (short dub)

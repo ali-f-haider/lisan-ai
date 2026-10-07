@@ -246,7 +246,7 @@ test('choosing the first voice and programmatic auto-assignment refresh the gene
     // custom, cloned and saved voices find the row and its dropdown that way).
     assert.equal(nodes.filter(n=>n.tag==='input'&&n.type==='radio').length,2);
     assert.equal(nodes.filter(n=>n.tag==='td')[0].textContent,'Speaker 1');
-    assert.equal(nodes.filter(n=>n.tag==='select').length,1);
+    assert.equal(nodes.filter(n=>n.tag==='select').length,2);          // the voice list and the optional age choice
     const select=nodes.find(n=>n.tag==='select'); select.value='male:1'; select.onchange();
     assert.equal(p.timers.size,1); await p.runTimer(); assert.equal(p.badges.at(-1),114);
     p.c.speakerVoices={};p.c.speakerChoices={};p.c.scheduleGeneratePrice();

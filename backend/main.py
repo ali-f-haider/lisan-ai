@@ -4097,6 +4097,12 @@ def voice_library_add(req: VoiceLibraryAddRequest):
     ElevenLabs â€” check your subscription page's counter after your first use."""
     return eleven_service.add_shared_voice(ELEVENLABS_API_KEY, req.public_owner_id, req.voice_id, req.new_name)
 
+# Auto-Assign: pick library voices by the speaker's age, pitch and tone (see voice_match.py).
+import voice_match_routes
+voice_match_routes.register(app, job_guard=_job_guard, rate_limited=_rate_limited, rate_message=_RATE_LIMIT_MSG,
+                            resolve_audio=resolve_job_audio, fetch_voices=lambda: eleven_service.fetch_voices(ELEVENLABS_API_KEY),
+                            gemini_key=lambda: GEMINI_API_KEY)
+
 @app.post("/api/analyze_speakers")
 def analyze_speakers(req: AnalyzeRequest, request: Request):
     _g = _job_guard(request, req.job_id, allow_empty=False)
