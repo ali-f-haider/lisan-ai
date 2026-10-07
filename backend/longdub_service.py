@@ -1143,9 +1143,18 @@ def resume_all():
 
 def _fail(job, message, refund_kind=None):
     """Mark the job failed, refund the charge for the stage that failed, tell
-    the user by email."""
+    the user by email.
+
+    `message` may carry the raw text of a service error (a line that could not be generated, a refused request). The customer sees and is
+    emailed only the customer version of it (no service names, codes or diagnostics); the admin event keeps the original."""
     uid = job["uid"]
     refunded = 0
+    original_message = message
+    try:
+        from user_errors import customer_message as _customer_message
+        message = _customer_message(message)
+    except Exception:
+        pass
     with _lock_for(job["id"]):
         if refund_kind and job["paid"].get(refund_kind):
             refunded = int(job["paid"][refund_kind])
@@ -1163,7 +1172,7 @@ def _fail(job, message, refund_kind=None):
         job["error"] = message
         job["message"] = message
     _save(job)
-    _ev(job, "job_failed", "failed", f"{message} | refunded={refunded} kind={refund_kind}", refunded or None)
+    _ev(job, "job_failed", "failed", f"{original_message} | refunded={refunded} kind={refund_kind}", refunded or None)
     _delete_pending_voices(job)
     try:
         extra = f" We refunded {refunded} credits." if refunded else ""
