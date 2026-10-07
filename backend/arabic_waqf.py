@@ -33,6 +33,7 @@ _MARK = re.compile("[ً-ٰٕ]")
 _LETTER = "ء-يٱ-ۓ"
 _WORD = re.compile(f"[{_LETTER}][{_LETTER}ً-ٰٕـ]*")
 _ARABIC_LETTER = re.compile(f"[{_LETTER}]")
+_CONTINUES = re.compile(r"[^\W_]")                      # a letter or digit of any script: the utterance goes on
 _CLOSERS = "\"'»”’)]}」"            # what may sit between the last word and the stop itself
 _STRONG = ".!؟?…"
 _WEAK = "،,؛;:—–"
@@ -270,7 +271,7 @@ def pausal(text, mode="auto", gap=None):
             kind, after = _stop_after(text, m.end())
             if kind is None:
                 continue
-            tail = not _ARABIC_LETTER.search(text, after)          # nothing more to say after this word: it is the end of the line
+            tail = not _CONTINUES.search(text, after)          # nothing more to say after this word (in any script): it is the end of the line
             if tail:
                 if mode == "join":
                     stop = False

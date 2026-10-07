@@ -32,6 +32,20 @@ def _orig_level_db(src, spans, start, duration):
     return v if v is not None else measure_loudness_db(str(src), start, duration)
 
 
+def _line_level_db(path):
+    """Loudness of a generated line, measured the way the original's speech is (the words only, not the silence a stretched line may carry
+    before or after them), so the two numbers can be compared. Falls back to the plain mean loudness of the file."""
+    try:
+        import soundfile as sf
+        x, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        r = voice_level.active_level(x.mean(axis=1), rate)
+        if r is not None:
+            return r[0]
+    except Exception:
+        pass
+    return measure_loudness_db(str(path))
+
+
 eleven_client = None
 # ElevenLabs TTS model used for every real generation call below (Arabic
 # dubbing output + the admin "Compare Voice Providers" sample). Upgraded
@@ -649,7 +663,7 @@ def generate_worker(req):
             try:
                 if src_for_loudness is not None:
                     orig_db = _orig_level_db(src_for_loudness, spans_for_loudness, seg.start, target_duration)
-                dub_db = measure_loudness_db(str(stretched_path))
+                dub_db = _line_level_db(stretched_path)
                 if orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60:
                     auto_gain = max(-10.0, min(10.0, orig_db - dub_db))
             except Exception:
@@ -847,7 +861,7 @@ def _measure_line_loudness(job_id, seg, stretched, target_duration):
     try:
         src = resolve_job_speech(job_id)
         orig_db = _orig_level_db(src, job_speech_spans(job_id), seg.start, target_duration) if src else None
-        dub_db = measure_loudness_db(str(stretched))
+        dub_db = _line_level_db(stretched)
         ok = orig_db is not None and dub_db is not None and orig_db > -60 and dub_db > -60
         return {"segment_id": seg.segment_id,
                 "orig_db": round(orig_db, 1) if orig_db is not None else None,

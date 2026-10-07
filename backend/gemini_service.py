@@ -116,7 +116,8 @@ def call_gemini(api_key: str, payload: dict, timeout: int = 120):
         sent = _payload_for(payload, model_name)
         payload_bytes = json.dumps(sent).encode("utf-8")
         no_thinking = False
-        for attempt in range(3):
+        transient = 0                                  # temporary failures retried so far (at most 2); the one correction below is on top of them
+        while True:
             request = urllib.request.Request(url, data=payload_bytes, headers={"Content-Type": "application/json"})
             try:
                 with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -134,13 +135,15 @@ def call_gemini(api_key: str, payload: dict, timeout: int = 120):
                     cfg = {k: v for k, v in sent["generationConfig"].items() if k != "thinkingConfig"}
                     payload_bytes = json.dumps({**sent, "generationConfig": cfg}).encode("utf-8")
                     continue
-                if e.code in [429, 503] and attempt < 2:
-                    time.sleep(5 * (attempt + 1))
+                if e.code in [429, 503] and transient < 2:
+                    transient += 1
+                    time.sleep(5 * transient)
                     continue
                 break
             except Exception as e:
                 last_error = f"[{model_name}] {str(e)}"
-                if attempt < 2:
+                if transient < 2:
+                    transient += 1
                     time.sleep(3)
                     continue
                 break

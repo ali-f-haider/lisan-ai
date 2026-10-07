@@ -65,7 +65,16 @@ def _dilate(mask, frames):
 
 
 def _smooth(x, frames):
-    return np.convolve(x, np.ones(frames) / frames, mode='same')
+    """Moving average over `frames` values, always exactly one value per input value. A stretch shorter than the window (the last block of
+    a file) is averaged over the values it has, so it is neither cut nor lowered by the missing ones."""
+    x = np.asarray(x, dtype=np.float64)
+    n = len(x)
+    if n == 0 or frames <= 1:
+        return x.copy()
+    start = (frames - 1) // 2
+    if n >= frames:
+        return np.convolve(x, np.ones(frames) / frames, mode='full')[start:start + n]
+    return (np.convolve(x, np.ones(frames), mode='full')[start:start + n] / np.convolve(np.ones(n), np.ones(frames), mode='full')[start:start + n])
 
 
 def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n, info=None):
@@ -214,9 +223,12 @@ def _pool(orig, free, n, max_sec=BED_POOL_MAX_SEC):
         else:
             i += 1
     runs.sort(key=lambda r: r[0] - r[1])             # longest first
+    limit = int(max_sec * RATE)
     for a, c in runs:
-        if total >= max_sec:
+        room = limit - int(round(total * RATE))
+        if room < FRAME:
             break
+        c = min(c, a + room // FRAME)                    # one long pause never takes more than what is left of the allowance (cut BEFORE converting)
         seg = orig[a * FRAME:c * FRAME].astype(np.float32) / 32768.0
         segs.append(seg)
         total += len(seg) / RATE

@@ -29,7 +29,11 @@ def active_level(x, sr):
     db = 10.0 * np.log10(power + 1e-12)
     top = float(np.percentile(db, 90))
     if top < -65.0:
-        return None
+        # a short audible word in a long slot: the loud frames are fewer than a tenth of all, so the percentile describes the silence around it
+        audible = db[db >= -65.0]
+        if len(audible) < 3:
+            return None
+        top = float(np.percentile(audible, 90))
     act = db > top - ACTIVE_BELOW_DB
     if int(act.sum()) < 3:
         return None
