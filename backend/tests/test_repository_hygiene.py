@@ -229,7 +229,8 @@ class CustomerWordingTests(unittest.TestCase):
         hooks = NS(send_email=Mock(), refund=Mock(return_value=True))
         env = {'Hooks':hooks, '_lock_for':lambda _:threading.RLock(), '_save':Mock(),
                '_ev':Mock(), '_delete_pending_voices':Mock()}
-        source_functions('longdub_service.py', ['_fail'], env)
+        source_functions('longdub_service.py', ['_fail', '_ops', '_refunded_of', '_paid_key', '_sync_paid', '_remaining',
+                                               '_music_slots', '_refund'], env)
         env['_fail']({'id':'job','uid':'user','filename':'clip.mp4','paid':{'dub':7}}, message, 'dub')
         self.assertIsNone(VENDOR.search(hooks.send_email.call_args.args[2]),
                           'Protected correction failures must sanitize their diagnostic before emailing it')

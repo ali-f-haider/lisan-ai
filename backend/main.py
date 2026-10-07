@@ -271,6 +271,7 @@ class GenerateRequest(_JobIdModel):
 
 class RegenerateLineRequest(_JobIdModel):
     job_id: str = ""
+    operation_id: Optional[str] = None
     accepted_credits: Optional[int] = None
     segment: Segment
     segments: List[Segment] = []
@@ -1377,6 +1378,11 @@ def _sb_rpc(function: str, args: dict, strict=False):
 
 def set_credits(uid, new_amount):
     """Updates user's credits in profiles table."""
+    from credit_billing import number
+    try:
+        new_amount = number(new_amount, "Credit balance", zero=True, integer=True)
+    except ValueError:
+        return False
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return False
     import urllib.request as _ur
@@ -1547,6 +1553,10 @@ def _watch_and_deduct(job_id, uid, kind):
         # generated-minutes tracking.
         gen_seconds = result.get("final_duration") if kind == "generate" else None
         new_balance = deduct_credits(uid, amount, kind, job_id, gen_seconds)
+
+        if not debit_confirmed(new_balance):
+            _job_charges[job_id] = {"credits_charged": 0, "payment_pending": new_balance is None}
+            return
 
         _job_charges[job_id] = {
             "credits_charged": amount,
@@ -3141,6 +3151,11 @@ def _grant_subscription_credits(uid, invoice_id, credits):
     subscription_credits migration yet relative to this deploy; the
     "use it or lose it" behavior only actually starts once that migration
     is in place."""
+    from credit_billing import credit_amount
+    try:
+        credits = credit_amount(credits)
+    except ValueError:
+        return None
     if not uid or not invoice_id or not credits or not SUPABASE_SERVICE_KEY:
         return None
     import urllib.request as _ur
@@ -3192,11 +3207,16 @@ def _set_subscription_credits(uid, amount):
     exist yet (migration not run), this fails and returns False -- the
     caller then falls back to the old add-to-permanent-credits behavior,
     so a failure here must never raise or silently drop a cycle's grant."""
+    from credit_billing import number
+    try:
+        amount = number(amount, "Credit balance", zero=True, integer=True)
+    except ValueError:
+        return False
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return False
     import urllib.request as _ur
     try:
-        body = json.dumps({"subscription_credits": max(0, int(amount))}).encode("utf-8")
+        body = json.dumps({"subscription_credits": amount}).encode("utf-8")
         req = _ur.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}",
             data=body,
@@ -4511,31 +4531,47 @@ def generate(req: GenerateRequest, request: Request):
 def regenerate_line(req: RegenerateLineRequest, request: Request):
     if _rate_limited(request, "regenerate_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
-    _g = _job_guard(request, req.job_id, allow_empty=False)
-    if _g:
-        return _g
+    guard = _job_guard(request, req.job_id, allow_empty=False)
+    if guard is not None:
+        return guard
     uid, error = _paid_uid(request)
     if error is not None:
         return error
-    def run():
+    from shortdub_operations import RequestProblem, operation_path, run as run_request
+    from shortdub_paths import line_audio_path
+    try:
+        operation_path(OUTPUT_DIR, req.job_id, getattr(req, "operation_id", None))
+    except RequestProblem as ex:
+        return JSONResponse(ex.payload, status_code=ex.status)
+    def prepare():
         try:
             quote = _short_quote(req, regenerate=True)
         except ValueError as ex:
-            return JSONResponse({"error": customer_message(str(ex))}, status_code=400)
+            raise RequestProblem(customer_message(str(ex)), 400, operation_complete=True) from None
         payment_error = _check_short_payment(req, uid, quote)
         if payment_error is not None:
-            return payment_error
+            payload = json.loads(payment_error.body) if hasattr(payment_error, "body") else payment_error.content
+            raise RequestProblem(payload["error"], payment_error.status_code, operation_complete=True)
+        return quote["credits"]
+    def generate_take():
         req.elevenlabs_api_key = ELEVENLABS_API_KEY
         req.inworld_api_key = INWORLD_API_KEY
-        result = eleven_service.regenerate_line(req)
-        if result.get("status") != "success" or result.get("error"):
-            return customer_payload(result)
-        balance = deduct_credits(uid, quote["credits"], "regenerate", req.job_id)
-        if not debit_confirmed(balance):
-            return JSONResponse({"error": "Audio was regenerated, but payment could not be confirmed. Please contact support before retrying."}, status_code=503)
-        result.update(credits_charged=quote["credits"], balance_after=get_credits(uid) if balance is True else balance)
-        _job_charges[req.job_id] = {"credits_charged": result["credits_charged"], "balance_after": result["balance_after"]}
-        return customer_payload(result)
+        return customer_payload(eleven_service.regenerate_line(req))
+    def run():
+        try:
+            result = run_request(OUTPUT_DIR, req, uid, prepare,
+                lambda amount, operation_id: deduct_credits(uid, amount, "regenerate", req.job_id, operation_id=operation_id),
+                generate_take, lambda operation_id, outcome, amount: _short_clone_settle(uid, operation_id, outcome, amount),
+                _sb_rpc, lambda: [line_audio_path(OUTPUT_DIR, req.job_id, req.segment.segment_id, "raw", ".mp3"),
+                                 line_audio_path(OUTPUT_DIR, req.job_id, req.segment.segment_id, "stretched", ".wav"),
+                                 OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3"])
+            if result.get("status") == "success":
+                _job_charges[req.job_id] = {"credits_charged": result["credits_charged"], "balance_after": result["balance_after"]}
+            return result
+        except RequestProblem as ex:
+            return JSONResponse(ex.payload, status_code=ex.status)
+        except (OSError, ValueError, TypeError):
+            return JSONResponse({"error": "This request could not be saved safely. Please contact support before retrying."}, status_code=503)
     return _short_edit(req.job_id, run)
 
 @app.post("/api/restretch_line")
@@ -5164,17 +5200,35 @@ def _ld_pricing():
     }
 
 
-def _ld_charge(uid, amount, action, job_id, seconds=None):
-    return deduct_credits(uid, int(amount), action, job_id)
+def _ld_charge(uid, amount, action, job_id, seconds=None, operation_id=None):
+    """A long-video charge. The operation ID saved in the job makes a repeat return the earlier receipt."""
+    return deduct_credits(uid, int(amount), action, job_id, None, operation_id)
 
 
-def _ld_refund(uid, amount, job_id):
+def _ld_refund(uid, amount, job_id, debit_id=None, key=None):
+    """Returns a confirmed receipt, or None. With the ID of the original charge the refund can be repeated safely
+    (and is repeated in the background if the reply is lost); without it (a job paid before IDs existed) it is the
+    older single grant. The history row is written only after the grant is confirmed."""
+    import longdub_billing
     amount = int(amount)
     if amount <= 0:
         return True
-    r = _sb_rpc("add_credits", {"uid": uid, "amount": amount}, strict=True)
-    _record_spend(uid, "long_dub_refund", -amount, job_id)
-    return r
+    if debit_id:
+        return longdub_billing.settle(_sb_rpc, DATA_DIR, uid, amount, debit_id, key or "refund")
+    return longdub_billing.legacy(_sb_rpc, _record_spend, uid, amount, job_id)
+
+
+def _longdub_refund_recovery():
+    import longdub_billing
+    while True:
+        try:
+            longdub_billing.reconcile(_sb_rpc, DATA_DIR)
+        except Exception:
+            print("[credits] long-video refund recovery will retry later")
+        _time.sleep(60)
+
+
+threading.Thread(target=_longdub_refund_recovery, daemon=True, name="longdub-refund-recovery").start()
 
 
 def _ld_email_address(uid):
@@ -6933,6 +6987,14 @@ def _get_lipsync_spend_this_month():
 # docstring for the full explanation of the three different quotas.
 
 
+@app.get("/api/admin/billing_health")
+def admin_billing_health(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from billing_health import load_health
+    return JSONResponse(load_health(_sb_rpc), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/admin/service_usage")
 def admin_service_usage(request: Request):
     """Real (or best-available-estimate) usage numbers for every
@@ -7051,38 +7113,44 @@ def admin_users(request: Request, q: str = ""):
 
 @app.post("/api/admin/adjust_credits")
 async def admin_adjust_credits(request: Request):
-    """Manually grant or deduct credits. Logged to audit."""
+    """Permanent-bucket adjustment; unresolved transaction risks are audited."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from decimal import Decimal, InvalidOperation
+    from credit_billing import number
     try:
         body = await request.json()
-    except Exception:
-        body = {}
-    uid = body.get("uid", "")
-    delta = int(body.get("delta", 0))
-    reason = body.get("reason", "")
-    if not uid or delta == 0:
-        return JSONResponse({"error": "uid and non-zero delta required"}, status_code=400)
-    if abs(delta) > 10000:
-        return JSONResponse({"error": "delta too large (max 10000)"}, status_code=400)
-    # Update credits. Deliberately reads/writes the PERMANENT bucket only
-    # (_get_permanent_credits / set_credits), never get_credits' combined
-    # total -- a manual admin grant/deduct/set is meant to affect the
-    # user's permanent balance, same as a one-time pack purchase, and must
-    # never silently fold in (or double-count) their separate, expiring
-    # subscription_credits allowance. See get_credits' docstring.
-    current = _get_permanent_credits(uid) or 0
+        if not isinstance(body, dict) or isinstance(body.get("delta"), bool):
+            raise ValueError
+        signed = Decimal(str(body.get("delta")))
+        magnitude = number(abs(signed), "Adjustment", integer=True, maximum=10000)
+        delta = magnitude if signed > 0 else -magnitude
+        uid = str(body.get("uid") or "")
+        reason = body.get("reason", "")
+        if not uid or not isinstance(reason, str) or not reason.strip():
+            raise ValueError
+    except (ValueError, TypeError, InvalidOperation):
+        return JSONResponse({"error": "Choose an account, enter a whole credit adjustment from 1 to 10000, and give a reason."}, status_code=400)
+    current = _get_permanent_credits(uid)
+    if current is None:
+        return JSONResponse({"error": "The current balance could not be checked. Nothing was changed."}, status_code=503)
+    try:
+        current = number(current, "Current balance", zero=True, integer=True)
+    except ValueError:
+        return JSONResponse({"error": "This balance needs review. Nothing was changed."}, status_code=503)
     new_credits = max(0, current + delta)
+    actual_delta = new_credits - current
     if not set_credits(uid, new_credits):
-        return JSONResponse({"error": "failed to update credits"}, status_code=500)
-    # Log to credit_spends
-    spend_err = _log_spend(uid, "admin_adjustment", delta, job_id=None, reason=reason)
-    # Log to audit table
-    audit_err = _log_audit(uid, delta, reason)
-    
-    resp = {"ok": True, "new_credits": new_credits}
-    if spend_err is not True: resp["spend_warning"] = str(spend_err)
-    if audit_err is not True: resp["audit_warning"] = str(audit_err)
+        return JSONResponse({"error": "The balance change could not be confirmed. Please check before retrying."}, status_code=503)
+    # History amounts use the same spending-positive / refund-negative
+    # convention as SQL, and reflect the actual clamped adjustment.
+    spend_err = _log_spend(uid, "admin_adjustment", -actual_delta, job_id=None, reason=reason)
+    audit_err = _log_audit(uid, actual_delta, reason)
+    resp = {"ok": True, "new_credits": new_credits, "adjusted_credits": actual_delta}
+    if spend_err is not True:
+        resp["spend_warning"] = "The balance changed, but its history needs review."
+    if audit_err is not True:
+        resp["audit_warning"] = "The balance changed, but its audit record needs review."
     return resp
 
 def _http_error_detail(ex):

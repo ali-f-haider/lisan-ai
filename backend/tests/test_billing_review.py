@@ -135,7 +135,8 @@ class BillingReviewTests(unittest.TestCase):
 
     def long_fail_env(self, refund):
         hooks = NS(refund=refund, send_email=Mock())
-        n = extract('longdub_service.py', ['_fail'], {'Hooks':hooks, '_lock_for':lambda _:threading.RLock(),
+        n = extract('longdub_service.py', ['_fail', '_ops', '_refunded_of', '_paid_key', '_sync_paid', '_remaining',
+                    '_music_slots', '_refund'], {'Hooks':hooks, '_lock_for':lambda _:threading.RLock(),
                     '_save':Mock(), '_ev':Mock(), '_delete_pending_voices':Mock()})
         return n, hooks
 
@@ -157,7 +158,7 @@ class BillingReviewTests(unittest.TestCase):
         price = {'lines':1, 'due':7, 'chars':6, 'chars_per_credit':60, 'clone_each':5, 'merge':1,
                  'speakers_used':[{'id':'s1'}], 'voice':1, 'clones':5}
         charge = Mock(return_value=True)
-        n = extract('longdub_service.py', ['confirm'], {'has_media':lambda _:True, 'ensure_tashkeel':lambda _:(0,None),
+        n = extract('longdub_service.py', ['confirm', '_charge', '_ops', '_paid_key'], {'uuid':__import__('uuid'), 'has_media':lambda _:True, 'ensure_tashkeel':lambda _:(0,None),
                     'dub_price':lambda _:price, 'INWORLD_API_KEY':'mock', 'music_quote':lambda _:{'max_credits':0},
                     'Hooks':NS(get_credits=lambda _:100, charge=charge), '_lock_for':lambda _:threading.RLock(),
                     '_debit_ok':debit_confirmed, '_now':lambda:1, 'ROOM_CHOICES':{'auto':0},

@@ -51,7 +51,7 @@ class AccountTests(unittest.TestCase):
             return None
         record=Mock();env=dict(_sb_rpc=rpc,_record_spend=record)
         extract('main.py',['_ld_refund'],env)
-        with self.assertRaises(RuntimeError):env['_ld_refund']('uid',10,'owned')
+        self.assertIsNone(env['_ld_refund']('uid',10,'owned'))   # not confirmed: the caller keeps the pending charge
         record.assert_not_called()
     def test_failed_merge_refunds_repair_and_unlocks(self):
         refund,unlock=Mock(),Mock()
@@ -135,7 +135,7 @@ class CorrectionTests(unittest.TestCase):
         self.rows=[dict(segment_id=s,start=a,end=b,text='original',arabic_text='مرحبا',speaker_id='s1',emotion='neutral') for s,a,b in [('one',1,3),('crossing',43,48),('never-generate',65,70)]]
         ld.job_dir(self.parent['id']).mkdir(exist_ok=True);ld._write_segments(self.parent,self.rows);ld._save(self.parent)
         self.effects=ld.OUTPUT_DIR/f"{self.parent['id']}_final_effects.m4a";self.effects.write_bytes(b'test')
-        ld.configure(pricing=lambda:{'chars_per_credit':60,'clone_credits':5,'merge_credits':1},get_credits=lambda uid:10000,charge=lambda *a:99,refund=lambda *a:True)
+        ld.configure(pricing=lambda:{'chars_per_credit':60,'clone_credits':5,'merge_credits':1},get_credits=lambda uid:10000,charge=lambda *a,**k:99,refund=lambda *a,**k:True)
     def tearDown(self):
         ld._JOBS.clear();shutil.rmtree(ld.LONG_DIR,ignore_errors=True);ld.LONG_DIR.mkdir(exist_ok=True)
         for p in ld.OUTPUT_DIR.iterdir():
@@ -167,7 +167,7 @@ class CorrectionTests(unittest.TestCase):
     def test_unknown_balance_and_debit_do_not_submit(self):
         q=edits.quote(self.parent,['one'])
         for balance,debit in ((None,100),(100,None),(100,False)):
-            ld.configure(get_credits=lambda uid,b=balance:b,charge=lambda *a,d=debit:d)
+            ld.configure(get_credits=lambda uid,b=balance:b,charge=lambda *a,d=debit,**k:d)
             with patch.object(ld,'start_worker') as worker:
                 with self.assertRaises(ValueError):edits.start(self.parent,['one'],q['token'])
                 worker.assert_not_called()

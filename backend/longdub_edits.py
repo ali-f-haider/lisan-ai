@@ -236,7 +236,17 @@ def start(parent, selected, token):
         balance = ld.Hooks.get_credits(parent['uid'])
         if balance is None or balance < plan['max_total']:
             raise ValueError('Your verified balance must cover the confirmed maximum price.')
-        jid = str(uuid.uuid4())
+        # The same price check made twice (a retry after a lost reply, a second click) names the same job, so it
+        # can be paid only once. An earlier try that failed is not reused: a new attempt gets a new job.
+        try:
+            jid = str(uuid.uuid5(uuid.UUID(parent['id']), token))
+        except ValueError:
+            jid = str(uuid.uuid4())
+        earlier = ld.load_job(jid)
+        if earlier is not None:
+            if earlier.get('status') != 'failed' and earlier.get('uid') == parent['uid']:
+                return earlier
+            jid = str(uuid.uuid4())
         job = {'id': jid, 'uid': parent['uid'], 'edit_of': parent['id'], 'status': 'payment_pending',
                'stage': 'queued', 'percent': 0, 'message': 'Waiting to generate the selected lines…',
                'filename': parent.get('filename', 'audio'), 'name': ld.project_name(parent) + ' — corrections',
@@ -246,7 +256,7 @@ def start(parent, selected, token):
                'reserved_output_bytes': output_budget(parent)}
         ld.job_dir(jid).mkdir(parents=True, exist_ok=True)
         ld._save(job)
-        if not debit_confirmed(ld.Hooks.charge(parent['uid'], plan['due'], 'long_dub_correction', jid)):
+        if not debit_confirmed(ld._charge(job, 'dub', parent['uid'], plan['due'], 'long_dub_correction')):
             job['status'] = 'failed'
             job['error'] = 'The correction payment could not be confirmed. Nothing was submitted.'
             ld._save(job)
@@ -259,9 +269,10 @@ def start(parent, selected, token):
             ld._save(parent)
             ld.start_worker(jid)
         except Exception:
-            ld.Hooks.refund(parent['uid'], plan['due'], jid)
+            refunded = ld._refund(job, parent['uid'], plan['due'], 'dub', 'queue_failed')
             job['status'] = 'failed'
-            job['error'] = 'The correction could not be queued. Its confirmed payment was refunded.'
+            job['error'] = ('The correction could not be queued. Its confirmed payment was refunded.' if refunded else
+                            'The correction could not be queued. Its payment is being returned and will appear in your credit history.')
             try:
                 ld._save(job)
             except Exception:
@@ -371,9 +382,9 @@ def run(job):
                 bal = ld.Hooks.get_credits(job['uid'])
                 return bal is not None and bal >= fee and job['paid'].get('music_fill', 0) + fee <= plan['music']['max_credits']
             def charge(a, b):
-                if not debit_confirmed(ld.Hooks.charge(job['uid'], fee, 'long_dub_music_fill', job['id'])):
+                if not debit_confirmed(ld._charge(job, f'music_fill:{a:.3f}:{b:.3f}', job['uid'], fee, 'long_dub_music_fill')):
                     raise ValueError('Music repair payment could not be verified')
-                job['paid']['music_fill'] = job['paid'].get('music_fill', 0) + fee; ld._save(job)
+                ld._sync_paid(job); ld._save(job)
             rebuilt = dub_background.checkpointed_prepare(job, ld._save, plan['music'].get('repairs', 0), sw / 'background.wav', sw / 'vocals_mono.wav', voices, work,
                 'restore_bg', dub_background.speech_spans(sw / 'speech_spans.json', all_rows),
                 key=ld.FAL_API_KEY, gemini_key=ld.GEMINI_API_KEY, allow=allow, on_filled=charge)

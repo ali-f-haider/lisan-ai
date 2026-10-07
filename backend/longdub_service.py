@@ -138,8 +138,8 @@ class Hooks:
     """Set once by main.py -- see configure(). Defaults do nothing so the
     module can also be imported by tests."""
     get_credits = staticmethod(lambda uid: None)
-    charge = staticmethod(lambda uid, amount, action, job_id, seconds=None: True)
-    refund = staticmethod(lambda uid, amount, job_id: True)
+    charge = staticmethod(lambda uid, amount, action, job_id, seconds=None, operation_id=None: True)
+    refund = staticmethod(lambda uid, amount, job_id, debit_id=None, key=None: True)
     send_email = staticmethod(lambda uid, subject, text: False)
     email_error = staticmethod(lambda: "")       # why the last send_email failed (for the event log)
     pricing = staticmethod(lambda: {})
@@ -206,6 +206,103 @@ def _save(job):
     with _lock_for(job["id"]):
         tmp.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, d / "job.json")
+
+
+# ------------------------------------------------------------ money safety
+# Every charge gets its own operation ID, written into the job BEFORE the money moves. Every refund takes its ID
+# from the charge it returns plus a fixed name for the reason. A restart, a retry or a lost reply therefore repeats
+# the SAME request, and the ledger answers with the earlier result instead of charging or refunding a second time.
+# The job's "paid" figures are always recomputed from this record, so repeating a step cannot drift them.
+# A job charged before this record existed has no ID: its refunds use the older single-shot path.
+
+def _ops(job):
+    ops = job.get("ops")
+    if not isinstance(ops, dict):
+        ops = job["ops"] = {}
+    return ops
+
+
+def _refunded_of(entry):
+    return sum(int(v) for v in (entry.get("refunds") or {}).values())
+
+
+def _paid_key(slot):
+    return "music_fill" if slot.startswith("music_fill:") else slot
+
+
+def _sync_paid(job):
+    """paid[...] = what was charged minus what was confirmed refunded, for every charge that has a record."""
+    totals = dict((_ops(job).get("legacy") or {}))       # amounts paid before this record existed
+    for slot, entry in _ops(job).items():
+        if isinstance(entry, dict) and entry.get("id"):
+            key = _paid_key(slot)
+            totals[key] = totals.get(key, 0) + max(0, int(entry.get("amount", 0)) - _refunded_of(entry))
+    for key, value in totals.items():
+        job["paid"][key] = value
+
+
+def _charge(job, slot, uid, amount, action):
+    """Charge once per slot. The ID is saved first; when it cannot be saved nothing is charged."""
+    amount = int(amount)
+    ops = _ops(job)
+    entry = ops.get(slot)
+    if not (isinstance(entry, dict) and entry.get("id") and entry.get("amount") == amount
+            and entry.get("action") == action and not entry.get("refunds")):
+        if isinstance(entry, dict) and entry.get("id"):
+            ops.setdefault("archive", []).append(entry)       # an earlier, already-returned payment keeps its record
+        key = _paid_key(slot)
+        legacy = ops.setdefault("legacy", {})
+        if key not in legacy and not any(_paid_key(s) == key for s, e in ops.items() if isinstance(e, dict) and e.get("id")):
+            legacy[key] = int(job["paid"].get(key, 0) or 0)  # a payment made by an older version, kept as it was
+        ops[slot] = {"id": str(uuid.uuid4()), "amount": amount, "action": action}
+        _save(job)
+    return Hooks.charge(uid, amount, action, job["id"], operation_id=ops[slot]["id"])
+
+
+def _refund(job, uid, amount, slot, key):
+    """Return `amount` credits of the payment recorded in `slot`. True ONLY when the ledger confirmed it.
+    Nothing in the job changes unless it did."""
+    amount = int(amount)
+    if amount <= 0:
+        return True
+    entry = _ops(job).get(slot)
+    entry = entry if isinstance(entry, dict) and entry.get("id") else None
+    if entry is not None and key in (entry.get("refunds") or {}):
+        return True                      # this exact refund was already confirmed and recorded
+    try:
+        confirmed = Hooks.refund(uid, amount, job["id"], debit_id=entry["id"] if entry else None, key=key)
+    except Exception as ex:
+        print(f"[longdub] refund not confirmed for {job['id']} ({key}): {ex}")
+        return False
+    if not confirmed:
+        print(f"[longdub] refund not confirmed for {job['id']} ({key})")
+        return False
+    if entry is not None:
+        entry.setdefault("refunds", {})[key] = amount
+        _sync_paid(job)
+    else:
+        paid_key = _paid_key(slot)
+        job["paid"][paid_key] = max(0, int(job["paid"].get(paid_key, 0)) - amount)
+        legacy = _ops(job).get("legacy")
+        if isinstance(legacy, dict) and paid_key in legacy:
+            legacy[paid_key] = max(0, int(legacy[paid_key]) - amount)
+    try:
+        _save(job)
+    except OSError as ex:
+        print(f"[longdub] refund confirmed but job not saved for {job['id']}: {ex}")
+    return True
+
+
+def _remaining(job, slot):
+    """What is still refundable on the payment in `slot` (falls back to the plain paid figure for older jobs)."""
+    entry = _ops(job).get(slot)
+    if isinstance(entry, dict) and entry.get("id"):
+        return max(0, int(entry.get("amount", 0)) - _refunded_of(entry))
+    return max(0, int(job["paid"].get(_paid_key(slot), 0) or 0))
+
+
+def _music_slots(job):
+    return [s for s, e in _ops(job).items() if s.startswith("music_fill:") and isinstance(e, dict) and e.get("id")]
 
 
 def load_job(job_id):
@@ -674,7 +771,11 @@ def finish_upload(job, uid):
             if geo_raw:
                 job["lipsync"].update({"sw": geo_raw[1], "sh": geo_raw[2]})      # the picture's own size: the chosen resolution is fitted to it
         if fee > 0 and not job["paid"]["fee"]:
-            if not _debit_ok(Hooks.charge(uid, fee, "long_dub_estimate", job["id"])):
+            try:
+                debited = _charge(job, "fee", uid, fee, "long_dub_estimate")
+            except OSError:
+                debited = None      # the payment record could not be saved, so nothing was charged
+            if not _debit_ok(debited):
                 os.replace(src, part)
                 return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["fee"] = fee
@@ -731,7 +832,7 @@ def accept(job, uid, agreed=False):
         job["terms_accepted"] = {"version": TERMS_VERSION, "at": _now()}
         _ev(job, "terms_accepted", "ok", f"version={TERMS_VERSION} estimate_total={est['total']}")
         if need_now > 0 and not job["paid"]["analysis"]:
-            if not _debit_ok(Hooks.charge(uid, need_now, "long_dub_analysis", job["id"])):
+            if not _debit_ok(_charge(job, "analysis", uid, need_now, "long_dub_analysis")):
                 return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["analysis"] = need_now
             _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits", need_now)
@@ -1149,6 +1250,7 @@ def _fail(job, message, refund_kind=None):
     emailed only the customer version of it (no service names, codes or diagnostics); the admin event keeps the original."""
     uid = job["uid"]
     refunded = 0
+    pending = 0
     original_message = message
     try:
         from user_errors import customer_message as _customer_message
@@ -1156,26 +1258,38 @@ def _fail(job, message, refund_kind=None):
     except Exception:
         pass
     with _lock_for(job["id"]):
-        if refund_kind and job["paid"].get(refund_kind):
-            refunded = int(job["paid"][refund_kind])
-            if refund_kind == "dub":
-                refunded += int(job["paid"].get("music_fill", 0))
-            try:
-                Hooks.refund(uid, refunded, job["id"])
-                job["paid"][refund_kind] = 0
-                if refund_kind == "dub":
-                    job["paid"]["music_fill"] = 0
-            except Exception as ex:
-                print(f"[longdub] refund failed for {job['id']}: {ex}")
-                refunded = 0
+        # The failure is written down BEFORE any money moves: if it cannot be saved nothing is refunded and the
+        # job is not left half-failed, and a job that is saved as failed is never resumed after a restart.
         job["status"] = "failed"
         job["error"] = message
         job["message"] = message
+        _save(job)
+        if refund_kind and _remaining(job, refund_kind):
+            back = _remaining(job, refund_kind)
+            if _refund(job, uid, back, refund_kind, "fail:" + refund_kind):
+                refunded += back
+            else:
+                pending += back
+            if refund_kind == "dub":
+                for slot in _music_slots(job):
+                    back = _remaining(job, slot)
+                    if _refund(job, uid, back, slot, "fail"):
+                        refunded += back
+                    else:
+                        pending += back
+                legacy_music = max(0, int(job["paid"].get("music_fill", 0)) - sum(_remaining(job, s) for s in _music_slots(job)))
+                if legacy_music:
+                    if _refund(job, uid, legacy_music, "music_fill", "fail:music_fill"):
+                        refunded += legacy_music
+                    else:
+                        pending += legacy_music
     _save(job)
-    _ev(job, "job_failed", "failed", f"{original_message} | refunded={refunded} kind={refund_kind}", refunded or None)
+    _ev(job, "job_failed", "failed", f"{original_message} | refunded={refunded} pending={pending} kind={refund_kind}", refunded or None)
     _delete_pending_voices(job)
     try:
         extra = f" We refunded {refunded} credits." if refunded else ""
+        if pending:
+            extra += f" {pending} credits are being returned to you; they will appear in your credit history shortly."
         Hooks.send_email(uid, "Your Lisan AI long video could not be finished",
                          f"Hi,\n\nSorry, your long video \"{job['filename']}\" could not be finished: {message.rstrip('. ')}.{extra}\n\n"
                          "You can start again from https://lisanai.org/dub-long\n\n-- Lisan AI")
@@ -3232,14 +3346,12 @@ def _run_lipsync(job, dub_full, kept, total, d):
         if st.get("refunded"):
             return
         credits = int(clips[k].get("credits", 0))
-        if credits and job["paid"].get("dub", 0) >= credits:
-            try:
-                Hooks.refund(uid, credits, job["id"])
-                job["paid"]["dub"] -= credits
+        if credits and _remaining(job, "dub") >= credits:
+            if _refund(job, uid, credits, "dub", f"clip:{k}"):
                 st["refunded"] = credits
                 _ev(job, "lipsync_refund", "ok", f"clip {k + 1}: {why}: {credits} credits back", credits)
-            except Exception as ex:
-                _ev(job, "lipsync_refund", "failed", f"clip {k + 1}: {ex}")
+            else:
+                _ev(job, "lipsync_refund", "failed", f"clip {k + 1}: the refund was not confirmed and will be retried")
 
     def fallback_piece(k):
         j = [i for i, p in enumerate(pieces) if p[3] == k][0]
@@ -3327,15 +3439,13 @@ def _refund_all_lipsync(job, why):
         if not st.get("refunded") and cr:
             todo.append((k, cr))
     back = sum(cr for _, cr in todo)
-    if back and job["paid"].get("dub", 0) >= back:
-        try:
-            Hooks.refund(uid, back, job["id"])
+    if back and _remaining(job, "dub") >= back:
+        if _refund(job, uid, back, "dub", "lipstage:" + ",".join(str(k) for k, _ in todo)):
             for k, cr in todo:
                 state[str(k)]["refunded"] = cr
-            job["paid"]["dub"] -= back
             _ev(job, "lipsync_refund", "ok", f"lip-sync stage failed ({why}): {back} credits back", back)
-        except Exception as ex:
-            _ev(job, "lipsync_refund", "failed", str(ex))
+        else:
+            _ev(job, "lipsync_refund", "failed", "the refund was not confirmed and will be retried")
     job.setdefault("warnings", []).append("The lip-sync could not be completed, so the original picture was kept. Its price was refunded.")
     _save(job)
 
@@ -3479,7 +3589,7 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
     with _lock_for(job["id"]):
         if job.get("status") != "editing":
             return False, ("This job has already been submitted.", 409)
-        if not _debit_ok(Hooks.charge(uid, price["due"], "long_dub_dub", job["id"])):
+        if not _debit_ok(_charge(job, "dub", uid, price["due"], "long_dub_dub")):
             return False, ("Your payment could not be confirmed. Please retry.", 503)
         job["paid"]["dub"] = price["due"]
         job["music_budget"] = mq["max_credits"]
@@ -4190,13 +4300,11 @@ def _run_dubbing(job):
         for spid in [s for s in sp_ids if s in dub["fallback"] and not dub["fallback"][s]]:
             dub["fallback"][spid] = dub["voices"][busiest]
             refund = int(plan["clone_each"])
-            if refund and job["paid"].get("dub", 0) >= refund:
-                try:
-                    Hooks.refund(uid, refund, job["id"])
-                    job["paid"]["dub"] -= refund
+            if refund and _remaining(job, "dub") >= refund:
+                if _refund(job, uid, refund, "dub", f"clone:{spid}"):
                     _ev(job, "clone_refund", "ok", f"{names.get(spid)}: {refund} credits back", refund)
-                except Exception as ex:
-                    _ev(job, "clone_refund", "failed", str(ex))
+                else:
+                    _ev(job, "clone_refund", "failed", f"{names.get(spid)}: the refund was not confirmed and will be retried")
             job.setdefault("warnings", []).append(
                 f"The voice of {names.get(spid)} could not be copied, so {names.get(busiest)}'s voice was used for those lines.")
             _save(job)
@@ -4286,28 +4394,24 @@ def _run_dubbing(job):
             # The price was worked out on the longer text: give back the whole credits the shorter text saved.
             saved = sum(max(0, len(v["before"]) - len(v["after"])) for v in reph.values())
             rback = saved // max(1, int(plan["cpc"]))
-            if rback and job["paid"].get("dub", 0) >= rback:
-                try:
-                    Hooks.refund(uid, rback, job["id"])
-                    job["paid"]["dub"] -= rback
+            if rback and _remaining(job, "dub") >= rback:
+                if _refund(job, uid, rback, "dub", "rephrase"):
                     dub["rephrase_refund"] = rback
                     _ev(job, "rephrase_refund", "ok", f"{len(reph)} lines rephrased shorter, {saved} characters saved: {rback} credits back", rback)
-                except Exception as ex:
-                    _ev(job, "rephrase_refund", "failed", str(ex))
+                else:
+                    _ev(job, "rephrase_refund", "failed", "the refund was not confirmed and will be retried")
             _save(job)
         if failed:
             # Pro-rata refund for the characters of lines that were not generated.
             fchars = sum(len(inworld_service.instruction_tag(by_seg[s].get("emotion"))) + len(by_seg[s]["arabic_text"].strip())
                          for s in failed)
             back = int(math.ceil(fchars / float(max(1, plan["cpc"]))))
-            if back and job["paid"].get("dub", 0) >= back and not dub.get("line_refund"):
-                try:
-                    Hooks.refund(uid, back, job["id"])
-                    job["paid"]["dub"] -= back
+            if back and _remaining(job, "dub") >= back and not dub.get("line_refund"):
+                if _refund(job, uid, back, "dub", "line_refund"):
                     dub["line_refund"] = back
                     _ev(job, "line_refund", "ok", f"{len(failed)} lines left silent: {back} credits back", back)
-                except Exception as ex:
-                    _ev(job, "line_refund", "failed", str(ex))
+                else:
+                    _ev(job, "line_refund", "failed", "the refund was not confirmed and will be retried")
             job.setdefault("warnings", []).append(
                 f"{len(failed)} line(s) could not be generated and were left silent; the price of those lines was refunded.")
             _save(job)
@@ -4479,9 +4583,9 @@ def _run_dubbing(job):
                 return (int(job["paid"].get("music_fill", 0)) + fee_ <= limit_
                         and balance is not None and balance >= fee_)
             def charge_fill(a_, b_):
-                if fee_ and not _debit_ok(Hooks.charge(uid, fee_, "long_dub_music_fill", job["id"])):
+                if fee_ and not _debit_ok(_charge(job, f"music_fill:{a_:.3f}:{b_:.3f}", uid, fee_, "long_dub_music_fill")):
                     raise RuntimeError("Music repair payment could not be verified")
-                job["paid"]["music_fill"] = int(job["paid"].get("music_fill", 0)) + fee_
+                _sync_paid(job)
                 _save(job)
             repaired_ = dub_background.checkpointed_prepare(job, _save, job.get('music_expected_repairs', 0), bg, wd / "vocals_mono.wav", dub_full, wd, "dubbing_bg", spans_,
                 key=FAL_API_KEY if job.get("music_pref") != "silence" else "",
