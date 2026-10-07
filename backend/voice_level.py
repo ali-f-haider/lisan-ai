@@ -80,16 +80,19 @@ def level_lines(items, gain_max=8.0, peak_ceil=-1.0):
         g = voice_gain(it["orig"], it["dub"], it.get("peak"), anchor, gain_max, peak_ceil)
         gains[it["key"]] = g
         if anchor is not None:
-            s = stats.setdefault(sp, {"anchor": anchor, "orig": [], "exact": [], "after": [], "limit": 0})
+            s = stats.setdefault(sp, {"anchor": anchor, "orig": [], "exact": [], "after": [], "up": 0, "down": 0, "gains": []})
             s["orig"].append(it["orig"])
             s["exact"].append(it["dub"] + voice_gain(it["orig"], it["dub"], it.get("peak"), None, gain_max, peak_ceil))
             s["after"].append(it["dub"] + g)
-            s["limit"] += abs(g) >= gain_max - 0.05
+            s["up"] += g >= gain_max - 0.05                  # turned up as far as allowed
+            s["down"] += g <= -gain_max + 0.05               # turned down as far as allowed
+            s["gains"].append(g)
     out = {}
     for sp, s in stats.items():
         if len(s["orig"]) >= 2:
             out[sp] = {"lines": len(s["orig"]), "anchor": round(s["anchor"], 1), "orig_spread": round(float(np.std(s["orig"])), 1),
-                       "dub_spread": round(float(np.std(s["after"])), 1), "exact_spread": round(float(np.std(s["exact"])), 1), "at_limit": int(s["limit"])}
+                       "dub_spread": round(float(np.std(s["after"])), 1), "exact_spread": round(float(np.std(s["exact"])), 1), "at_limit": int(s["up"] + s["down"]), "up_at_limit": int(s["up"]), "down_at_limit": int(s["down"]),
+                       "median_gain": round(float(np.median(s["gains"])), 1)}
     return gains, {k: round(v, 1) for k, v in anchors.items()}, out
 
 
@@ -97,5 +100,6 @@ def describe(stats, names=None):
     """One line for the job log."""
     names = names or {}
     return " | ".join(f"{names.get(sp) or sp}: {s['lines']} lines, usual level {s['anchor']:.1f} dB, spread of the original {s['orig_spread']:.1f} dB, "
-                      f"of the dub {s['dub_spread']:.1f} dB (following the original exactly: {s['exact_spread']:.1f} dB), {s['at_limit']} at the gain limit"
+                      f"of the dub {s['dub_spread']:.1f} dB (following the original exactly: {s['exact_spread']:.1f} dB), {s['at_limit']} at the gain limit "
+                      f"({s['up_at_limit']} turned up as far as allowed, {s['down_at_limit']} turned down as far as allowed; median change {s['median_gain']:+.1f} dB)"
                       for sp, s in stats.items())
