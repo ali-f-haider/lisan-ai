@@ -482,3 +482,40 @@ def inspect_audio_style(job_id, audio, selected, api_key):
             # "neutral" is only ever returned when the listener really heard a neutral delivery.
             'detected': not result['uncertain'],
             'fallback': '' if result['uncertain'] else suggested}
+
+
+SPEAKER_TONES = ("warm", "deep", "bright", "soft", "calm", "energetic", "authoritative", "raspy", "smooth", "breathy", "gentle", "serious")
+
+
+def describe_speaker_voice(job_id, audio, api_key):
+    """Listen to ONE speaker (a clip of only that person) and describe the voice, to pick a similar library voice.
+
+    Returns {"gender": "male"|"female", "age": "child"|"young"|"adult"|"senior", "tone": [up to 3 words], "uncertain": bool}.
+    Raises ValueError when the listener cannot answer; the caller then matches on pitch and the person's own choices only."""
+    if not api_key:
+        raise ValueError('The listening service is unavailable.')
+    payload = {'generationConfig': {'responseMimeType': 'application/json'},
+        'contents': [{'parts': [
+            {'inline_data': {'mime_type': 'audio/mpeg', 'data': base64.b64encode(Path(audio).read_bytes()).decode()}},
+            {'text': 'Listen to this one speaker and describe only how the VOICE sounds, not what is said. '
+             'Return JSON only: {"gender": "male or female", "age": "child, young, adult or senior", '
+             '"tone": ["up to three words"], "uncertain": true or false}. '
+             'age is how old the voice sounds: child, young (teens to early thirties), adult (about thirty to sixty), '
+             'senior (a clearly old voice). Tone words must come from: ' + ', '.join(SPEAKER_TONES) + '. '
+             'Set uncertain=true when the clip is short, noisy, has more than one speaker or the voice is hard to judge. '
+             'Do not return a probability.'}]}]}
+    data, error = call_gemini(api_key, payload, timeout=60)
+    record_gemini(job_id, data)
+    if data is None:
+        raise ValueError('The listening check could not finish.')
+    text = data['candidates'][0]['content']['parts'][0]['text'].strip()
+    text = re.sub(r'^```(?:json)?\s*|\s*```$', '', text)
+    result = json.loads(text)
+    if not isinstance(result, dict):
+        raise ValueError('The listening check returned an invalid answer.')
+    gender = str(result.get('gender') or '').strip().lower()
+    age = str(result.get('age') or '').strip().lower()
+    tones = [t for t in (str(x).strip().lower() for x in (result.get('tone') or [])) if t in SPEAKER_TONES][:3]
+    uncertain = bool(result.get('uncertain')) or gender not in ('male', 'female') or age not in ('child', 'young', 'adult', 'senior')
+    return {'gender': gender if gender in ('male', 'female') else '', 'age': age if age in ('child', 'young', 'adult', 'senior') else '',
+            'tone': tones, 'uncertain': uncertain}

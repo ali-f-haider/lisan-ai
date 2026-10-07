@@ -163,7 +163,8 @@ def fetch_voices(api_key: str) -> dict:
                            "gender": labels.get("gender", ""), "category": voice.get("category", ""),
                            "preview_url": voice.get("preview_url", ""),
                            "accent": labels.get("accent", ""), "age": labels.get("age", ""),
-                           "use_case": labels.get("use_case", "")})
+                           "use_case": labels.get("use_case", ""),
+                           "descriptive": labels.get("descriptive", "")})
         return {"voices": voices}
     except urllib.error.HTTPError as e:
         try:
