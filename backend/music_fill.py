@@ -428,6 +428,79 @@ def _steadiness_db(segs):
     return float(sum(sc * w for sc, w in scores) / sum(w for _, w in scores))
 
 
+CROWD_MOD = float(os.environ.get("MUSIC_FILL_CROWD_MOD", "0.18") or 0.18)     # a crowd, a restaurant, a street: the level wobbles with the syllables (1-12 Hz) ...
+CROWD_IQR_DB = float(os.environ.get("MUSIC_FILL_CROWD_IQR_DB", "2.0") or 2.0)  # ... and the typical level is not constant. A machine hum / an engine / white wind are far under both
+TEXTURE_EVENT_DB = 10.0                                                   # frames this far above the usual level are an event, not the texture
+TEXTURE_MIN_SEC = 3.0
+TEXTURE_MAX_SEC = 60.0
+
+
+def _pause_audio(src, spans, pad=0.4, min_len=0.5, trim=0.05):
+    """The sound of the pauses between the speakers: float32 (n, 2) stretches of at least min_len seconds, the longest first, up to
+    TEXTURE_MAX_SEC. `src` is an int16 (n, 2) array at RATE."""
+    n = src.shape[0]
+    free = np.ones(n // 441 + 2, dtype=bool)
+    for a, b in spans or []:
+        free[max(0, int((a - pad) * 100)):int((b + pad) * 100) + 1] = False
+    edge = np.flatnonzero(np.diff(np.concatenate(([0], free.astype(np.int8), [0]))))
+    runs = [(int(a) + int(trim * 100), int(b) - int(trim * 100)) for a, b in zip(edge[0::2], edge[1::2])]
+    runs = [(a, b) for a, b in runs if (b - a) / 100.0 >= min_len]
+    runs.sort(key=lambda r: r[0] - r[1])
+    out, tot = [], 0.0
+    for a, b in runs:
+        if tot >= TEXTURE_MAX_SEC:
+            break
+        seg = src[a * 441:min(n, b * 441)].astype(np.float32) / 32768.0
+        out.append(seg)
+        tot += len(seg) / RATE
+    return out
+
+
+def texture_segs(segs):
+    """Is this sound a steady machine-like one (an engine, a hum, wind, a room tone) that can be made up again without anybody hearing
+    it, or has it a life of its own (a crowd, a restaurant, a street: murmur, clatter, voices) that a made-up sound can only spoil?
+    The level (300-6000 Hz, 20 ms) of a crowd wobbles 0.2-0.3 with the rhythm of speech (1-12 Hz) and its typical level varies by 4-5 dB;
+    a machine hum is at 0.05 and under 1 dB, steady wind 0.1. Returns {"ok": True | False | None (too little sound to say), "mod", "iqr_db", "sec"}."""
+    out = {"ok": None, "mod": None, "iqr_db": None, "sec": 0.0}
+    try:
+        from scipy.signal import butter, sosfilt, stft
+        sos = butter(2, [1, 12], btype="band", fs=100, output="sos")
+        levels, mods = [], []
+        total = 0.0
+        for seg in segs:
+            mono = seg.mean(axis=1) if seg.ndim == 2 else seg
+            if len(mono) < int(0.5 * RATE):
+                continue
+            f, _, z = stft(mono, RATE, nperseg=882, noverlap=441)
+            lv = 10.0 * np.log10((np.abs(z) ** 2)[(f >= 300) & (f < 6000)].sum(axis=0) + 1e-14)
+            levels.append(lv)
+            total += len(mono) / RATE
+        out["sec"] = round(total, 1)
+        if total < TEXTURE_MIN_SEC or not levels:
+            return out
+        # A loud event (a plane, a bang, a shout) is not the texture of the scene: what is far above the usual level is set aside
+        # (it would make a steady engine look like a crowd).
+        usual = float(np.median(np.concatenate(levels)))
+        kept = []
+        for lv in levels:
+            lv = np.where(lv > usual + TEXTURE_EVENT_DB, usual, lv)
+            kept.append(lv)
+            if len(lv) > 60:
+                x = 10.0 ** (lv / 20.0)
+                x = x / (float(x.mean()) + 1e-12)
+                mods.append((float(np.std(sosfilt(sos, x))), len(lv)))
+        if not mods:
+            return out
+        lv = np.concatenate(kept)
+        q25, q75 = np.percentile(lv, [25, 75])
+        mod = sum(m * w for m, w in mods) / sum(w for _, w in mods)
+        out["mod"], out["iqr_db"] = round(float(mod), 3), round(float(q75 - q25), 2)
+        out["ok"] = not (mod > CROWD_MOD and (q75 - q25) > CROWD_IQR_DB)
+        return out
+    except Exception:
+        return out
+
+
 def _synth_sound(pool, need, salt=0):
     """A new stretch of `need` samples with the same sound as `pool` (clean, steady sound): the average spectrum of the pool
     (fine resolution, so a hum stays a hum) is applied to fresh random noise, with the slow level flutter of the pool.
@@ -508,7 +581,7 @@ def _synth_long(pool, need):
     return out
 
 
-def _texture_fill(pcm, g0, g1, ctx_db, segs):
+def _texture_fill(pcm, g0, g1, ctx_db, segs, allow_synth=True):
     """Fills the hole g0..g1 (seconds) from the clean sound beside it, matched to the level around the hole. Only for steady
     sounds. With plenty of clean sound, overlapping pieces of it are laid one after the other at random places; with little of
     it (a loop would be heard) a new stretch of the same sound is made from its spectrum instead."""
@@ -518,6 +591,11 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs):
         return False, "not enough steady sound next to the hole"
     need = int(round((g1 - g0) * RATE)) + 2 * int(SEAM_SEC * RATE)
     use_synth = LOCAL_MODE == "synth" or (LOCAL_MODE != "grain" and need / RATE > have * GRAIN_MAX_HOLE_RATIO)
+    if not allow_synth:
+        # a crowd, a restaurant, a street: nothing is made up for it; only real pieces of its own sound, each used once
+        if need / RATE > have * GRAIN_MAX_HOLE_RATIO:
+            return False, "not enough real sound of this scene to fill the hole without making any up"
+        use_synth = False
     if use_synth:
         spool = [x for x in segs if len(x) >= SYNTH_FFT * 2] or pool
         synth = _synth_sound(spool, need) if need <= SYNTH_CHUNK_SEC * RATE * 1.5 else _synth_long(spool, need)
@@ -787,6 +865,15 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         # The engine itself is what counts: sound near the usual quiet level of the track. A loud event beside the hole (a plane
         # passing) neither makes the engine look unsteady nor sets the level the hole is filled to.
         steady_of, level_of = {}, {}
+        real_pool, tex = [], {"ok": None}
+        if LOCAL_FILL:
+            try:
+                real_pool = _pause_audio(ref_pcm if ref_pcm is not None else pcm, spans)
+                tex = texture_segs(real_pool)
+            except Exception as ex:
+                say(f"texture of the pauses not judged: {str(ex)[:120]}")
+        synth_ok = tex.get("ok") is not False          # False = a crowd / restaurant / street: no sound is made up for it
+        info["texture"] = tex
         bed = _bed_db(ref_db if ref_pcm is not None else db, spans) if LOCAL_FILL else None
         level_db = np.where(ref_pause, ref_db, -120.0) if ref_pcm is not None else db     # the level the pauses (real sound) have
 
@@ -837,7 +924,10 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             if score is not None and score <= STEADY_MAX_DB:
                 rec["steadiness_db"] = round(score, 1)
                 try:
-                    if (g0, g1) in level_of:      # the engine itself, at its usual level: not a louder event next to the hole
+                    if not synth_ok:
+                        # the scene has a life of its own (people, dishes, traffic): only real pieces of it are used, never a made-up sound
+                        ok, note = _texture_fill(pcm, g0, g1, level_of.get((g0, g1), ctx_db), real_pool, allow_synth=False)
+                    elif (g0, g1) in level_of:      # the engine itself, at its usual level: not a louder event next to the hole
                         ok, note = _texture_fill(pcm, g0, g1, level_of[(g0, g1)],
                                                  engine_pool(g0, g1))
                     else:
@@ -845,6 +935,9 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 except Exception as ex:
                     ok, note = False, f"local fill failed: {str(ex)[:160]}"
                 local = ok
+                if not ok and not synth_ok:
+                    rec["note"] = note + " (the hole stays as it is; the music model is not asked for a crowd scene)"
+                    continue
                 if not ok:
                     say(f"hole {g0:.1f}-{g1:.1f} s: {note}; asking the model instead")
             if not local and short:
@@ -899,8 +992,12 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                  "-c:a", "pcm_s16le", str(part)])
         os.replace(part, out_path)
         info["filled"] = True
+        made_new = sum(1 for g in info["gaps"] if g.get("ok") and "made new" in str(g.get("note")))
+        info["made_new"] = made_new
         info["reason"] = (f"{ok_n} of {len(gaps)} hole(s) in the music filled ({info['filled_sec']} s)"
-                          + (f"; {info['reason_cap']}" if info.get("reason_cap") else ""))
+                          + (f"; {info['reason_cap']}" if info.get("reason_cap") else "")
+                          + (f"; {made_new} of them made new from a steady sound" if made_new else "")
+                          + ("; the scene has a life of its own (crowd/street): no sound made up, real pieces only" if tex.get("ok") is False else ""))
         return info
     except Exception as ex:
         info["filled"] = False

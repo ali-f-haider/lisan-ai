@@ -155,6 +155,8 @@ def original_in_pauses(base, original, vocals, spans, out_path, log=None, mask_b
         w = _weights(speech)
         info['share'] = round(float(w.mean()), 3)
         info['dirty'] = bool(sinfo.get('dirty'))
+        win = 30 * 100                                  # the share of pauses per 30 s: a log shows where the original could not be used
+        info['by_30s'] = [int(round(100 * float(w[i:i + win].mean()))) for i in range(0, len(w), win)]
         if info['share'] < 0.02:
             info['reason'] = 'no pauses to use'
             return info
@@ -270,6 +272,13 @@ def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, l
         score = music_fill._steadiness_db(segs)
         if score is None or score > (DIRTY_STEADY_MAX_DB if sinfo.get('dirty') else music_fill.STEADY_MAX_DB):
             info['reason'] = 'the background is not steady, it is not rebuilt'
+            return info
+        tex = music_fill.texture_segs(segs)
+        info['texture'] = tex
+        if tex.get('ok') is False:
+            # a crowd, a restaurant, a street: made-up noise with its average spectrum sounds like wind, so nothing is made up for it
+            info['reason'] = (f"the background is a crowd or a place with life in it (level wobble {tex.get('mod')}, spread {tex.get('iqr_db')} dB), "
+                              "not a steady machine-like sound: no sound is made up for it")
             return info
         target = _pool_power(segs) * (10.0 ** (floor_db / 10.0))          # power per bin of one analysis frame
         a_ = np.concatenate([s[:, 0] for s in segs]); b_ = np.concatenate([s[:, 1] for s in segs])
