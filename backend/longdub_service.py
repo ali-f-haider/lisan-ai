@@ -3691,30 +3691,9 @@ def _trim_silence(raw_path, out_wav):
         return None
 
 
-LEVEL_FOLLOW = float(os.environ.get("LISAN_VOICE_FOLLOW", "0.6") or 0.6)     # how much of the original's line-to-line level changes the dub follows (1 = all)
-LEVEL_SPREAD_DB = float(os.environ.get("LISAN_VOICE_SPREAD_DB", "6") or 6)   # a line never ends up further than this from the speaker's usual level
-LEVEL_MIN_LINES = 4                                                          # a speaker with fewer measured lines has no usual level: the lines follow the original exactly
-ACTIVE_BELOW_DB = 15.0                                                       # frames this far under the loud ones of a line are not speech
-
-
-def _active_level(x, sr):
-    """(level_db, peak_db) of the speech in the samples `x` (mono float): the RMS of the frames that are speech (within ACTIVE_BELOW_DB of the loud
-    ones). Pauses, breaths and a murmur under the words are left out, and the same measure is used for the original and for the dub, so the two
-    can be compared. None when there is no speech."""
-    frame = max(1, int(0.02 * sr))
-    k = len(x) // frame
-    if k < 5:
-        return None
-    fr = np.asarray(x[:k * frame], dtype=np.float64).reshape(k, frame)
-    power = (fr ** 2).mean(axis=1)
-    db = 10.0 * np.log10(power + 1e-12)
-    top = float(np.percentile(db, 90))
-    if top < -65.0:
-        return None
-    act = db > top - ACTIVE_BELOW_DB
-    if int(act.sum()) < 3:
-        return None
-    return float(10.0 * np.log10(power[act].mean() + 1e-12)), float(20.0 * np.log10(np.max(np.abs(x)) + 1e-9))
+import voice_level
+from voice_level import LEVEL_FOLLOW, LEVEL_SPREAD_DB, LEVEL_MIN_LINES, ACTIVE_BELOW_DB      # one level for each speaker (also used by the short dub)
+_active_level = voice_level.active_level
 
 
 def _speech_levels(path, start=None, dur=None):
@@ -3849,64 +3828,31 @@ def _pick_tempo(actual, slot, room):
 
 
 def _voice_gain(o_db, d_db, d_peak=None, anchor=None):
-    """Gain (dB) that brings a generated line (speech level d_db) to the level of the original line (o_db). With the speaker's usual level
-    (`anchor`) the line follows only LEVEL_FOLLOW of its distance from it, never more than LEVEL_SPREAD_DB: the voice keeps the shape of the
-    original's loud and soft passages, but the measuring noise and the chance of each separately generated line do not make it jump."""
-    if o_db is None or d_db is None:
-        return 0.0
-    target = float(o_db)
-    if anchor is not None:
-        target = float(anchor) + max(-LEVEL_SPREAD_DB, min(LEVEL_SPREAD_DB, LEVEL_FOLLOW * (float(o_db) - float(anchor))))
-    g = max(-GAIN_MAX_DB, min(GAIN_MAX_DB, target - float(d_db)))
-    if d_peak is not None:
-        g = min(g, PEAK_CEIL_DB - float(d_peak))            # a boost must not clip
-    return g
+    """Gain (dB) for a generated line: see voice_level.voice_gain (this file's limits: +-GAIN_MAX_DB, peak under PEAK_CEIL_DB)."""
+    return voice_level.voice_gain(o_db, d_db, d_peak, anchor, GAIN_MAX_DB, PEAK_CEIL_DB)
 
 
 def _speaker_anchors(levels_by_speaker):
-    """{speaker: usual level (the median of the original's speech levels)} for the speakers with enough measured lines."""
-    out = {}
-    for sp, vals in levels_by_speaker.items():
-        vals = [v for v in vals if v is not None and v > -60]
-        if len(vals) >= LEVEL_MIN_LINES:
-            out[sp] = float(np.median(vals))
-    return out
+    return voice_level.speaker_anchors(levels_by_speaker)
 
 
 def _level_voices(job, dub, rows):
-    """Brings the lines of each speaker to a steady level: every line is set to the speaker's usual level in the original plus its
-    (reduced) difference from it (see _voice_gain). Never raises; logs what it did."""
+    """Brings the lines of each speaker to a steady level (see voice_level). Never raises; logs what it did."""
     try:
         by_row = {r["segment_id"]: r for r in rows}
-        lv = {}
+        items = []
         for sid, m in dub["lines"].items():
             r = by_row.get(sid)
-            if r and m.get("original_mean_db") is not None and m.get("dub_level_db") is not None:
-                lv.setdefault(r["speaker_id"], []).append(m["original_mean_db"])
-        anchors = _speaker_anchors(lv)
-        job["voice_anchor"] = {str(k): round(v, 1) for k, v in anchors.items()}
-        names = {}
-        try:
+            if r:
+                items.append({"key": sid, "speaker": r["speaker_id"], "orig": m.get("original_mean_db"), "dub": m.get("dub_level_db"),
+                              "peak": m.get("dub_peak_db")})
+        gains, anchors, stats = voice_level.level_lines(items, GAIN_MAX_DB, PEAK_CEIL_DB)
+        job["voice_anchor"] = {str(k): v for k, v in anchors.items()}
+        for sid, g in gains.items():
+            dub["lines"][sid]["gain_db"] = round(g, 1)
+        if stats:
             names = {s["id"]: s.get("name") for s in (job.get("speaker_list") or [])}
-        except Exception:
-            pass
-        msgs = []
-        for sp, anchor in anchors.items():
-            o_, before, after, limit = [], [], [], 0
-            for sid, m in dub["lines"].items():
-                r = by_row.get(sid)
-                if not r or r["speaker_id"] != sp or m.get("original_mean_db") is None or m.get("dub_level_db") is None:
-                    continue
-                old = m.get("gain_db", 0.0)
-                g = _voice_gain(m["original_mean_db"], m["dub_level_db"], m.get("dub_peak_db"), anchor)
-                m["gain_db"] = round(g, 1)
-                o_.append(m["original_mean_db"]); before.append(m["dub_level_db"] + old); after.append(m["dub_level_db"] + g)
-                limit += abs(g) >= GAIN_MAX_DB - 0.05
-            if len(o_) >= 2:
-                msgs.append(f"{names.get(sp) or sp}: {len(o_)} lines, usual level {anchor:.1f} dB, spread of the original {np.std(o_):.1f} dB, "
-                            f"of the dub {np.std(after):.1f} dB (following the original exactly: {np.std(before):.1f} dB), {limit} at the gain limit")
-        if msgs:
-            _ev(job, "voice_levels", "info", " | ".join(msgs))
+            _ev(job, "voice_levels", "info", voice_level.describe(stats, names))
     except Exception as ex:
         print(f"[longdub] voice levelling skipped: {ex}")
 

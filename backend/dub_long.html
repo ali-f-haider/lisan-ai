@@ -148,6 +148,7 @@ var T = {
     reattachBtn: "Attach the same file", reattachResume: "Choose the same file to continue",
     reattachUp: function (p) { return "Uploading your file… " + p + "%"; },
     reattachPaused: "The upload stopped. Choose the same file again and it will continue.",
+    reattachBusy: "Getting your file ready… please wait, you do not need to choose it again.",
     wrongFileProj: "That isn't the same file this project was made from. Choose the original file (a re-saved or re-exported copy will not match).",
     restoringHeading: "Getting your project ready",
     restoringNote: "We are preparing the audio of your file again (this costs no credits and your text is untouched). You can close this page and come back - your project will be waiting.",
@@ -400,6 +401,7 @@ var T = {
     reattachBtn: "إرفاق الملف نفسه", reattachResume: "اختر الملف نفسه للمتابعة",
     reattachUp: function (p) { return "جارٍ رفع ملفك… " + p + "٪"; },
     reattachPaused: "توقّف الرفع. اختر الملف نفسه مرة أخرى وسيتابع من حيث توقف.",
+    reattachBusy: "جارٍ تجهيز ملفك… انتظر قليلاً، لا حاجة لاختياره مرة أخرى.",
     wrongFileProj: "هذا ليس الملف نفسه الذي أُنشئ منه المشروع. اختر الملف الأصلي (النسخة المُعاد حفظها أو تصديرها لن تطابق).",
     restoringHeading: "نجهّز مشروعك",
     restoringNote: "نجهّز صوت ملفك من جديد (لا يكلّف هذا أي رصيد ولا يتأثر نصّك). يمكنك إغلاق الصفحة والعودة — سيكون مشروعك بانتظارك.",
@@ -637,6 +639,7 @@ var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?, spea
 var saveTimer = null, saving = false, spkTimer = null;
 var pollTimer = null;
 var uploading = false, uploadAbort = false;
+var reattachBusy = "";     // id of the saved project whose file was just chosen and is being got ready (before the first byte is sent): no button, no "stopped" text
 var lastErr = "";
 var pricePreview = null; // result of /preview while confirming
 var tashNote = "";       // shown under the price when tashkeel was just added
@@ -1195,7 +1198,10 @@ function renderReattach() {
   if (cur.media_present !== false) { box.innerHTML = ""; return; }
   var total = cur.total_chunks || 0, got = cur.received_count || 0;
   var h = '<div class="ld-warn"><strong>' + esc(T.reattachHead) + "</strong><p style='margin:6px 0;'>" + esc(T.reattachText) + "</p>";
-  if (uploading || cur.reattaching) {
+  if (reattachBusy === cur.id && !uploading) {
+    h += '<div class="progress-bar"><div class="progress-fill" style="width:100%;opacity:.35"></div></div>';
+    h += "<p class='note'>" + esc(T.reattachBusy) + "</p>";
+  } else if (uploading || cur.reattaching) {
     var pct = cur.percent || (total ? Math.floor(100 * got / total) : 0);
     h += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
     if (uploading) h += "<p class='note'>" + esc(total && got >= total ? T.finishing : T.reattachUp(pct)) + "</p>";
@@ -1212,14 +1218,16 @@ function renderReattach() {
 
 function handleReattach(file) {
   lastErr = "";
+  if (uploading || (cur && reattachBusy === cur.id)) return;             // the file is already being got ready: a second choice would only start it twice
   if (!cur || file.size !== cur.size) { lastErr = T.wrongFileProj; renderReattach(); return; }
+  reattachBusy = cur.id;
+  renderReattach();                                                       // at once: "Getting your file ready", no button to click again
   if (cur.reattaching) { continueUpload(cur, file); return; }
   api("POST", "/api/longdub/" + cur.id + "/reattach", { filename: file.name, size: file.size }).then(function (r) {
-    if (!r.ok) { lastErr = safeErr(r.data.error, T.genericErr); renderReattach(); return; }
+    if (!r.ok) { reattachBusy = ""; lastErr = safeErr(r.data.error, T.genericErr); renderReattach(); return; }
     cur = r.data;
-    renderReattach();
-    continueUpload(cur, file);
-  }).catch(function () { lastErr = T.netErr; renderReattach(); });
+    continueUpload(cur, file);                                            // shows the upload progress as its first step
+  }).catch(function () { reattachBusy = ""; lastErr = T.netErr; renderReattach(); });
 }
 
 // ---- project header (name, description, Save and close)
@@ -1384,6 +1392,8 @@ async function putChunk(job, index, blob) {
 async function continueUpload(job, file) {
   if (uploading) return;
   uploading = true; uploadAbort = false; lastErr = "";
+  reattachBusy = "";
+  try { if (cur && cur.id === job.id) renderJob(); } catch (e) {}      // "Uploading... 0%" at once, not the stopped / choose-again text until the first part is sent
   try {
     var st = await api("GET", "/api/longdub/" + job.id);
     if (!st.ok) { lastErr = safeErr(st.data.error, T.genericErr); return; }

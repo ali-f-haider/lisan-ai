@@ -7,6 +7,7 @@ from pathlib import Path
 import urllib3
 from elevenlabs.client import ElevenLabs
 import inworld_service
+import voice_level      # one level for each speaker, shared with the long dub
 from config import OUTPUT_DIR
 from shortdub_paths import line_audio_path, clear_line_audio
 from app_state import jobs_progress, usage_bucket
@@ -45,6 +46,7 @@ eleven_client = None
 # across the file.
 TTS_MODEL_ID = "eleven_v4"
 USER_GAINS = {}
+VOICE_ANCHORS = {}   # job_id -> {speaker: the usual level of that speaker in the original (dB)}: a re-spoken line is set against it too
 ROOM_LAST = {}       # job_id -> what the room step did the last time the final MP3 was built
 ROOM_SETTINGS = {}   # job_id -> {"mode": "auto"|"off"|"manual", "rt60": s, "wet_db": dB, "trim_db": dB (Auto only: louder/quieter than measured)}  (Step 5.5 "Room sound")
 
@@ -524,7 +526,7 @@ def _meter_stage_generate(job_id):
 
 @_metered("shortdub_generate", lambda req, *a, **k: getattr(req, "job_id", ""), stage_of=_meter_stage_generate)
 def generate_worker(req):
-    from arabic_waqf import pausal as _pausal      # a stop at the end of a line: the last word is read with a sukoon, not a short vowel
+    from arabic_waqf import pausal as _pausal, gap_after as _gap_after      # only the copy sent to the voice gets the stop form; the stored text is never changed
     global eleven_client
     overlap_flags = dict(getattr(req, 'overlap_allowed', None) or {})
     dead_space_flags = dict(getattr(req, 'dead_space_allowed', None) or {})
@@ -552,6 +554,8 @@ def generate_worker(req):
                 continue
             target_duration = max(seg.end - seg.start, 0.5)
             tts_text = seg.arabic_text
+            _wq = getattr(seg, "waqf", "auto")          # how the voice ends this line (auto / stop / join) and the silence after it
+            _gp = _gap_after(seg.end, sorted_segments[i + 1].start if i + 1 < len(sorted_segments) else None)
             if req.tts_provider == "gemini":
                 if not req.gemini_api_key:
                     raise UserError("Voice generation is temporarily unavailable. Please try again later.")
@@ -584,7 +588,7 @@ def generate_worker(req):
                     api_key = req.inworld_api_key.strip()
                     if not api_key:
                         raise UserError("Voice generation is temporarily unavailable. Please try again later.")
-                    tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text)}"
+                    tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text, _wq, _gp)}"
                     # Own counter, separate from eleven_chars -- so
                     # main.py's _watch_and_deduct() can charge this engine's
                     # own admin-configured rate (inworldCharsPerCredit) even
@@ -598,7 +602,7 @@ def generate_worker(req):
                         raise UserError("Voice generation is temporarily unavailable. Please try again later.")
                     if eleven_client is None:
                         eleven_client = ElevenLabs(api_key=api_key)
-                    tts_text = f"{_emotion_tags(seg.emotion)} {_pausal(seg.arabic_text)}"
+                    tts_text = f"{_emotion_tags(seg.emotion)} {_pausal(seg.arabic_text, _wq, _gp)}"
                     bucket["eleven_chars"] += len(tts_text)
                     response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
                     audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
@@ -668,6 +672,7 @@ def generate_worker(req):
             jobs_progress[_pk]["percent"] = int(((i + 1) / total_segments) * 90)
         if not generated_files:
             raise UserError("None of your lines has Arabic text yet. Translate them (or type the Arabic) first.")
+        _level_lines_meta(req.job_id, lines_meta)
         USER_GAINS[req.job_id] = {lm["segment_id"]: float(lm["auto_gain_db"]) for lm in lines_meta}
         jobs_progress[_pk]["percent"] = 92
         generated_files.sort(key=lambda item: item["start"])
@@ -815,6 +820,26 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
     return {"segments_generated": len(adjusted), "duration_cuts": cuts,
             "final_duration": round(final_duration, 2), "trimmed_segment_ids": trimmed_segment_ids}
 
+SHORT_GAIN_MAX_DB = 10.0      # the most a line is made louder / quieter to match the original (the Step 5.5 sliders start from it)
+
+
+def _level_lines_meta(job_id, lines_meta):
+    """The same level logic as the long dub (voice_level.py): every speaker gets a usual level (the median of the original's lines) and each line
+    is set to it plus part of its own difference, so the voice of one speaker does not jump from line to line. Changes "auto_gain_db" of
+    `lines_meta` in place and remembers the usual levels for lines that are re-spoken later. Never raises."""
+    try:
+        items = [{"key": lm["segment_id"], "speaker": lm.get("speaker"), "orig": lm.get("orig_db"), "dub": lm.get("dub_db")} for lm in lines_meta]
+        gains, anchors, stats = voice_level.level_lines(items, SHORT_GAIN_MAX_DB, None)
+        VOICE_ANCHORS[job_id] = anchors
+        for lm in lines_meta:
+            if lm["segment_id"] in gains:
+                lm["auto_gain_db"] = round(gains[lm["segment_id"]], 1)
+        if stats:
+            print(f"[shortdub] {job_id}: voice levels {voice_level.describe(stats)}")
+    except Exception as ex:
+        print(f"[shortdub] voice levelling skipped: {ex}")
+
+
 def _measure_line_loudness(job_id, seg, stretched, target_duration):
     """Loudness of the ORIGINAL speaker over this line's window vs. the freshly
     built Arabic line (mean dB, ffmpeg volumedetect) -- what the Step 5.5
@@ -827,13 +852,14 @@ def _measure_line_loudness(job_id, seg, stretched, target_duration):
         return {"segment_id": seg.segment_id,
                 "orig_db": round(orig_db, 1) if orig_db is not None else None,
                 "dub_db": round(dub_db, 1) if dub_db is not None else None,
-                "auto_gain_db": round(max(-10.0, min(10.0, orig_db - dub_db)), 1) if ok else 0.0}
+                "auto_gain_db": round(voice_level.voice_gain(orig_db, dub_db, None, VOICE_ANCHORS.get(job_id, {}).get(str(getattr(seg, "speaker", None))),
+                                                             SHORT_GAIN_MAX_DB, None), 1) if ok else 0.0}
     except Exception:
         return None
 
 def regenerate_line(req):
     """Re-speak ONE segment with TTS, stretch it into its window, volume-match it, then rebuild the mix."""
-    from arabic_waqf import pausal as _pausal      # a stop at the end of a line: the last word is read with a sukoon, not a short vowel
+    from arabic_waqf import pausal as _pausal, gap_after as _gap_after      # only the copy sent to the voice gets the stop form; the stored text is never changed
     global eleven_client
     try:
         seg = req.segment
@@ -844,6 +870,9 @@ def regenerate_line(req):
             return {"error": f"No voice selected for {seg.speaker}. Pick one in Step 4 first."}
         bucket = usage_bucket(req.job_id)
         target_duration = max(seg.end - seg.start, 0.5)
+        _wq = getattr(seg, "waqf", "auto")
+        _later = sorted([o.start for o in (getattr(req, "segments", None) or []) if o.segment_id != seg.segment_id and o.start >= seg.end - 0.3])
+        _gp = _gap_after(seg.end, _later[0]) if _later else (99.0 if getattr(req, "segments", None) else None)
         # Which engine created this specific voice_id -- resolved by
         # main.py before this call (see req.voice_engine's docstring on
         # RegenerateLineRequest). Same "belongs to whoever cloned it"
@@ -853,7 +882,7 @@ def regenerate_line(req):
             api_key = req.inworld_api_key.strip()
             if not api_key:
                 return {"error": "Voice generation is temporarily unavailable. Please try again later."}
-            tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text)}"
+            tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text, _wq, _gp)}"
             bucket["inworld_chars"] += len(tts_text)
             audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
         else:
@@ -862,7 +891,7 @@ def regenerate_line(req):
                 return {"error": "Voice generation is temporarily unavailable. Please try again later."}
             if eleven_client is None:
                 eleven_client = ElevenLabs(api_key=api_key)
-            tts_text = f"{_emotion_tags(seg.emotion)} {_pausal(seg.arabic_text)}"
+            tts_text = f"{_emotion_tags(seg.emotion)} {_pausal(seg.arabic_text, _wq, _gp)}"
             bucket["eleven_chars"] += len(tts_text)
             response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
             audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)

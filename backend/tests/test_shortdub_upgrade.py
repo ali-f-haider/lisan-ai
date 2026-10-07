@@ -319,7 +319,7 @@ class AudioWorkerTests(unittest.TestCase):
                  TTS_MODEL_ID='test', line_audio_path=line_audio_path, clear_line_audio=clear_line_audio,
                  run_ffmpeg=ffmpeg, get_media_duration=lambda path: 2., resolve_job_speech=lambda _: None,
                  job_speech_spans=lambda _: [], measure_loudness_db=lambda _: None, _apply_room=lambda *a: {},
-                 _measure_line_loudness=lambda *a: None, _mix_filter_part=lambda *a: 'mock_filter',
+                 _measure_line_loudness=lambda *a: None, _level_lines_meta=lambda *a: None, _mix_filter_part=lambda *a: 'mock_filter',
                  friendly_error=str, UserError=ValueError, inworld_service=NS(instruction_tag=lambda _: '', synthesize=Mock(return_value=b'inworld audio')))
         self.n = source_functions('eleven_service.py', ['_emotion_tags', 'generate_worker', 'rebuild_final_mix', 'regenerate_line', 'restretch_line', 'remix_with_offsets'], n)
 
