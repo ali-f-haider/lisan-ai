@@ -34,6 +34,13 @@ DIRTY_GAP_DB = 10.0               # ...and what the voices hold in those stretch
 DIRTY_STEADY_MAX_DB = 4.5        # a crowd / a restaurant murmurs (about 3 dB of variation); music with a beat is 10 and more
 FLOOR_DB = float(os.environ.get('DUB_BG_FLOOR_DB', '-4'))   # under the speech the steady background is at least this far under its pause level
 BED_MIN_POOL_SEC = 1.2
+CROWD_BED_DB = float(os.environ.get('DUB_CROWD_BED_DB', '-3'))   # a place with life in it (restaurant, street): under speech it is held this far under its pause level
+CROWD_POOL_MAX_SEC = 300.0       # real sound of the pauses that may be laid under the speech (every piece is used once before any is repeated)
+CROWD_GRAIN_SEC = 2.0
+CROWD_FADE_SEC = 0.4
+CROWD_EVENT_DB = 4.0             # a piece this much louder than the usual one is an event (a crash, a shout): it is not laid under the speech
+CROWD_QUIET_DB = -10.0           # ...and a piece this much quieter is a dropout
+CROWD_REF_SEC = 10.0             # the level of the pauses near a stretch of speech: the middle of the pauses within this many seconds
 BED_POOL_MAX_SEC = 40.0
 BED_MIN_RUN_SEC = 0.4
 BED_MIN_DB = -80.0
@@ -190,8 +197,8 @@ def original_in_pauses(base, original, vocals, spans, out_path, log=None, mask_b
                 pass
 
 
-def _pool(orig, free, n):
-    """Clean stretches of the original (pauses, at least BED_MIN_RUN_SEC long, trimmed at the edges), at most BED_POOL_MAX_SEC in all."""
+def _pool(orig, free, n, max_sec=BED_POOL_MAX_SEC):
+    """Clean stretches of the original (pauses, at least BED_MIN_RUN_SEC long, trimmed at the edges), at most `max_sec` in all."""
     nf = n // FRAME
     segs, total, i = [], 0.0, 0
     trim = 5
@@ -208,7 +215,7 @@ def _pool(orig, free, n):
             i += 1
     runs.sort(key=lambda r: r[0] - r[1])             # longest first
     for a, c in runs:
-        if total >= BED_POOL_MAX_SEC:
+        if total >= max_sec:
             break
         seg = orig[a * FRAME:c * FRAME].astype(np.float32) / 32768.0
         segs.append(seg)
@@ -228,6 +235,135 @@ def _pool_power(segs):
         pw = np.stack(pw)
         out.append(np.minimum(pw.mean(axis=0), np.median(pw, axis=0) / np.log(2.0)))
     return np.stack(out)
+
+
+class _Pieces:
+    """An endless stream of REAL pieces of the pauses (a place with life in it: people, dishes, traffic). The pool is cut into pieces of
+    CROWD_GRAIN_SEC and shuffled; every piece is used once before any is used again, the pieces are blended with an equal-power
+    cross-fade, and a piece that is an event (a crash, a shout) or a dropout is left out. Nothing is made up."""
+
+    def __init__(self, segs, seed=7):
+        self.rng = np.random.default_rng(seed)
+        g, f = int(CROWD_GRAIN_SEC * RATE), int(CROWD_FADE_SEC * RATE)
+        self.fade = f
+        grains = []
+        for s in segs:
+            off = int(self.rng.integers(0, max(1, min(g, len(s) - g + 1)))) if len(s) > g else 0
+            for k in range(off, len(s) - g + 1, g - f):
+                grains.append(s[k:k + g])
+            if not grains and len(s) >= 2 * f:
+                grains.append(s)
+        pw = np.array([float(np.mean(x ** 2)) + 1e-14 for x in grains]) if grains else np.array([])
+        self.power = 0.0
+        self.grains = []
+        if len(pw):
+            db = 10.0 * np.log10(pw)
+            med = float(np.median(db))
+            keep = [i for i in range(len(grains)) if med + CROWD_QUIET_DB <= db[i] <= med + CROWD_EVENT_DB]
+            self.grains = [grains[i] * np.float32(10.0 ** ((med - db[i]) / 20.0)) for i in keep]      # all at the usual level
+            self.power = 10.0 ** (med / 10.0)
+        self.order = []
+        self.last = -1
+        self.buf = np.zeros((0, 2), dtype=np.float32)
+
+    def seconds(self):
+        return sum(len(x) for x in self.grains) / RATE
+
+    def _next(self):
+        if not self.order:
+            self.order = [int(i) for i in self.rng.permutation(len(self.grains))]
+            if len(self.order) > 1 and self.order[0] == self.last:
+                self.order.append(self.order.pop(0))
+        k = self.order.pop(0)
+        self.last = k
+        return self.grains[k]
+
+    def take(self, m):
+        f = self.fade
+        while len(self.buf) < m:
+            g = self._next()
+            if len(self.buf) >= f and len(g) > f:
+                t = np.linspace(0.0, np.pi / 2, f, dtype=np.float32)[:, None]
+                self.buf[-f:] = self.buf[-f:] * np.cos(t) + g[:f] * np.sin(t)
+                self.buf = np.concatenate([self.buf, g[f:]])
+            else:
+                self.buf = np.concatenate([self.buf, g])
+        out, self.buf = self.buf[:m], self.buf[m:]
+        return out
+
+
+def _pause_reference_db(o, free, n):
+    """Per 10 ms frame: the level (dB re full scale, mean power, events left out) of the original in the pauses near it."""
+    nf = n // FRAME
+    p = np.empty(nf, dtype=np.float64)
+    for i in range(0, nf, 6000):
+        x = o[i * FRAME:min(nf, i + 6000) * FRAME].astype(np.float32) / 32768.0
+        k = len(x) // FRAME
+        p[i:i + k] = 10.0 * np.log10((x[:k * FRAME] ** 2).reshape(k, FRAME, 2).mean(axis=(1, 2)) + 1e-14)
+    half = int(CROWD_REF_SEC * 100)
+    centers = np.arange(0, nf + 100, 100)
+    ref, prev = [], None
+    for c in centers:
+        a, b = max(0, c - half), min(nf, c + half)
+        v = p[a:b][free[a:b]]
+        if len(v) >= 50:
+            v = v[v <= np.median(v) + 10.0]                                  # an event (a crash) does not set the level
+            prev = float(10.0 * np.log10(np.mean(10.0 ** (v / 10.0))))
+
+        ref.append(prev)
+    first = next((r for r in ref if r is not None), -90.0)
+    ref = np.array([first if r is None else r for r in ref])
+    return np.interp(np.arange(nf), centers, ref), p
+
+
+def _crowd_bed(mt, o, speech, free, n, out_path, part, info, log=None):
+    """The place has a life of its own (see music_fill.texture_segs): nothing is made up for it. What the separator took away under the
+    speech is put back from REAL pieces of the original's own pauses, held CROWD_BED_DB under the level the pauses have nearby, so the
+    sound does not collapse every time somebody speaks. Only the missing part is added (what the separated background still holds
+    under the speech counts)."""
+    segs = _pool(o, free, n, CROWD_POOL_MAX_SEC)
+    pieces = _Pieces(segs)
+    if pieces.seconds() < 2 * CROWD_GRAIN_SEC or not pieces.power:
+        info['reason'] = 'a place with life in it, and too little real sound in its pauses to put back under the speech'
+        return info
+    under = 1.0 - _weights(speech)
+    nf = n // FRAME
+    ref_db, _ = _pause_reference_db(o, free, n)
+    target_pow = 10.0 ** ((ref_db + CROWD_BED_DB) / 10.0)
+    frame_t = (np.arange(nf) + 0.5) * FRAME
+    block = int(BLOCK_SEC * RATE)
+    need_sec = 0.0
+    added = []
+    with wave.open(str(part), 'wb') as out:
+        out.setnchannels(2)
+        out.setsampwidth(2)
+        out.setframerate(RATE)
+        for a in range(0, n, block):
+            c = min(n, a + block)
+            x = mt[a:c].astype(np.float32) / 32768.0
+            f0, f1 = a // FRAME, min(nf, (c + FRAME - 1) // FRAME)
+            k = f1 - f0
+            seg = x[:k * FRAME] if len(x) >= k * FRAME else np.pad(x, ((0, k * FRAME - len(x)), (0, 0)))
+            m_pow = _smooth((seg ** 2).reshape(k, FRAME, 2).mean(axis=(1, 2)), 50)           # what the separated background still holds
+            add = np.maximum(target_pow[f0:f1] - m_pow, 0.0) * under[f0:f1]
+            s_f = np.sqrt(add / pieces.power)
+            s = np.interp(np.arange(a, c), frame_t[f0:f1], s_f) if k > 1 else np.zeros(c - a)
+            y = x.copy()
+            live = s > 1e-4
+            if live.any():
+                edge = np.flatnonzero(np.diff(np.concatenate(([0], live.astype(np.int8), [0]))))
+                for r0, r1 in zip(edge[0::2], edge[1::2]):
+                    y[r0:r1] += pieces.take(int(r1 - r0)) * s[r0:r1, None].astype(np.float32)
+                    need_sec += (r1 - r0) / RATE
+                added.append(float(np.mean(s[live] ** 2)))
+            out.writeframes(np.clip(np.rint(y * 32768.0), -32768, 32767).astype('<i2').tobytes())
+    part.replace(out_path)
+    info['ok'] = True
+    info['crowd_bed'] = {'sec_laid': round(float(need_sec), 1), 'sec_real': round(float(pieces.seconds()), 1), 'repeats': round(float(need_sec / max(1.0, pieces.seconds())), 2)}
+    info['added_db'] = round(float(10.0 * np.log10(np.mean(added) * pieces.power + 1e-20)), 1) if added else 0.0
+    info['reason'] = (f"a place with life in it: real pieces of its own pauses ({pieces.seconds():.0f} s) are held {abs(CROWD_BED_DB):g} dB under the pause level "
+                      f"while people speak ({need_sec:.0f} s laid, nothing made up)")
+    return info
 
 
 def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, log=None):
@@ -276,10 +412,9 @@ def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, l
         tex = music_fill.texture_segs(segs)
         info['texture'] = tex
         if tex.get('ok') is False:
-            # a crowd, a restaurant, a street: made-up noise with its average spectrum sounds like wind, so nothing is made up for it
-            info['reason'] = (f"the background is a crowd or a place with life in it (level wobble {tex.get('mod')}, spread {tex.get('iqr_db')} dB), "
-                              "not a steady machine-like sound: no sound is made up for it")
-            return info
+            # a crowd, a restaurant, a street: made-up noise with its average spectrum sounds like wind, so nothing is made up for it;
+            # what is missing under the speech comes back from real pieces of the scene's own pauses
+            return _crowd_bed(mt, o, speech, free, n, out_path, part, info, log)
         target = _pool_power(segs) * (10.0 ** (floor_db / 10.0))          # power per bin of one analysis frame
         a_ = np.concatenate([s[:, 0] for s in segs]); b_ = np.concatenate([s[:, 1] for s in segs])
         c_ = np.corrcoef(a_, b_)[0, 1] if len(a_) > 1 else 0.0

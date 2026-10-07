@@ -140,6 +140,9 @@ def edit(parent, incoming):
             if change['speaker_id'] not in speakers:
                 raise ValueError('Choose one of this project’s original speakers.')
             row['speaker_id'] = change['speaker_id']
+        if isinstance(change.get('waqf'), str):
+            import arabic_waqf
+            row['waqf'] = arabic_waqf.clean_mode(change['waqf'])      # how the voice ends this line: auto / stop / join
         if 'emotion' in change and ld.clean_emotion(change['emotion']) != row.get('emotion', 'neutral'):
             row['emotion'] = ld.clean_emotion(change['emotion'])
             row['emotion_set'] = True
@@ -309,7 +312,9 @@ def run(job):
                 continue
             ld._mark(job, 'speak', 5 + int(i * 65 / len(plan['rows'])), f'Correcting selected line {i + 1} of {len(plan["rows"])}…')
             voice = job.get('correction_voices', {}).get(row['speaker_id']) or voice_map.get(row['speaker_id'])
-            audio, err = ld._tts_with_retry(voice, inworld_service.instruction_tag(row.get('emotion')) + row['arabic_text'].strip())
+            _later = sorted(r['start'] for r in rows(parent) if r['segment_id'] != sid and r['start'] >= row['end'] - 0.05)
+            gap = (_later[0] - row['end']) if _later else 99.0       # silence after the line: a long one is a real stop
+            audio, err = ld._tts_with_retry(voice, inworld_service.instruction_tag(row.get('emotion')) + row['arabic_text'].strip(), row.get('waqf'), gap)
             if audio is None:
                 # A deleted provider voice cannot be recovered by reusing its old ID. Next quote includes a clone.
                 if '404' in str(err):
@@ -319,19 +324,26 @@ def run(job):
             slot = row['end'] - row['start']
             ref = ld._wd(source) / 'vocals_mono.wav' if source else refs / f'{row["speaker_id"]}.wav'
             meta = ld._fit_line(raw, fit / f'{sid}.wav', slot, slot, ref, row['start'] if source else 0)
-            original = parent.get('original_voice_levels', {}).get(sid)
-            envelope = parent.get('original_voice_envelope') or []
-            samples = envelope[max(0, int(row['start'] * 2)):min(len(envelope), math.ceil(row['end'] * 2))]
-            if samples:
-                rms = math.sqrt(sum(v*v for v in samples) / len(samples))
-                original = 20 * math.log10(max(rms, 1e-8))
-            if source and original is None:
+            # the original line is measured the same way as the corrected line (the speech level, see ld._speech_levels), so the two compare
+            original = None
+            if source:
                 original, _ = ld._speech_levels(ref, row['start'], slot)
-                parent.setdefault('original_voice_levels', {})[sid] = original
-                ld._save(parent)
+                if original is not None:
+                    parent.setdefault('original_voice_levels', {})[sid] = original
+                    ld._save(parent)
+            if original is None:
+                original = parent.get('original_voice_levels', {}).get(sid)
+            if original is None:
+                envelope = parent.get('original_voice_envelope') or []
+                samples = envelope[max(0, int(row['start'] * 2)):min(len(envelope), math.ceil(row['end'] * 2))]
+                if samples:
+                    rms = math.sqrt(sum(v*v for v in samples) / len(samples))
+                    original = 20 * math.log10(max(rms, 1e-8))
             measured, peak = ld._speech_levels(fit / f'{sid}.wav')
             if original is not None and measured is not None and peak is not None:
-                meta['gain_db'] = min(ld.PEAK_CEIL_DB - peak, max(-ld.GAIN_MAX_DB, min(ld.GAIN_MAX_DB, original - measured)))
+                # the speaker's usual level (kept from the first dubbing) keeps a corrected line at the same level as its neighbours
+                anchor = (parent.get('voice_anchor') or {}).get(str(row['speaker_id']))
+                meta['gain_db'] = ld._voice_gain(original, measured, peak, anchor)
             meta.update(seg=sid, start=row['start'], allowed=slot, trim=meta['dur'] > slot)
             checkpoint[sid] = meta; ld._save(job)
             raw.unlink(missing_ok=True)

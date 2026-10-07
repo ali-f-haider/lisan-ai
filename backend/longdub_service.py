@@ -33,6 +33,7 @@ import subprocess
 import threading
 import time
 import uuid
+import numpy as np
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -2272,7 +2273,7 @@ def clean_emotion(value):
 
 
 def update_segments(job, edits):
-    """edits = [{segment_id, text?, arabic_text?, speaker_id?, emotion?}]. The
+    """edits = [{segment_id, text?, arabic_text?, speaker_id?, emotion?, waqf?}]. The
     text, the speaker and the emotion of a line are saved here; times, inserting and deleting
     lines have their own calls (set_line_time, insert_line, delete_line)."""
     if job.get("status") != "editing":
@@ -2299,6 +2300,12 @@ def update_segments(job, edits):
                     r["ar_set"] = True          # typed by the user: the glossary check leaves this line alone
                 r["arabic_text"] = new_ar
                 changed += 1
+            if isinstance(e.get("waqf"), str):
+                import arabic_waqf
+                w = arabic_waqf.clean_mode(e["waqf"])
+                if w != r.get("waqf", "auto"):
+                    r["waqf"] = w
+                    changed += 1
             if isinstance(e.get("emotion"), str):
                 emo = clean_emotion(e["emotion"])
                 if emo != r.get("emotion"):
@@ -3644,10 +3651,10 @@ def _clone_with_retry(name, wav):
     return None, last
 
 
-def _tts_with_retry(voice_id, text):
+def _tts_with_retry(voice_id, text, waqf="auto", gap=None):
     import inworld_service
     from arabic_waqf import pausal
-    text = pausal(text)          # the voice stops at the end of every line: its last word is read in the pausal form (sukoon), whatever the text says
+    text = pausal(text, waqf, gap)          # only the copy sent to the voice gets the stop form (at a real stop, see arabic_waqf); the stored text never changes
     import urllib.error
     last = ""
     for wait in (0, 4, 12, 30):
@@ -3684,7 +3691,48 @@ def _trim_silence(raw_path, out_wav):
         return None
 
 
+LEVEL_FOLLOW = float(os.environ.get("LISAN_VOICE_FOLLOW", "0.6") or 0.6)     # how much of the original's line-to-line level changes the dub follows (1 = all)
+LEVEL_SPREAD_DB = float(os.environ.get("LISAN_VOICE_SPREAD_DB", "6") or 6)   # a line never ends up further than this from the speaker's usual level
+LEVEL_MIN_LINES = 4                                                          # a speaker with fewer measured lines has no usual level: the lines follow the original exactly
+ACTIVE_BELOW_DB = 15.0                                                       # frames this far under the loud ones of a line are not speech
+
+
+def _active_level(x, sr):
+    """(level_db, peak_db) of the speech in the samples `x` (mono float): the RMS of the frames that are speech (within ACTIVE_BELOW_DB of the loud
+    ones). Pauses, breaths and a murmur under the words are left out, and the same measure is used for the original and for the dub, so the two
+    can be compared. None when there is no speech."""
+    frame = max(1, int(0.02 * sr))
+    k = len(x) // frame
+    if k < 5:
+        return None
+    fr = np.asarray(x[:k * frame], dtype=np.float64).reshape(k, frame)
+    power = (fr ** 2).mean(axis=1)
+    db = 10.0 * np.log10(power + 1e-12)
+    top = float(np.percentile(db, 90))
+    if top < -65.0:
+        return None
+    act = db > top - ACTIVE_BELOW_DB
+    if int(act.sum()) < 3:
+        return None
+    return float(10.0 * np.log10(power[act].mean() + 1e-12)), float(20.0 * np.log10(np.max(np.abs(x)) + 1e-9))
+
+
 def _speech_levels(path, start=None, dur=None):
+    """(level_db, peak_db) of the speech in a file or a slice of it (see _active_level). (None, None) when there is no speech to measure;
+    a file soundfile cannot read is measured with ffmpeg (_speech_levels_ffmpeg)."""
+    try:
+        import soundfile as _sf
+        sr = _sf.info(str(path)).samplerate
+        a = int(max(0.0, float(start or 0.0)) * sr)
+        frames = int(float(dur) * sr) if dur else -1
+        x, _ = _sf.read(str(path), start=a, frames=frames, dtype="float32", always_2d=True)
+    except Exception:
+        return _speech_levels_ffmpeg(path, start, dur)
+    r = _active_level(x.mean(axis=1), sr)
+    return r if r else (None, None)
+
+
+def _speech_levels_ffmpeg(path, start=None, dur=None):
     """(mean_db, max_db) of the SPEECH in a file or a slice of it -- pauses are
     left out, so a line with pauses is not judged quieter than it is. Uses the
     info log level because volumedetect prints its result at that level (the
@@ -3800,6 +3848,69 @@ def _pick_tempo(actual, slot, room):
     return req, False
 
 
+def _voice_gain(o_db, d_db, d_peak=None, anchor=None):
+    """Gain (dB) that brings a generated line (speech level d_db) to the level of the original line (o_db). With the speaker's usual level
+    (`anchor`) the line follows only LEVEL_FOLLOW of its distance from it, never more than LEVEL_SPREAD_DB: the voice keeps the shape of the
+    original's loud and soft passages, but the measuring noise and the chance of each separately generated line do not make it jump."""
+    if o_db is None or d_db is None:
+        return 0.0
+    target = float(o_db)
+    if anchor is not None:
+        target = float(anchor) + max(-LEVEL_SPREAD_DB, min(LEVEL_SPREAD_DB, LEVEL_FOLLOW * (float(o_db) - float(anchor))))
+    g = max(-GAIN_MAX_DB, min(GAIN_MAX_DB, target - float(d_db)))
+    if d_peak is not None:
+        g = min(g, PEAK_CEIL_DB - float(d_peak))            # a boost must not clip
+    return g
+
+
+def _speaker_anchors(levels_by_speaker):
+    """{speaker: usual level (the median of the original's speech levels)} for the speakers with enough measured lines."""
+    out = {}
+    for sp, vals in levels_by_speaker.items():
+        vals = [v for v in vals if v is not None and v > -60]
+        if len(vals) >= LEVEL_MIN_LINES:
+            out[sp] = float(np.median(vals))
+    return out
+
+
+def _level_voices(job, dub, rows):
+    """Brings the lines of each speaker to a steady level: every line is set to the speaker's usual level in the original plus its
+    (reduced) difference from it (see _voice_gain). Never raises; logs what it did."""
+    try:
+        by_row = {r["segment_id"]: r for r in rows}
+        lv = {}
+        for sid, m in dub["lines"].items():
+            r = by_row.get(sid)
+            if r and m.get("original_mean_db") is not None and m.get("dub_level_db") is not None:
+                lv.setdefault(r["speaker_id"], []).append(m["original_mean_db"])
+        anchors = _speaker_anchors(lv)
+        job["voice_anchor"] = {str(k): round(v, 1) for k, v in anchors.items()}
+        names = {}
+        try:
+            names = {s["id"]: s.get("name") for s in (job.get("speaker_list") or [])}
+        except Exception:
+            pass
+        msgs = []
+        for sp, anchor in anchors.items():
+            o_, before, after, limit = [], [], [], 0
+            for sid, m in dub["lines"].items():
+                r = by_row.get(sid)
+                if not r or r["speaker_id"] != sp or m.get("original_mean_db") is None or m.get("dub_level_db") is None:
+                    continue
+                old = m.get("gain_db", 0.0)
+                g = _voice_gain(m["original_mean_db"], m["dub_level_db"], m.get("dub_peak_db"), anchor)
+                m["gain_db"] = round(g, 1)
+                o_.append(m["original_mean_db"]); before.append(m["dub_level_db"] + old); after.append(m["dub_level_db"] + g)
+                limit += abs(g) >= GAIN_MAX_DB - 0.05
+            if len(o_) >= 2:
+                msgs.append(f"{names.get(sp) or sp}: {len(o_)} lines, usual level {anchor:.1f} dB, spread of the original {np.std(o_):.1f} dB, "
+                            f"of the dub {np.std(after):.1f} dB (following the original exactly: {np.std(before):.1f} dB), {limit} at the gain limit")
+        if msgs:
+            _ev(job, "voice_levels", "info", " | ".join(msgs))
+    except Exception as ex:
+        print(f"[longdub] voice levelling skipped: {ex}")
+
+
 def _fit_line(raw_path, out_wav, slot, room, loud_ref, start):
     """Fit one generated line into its time slot (see _pick_tempo) and match its
     loudness to the original speaker. Returns metadata for the mixer."""
@@ -3825,15 +3936,17 @@ def _fit_line(raw_path, out_wav, slot, room, loud_ref, start):
     dur = ffmpeg_utils.get_media_duration(out_wav)
     gain = 0.0
     o_mean = None
+    d_mean = d_max = None
     try:
         o_mean, _o_max = _speech_levels(loud_ref, start, max(min(slot, room), 0.3))
         d_mean, d_max = _speech_levels(out_wav)
         if o_mean is not None and d_mean is not None and o_mean > -60 and d_mean > -60:
-            gain = max(-GAIN_MAX_DB, min(GAIN_MAX_DB, o_mean - d_mean))
-            gain = min(gain, PEAK_CEIL_DB - d_max)      # a boost must not clip
+            gain = _voice_gain(o_mean, d_mean, d_max)       # the level of the speaker's other lines is taken into account later: _level_voices
     except Exception:
         gain = 0.0
+        d_mean = d_max = None
     return {"dur": round(dur, 3), "tempo": round(tempo, 3), "warn": warn, "gain_db": round(gain, 1), "original_mean_db": o_mean,
+            "dub_level_db": d_mean, "dub_peak_db": d_max,
             "raw": round(actual, 3), "slot": round(slot, 2), "room": round(room, 2)}
 
 
@@ -3914,7 +4027,7 @@ def _ar_letters(text):
     return len(re.sub(r"[\s\u064B-\u065F\u0670\u0640]", "", text or ""))
 
 
-def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None):
+def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None, gap=None):
     """A line that is still too long after using the silence after it and the
     "good" stretch would have its end cut. Instead, ask for a SHORTER version of
     the same sentence (same meaning), speak that, and use it if it is shorter.
@@ -3958,7 +4071,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
                     new = merge_tashkeel(new, got.get(sid, ""))
             except Exception as ex:
                 print(f"[longdub] tashkeel for a rephrased line failed: {ex}")
-        audio, err = _tts_with_retry(voice_id, f"{tag}{new}")
+        audio, err = _tts_with_retry(voice_id, f"{tag}{new}", r.get("waqf"), gap)
         if audio is None:
             _ev(job, "line_rephrase", "failed", f"{sid}: the voice service did not speak the shorter version: {err}")
             break
@@ -4149,7 +4262,8 @@ def _run_dubbing(job):
             _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Generating the Arabic voice (line {i + 1} of {n})...")
             tag = inworld_service.instruction_tag(r.get("emotion"))
             text = f"{tag}{r['arabic_text'].strip()}"
-            audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text)
+            gap_ = (float(rows[i + 1]["start"]) - float(r["end"])) if i + 1 < n else 99.0       # silence after the line: a long one is a real stop
+            audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text, r.get("waqf"), gap_)
             if audio is None:
                 dub["failed"].append(sid)
                 _ev(job, "line_generation", "failed", f"{sid} ({len(text)} chars): {err}")
@@ -4168,7 +4282,7 @@ def _run_dubbing(job):
             # too long for its room, or fast-forwarded more than this speaker's delivery allows: the wording is shortened first
             if REPHRASE_ENABLED and (meta["dur"] > room + 0.02 or meta["tempo"] > cap_ + 0.02) and _ar_letters(r["arabic_text"]) >= REPHRASE_MIN_LETTERS:
                 _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Shortening a line to fit (line {i + 1} of {n})...")
-                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d, cap=cap_)
+                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d, cap=cap_, gap=gap_)
                 meta["pace"] = pace_
             meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text) if new_text is None else len(f"{tag}{new_text}")})
             if new_text is not None:
@@ -4196,6 +4310,7 @@ def _run_dubbing(job):
             _fail(job, "We couldn't generate any of the lines. Please try again", "dub")
             return
         by_seg = {r["segment_id"]: r for r in rows}
+        _level_voices(job, dub, rows)
         _ev(job, "speech_generation", "ok" if not failed else "partial",
             f"{len(dub['lines'])} of {n} lines generated, {len(failed)} failed")
         try:     # how tight every line was (server log): letters, natural speech time, slot, room, speed-up
@@ -4421,11 +4536,12 @@ def _run_dubbing(job):
             bg_mix = repaired_["path"]
             job["background_levels"] = repaired_["measurements"]
             _mf_ = repaired_["music_fill"]
+            _why_ = "".join(f" | {k}: {_mf_[k]}" for k in ("pause_note", "bed_note") if _mf_.get(k))
             if _mf_.get("incomplete") or _mf_.get("unavailable"):
-                _ev(job, "background_music_fill", "info", "some music sections could not be rebuilt and stay silent while people speak: " + str(_mf_.get("reason") or "")[:400])
+                _ev(job, "background_music_fill", "info", "some music sections could not be rebuilt and stay silent while people speak: " + str(_mf_.get("reason") or "")[:400] + _why_[:600])
             else:
                 _ev(job, "background_music_fill", "ok", _mf_["reason"] + (" | original in pauses: " + str(_mf_["original_in_pauses"]) if _mf_.get("original_in_pauses") else "")
-                    + (" | steady background: " + str(_mf_["steady_bed"]) if _mf_.get("steady_bed") else ""))
+                    + (" | steady background: " + str(_mf_["steady_bed"]) if _mf_.get("steady_bed") else "") + _why_[:600])
         # Laughter, applause and cheers: the separator files them under "voices", so the separated background
         # has none. They are cut out of the separated voices outside the spoken words and laid back as their own layer.
         react = None

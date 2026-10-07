@@ -82,12 +82,14 @@ class NothingIsMadeUpTests(unittest.TestCase):
     def test_bed_floor_makes_up_no_noise_for_a_crowd_but_still_does_for_a_machine(self):
         self.files(crowd(N))
         info = pb.bed_floor(self.d / 'sep.wav', self.d / 'orig.wav', self.d / 'voice.wav', self.d / 'sep.wav', self.spans, self.d / 'o1.wav')
-        self.assertFalse(info['ok'], info)
-        self.assertIn('crowd', info['reason'])
-        self.assertFalse((self.d / 'o1.wav').exists())
+        self.assertTrue(info['ok'], info)
+        self.assertIn('nothing made up', info['reason'])           # a crowd gets REAL pieces of its pauses back (see test_crowd_bed.py), never made-up noise
+        self.assertIn('crowd_bed', info)
+        self.assertNotIn('steady background is held', info['reason'])
         self.files(machine(N))
         info = pb.bed_floor(self.d / 'sep.wav', self.d / 'orig.wav', self.d / 'voice.wav', self.d / 'sep.wav', self.spans, self.d / 'o2.wav')
         self.assertTrue(info['ok'], info)
+        self.assertIn('steady background is held', info['reason'])
 
     def test_texture_fill_uses_only_real_pieces_for_a_crowd(self):
         ctx = [stereo(crowd(6 * SR, 1)), stereo(crowd(6 * SR, 2)), stereo(crowd(6 * SR, 3))]
