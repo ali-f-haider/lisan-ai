@@ -79,5 +79,30 @@ class RouteTests(unittest.TestCase):
         self.assertNotIn("secret", r.text)
 
 
+class WiringTests(unittest.TestCase):
+    """main.py really registers the route, with names that exist before the call."""
+    def test_main_registers_the_route_with_names_defined_earlier(self):
+        import ast
+        src = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(src)
+        call = next((n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "register" and getattr(n.func.value, "id", "") == "voice_match_routes"), None)
+        self.assertIsNotNone(call, "main.py must call voice_match_routes.register")
+        wanted = {n.id for k in call.keywords for n in ast.walk(k.value) if isinstance(n, ast.Name)}
+        wanted.discard("app")
+        bound = set()
+        for node in tree.body:
+            if getattr(node, "lineno", 0) >= call.lineno:
+                break
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                bound.add(node.name)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                bound.update((a.asname or a.name).split(".")[0] for a in node.names)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for t in (node.targets if isinstance(node, ast.Assign) else [node.target]):
+                    bound.update(n.id for n in ast.walk(t) if isinstance(n, ast.Name))
+        self.assertEqual(sorted(wanted - bound - {"lambda"}), [])
+
+
 if __name__ == "__main__":
     unittest.main()
