@@ -312,6 +312,7 @@ class LipSyncRequest(_JobIdModel):
     model: str = "lipsync-2"
     sync_key: str = ""
     resolution: str = ""        # "480P" / "720P" / "1080P"; empty = 720P
+    operation_id: Optional[str] = None
 
 class TashkeelItem(_JobIdModel):
     segment_id: str
@@ -1726,6 +1727,9 @@ def billing_subscribe(request: Request, plan_key: str = ""):
     plan_name = plan["name"]
     plan_credits = plan["credits"]
     plan_price = plan["price_usd"]
+    _pause = _subscription_credit_pause()
+    if _pause is not None:
+        return _pause
     stripe.api_key = STRIPE_SECRET_KEY
     origin = _public_origin(request)
     try:
@@ -1990,6 +1994,9 @@ def billing_change_plan(request: Request, plan_key: str = ""):
     pending_key = (prof.get("subscription_pending_plan_key") or "").strip()
     target_is_current = str(target["key"]).lower() == str(current["key"]).lower()
 
+    _pause = _subscription_credit_pause()
+    if _pause is not None:
+        return _pause
     stripe.api_key = STRIPE_SECRET_KEY
     try:
         sub = stripe.Subscription.retrieve(subscription_id)
@@ -2043,11 +2050,15 @@ def billing_change_plan(request: Request, plan_key: str = ""):
                 if inv_id:
                     inv = stripe.Invoice.retrieve(inv_id)
                     if (inv.get("status") or "") == "paid":
-                        granted = _grant_subscription_credits(uid, inv_id, int(target["credits"]))
+                        period_start, period_end = _invoice_billing_period(inv)
+                        granted = _grant_subscription_credits(uid, inv_id, int(target["credits"]), period_start, period_end)
             except Exception as ex:
                 print("[subscription] upgrade credit grant deferred to webhook:", ex)
             _sync_subscription_to_profile(uid, updated)
             print("[subscription] upgraded uid=", uid, "to", target["key"], "grant=", granted)
+            _pending = _subscription_grant_response(granted)
+            if _pending is not None:
+                return _pending
             return {"ok": True, "mode": "upgraded", "plan": target["name"], "credits": int(target["credits"])}
 
         # --- downgrade (or same price): at the next renewal.
@@ -2211,6 +2222,30 @@ def billing_sync(request: Request):
     except Exception as e:
         print(f"[billing-sync] failed: {e}")
         return JSONResponse({"error": "We couldn't check your payments right now. Please try again shortly."}, status_code=502)
+    profile = _read_subscription_profile(uid)
+    if profile is None:
+        return JSONResponse({"error": "Your subscription could not be checked. Please try again later."}, status_code=503)
+    sid = profile.get("stripe_subscription_id")
+    if sid:
+        try:
+            invoices = stripe.Invoice.list(subscription=sid, status="paid", limit=1)
+            for invoice in invoices.data:
+                if _invoice_subscription_id(invoice) != sid:
+                    return JSONResponse({"error": "This invoice needs review before delivering credits."}, status_code=503)
+                key = profile.get("subscription_plan_key") or ""
+                pending_key = profile.get("subscription_pending_plan_key") or ""
+                if pending_key and invoice.get("billing_reason") == "subscription_cycle":
+                    key = pending_key
+                start, end = _invoice_billing_period(invoice)
+                granted = _grant_subscription_credits(uid, invoice.get("id") or "", _get_subscription_plan(key)["credits"], start, end)
+                paused = _subscription_grant_response(granted)
+                if paused is not None:
+                    return paused
+                if key == pending_key and pending_key:
+                    if not _set_subscription_plan_key(uid, key) or not _set_subscription_pending_plan(uid, None):
+                        return JSONResponse({"error": "The subscription plan update is pending. Please retry later."}, status_code=503)
+        except Exception:
+            return JSONResponse({"error": "Subscription credit delivery is pending. Please try again later."}, status_code=503)
     return {"added_sessions_credits": added}
 
 def _as_id(v):
@@ -2244,6 +2279,50 @@ def _invoice_subscription_id(invoice):
         if sid:
             return sid
     return ""
+
+def _invoice_billing_period(invoice):
+    """Use service periods on subscription lines, never the invoice accrual dates."""
+    from credit_actions import period_value
+    sid = _invoice_subscription_id(invoice)
+    found = set()
+    lines = invoice.get("lines") or {}
+    if lines.get("has_more"):
+        raise ValueError("The full invoice must be checked before delivering credits.")
+    for line in lines.get("data") or []:
+        parent = line.get("parent") or {}
+        details = parent.get("subscription_item_details") or {}
+        line_sid = _as_id(line.get("subscription") or details.get("subscription"))
+        if not (line.get("type") == "subscription" or details or (sid and line_sid == sid)):
+            continue
+        if line_sid and sid and line_sid != sid:
+            continue
+        amount = line.get("amount")
+        if amount is not None and (isinstance(amount, bool) or not isinstance(amount, (int, float)) or amount < 0):
+            continue
+        period = line.get("period") or {}
+        start, end = period_value(period.get("start")), period_value(period.get("end"))
+        found.add((start, end))
+    if len(found) != 1:
+        raise ValueError("The invoice billing period needs review before delivering credits.")
+    return next(iter(found))
+
+
+def _subscription_credit_pause():
+    from credit_actions import subscription_ready
+    if not subscription_ready(_sb_rpc):
+        return JSONResponse({"error": "Subscription credit delivery is temporarily paused. Please try again later."}, status_code=503)
+    return None
+
+
+def _subscription_grant_response(result):
+    if not isinstance(result, dict) or result.get("status") != "done":
+        status = (result or {}).get("status") if isinstance(result, dict) else ""
+        message = ("This subscription invoice needs review. No allowance was replaced. Please contact support."
+                   if status in ("mismatch", "stale", "legacy_review") else
+                   "Subscription credit delivery is temporarily paused. Please retry later.")
+        return JSONResponse({"error": message}, status_code=409 if status in ("mismatch", "stale") else 503)
+    return None
+
 
 def _subscription_period_end(sub):
     """Current period end (unix ts) of a Subscription object.
@@ -2327,6 +2406,7 @@ async def stripe_webhook(request: Request):
             invoice_id = invoice.get("id") or ""
             uid = _uid_for_subscription(sub_id) if sub_id else None
             plan_key = ""
+            recovered_sub = None
             if not uid and sub_id:
                 # Stripe doesn't guarantee checkout.session.completed (which
                 # is what normally stores stripe_subscription_id on the
@@ -2343,14 +2423,7 @@ async def stripe_webhook(request: Request):
                     uid = (sub_obj.get("metadata") or {}).get("uid")
                     plan_key = (sub_obj.get("metadata") or {}).get("plan_key") or ""
                     if uid:
-                        _set_subscription_fields(
-                            uid,
-                            subscription_status="active",
-                            stripe_subscription_id=sub_id,
-                            stripe_customer_id=sub_obj.get("customer") or "",
-                        )
-                        if plan_key:
-                            _set_subscription_plan_key(uid, plan_key)
+                        recovered_sub = sub_obj
                 except Exception as e:
                     print("[stripe-webhook] subscription metadata fallback failed:", e)
             print("[stripe-webhook] invoice.paid sub=", sub_id, "uid=", uid, "plan_key=", plan_key)
@@ -2367,18 +2440,34 @@ async def stripe_webhook(request: Request):
                 # invoice after it was requested (Stripe already switched the
                 # price for that invoice; the credits and the tier on the
                 # profile switch here, at the same moment).
+                pending_key = ""
                 if invoice.get("billing_reason") == "subscription_cycle":
                     pending_key = (_read_subscription_profile(uid) or {}).get("subscription_pending_plan_key") or ""
                     if pending_key:
-                        _set_subscription_plan_key(uid, pending_key)
-                        _set_subscription_pending_plan(uid, None)
                         plan_key = pending_key
-                        print("[stripe-webhook] scheduled plan change applied at renewal:", pending_key)
                 if not plan_key:
                     plan_key = _get_profile_plan_key(uid)
                 credits = _get_subscription_plan(plan_key)["credits"]
-                res = _grant_subscription_credits(uid, invoice_id, credits)
-                print("[stripe-webhook] subscription credit grant result:", res)
+                try:
+                    period_start, period_end = _invoice_billing_period(invoice)
+                except ValueError:
+                    return JSONResponse({"error": "The invoice billing period needs review before delivering credits."}, status_code=503)
+                res = _grant_subscription_credits(uid, invoice_id, credits, period_start, period_end)
+                pending = _subscription_grant_response(res)
+                if pending is not None:
+                    return pending
+                if recovered_sub is not None:
+                    if not _set_subscription_fields(uid, subscription_status="active", stripe_subscription_id=sub_id,
+                                                    stripe_customer_id=recovered_sub.get("customer") or ""):
+                        return JSONResponse({"error": "The subscription account update is pending. Please retry later."}, status_code=503)
+                    if plan_key and not _set_subscription_plan_key(uid, plan_key):
+                        return JSONResponse({"error": "The subscription plan update is pending. Please retry later."}, status_code=503)
+                if pending_key:
+                    if not _set_subscription_plan_key(uid, pending_key) or not _set_subscription_pending_plan(uid, None):
+                        return JSONResponse({"error": "The subscription plan update is pending. Please retry later."}, status_code=503)
+                print("[stripe-webhook] subscription credit grant confirmed")
+            elif sub_id:
+                return JSONResponse({"error": "This subscription account could not be checked. Credit delivery is pending."}, status_code=503)
         elif etype in ("customer.subscription.updated", "customer.subscription.created"):
             sub = event["data"]["object"]
             sub_id = sub.get("id") or ""
@@ -3129,69 +3218,16 @@ def _authorize_new_clones(uid, num_new, engine="elevenlabs"):
     return True, plan
 
 
-def _grant_subscription_credits(uid, invoice_id, credits):
-    """Idempotently grants one billing period's credits for a paid
-    subscription invoice -- exact same idempotency pattern as
-    _fulfill_order() for one-time packs (a subscription_invoices row per
-    invoice id, checked before granting), just against invoice id instead
-    of checkout session id. Needs the subscription_invoices table -- see
-    the SQL note above _check_expiring_outputs / the SQL block given to
-    Ali for this feature.
+def _grant_subscription_credits(uid, invoice_id, credits, period_start=None, period_end=None):
+    """Only a confirmed new subscription receipt can replace the allowance.
 
-    Grants into the SEPARATE, expiring subscription_credits bucket (Ali's
-    2026-09-27 "use it or lose it" decision) via _set_subscription_credits,
-    which OVERWRITES rather than adds -- so any credits left unused from
-    the previous cycle are forfeited, replaced by this cycle's fresh
-    amount, while one-time pack purchases and admin grants keep
-    accumulating separately, forever, in the permanent `credits` column
-    (untouched here). Falls back to the OLD behavior (add_credits into the
-    permanent bucket) if the new column doesn't exist yet or that write
-    fails for any other reason -- so a renewal ALWAYS grants this cycle's
-    credits somewhere, regardless of whether Ali has run the
-    subscription_credits migration yet relative to this deploy; the
-    "use it or lose it" behavior only actually starts once that migration
-    is in place."""
-    from credit_billing import credit_amount
+    Missing SQL/periods, old receipts and identity conflicts never use the
+    former read/PATCH/permanent-credit fallback. SQL owns grant/history/reset.
+    """
+    from credit_actions import ActionProblem, subscription_grant
     try:
-        credits = credit_amount(credits)
-    except ValueError:
-        return None
-    if not uid or not invoice_id or not credits or not SUPABASE_SERVICE_KEY:
-        return None
-    import urllib.request as _ur
-    try:
-        chk = _ur.Request(
-            f"{SUPABASE_URL}/rest/v1/subscription_invoices?invoice_id=eq.{invoice_id}&select=invoice_id",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
-        )
-        with _ur.urlopen(chk, timeout=10) as r:
-            if json.load(r):
-                return "already-fulfilled"
-        body = json.dumps({"invoice_id": invoice_id, "uid": uid, "credits": credits}).encode("utf-8")
-        ins = _ur.Request(
-            f"{SUPABASE_URL}/rest/v1/subscription_invoices",
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-            },
-        )
-        with _ur.urlopen(ins, timeout=10) as r:
-            r.read()
-        # New billing period confirmed (the idempotency check above didn't
-        # find this invoice already fulfilled) -- reset last period's clone
-        # count so this period's allowance starts fresh. Best-effort, same
-        # as the credit grant itself.
-        _reset_subscription_clone_usage(uid)
-        if not _set_subscription_credits(uid, credits):
-            # Migration not run yet (or a transient failure) -- fall back
-            # to the pre-existing behavior so this cycle's credits are
-            # never silently lost.
-            return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
-        return credits
-    except Exception as e:
-        print("[subscription] grant credits error:", _http_err_detail(e))
+        return subscription_grant(_sb_rpc, uid, invoice_id, credits, period_start, period_end)
+    except (ActionProblem, ValueError, TypeError):
         return None
 
 
@@ -3466,6 +3502,9 @@ def _cleanup_worker():
                     try:
                         if not p.is_file():
                             continue
+                        # Durable lip-sync intents have no approved expiry yet.
+                        if p.name.endswith("_lipsync_active.json"):
+                            continue
                         if _is_final_output(p):
                             cutoff = _final_output_cutoff(p, now, sub_cache)
                         else:
@@ -3478,6 +3517,8 @@ def _cleanup_worker():
             try:
                 from shortdub_operations import maintain_receipts
                 maintain_receipts(OUTPUT_DIR, UPLOAD_DIR)
+                from lipsync_operations import maintain_requests
+                maintain_requests(OUTPUT_DIR)
                 freed_dirs = disk_guard.remove_stale_dirs((UPLOAD_DIR, OUTPUT_DIR), short_cutoff)
                 if freed_dirs:
                     print(f"[cleanup] removed old working folders, freed {freed_dirs / 1048576:.0f} MB")
@@ -4786,84 +4827,96 @@ async def lipsync_reference_images(request: Request, job_id: str = Form(...), fi
 
 @app.post("/api/lipsync")
 def lipsync(req: LipSyncRequest, request: Request):
-    _g = _job_guard(request, req.job_id, allow_empty=False)
-    if _g:
-        return _g
+    guard = _job_guard(request, req.job_id, allow_empty=False)
+    if guard is not None:
+        return guard
     if not LIPSYNC_ENABLED:
-        # Backend gate, independent of the frontend hiding Step 7 -- so a
-        # stale/cached page, or someone calling this endpoint directly,
-        # still can't start (or get charged for) a lip-sync job while it's
-        # disabled. See the LIPSYNC_ENABLED comment in config.py.
         return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
-    uid, _no_acct = _paid_uid(request)
-    if _no_acct is not None:
-        return _no_acct
-
-    video_path = find_job_video(req.job_id)
-    if video_path is None:
-        return JSONResponse({"error": "We couldn't find your original video. Please upload it again."}, status_code=404)
-
-    # Lip-sync (VEED Lip Sync 2.0 via fal.ai) is billed per second of video,
-    # not a flat fee, so the charge has to be computed from the real video
-    # duration -- unlike the maxVideoMin check in /api/transcribe, a failed
-    # probe here fails CLOSED (blocks the request) rather than falling back
-    # to some default duration, since guessing wrong here means charging
-    # the wrong amount for a real, meaningful cost.
+    uid, error = _paid_uid(request)
+    if error is not None:
+        return error
+    from shortdub_operations import RequestProblem
+    from lipsync_operations import paths, work, run as run_intent
     try:
-        dur = ffmpeg_utils.get_media_duration(video_path)
-    except Exception as _dur_ex:
-        print(f"[lipsync] duration probe failed: {_dur_ex}")
-        dur = None
-    if not dur or dur <= 0:
-        return JSONResponse({"error": "Could not determine this video's length. Please try again."}, status_code=500)
-    _blk = _storage_block(uid, video_path.stat().st_size, OUTPUT_DIR / f"{req.job_id}_final_lipsync.mp4")
-    if _blk is not None:
-        return _blk          # before anything is charged
-    # Re-check against Wan 3.0's real limits here too, not just at upload
-    # time (LIPSYNC_MIN_SEC/LIPSYNC_MAX_SEC, defined above /api/transcribe)
-    # -- duration is ground truth, and checking it again right before the
-    # paid call is what actually prevents a charge for a job that can't
-    # succeed, regardless of what was chosen back at Step 1.
-    if dur < LIPSYNC_MIN_SEC or dur > LIPSYNC_MAX_SEC:
-        return JSONResponse({"error": customer_message(f"Lip-sync only works on clips between {LIPSYNC_MIN_SEC} and {LIPSYNC_MAX_SEC} seconds. This video is {round(dur, 1)} seconds.")}, status_code=413)
-
-    res = lipsync_res(req.resolution)
-    per_sec = lipsync_rate(_get_pricing_config().get("lipsyncCreditsPerSec", 10), res)
-    lipsync_cost = max(1, round(dur * per_sec))
-
-    # LIPSYNC_TEST_MODE (config.py): no real API call happens below, so
-    # don't check or charge real credits for it either -- see that flag's
-    # comment. The button/UI still shows the normal cost estimate, this
-    # just doesn't act on it while testing.
-    if not LIPSYNC_TEST_MODE:
-        bal = get_credits(uid) if uid else None
-        if bal is None:
-            return JSONResponse({"error": "Your balance could not be checked. No generation has started."}, status_code=503)
-        if bal < lipsync_cost:
-            return JSONResponse({"error": customer_message(f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use âž• Buy.")}, status_code=402)
-        if uid:
-            paid = deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
-            if not debit_confirmed(paid):
-                return JSONResponse({"error": "Payment could not be confirmed. No generation has started. Please contact support before retrying."}, status_code=503)
-
-    jobs_progress[f"lipsync_{req.job_id}"] = {"status": "processing", "percent": 5,
-                                              "message": "Preparing...", "error": None,
-                                              "result": None, "generation_id": None}
-    threading.Thread(target=lipsync_service.lipsync_worker,
-                     # only Wan 3.0 is used: whatever provider/model/key a caller puts in the request body is ignored
-                     args=(req.job_id, "wan3", "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
-                           DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, res, _wm_needed(uid)),
-                     daemon=True).start()
-    return {"status": "started", "resolution": res, "credits_charged": (lipsync_cost if uid else 0) if not LIPSYNC_TEST_MODE else 0}
+        paths(OUTPUT_DIR, req.job_id, getattr(req, "operation_id", None))
+    except RequestProblem as ex:
+        return JSONResponse(ex.payload, status_code=ex.status)
+    def execute():
+        try:
+            video = find_job_video(req.job_id)
+            if video is None:
+                raise RequestProblem("We couldn't find your original video. Please upload it again.", 404, operation_complete=True)
+            resolution = lipsync_res(req.resolution)
+            watermark = _wm_needed(uid)
+            photos = sorted(OUTPUT_DIR.glob(f"lipsync_ref_{req.job_id}_*")) if LIPSYNC_REF_IMAGES_ENABLED else []
+            fingerprint = work(req, resolution, [video, OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3", *photos], watermark)
+            def prepare():
+                try:
+                    duration = ffmpeg_utils.get_media_duration(video)
+                except Exception:
+                    raise RequestProblem("Could not determine this video's length. Please try again.", 503, operation_complete=True) from None
+                if not duration or duration <= 0 or not math.isfinite(duration):
+                    raise RequestProblem("Could not determine this video's length. Please try again.", 503, operation_complete=True)
+                if duration < LIPSYNC_MIN_SEC or duration > LIPSYNC_MAX_SEC:
+                    raise RequestProblem(f"Lip-sync only works on clips between {LIPSYNC_MIN_SEC} and {LIPSYNC_MAX_SEC} seconds.", 413, operation_complete=True)
+                blocked = _storage_block(uid, video.stat().st_size, OUTPUT_DIR / f"{req.job_id}_final_lipsync.mp4")
+                if blocked is not None:
+                    payload = json.loads(blocked.body) if hasattr(blocked, "body") else blocked.content
+                    raise RequestProblem(payload["error"], blocked.status_code, operation_complete=True)
+                if LIPSYNC_TEST_MODE:
+                    return 0
+                cost = max(1, round(duration * lipsync_rate(_get_pricing_config().get("lipsyncCreditsPerSec", 10), resolution)))
+                balance = get_credits(uid)
+                if not debit_confirmed(balance):
+                    raise RequestProblem("Your balance could not be checked. No generation has started.", 503)
+                if balance < cost:
+                    raise RequestProblem("You do not have enough credits for lip-sync. Add credits and start a new take.", 402, operation_complete=True)
+                return cost
+            def launch(receipt):
+                jobs_progress[f"lipsync_{req.job_id}"] = {"status": "processing", "percent": 5, "message": "Preparing...",
+                    "error": None, "result": None, "generation_id": None, "operation_id": receipt.stem, "operation_complete": False}
+                def worker():
+                    from lipsync_operations import finish
+                    try:
+                        lipsync_service.lipsync_worker(req.job_id, "wan3", "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
+                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, resolution, watermark)
+                    finally:
+                        progress = jobs_progress.get(f"lipsync_{req.job_id}", {})
+                        try:
+                            state = finish(receipt, OUTPUT_DIR, progress)
+                            if state == "unknown":
+                                progress.update(status="error", error="The lip-sync result could not be confirmed. Please contact support before starting another take.")
+                            progress.update(operation_id=receipt.stem, operation_complete=state in ("done", "failed"))
+                        except Exception:
+                            progress.update(status="error", error="The lip-sync result could not be saved safely. Please contact support before retrying.",
+                                            operation_id=receipt.stem, operation_complete=False)
+                try:
+                    threading.Thread(target=worker, daemon=True).start()
+                except Exception:
+                    jobs_progress[f"lipsync_{req.job_id}"] = {"status": "error", "percent": 0,
+                        "error": "The lip-sync request could not be confirmed. Please contact support before retrying.", "operation_complete": False}
+                    raise
+            return run_intent(OUTPUT_DIR, req, uid, fingerprint, prepare,
+                lambda amount, operation_id: deduct_credits(uid, amount, "lipsync", req.job_id, operation_id=operation_id),
+                launch, jobs_progress.get(f"lipsync_{req.job_id}"), _sb_rpc, LIPSYNC_TEST_MODE)
+        except RequestProblem as ex:
+            return JSONResponse(ex.payload, status_code=ex.status)
+        except (OSError, ValueError, TypeError):
+            return JSONResponse({"error": "The lip-sync request could not be saved safely. Please contact support before retrying."}, status_code=503)
+    return _short_edit(req.job_id, execute)
 
 @app.get("/api/progress/lipsync/{job_id}")
 def lipsync_progress(job_id: str, request: Request):
-    _g = _job_guard(request, job_id)
-    if _g:
-        return _g
-    return _public_progress(jobs_progress.get(f"lipsync_{job_id}", {"status": "not_found"}))
+    guard = _job_guard(request, job_id)
+    if guard is not None:
+        return guard
+    progress = jobs_progress.get(f"lipsync_{job_id}")
+    if progress is None:
+        from lipsync_operations import saved_progress
+        progress = saved_progress(OUTPUT_DIR, job_id)
+    return _public_progress(progress or {"status": "not_found"})
 
 @app.get("/api/usage/{job_id}")
 def usage(job_id: str, request: Request):
@@ -4872,7 +4925,15 @@ def usage(job_id: str, request: Request):
         return _g
     # Customers only ever see credits. The provider-side counters (tokens, characters, dollar cost) stay
     # inside usage_bucket() for the admin reports and are never sent to the browser.
-    return dict(_job_charges.get(job_id, {}))
+    # "Credits used for this dubbing" is the real total of this project's credit history (every charge minus every
+    # refund), read from the same history the Account page shows. The in-memory record only remembers the last
+    # single charge, so it is just the fallback when the history cannot be read.
+    import job_usage
+    shown = dict(_job_charges.get(job_id, {}))
+    real = job_usage.for_job(_current_uid(request), job_id, SUPABASE_URL, SUPABASE_SERVICE_KEY)
+    if real is not None:
+        shown.update(real)
+    return shown
 
 @app.get("/api/download/{filename}")
 def download(filename: str, request: Request):
@@ -7130,45 +7191,15 @@ def admin_users(request: Request, q: str = ""):
 
 @app.post("/api/admin/adjust_credits")
 async def admin_adjust_credits(request: Request):
-    """Permanent-bucket adjustment; unresolved transaction risks are audited."""
     if not _admin_check(request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    from decimal import Decimal, InvalidOperation
-    from credit_billing import number
+    from credit_actions import ActionProblem, adjust
     try:
-        body = await request.json()
-        if not isinstance(body, dict) or isinstance(body.get("delta"), bool):
-            raise ValueError
-        signed = Decimal(str(body.get("delta")))
-        magnitude = number(abs(signed), "Adjustment", integer=True, maximum=10000)
-        delta = magnitude if signed > 0 else -magnitude
-        uid = str(body.get("uid") or "")
-        reason = body.get("reason", "")
-        if not uid or not isinstance(reason, str) or not reason.strip():
-            raise ValueError
-    except (ValueError, TypeError, InvalidOperation):
-        return JSONResponse({"error": "Choose an account, enter a whole credit adjustment from 1 to 10000, and give a reason."}, status_code=400)
-    current = _get_permanent_credits(uid)
-    if current is None:
-        return JSONResponse({"error": "The current balance could not be checked. Nothing was changed."}, status_code=503)
-    try:
-        current = number(current, "Current balance", zero=True, integer=True)
-    except ValueError:
-        return JSONResponse({"error": "This balance needs review. Nothing was changed."}, status_code=503)
-    new_credits = max(0, current + delta)
-    actual_delta = new_credits - current
-    if not set_credits(uid, new_credits):
-        return JSONResponse({"error": "The balance change could not be confirmed. Please check before retrying."}, status_code=503)
-    # History amounts use the same spending-positive / refund-negative
-    # convention as SQL, and reflect the actual clamped adjustment.
-    spend_err = _log_spend(uid, "admin_adjustment", -actual_delta, job_id=None, reason=reason)
-    audit_err = _log_audit(uid, actual_delta, reason)
-    resp = {"ok": True, "new_credits": new_credits, "adjusted_credits": actual_delta}
-    if spend_err is not True:
-        resp["spend_warning"] = "The balance changed, but its history needs review."
-    if audit_err is not True:
-        resp["audit_warning"] = "The balance changed, but its audit record needs review."
-    return resp
+        return adjust(_sb_rpc, await request.json())
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
+    except ActionProblem as ex:
+        return JSONResponse({"error": str(ex), "operation_complete": ex.complete}, status_code=ex.status)
 
 def _http_error_detail(ex):
     """str(HTTPError) only ever gives 'HTTP Error 400: Bad Request' -- it drops
@@ -8116,8 +8147,7 @@ def _assist_owed_save():
 
 @app.post("/api/assistant")
 def assistant_chat(req: AssistantRequest, request: Request):
-    """One question to the AI helper. For signed-in users only. It is paid: the real Gemini cost of the question and
-    answer x the admin's credits-per-cent is added to what the user owes, and whole credits are taken as it adds up."""
+    """Answer a signed-in question; owed whole credits use durable debit IDs."""
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"ok": False, "answer": "Please sign in to use the helper.", "support": False, "login": True}, status_code=401)
@@ -8129,48 +8159,56 @@ def assistant_chat(req: AssistantRequest, request: Request):
     contents = assistant_service.clean_messages(req.messages)
     if not contents:
         return JSONResponse({"ok": False, "answer": "", "support": False}, status_code=400)
-    cpc = float(assistant_service.SETTINGS.get("credits_per_cent") or 0)
-    bal = None
+    from assistant_billing import Ledger, CheckpointProblem, account_lock, owed_value
     try:
-        bal = get_credits(uid)
-    except Exception:
-        pass
-    if cpc > 0 and bal is not None and bal < 1:
-        return JSONResponse({"ok": False, "nocredits": True, "billed": True, "credits": bal, "cost": 0,
-                             "answer": "You have no credits left, so the helper is paused. Add credits and ask again.", "support": False},
-                            headers={"Cache-Control": "no-store"})
-    key = f"u:{uid}"
-    acct = _assistant_account_text(uid, (req.job_id or "")[:40])
-    out = assistant_service.handle(contents, _assistant_pricing_text(), acct, True, key, uid, (req.lang or "")[:5], (req.page or "")[:60])
-    usd = float(out.pop("usd", 0) or 0)
-    cost = usd * cpc / 0.01 if (cpc > 0 and out.get("ok")) else 0.0
-    if cost > 0:
-        with _assist_owed_lock:
-            owed = _assist_owed.get(uid, 0.0) + cost
-            whole = int(owed)
-            if bal is not None:
-                whole = min(whole, int(bal))
-            if whole >= 1:
-                try:
-                    confirmed = deduct_credits(uid, whole, "assistant", None)
-                    if debit_confirmed(confirmed):
-                        owed -= whole
-                        if bal is not None:
-                            bal -= whole
-                        assistant_service.add_charged(whole)
-                except Exception as ex:
-                    print("[assistant] could not take credits:", ex)
-            _assist_owed[uid] = min(owed, 5.0)
-            _assist_owed_save()
-        try:
+        cpc = owed_value(assistant_service.SETTINGS.get("credits_per_cent") or 0)
+        with account_lock(uid):
+            bal = get_credits(uid)
+            if cpc > 0 and not debit_confirmed(bal):
+                raise CheckpointProblem("Your balance could not be checked. The helper is temporarily paused.")
+            ledger = Ledger(DATA_DIR, uid)
+            debit = lambda amount, operation_id: deduct_credits(uid, amount, "assistant", None, operation_id=operation_id)
+            if cpc > 0 or ledger.state.get("pending"):
+                bal, recovered, pending = ledger.settle(debit, bal)
+                if recovered:
+                    assistant_service.add_charged(recovered)
+                if pending:
+                    raise CheckpointProblem("The previous helper charge is awaiting confirmation. Please retry later.")
+                # A replayed debit reports its historical balance, so refresh
+                # before allowing a new paid helper request.
+                bal = get_credits(uid)
+                if not debit_confirmed(bal):
+                    raise CheckpointProblem("Your balance could not be checked. The helper is temporarily paused.")
+            if cpc > 0 and bal < 1:
+                return JSONResponse({"ok": False, "nocredits": True, "billed": True, "credits": bal, "cost": 0,
+                    "answer": "You have no credits left, so the helper is paused. Add credits and ask again.", "support": False},
+                    headers={"Cache-Control": "no-store"})
+            ledger.begin_question()
+            acct = _assistant_account_text(uid, (req.job_id or "")[:40])
+            out = assistant_service.handle(contents, _assistant_pricing_text(), acct, True, f"u:{uid}", uid,
+                                           (req.lang or "")[:5], (req.page or "")[:60])
+            usd = owed_value(out.pop("usd", 0) or 0)
+            cost = usd * cpc / owed_value("0.01") if out.get("ok") else owed_value(0)
+            ledger.finish_question(cost)
+            charged = 0
+            pending = False
+            if cpc > 0 and cost > 0:
+                bal, charged, pending = ledger.settle(debit, bal)
+                if charged:
+                    assistant_service.add_charged(charged)
             _assistant_acct_cache.clear()
-        except Exception:
-            pass
-    out["cost"] = round(cost, 4)
-    out["billed"] = cpc > 0
-    if bal is not None:
-        out["credits"] = bal
-    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+            out["cost"] = round(float(cost), 4)
+            out["billed"] = cpc > 0
+            out["billing_pending"] = pending
+            if debit_confirmed(bal):
+                out["credits"] = bal
+            return JSONResponse(out, headers={"Cache-Control": "no-store"})
+    except CheckpointProblem as ex:
+        return JSONResponse({"ok": False, "answer": str(ex), "support": True, "billing_pending": True},
+                            status_code=503, headers={"Cache-Control": "no-store"})
+    except Exception:
+        return JSONResponse({"ok": False, "answer": "The helper request could not be confirmed. Please contact support before retrying.",
+                             "support": True, "billing_pending": True}, status_code=503, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/assistant/credits")

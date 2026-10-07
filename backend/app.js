@@ -345,6 +345,10 @@ function updateBadges() {
     // cloneCredits price. (Both used to show the same badge, which read as
     // two separate 5-credit charges for one action.)
     setDeferredBadge("badgeAutoAssign", geminiCredits(autoAssignEstimateUsd()));      // listens to each speaker without a voice; settled in the Generate price
+    if (!geminiCredits(autoAssignEstimateUsd())) {                                   // nothing left to match: say so on hover
+        var aaEl = document.getElementById("badgeAutoAssign");
+        if (aaEl) aaEl.title = subsText("Free now: every speaker already has a voice, so there is nothing to match.", "مجاني الآن: لكل متحدث صوت بالفعل، فلا يوجد ما يُطابَق.");
+    }
     setBadge("badgeVoiceLibrary", 0);
     // Clone cost badges follow the engine that is active right now (the server decides it, and it is
     // the same one the real clone / custom-voice charges use), so the badge never misquotes the price.
@@ -1697,9 +1701,38 @@ async function onLipsyncRefImagesSelected(input) {
     }
 }
 
+function lipsyncIntentKey() { return 'lisan_lipsync_v1:'+currentJobId; }
+function lipsyncIntent(payload) {
+    let saved;
+    try { saved=JSON.parse(localStorage.getItem(lipsyncIntentKey())||'null'); }
+    catch(e) { throw new Error(subsText('The earlier lip-sync request could not be restored. Contact support before retrying.','تعذر استعادة طلب مزامنة الشفاه السابق. تواصل مع الدعم قبل المحاولة مرة أخرى.')); }
+    if(saved) {
+        if(saved.job_id!==payload.job_id||saved.resolution!==payload.resolution)
+            throw new Error(subsText('An earlier lip-sync request is unresolved. Restore its settings or contact support.','لم تُحسم نتيجة طلب مزامنة الشفاه السابق. أعد إعداداته السابقة أو تواصل مع الدعم.'));
+        return saved;
+    }
+    let operation_id;
+    try { operation_id=shortRegenerationUuid(); }
+    catch(e) { throw new Error(subsText('Reload this page before starting lip-sync.','أعد تحميل الصفحة قبل بدء مزامنة الشفاه.')); }
+    return Object.assign({},payload,{operation_id});
+}
+function saveLipsyncIntent(payload) {
+    try { localStorage.setItem(lipsyncIntentKey(),JSON.stringify(payload)); }
+    catch(e) { throw new Error(subsText('Allow this page to save the request before starting lip-sync.','اسمح لهذه الصفحة بحفظ الطلب قبل بدء مزامنة الشفاه.')); }
+}
+function finishLipsyncIntent(data) {
+    if(!data||data.operation_complete!==true) return;
+    try {
+        const key=lipsyncIntentKey(),saved=JSON.parse(localStorage.getItem(key)||'null');
+        if(saved&&(!data.operation_id||saved.operation_id===data.operation_id)) localStorage.removeItem(key);
+    } catch(e) {}
+}
+
 async function runLipsync() {
     if (!currentJobId) { notify("error", "Please upload your video first."); return; }
     const btn = document.getElementById("lipsyncButton");
+    if ((btn&&btn.disabled)||window._lipsyncSubmitting) return;
+    window._lipsyncSubmitting=true;
     if (btn) btn.disabled = true;
     const resultsEl = document.getElementById("lipsyncResults");
     if (resultsEl) { resultsEl.classList.add("hidden"); resultsEl.innerHTML = ""; }
@@ -1711,13 +1744,16 @@ async function runLipsync() {
     if (txt0) txt0.textContent = "Starting...";
     notify("info", "Starting lip-sync — this re-processes the full video and can take a few minutes...");
     try {
+        const payload=lipsyncIntent({job_id:currentJobId,resolution:selectedLipsyncRes()});
+        saveLipsyncIntent(payload);
         const res = await fetch("/api/lipsync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ job_id: currentJobId, resolution: selectedLipsyncRes() })
+            body: JSON.stringify(payload)
         });
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
+        finishLipsyncIntent(data);
         if (!res.ok || !data || data.status !== "started") {
             const msg = (data && data.error) || "Something went wrong on our side. Please try again in a moment.";
             notify("error", "Lip-sync failed to start: " + msg);
@@ -1733,7 +1769,7 @@ async function runLipsync() {
         notify("error", e.message);
         if (progEl) progEl.classList.add("hidden");
         if (btn) btn.disabled = false;
-    }
+    } finally { window._lipsyncSubmitting=false; }
 }
 
 async function checkLipsyncProgress() {
@@ -1741,6 +1777,7 @@ async function checkLipsyncProgress() {
     try {
         const res = await fetch("/api/progress/lipsync/" + encodeURIComponent(currentJobId) + "?t=" + Date.now());
         const data = await res.json();
+        finishLipsyncIntent(data);
         if (!data || data.status === "not_found") return;
         const fill = document.getElementById("lipsyncProgressFill");
         const txt = document.getElementById("lipsyncProgressText");
@@ -5374,8 +5411,8 @@ window.cleanOldClones = function () {
             ar: 'يدعم: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>تغطي كل دبلجة <strong>4-30 ثانية</strong> (<strong>4-15 ثانية</strong> إذا تم اختيار مزامنة الشفاه أدناه). فيديو أطول، أو ملف أكبر من 50 ميجابايت (حتى <strong>300 ميجابايت</strong>)؟ سيُطلب منك اختيار الجزء المراد دبلجته.'
         },
         step1CreditsNote: {
-            en: '💡 Credits are how you pay on Lisan AI: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>A typical full dub costs only a few credits.',
-            ar: '💡 الائتمانات هي وسيلة الدفع في Lisan AI: <strong>100 ائتمان = 1.00 دولار</strong> (الائتمان الواحد = 0.01 دولار).<br>الدبلجة الكاملة النموذجية تكلف بضعة ائتمانات فقط.'
+            en: '💡 Credits are how you pay on Lisan AI: <strong>100 credits = $1.00</strong> (1 credit = $0.01).<br>Every button shows its price before you click it. Text steps (translation, vowel marks, style detection, voice matching) are added to the price of <strong>Generate Arabic Audio</strong>.',
+            ar: '💡 الائتمانات هي وسيلة الدفع في Lisan AI: <strong>100 ائتمان = 1.00 دولار</strong> (الائتمان الواحد = 0.01 دولار).<br>كل زر يعرض سعره قبل أن تضغط عليه. خطوات النص (الترجمة وعلامات التشكيل وكشف الأسلوب ومطابقة الأصوات) تُضاف إلى سعر <strong>توليد الصوت العربي</strong>.'
         },
         attachMediaNote: {
             en: '📼 <strong>Project loaded.</strong> Upload the matching original audio/video file to enable preview, re-speak, emotion detection, auto-fix, and video merge.',
