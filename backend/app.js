@@ -252,6 +252,13 @@ function setBadge(id, credits) {
     const el = document.getElementById(id);
     if (el) el.innerHTML = `${COIN_SVG}<strong>${credits}</strong>`;
 }
+// Translation, vowel marks and emotion detection are not charged when they run: their cost is settled inside the
+// price of "Generate Arabic Audio". Their badges say so on hover, and a visible note sits under the buttons.
+function setDeferredBadge(id, credits) {
+    setBadge(id, credits);
+    const el = document.getElementById(id);
+    if (el) el.title = subsText("Not charged now: added to the price of Generate Arabic Audio.", "لا يُخصم الآن: يُضاف إلى سعر توليد الصوت العربي.");
+}
 // Real per-step charges from the server's own pricing config (admin-editable) --
 // these fall back to the current server defaults until /api/pricing answers, so
 // the badges below are never wrong even before that fetch completes.
@@ -310,9 +317,9 @@ function updateBadges() {
     setBadge("badgeSBV", 0);
     setBadge("badgeSave", 0);
     setBadge("badgeLoad", 0);
-    setBadge("badgeTranslate", geminiCredits(translateEstimateUsd()));
-    setBadge("badgeTashkeel", geminiCredits(tashkeelEstimateUsd()));
-    setBadge("badgeEmotions", geminiCredits(emotionsEstimateUsd()));
+    setDeferredBadge("badgeTranslate", geminiCredits(translateEstimateUsd()));
+    setDeferredBadge("badgeTashkeel", geminiCredits(tashkeelEstimateUsd()));
+    setDeferredBadge("badgeEmotions", geminiCredits(emotionsEstimateUsd()));
     setBadge("badgeAutoFix", 0);
     // Step 4: Auto-Assign and Browse Voice Library only pick/preview existing
     // studio voices -- no new voice is created, so both are free. Choosing a
@@ -2215,7 +2222,7 @@ function scheduleGeneratePrice() {
     generateQuoteStamp = stamp;
     var serial = ++generateQuoteSerial;
     var translated = payload.segments.filter(s => (s.arabic_text || "").trim());
-    if (!payload.job_id || !translated.length || translated.some(s => !payload.speaker_voices[s.speaker])) { setBadge("badgeGenerate", "—"); return; }
+    if (!payload.job_id || !translated.length || translated.some(s => !payload.speaker_voices[s.speaker])) { setBadge("badgeGenerate", "—"); var pn0 = document.getElementById("generatePriceNote"); if (pn0) pn0.textContent = ""; return; }
     setBadge("badgeGenerate", "…");
     generateQuoteTimer = setTimeout(async function() {
         try {
@@ -2224,6 +2231,11 @@ function scheduleGeneratePrice() {
             if (serial !== generateQuoteSerial || stamp !== JSON.stringify(shortGeneratePayload())) return;
             if (!response.ok || !Number.isInteger(quote.credits) || quote.credits < 1) throw new Error("Unavailable quote");
             setBadge("badgeGenerate", quote.credits);
+            var priceNote = document.getElementById("generatePriceNote");
+            if (priceNote) {
+                var textCredits = Number.isInteger(quote.analysis_credits) ? quote.analysis_credits : 0;
+                priceNote.textContent = textCredits > 0 ? subsText("Includes " + textCredits + " credit(s) for the translation and text work already done on this project. Voices: " + (quote.credits - textCredits) + ".", "يشمل " + textCredits + " رصيد مقابل الترجمة والعمل النصي الذي تم في هذا المشروع. الأصوات: " + (quote.credits - textCredits) + ".") : "";
+            }
         } catch(e) { if(serial === generateQuoteSerial) { setBadge("badgeGenerate", "—"); generateQuoteStamp = ""; } }
     }, 400);
 }
@@ -5077,6 +5089,7 @@ window.cleanOldClones = function () {
         ["Step 6: Final Result", "الخطوة 6: النتيجة النهائية"],
         ["Start", "ابدأ"],
         ["Auto Translate to Arabic", "ترجمة تلقائية إلى العربية"],
+        ["The price on Translate, Tashkeel and Detect Emotions is not charged now. It is added to the price of Generate Arabic Audio.", "السعر على أزرار الترجمة والتشكيل واكتشاف المشاعر لا يُخصم الآن، بل يُضاف إلى سعر توليد الصوت العربي."],
         // The 17 pairs below were previously written WITHOUT the emoji that
         // actually prefixes each button/link in the live DOM. Matching for
         // buttons/links/labels/headers requires the text to *start with* the

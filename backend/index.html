@@ -153,6 +153,7 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
     <button class="purple" onclick="addTashkeel()">🔤 Add Tashkeel Only<span class="badge" id="badgeTashkeel"></span></button>
     <button class="pink" onclick="detectEmotions()">Detect Emotions from Voice<span class="badge" id="badgeEmotions"></span></button>
     <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
+    <p id="textStepsNote" style="font-size:12px;color:#6b7280;margin:8px 0 0;">The price on Translate, Tashkeel and Detect Emotions is not charged now. It is added to the price of Generate Arabic Audio.</p>
     <div id="emotionProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%"></div></div>
         <p id="emotionProgressText" class="progress-status">Starting...</p>
@@ -246,6 +247,7 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
     <span data-tip-src data-tip-host="enhanceBgLabel" style="font-size:12px;color:#6b7280;">Removes low rumble and adds clarity to the voice. Instant, with no AI processing.</span>
 	</div>
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
+    <p id="generatePriceNote" style="font-size:12px;color:#6b7280;margin:6px 0 0;"></p>
     <div id="genProgress" class="hidden">
         <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div>
         <p id="genProgressText" class="progress-status">Starting...</p>
