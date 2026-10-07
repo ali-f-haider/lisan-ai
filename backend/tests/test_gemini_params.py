@@ -85,7 +85,7 @@ class CallTests(unittest.TestCase):
 def _is_backup_copy(path):
     name = path.name.lower()
     return (path.suffix.lower() in (".bak", ".orig") or "_old." in name
-            or re.search(r"-\d+$", path.stem) is not None)
+            or re.search(r"-[0-9]{1,6}\.", name) is not None)
 
 
 def _deprecated_parameters(root):

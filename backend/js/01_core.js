@@ -140,7 +140,7 @@ async function geminiTextCall(key, prompt) {
             lastErr = "empty response";
         } catch (e) { lastErr = e.message; }
     }
-    throw new Error(lastErr || "Gemini call failed");
+    throw new Error(lastErr || "Translation could not be completed. Please try again.");
 }
 function stripFences(t) {
     t = String(t).trim();

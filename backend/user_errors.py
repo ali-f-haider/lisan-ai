@@ -8,6 +8,7 @@ found again from a customer's report.
 friendly_error(e, where) turns any exception into such a sentence.
 UserError is for messages that were already written for the customer: it is shown as it is.
 """
+import re
 import uuid
 
 
@@ -63,3 +64,31 @@ def clean_prefix(text):
     if t.upper().startswith("ERROR:"):
         t = t[6:].strip()
     return t
+
+
+# Diagnostics only: never change the customer's transcript or project name.
+_PROVIDER_DIAGNOSTIC = re.compile(
+    r"\b(?:gemini|elevenlabs|inworld|openai|whisper|demucs|pyannote|fal(?:\.ai|[- ]ai)?|"
+    r"stable[- ]audio|claude|anthropic|gpt(?:[- ][0-9.]+)?|hugging[- ]face|replicate|"
+    r"deepseek|minimax|fish[- ]audio|veed|qwen|dashscope|alibaba|wanx|wan)\b|"
+    r"api[ _-]?key|\btokens?\b|\bquota\b|HTTP\s*(?:Error\s*)?\d{3}|Traceback", re.I)
+_DIAGNOSTIC_FIELDS = frozenset(("error", "errors", "message", "status_text", "detail", "reason", "why", "note",
+                               "music_note", "warning", "warnings", "cloned_voices"))
+
+
+def customer_message(text):
+    """Keep useful validation messages; hide raw service diagnostics and log them."""
+    if isinstance(text, str) and _PROVIDER_DIAGNOSTIC.search(text):
+        prefix = "ERROR: " if text.lstrip().upper().startswith("ERROR:") else ""
+        return prefix + friendly_error(text, "customer diagnostic")
+    return text
+
+
+def customer_payload(value, diagnostic=False):
+    """Return a copy with diagnostic fields safe for a customer response."""
+    if isinstance(value, dict):
+        return {key: customer_payload(item, diagnostic or key in _DIAGNOSTIC_FIELDS)
+                for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [customer_payload(item, diagnostic) for item in value]
+    return customer_message(value) if diagnostic else value

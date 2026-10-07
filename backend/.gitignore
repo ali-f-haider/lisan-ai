@@ -8,3 +8,14 @@ uploads/
 .env.local
 .local_data/
 .venv/
+
+# Backup copies (keep in agreement with tests/test_gemini_params.py).
+*.[bB][aA][kK]
+*.[oO][rR][iI][gG]
+*_[oO][lL][dD].*
+*-[0-9].*
+*-[0-9][0-9].*
+*-[0-9][0-9][0-9].*
+*-[0-9][0-9][0-9][0-9].*
+*-[0-9][0-9][0-9][0-9][0-9].*
+*-[0-9][0-9][0-9][0-9][0-9][0-9].*

@@ -9,6 +9,9 @@ import dub_review, dub_audio
 import numpy as np
 
 def extract(file, names, env):
+    from user_errors import customer_message, customer_payload
+    env.setdefault('customer_message', customer_message)
+    env.setdefault('customer_payload', customer_payload)
     tree = ast.parse((ROOT/file).read_text(encoding='utf-8'))
     nodes = [n for n in tree.body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef)) and n.name in names]
     for n in nodes: n.decorator_list=[]

@@ -1,6 +1,7 @@
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import json
+from user_errors import customer_message, customer_payload
 import os
 import secrets
 import shutil
@@ -368,7 +369,7 @@ def _public_progress(d):
     r = out.get("result")
     if isinstance(r, dict) and ("output_folder" in r or "final_file" in r):
         out["result"] = {k: v for k, v in r.items() if k not in ("output_folder", "final_file")}
-    return out
+    return customer_payload(out)
 
 
 def _http_err_detail(ex):
@@ -921,13 +922,7 @@ def logout(request: Request, response: Response):
     response.delete_cookie("session")
     return {"ok": True}
 
-@app.get("/demo_before.mp4")
-def demo_before():
-    return FileResponse(BASE_DIR / "demo_before.mp4", media_type="video/mp4")
 
-@app.get("/demo_after.mp4")
-def demo_after():
-    return FileResponse(BASE_DIR / "demo_after.mp4", media_type="video/mp4")
 
 
 @app.get("/debug-keys")
@@ -2092,7 +2087,7 @@ def delete_account(request: Request, response: Response):
         try:
             longdub_service.delete_account_jobs(uid)
         except ValueError as ex:
-            return JSONResponse({"error": str(ex)}, status_code=409)
+            return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
         except Exception:
             return JSONResponse({"error": "Your project cleanup could not finish. Your account has not been deleted. Please try again later."}, status_code=503)
         return _delete_account_run(request, response, uid)
@@ -3796,7 +3791,7 @@ CLONE_QUALITY_WARN_SEC = 30
 @app.post("/api/transcribe")
 async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form(""), lipsync: str = Form("false"), trim_start: float = Form(-1.0), trim_end: float = Form(-1.0)):
     if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     # The client already blocks the button until the voice-rights checkbox is
     # checked (Step 1), but that's JS and can't be trusted -- anyone posting
     # directly to this endpoint bypasses it, so this is the enforcement that
@@ -3809,7 +3804,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     bal = get_credits(uid)
     transcribe_cost = int(_get_pricing_config().get("transcribeCredits", 3))
     if bal is not None and bal < transcribe_cost:
-        return JSONResponse({"error": f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use âž• Buy to get a pack."}, status_code=402)
+        return JSONResponse({"error": customer_message(f"Insufficient credits ({bal} left). Transcription costs {transcribe_cost} credits. Use âž• Buy to get a pack.")}, status_code=402)
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
     _register_job_owner(job_id, uid)
@@ -3829,7 +3824,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
         try: dest.unlink()
         except Exception: pass
         _job_started.pop(job_id, None)
-        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {size_cap_mb} MB â€” please compress it or cut it shorter first."}, status_code=413)
+        return JSONResponse({"error": customer_message(f"This file is {round(size_mb, 1)} MB. The limit is {size_cap_mb} MB â€” please compress it or cut it shorter first.")}, status_code=413)
     lipsync_wanted = lipsync.strip().lower() in ("true", "1", "yes", "on")
     if trim_requested:
         # The user picked a section of a longer (or larger) file. Cut it out
@@ -3841,7 +3836,7 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
-            return JSONResponse({"error": f"The chosen section is {round(_cut_len)} seconds long. The limit is {_cut_max} seconds."}, status_code=413)
+            return JSONResponse({"error": customer_message(f"The chosen section is {round(_cut_len)} seconds long. The limit is {_cut_max} seconds.")}, status_code=413)
         try:
             _src_dur = ffmpeg_utils.get_media_duration(dest)
         except Exception:
@@ -3888,13 +3883,13 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
-            return JSONResponse({"error": f"This clip is only {round(dur, 1)} seconds long. The minimum is {min_sec} seconds."}, status_code=413)
+            return JSONResponse({"error": customer_message(f"This clip is only {round(dur, 1)} seconds long. The minimum is {min_sec} seconds.")}, status_code=413)
         if dur > max_sec + _tol:
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
             limit_desc = "For a lip-synced clip, the" if lipsync_wanted else "The"
-            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. {limit_desc} limit is {max_sec} seconds â€” please trim it first."}, status_code=413)
+            return JSONResponse({"error": customer_message(f"This clip is {round(dur)} seconds long. {limit_desc} limit is {max_sec} seconds â€” please trim it first.")}, status_code=413)
     jobs_progress[job_id] = {"status": "processing", "percent": 0,
                              "status_text": "Upload done, starting transcription...",
                              "is_video": ext in VIDEO_EXTS}
@@ -3932,7 +3927,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
         try: dest.unlink()
         except Exception: pass
         _job_started.pop(job_id, None)
-        return JSONResponse({"error": f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB â€” please trim or compress it first."}, status_code=413)
+        return JSONResponse({"error": customer_message(f"This file is {round(size_mb, 1)} MB. The limit is {MAX_UPLOAD_MB} MB â€” please trim or compress it first.")}, status_code=413)
     try:
         dur = ffmpeg_utils.get_media_duration(dest)
     except Exception as _dur_ex:
@@ -3943,12 +3938,12 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
-            return JSONResponse({"error": f"This clip is only {round(dur, 1)} seconds long. The minimum is {NO_LIPSYNC_MIN_SEC} seconds."}, status_code=413)
+            return JSONResponse({"error": customer_message(f"This clip is only {round(dur, 1)} seconds long. The minimum is {NO_LIPSYNC_MIN_SEC} seconds.")}, status_code=413)
         if dur > NO_LIPSYNC_MAX_SEC:
             try: dest.unlink()
             except Exception: pass
             _job_started.pop(job_id, None)
-            return JSONResponse({"error": f"This clip is {round(dur)} seconds long. The limit is {NO_LIPSYNC_MAX_SEC} seconds â€” please trim it first."}, status_code=413)
+            return JSONResponse({"error": customer_message(f"This clip is {round(dur)} seconds long. The limit is {NO_LIPSYNC_MAX_SEC} seconds â€” please trim it first.")}, status_code=413)
 
     is_video = ext in VIDEO_EXTS
     if is_video:
@@ -4102,7 +4097,7 @@ def analyze_speakers(req: AnalyzeRequest, request: Request):
 @app.post("/api/clone")
 def clone(req: CloneRequest, request: Request):
     if _rate_limited(request, "clone", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
@@ -4125,7 +4120,7 @@ def clone(req: CloneRequest, request: Request):
     engine = _active_voice_engine()
     ok, plan_or_error = _authorize_new_clones(uid, len(speakers_requested) or 1, engine=engine)
     if not ok:
-        return JSONResponse({"error": plan_or_error}, status_code=402)
+        return JSONResponse({"error": customer_message(plan_or_error)}, status_code=402)
     bal = get_credits(uid) if uid else None
     cfg = _get_pricing_config()
     clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
@@ -4133,7 +4128,7 @@ def clone(req: CloneRequest, request: Request):
         clone_cost = 5
     if bal is not None and bal < clone_cost:
         plural = "s" if clone_cost != 1 else ""
-        return JSONResponse({"error": f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use âž• Buy."}, status_code=402)
+        return JSONResponse({"error": customer_message(f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use âž• Buy.")}, status_code=402)
     if uid:
         deduct_credits(uid, clone_cost, "clone", req.job_id)
     if engine == "inworld":
@@ -4156,7 +4151,7 @@ def clone(req: CloneRequest, request: Request):
                 cloned_count += 1
         if cloned_count:
             _increment_clone_usage(uid, cloned_count)
-    return result
+    return customer_payload(result)
 
 @app.get("/api/my_voices")
 def my_voices(request: Request):
@@ -4286,7 +4281,7 @@ def delete_my_voice(voice_row_id: str, request: Request):
 @resource_meter.metered("shortdub_translate", lambda req, *a, **k: getattr(req, "job_id", ""))
 def translate(req: TranslateRequest, request: Request):
     if _rate_limited(request, "translate", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, req.job_id)
     if _g:
         return _g
@@ -4295,7 +4290,7 @@ def translate(req: TranslateRequest, request: Request):
 @app.post("/api/detect_emotions")
 def detect_emotions(req: EmotionRequest, request: Request):
     if _rate_limited(request, "detect_emotions", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
@@ -4319,7 +4314,7 @@ def emotions_progress(job_id: str, request: Request):
 @resource_meter.metered("shortdub_tashkeel", lambda req, *a, **k: (req.items[0].job_id if getattr(req, "items", None) and getattr(req.items[0], "job_id", None) else ""))
 def tashkeel(req: TashkeelRequest, request: Request):
     if _rate_limited(request, "tashkeel", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     if not req.items:
         return {"error": "Nothing to process."}
     prompt = ("You are an Arabic diacritization (tashkeel) engine.\n"
@@ -4387,7 +4382,7 @@ def _quote_response(req, request, regenerate=False):
     try:
         quote = _short_quote(req, regenerate)
     except ValueError as ex:
-        return JSONResponse({"error": str(ex)}, status_code=400)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=400)
     return {key: value for key, value in quote.items() if key != "ai_snapshot"}
 
 
@@ -4450,7 +4445,7 @@ def _short_edit(job_id, operation):
 @app.post("/api/generate")
 def generate(req: GenerateRequest, request: Request):
     if _rate_limited(request, "generate", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
@@ -4462,7 +4457,7 @@ def generate(req: GenerateRequest, request: Request):
         try:
             quote = _short_quote(req)
         except ValueError as ex:
-            return JSONResponse({"error": str(ex)}, status_code=400)
+            return JSONResponse({"error": customer_message(str(ex))}, status_code=400)
         payment_error = _check_short_payment(req, uid, quote)
         if payment_error is not None:
             return payment_error
@@ -4472,7 +4467,7 @@ def generate(req: GenerateRequest, request: Request):
             return JSONResponse({"error": "Your credit balance could not be checked. Please try again shortly."}, status_code=503)
         min_reserve = int(_get_pricing_config().get("minReserve", 20))
         if bal < min_reserve:
-            return JSONResponse({"error": f"You need at least {min_reserve} credits to start generating audio (you have {bal}). Use âž• Buy to top up."}, status_code=402)
+            return JSONResponse({"error": customer_message(f"You need at least {min_reserve} credits to start generating audio (you have {bal}). Use âž• Buy to top up.")}, status_code=402)
     _blk = _storage_block(uid, 0)
     if _blk is not None:
         return _blk          # storage full: delete finished files first (nothing is charged)
@@ -4504,7 +4499,7 @@ def generate(req: GenerateRequest, request: Request):
 @app.post("/api/regenerate_line")
 def regenerate_line(req: RegenerateLineRequest, request: Request):
     if _rate_limited(request, "regenerate_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, req.job_id, allow_empty=False)
     if _g:
         return _g
@@ -4515,7 +4510,7 @@ def regenerate_line(req: RegenerateLineRequest, request: Request):
         try:
             quote = _short_quote(req, regenerate=True)
         except ValueError as ex:
-            return JSONResponse({"error": str(ex)}, status_code=400)
+            return JSONResponse({"error": customer_message(str(ex))}, status_code=400)
         payment_error = _check_short_payment(req, uid, quote)
         if payment_error is not None:
             return payment_error
@@ -4523,13 +4518,13 @@ def regenerate_line(req: RegenerateLineRequest, request: Request):
         req.inworld_api_key = INWORLD_API_KEY
         result = eleven_service.regenerate_line(req)
         if result.get("status") != "success" or result.get("error"):
-            return result
+            return customer_payload(result)
         balance = deduct_credits(uid, quote["credits"], "regenerate", req.job_id)
         if not debit_confirmed(balance):
             return JSONResponse({"error": "Audio was regenerated, but payment could not be confirmed. Please contact support before retrying."}, status_code=503)
         result.update(credits_charged=quote["credits"], balance_after=get_credits(uid) if balance is True else balance)
         _job_charges[req.job_id] = {"credits_charged": result["credits_charged"], "balance_after": result["balance_after"]}
-        return result
+        return customer_payload(result)
     return _short_edit(req.job_id, run)
 
 @app.post("/api/restretch_line")
@@ -4561,7 +4556,7 @@ def room_profile(job_id: str, request: Request):
         return {"profile": prof, "settings": eleven_service.ROOM_SETTINGS.get(job_id) or {"mode": "auto"},
                 "last": eleven_service.ROOM_LAST.get(job_id), "enabled": bool(room_acoustics.ENABLED)}
     except Exception as ex:
-        return JSONResponse({"error": "Room sound is not available for this job.", "detail": str(ex)[:160]}, status_code=200)
+        return JSONResponse({"error": "Room sound is not available for this job.", "detail": customer_message(str(ex)[:160])}, status_code=200)
 
 def _merge_video_run(req: MergeRequest, request: Request, price):
     if _rate_limited(request, "merge_video", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
@@ -4702,7 +4697,7 @@ async def lipsync_reference_images(request: Request, job_id: str = Form(...), fi
     if not LIPSYNC_ENABLED:
         return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, job_id, allow_empty=False)
     if _g:
         return _g
@@ -4741,7 +4736,7 @@ def lipsync(req: LipSyncRequest, request: Request):
         # disabled. See the LIPSYNC_ENABLED comment in config.py.
         return JSONResponse({"error": "Lip-sync is temporarily unavailable. Please check back soon."}, status_code=503)
     if _rate_limited(request, "lipsync", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     uid, _no_acct = _paid_uid(request)
     if _no_acct is not None:
         return _no_acct
@@ -4772,7 +4767,7 @@ def lipsync(req: LipSyncRequest, request: Request):
     # paid call is what actually prevents a charge for a job that can't
     # succeed, regardless of what was chosen back at Step 1.
     if dur < LIPSYNC_MIN_SEC or dur > LIPSYNC_MAX_SEC:
-        return JSONResponse({"error": f"Lip-sync only works on clips between {LIPSYNC_MIN_SEC} and {LIPSYNC_MAX_SEC} seconds. This video is {round(dur, 1)} seconds."}, status_code=413)
+        return JSONResponse({"error": customer_message(f"Lip-sync only works on clips between {LIPSYNC_MIN_SEC} and {LIPSYNC_MAX_SEC} seconds. This video is {round(dur, 1)} seconds.")}, status_code=413)
 
     res = lipsync_res(req.resolution)
     per_sec = lipsync_rate(_get_pricing_config().get("lipsyncCreditsPerSec", 10), res)
@@ -4785,7 +4780,7 @@ def lipsync(req: LipSyncRequest, request: Request):
     if not LIPSYNC_TEST_MODE:
         bal = get_credits(uid) if uid else None
         if bal is not None and bal < lipsync_cost:
-            return JSONResponse({"error": f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use âž• Buy."}, status_code=402)
+            return JSONResponse({"error": customer_message(f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use âž• Buy.")}, status_code=402)
         if uid:
             deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
 
@@ -4850,7 +4845,7 @@ def segment_audio(job_id: str, segment_id: str, request: Request):
 @app.post("/api/cleanup_voices")
 def cleanup_voices(request: Request, payload: dict = {}):
     if _rate_limited(request, "cleanup_voices", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, payload.get("job_id") or "")
     if _g:
         return _g
@@ -4942,7 +4937,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     engine = _active_voice_engine()
     ok, plan_or_error = _authorize_new_clones(uid, 1, engine=engine)
     if not ok:
-        return JSONResponse({"error": plan_or_error}, status_code=402)
+        return JSONResponse({"error": customer_message(plan_or_error)}, status_code=402)
     nm = (file.filename or "").lower()
     if not nm.endswith((".mp3", ".wav")): return {"error": "Only MP3 or WAV files are allowed."}
     data = await file.read()
@@ -4960,7 +4955,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     bal = get_credits(uid)
     if bal is not None and bal < clone_cost:
         plural = "s" if clone_cost != 1 else ""
-        return JSONResponse({"error": f"Insufficient credits (creating a custom voice costs {clone_cost} credit{plural}). Use âž• Buy."}, status_code=402)
+        return JSONResponse({"error": customer_message(f"Insufficient credits (creating a custom voice costs {clone_cost} credit{plural}). Use âž• Buy.")}, status_code=402)
     import uuid as _u
     tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
     tmp.write_bytes(data)
@@ -4975,7 +4970,7 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     finally:
         try: tmp.unlink()
         except Exception: pass
-    if isinstance(res, str) and res.startswith("ERROR"): return {"error": res}
+    if isinstance(res, str) and res.startswith("ERROR"): return {"error": customer_message(res)}
     deduct_credits(uid, clone_cost, "custom_voice", job_id or "")
     _save_user_voice(uid, res, speaker, "", job_id or "")
     if engine == "inworld":
@@ -5063,14 +5058,14 @@ async def subs_align_route(body: SubsAlignRequest, request: Request):
     if not _current_uid(request) and not _is_logged_in(request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if len(body.segments) > 3000 or len(body.text) > subs_align.MAX_CHARS:
-        return JSONResponse({"error": subs_align.reason_message("too_big"), "reason": "too_big"}, status_code=400)
+        return JSONResponse({"error": customer_message(subs_align.reason_message("too_big")), "reason": "too_big"}, status_code=400)
     ok, info = subs_align.check_file(body.text, body.filename)
     if not ok:
-        return JSONResponse({"error": subs_align.reason_message(info), "reason": info}, status_code=400)
+        return JSONResponse({"error": customer_message(subs_align.reason_message(info)), "reason": info}, status_code=400)
     rows = [r for r in body.segments if isinstance(r, dict)]
     new_rows, rep = await asyncio.to_thread(subs_align.correct_rows, rows, body.text, body.filename, body.mode, body.add_missed)
     if not rep.get("ok"):
-        return JSONResponse({"error": subs_align.reason_message(rep.get("reason")), "reason": rep.get("reason")}, status_code=400)
+        return JSONResponse({"error": customer_message(subs_align.reason_message(rep.get("reason"))), "reason": rep.get("reason")}, status_code=400)
     return {"ok": True, "segments": new_rows, "report": rep}
 
 
@@ -5334,7 +5329,7 @@ def longdub_list(request: Request):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
-    return {"jobs": [longdub_service.public_view(j) for j in longdub_service.list_jobs_for_uid(uid)],
+    return {"jobs": [customer_payload(longdub_service.public_view(j)) for j in longdub_service.list_jobs_for_uid(uid)],
             "credits": get_credits(uid)}
 
 
@@ -5362,12 +5357,12 @@ def longdub_init(body: LongDubInit, request: Request):
         return _blk          # no point in uploading a big file that could not be saved
     _dg_ok, _ = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
     if not _dg_ok:
-        return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE, "capacity": True}, status_code=503)
+        return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE), "capacity": True}, status_code=503)
     job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
                                             body.name, body.description, body.lip_res)
     if err:
-        return JSONResponse({"error": err[0]}, status_code=err[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 @app.put("/api/longdub/{job_id}/chunk")
@@ -5390,7 +5385,7 @@ async def longdub_chunk(job_id: str, index: int, request: Request):
         return JSONResponse({"error": "The upload was interrupted. Please try again."}, status_code=400)
     ok, msg = await asyncio.to_thread(longdub_service.write_chunk, job, index, data)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=400)
+        return JSONResponse({"error": customer_message(msg)}, status_code=400)
     _held = job.get("reattach") if job.get("status") == "editing" and job.get("reattach") else job
     return {"ok": True, "received_count": len(_held.get("received", []))}
 
@@ -5405,8 +5400,8 @@ def longdub_finish(job_id: str, request: Request):
     else:
         ok, e = longdub_service.finish_upload(job, uid)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    v = longdub_service.public_view(longdub_service.load_job(job_id) or job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    v = customer_payload(longdub_service.public_view(longdub_service.load_job(job_id) or job))
     v["credits"] = get_credits(uid)
     return v
 
@@ -5423,8 +5418,8 @@ def longdub_project_update(job_id: str, body: LongDubProject, request: Request):
         return err
     ok, e = longdub_service.update_project(job, body.name, body.description)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 class LongDubSubtitle(BaseModel):
@@ -5442,8 +5437,8 @@ def longdub_subtitle_attach(job_id: str, body: LongDubSubtitle, request: Request
         return err
     ok, e = longdub_service.attach_subtitle(job, body.text, body.filename, body.mode, body.add_missed)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 @app.delete("/api/longdub/{job_id}/subtitle")
@@ -5453,8 +5448,8 @@ def longdub_subtitle_remove(job_id: str, request: Request):
         return err
     ok, e = longdub_service.remove_subtitle(job)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 class LongDubLipRes(BaseModel):
@@ -5472,8 +5467,8 @@ def longdub_lipres(job_id: str, body: LongDubLipRes, request: Request):
         return blocked
     ok, e = longdub_service.set_lipsync_resolution(job, uid, body.resolution)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 @app.post("/api/longdub/{job_id}/redo")
@@ -5488,8 +5483,8 @@ def longdub_redo(job_id: str, request: Request):
         return blocked
     ok, res = longdub_service.redo_project(job, uid)
     if not ok:
-        return JSONResponse({"error": res[0]}, status_code=res[1])
-    return longdub_service.public_view(res)
+        return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
+    return customer_payload(longdub_service.public_view(res))
 
 
 @app.post("/api/longdub/{job_id}/park")
@@ -5500,8 +5495,8 @@ def longdub_park(job_id: str, request: Request):
         return err
     ok, e = longdub_service.park_job(job, "user")
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 class LongDubReattach(BaseModel):
@@ -5520,11 +5515,11 @@ def longdub_reattach(job_id: str, body: LongDubReattach, request: Request):
         return blocked
     _dg_ok, _ = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
     if not _dg_ok:
-        return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE, "capacity": True}, status_code=503)
+        return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE), "capacity": True}, status_code=503)
     ok, e = longdub_service.restore_init(job, uid, body.filename, body.size)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    return longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
 
 
 class LongDubAccept(BaseModel):
@@ -5541,8 +5536,8 @@ def longdub_accept(job_id: str, body: LongDubAccept, request: Request):
         return blocked
     ok, e = longdub_service.accept(job, uid, body.agree)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
-    v = longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    v = customer_payload(longdub_service.public_view(job))
     v["credits"] = get_credits(uid)
     return v
 
@@ -5552,7 +5547,7 @@ def longdub_status(job_id: str, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
-    v = longdub_service.public_view(job)
+    v = customer_payload(longdub_service.public_view(job))
     if job.get("status") == "uploading":
         v["received"] = sorted(job.get("received", []))
     elif job.get("status") == "editing" and job.get("reattach"):
@@ -5606,7 +5601,7 @@ def longdub_put_segments(job_id: str, body: LongDubEdits, request: Request):
         return err
     ok, res = longdub_service.update_segments(job, body.edits)
     if not ok:
-        return JSONResponse({"error": res}, status_code=409)
+        return JSONResponse({"error": customer_message(res)}, status_code=409)
     return {"ok": True, "changed": res}
 
 
@@ -5624,7 +5619,7 @@ def longdub_line_time(job_id: str, body: LongDubLineTime, request: Request):
         return err
     ok, msg, rows = longdub_service.set_line_time(job, body.segment_id, body.start, body.end, body.manual)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "segments": _ld_public_rows(rows, job)}
 
 
@@ -5636,7 +5631,7 @@ async def longdub_player(job_id: str, request: Request):
         return err
     path, e = await asyncio.to_thread(longdub_service.ensure_preview, job)
     if e:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
     return {"ok": True, "url": f"/api/longdub/{job_id}/media", "kind": "video" if job.get("has_video") else "audio",
             "duration": job.get("duration") or 0}
 
@@ -5664,7 +5659,7 @@ def longdub_line_insert(job_id: str, body: LongDubLineRef, request: Request):
         return err
     ok, msg, rows, new_id = longdub_service.insert_line(job, body.segment_id)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "segments": _ld_public_rows(rows, job), "new_id": new_id}
 
 
@@ -5680,7 +5675,7 @@ def longdub_line_split(job_id: str, body: LongDubLineSplit, request: Request):
         return err
     ok, msg, rows, new_id = longdub_service.split_line(job, body.segment_id, body.position)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "segments": _ld_public_rows(rows, job), "new_id": new_id}
 
 
@@ -5691,7 +5686,7 @@ def longdub_line_delete(job_id: str, body: LongDubLineRef, request: Request):
         return err
     ok, msg, rows = longdub_service.delete_line(job, body.segment_id)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "segments": _ld_public_rows(rows, job)}
 
 
@@ -5706,7 +5701,7 @@ def longdub_put_speakers(job_id: str, body: LongDubSpeakers, request: Request):
         return err
     ok, msg = longdub_service.set_speakers(job, body.speakers)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "speaker_list": job.get("speaker_list", [])}
 
 
@@ -5721,15 +5716,15 @@ def longdub_preview(job_id: str, request: Request):
     # (the marks are characters, so this can raise the price).
     added, terr = longdub_service.ensure_tashkeel(job)
     if terr:
-        return JSONResponse({"error": terr}, status_code=503)
+        return JSONResponse({"error": customer_message(terr)}, status_code=503)
     p = longdub_service.dub_price(job)
     p["credits"] = get_credits(uid)
     try:
         p["music"] = longdub_service.music_quote(job)
     except Exception as ex:
-        p["music"] = {"repairs": 0, "max_credits": 0, "error": str(ex)}
+        p["music"] = {"repairs": 0, "max_credits": 0, "error": customer_message(str(ex))}
     p["tashkeel_added"] = added
-    return p
+    return customer_payload(p)
 
 
 class LongDubConfirm(BaseModel):
@@ -5752,14 +5747,14 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     _need = dub_review.output_budget(job.get("size"), job.get("duration"), _vid, body.tracks)
     permitted, reason, status = _ld_capacity(job, _need)
     if not permitted:
-        return JSONResponse({"error": reason}, status_code=status)
+        return JSONResponse({"error": customer_message(reason)}, status_code=status)
     ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks, body.keep_music, body.music_budget)
     if not ok:
         extra = {}
         if e[1] == 409 and job.get("status") == "editing":
             extra = {"price": longdub_service.dub_price(job)}
-        return JSONResponse({"error": e[0], **extra}, status_code=e[1])
-    v = longdub_service.public_view(job)
+        return JSONResponse({"error": customer_message(e[0]), **extra}, status_code=e[1])
+    v = customer_payload(longdub_service.public_view(job))
     v["credits"] = get_credits(uid)
     return v
 
@@ -5825,7 +5820,7 @@ def longdub_glossary_put(job_id: str, body: LongDubGlossary, request: Request):
         return err
     ok, res = longdub_service.set_glossary(job, body.text[:20000])
     if not ok:
-        return JSONResponse({"error": res[0]}, status_code=res[1])
+        return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
     return res
 
 
@@ -5841,13 +5836,13 @@ def longdub_glossary_check(job_id: str, request: Request):
 @app.post("/api/longdub/{job_id}/glossary/apply")
 def longdub_glossary_apply(job_id: str, request: Request):
     if _rate_limited(request, "glossary", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
     ok, res = longdub_service.glossary_apply(job)
     if not ok:
-        return JSONResponse({"error": res[0]}, status_code=res[1])
+        return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
     return res
 
 
@@ -5862,20 +5857,20 @@ def longdub_retranslate(job_id: str, body: LongDubRetranslate, request: Request)
         return err
     ok, msg, arabic = longdub_service.retranslate_line(job, body.segment_id)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "arabic_text": arabic, "emotion": longdub_service.line_emotion(job, body.segment_id)}
 
 
 @app.post("/api/longdub/{job_id}/tashkeel")
 def longdub_tashkeel(job_id: str, body: LongDubRetranslate, request: Request):
     if _rate_limited(request, "tashkeel", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
     ok, msg, arabic = longdub_service.tashkeel_line(job, body.segment_id)
     if not ok:
-        return JSONResponse({"error": msg}, status_code=409)
+        return JSONResponse({"error": customer_message(msg)}, status_code=409)
     return {"ok": True, "arabic_text": arabic}
 
 
@@ -5886,7 +5881,7 @@ def longdub_delete(job_id: str, request: Request):
         return err
     ok, e = longdub_service.delete_job(job, uid)
     if not ok:
-        return JSONResponse({"error": e[0]}, status_code=e[1])
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
     return {"ok": True}
 
 
@@ -8340,7 +8335,7 @@ async def longdub_review_page(job_id: str, request: Request):
 @app.get("/api/longdub/{job_id}/corrections")
 def longdub_corrections_view(job_id: str, request: Request):
     uid, job, err = _ld_job(request, job_id)
-    return err if err else longdub_edits.view(job)
+    return err if err else customer_payload(longdub_edits.view(job))
 
 
 @app.put("/api/longdub/{job_id}/corrections")
@@ -8350,9 +8345,9 @@ def longdub_corrections_save(job_id: str, body: LongDubEdits, request: Request):
     try:
         with longdub_service._lock_for(job_id):
             longdub_edits.edit(job, body.edits)
-        return longdub_edits.view(job)
+        return customer_payload(longdub_edits.view(job))
     except (ValueError, TypeError, KeyError) as ex:
-        return JSONResponse({"error": str(ex)}, status_code=400)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=400)
 
 
 class LongDubCorrectionSelection(BaseModel):
@@ -8372,14 +8367,14 @@ def longdub_correction_line(job_id: str, operation: str, body: LongDubCorrection
     if operation not in ("insert", "split", "delete", "retranslate", "tashkeel"):
         return JSONResponse({"error": "Unknown line action."}, status_code=400)
     if _rate_limited(request, "correction_line", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     try:
         new_id = longdub_edits.line_operation(job, operation, body.segment_id, body.position)
-        result = longdub_edits.view(job)
+        result = customer_payload(longdub_edits.view(job))
         result["new_id"] = new_id
         return result
     except (ValueError, TypeError, KeyError) as ex:
-        return JSONResponse({"error": str(ex)}, status_code=409)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
 
 
 @app.post("/api/longdub/{job_id}/corrections/player")
@@ -8395,7 +8390,7 @@ async def longdub_correction_player(job_id: str, request: Request):
         preview_job = dict(source, status="editing")
         path, error = await asyncio.to_thread(longdub_service.ensure_preview, preview_job)
         if error:
-            return JSONResponse({"error": error[0]}, status_code=error[1])
+            return JSONResponse({"error": customer_message(error[0])}, status_code=error[1])
     return {"url": f"/api/longdub/{source['id']}/media", "kind": "video" if source.get("has_video") else "audio"}
 
 
@@ -8404,7 +8399,7 @@ async def longdub_correction_emotion(job_id: str, body: LongDubCorrectionAction,
     uid, job, err = _ld_job(request, job_id)
     if err: return err
     if _rate_limited(request, "emotion_review", 20, 60):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     row = next((r for r in longdub_edits.rows(job) if r["segment_id"] == body.segment_id), None)
     source = longdub_edits.listening_source(job)
     audio = longdub_service._wd(source) / "vocals_mono.wav" if source else None
@@ -8420,9 +8415,9 @@ def longdub_corrections_quote(job_id: str, body: LongDubCorrectionSelection, req
     uid, job, err = _ld_job(request, job_id)
     if err: return err
     try:
-        return longdub_edits.quote(job, body.selected)
+        return customer_payload(longdub_edits.quote(job, body.selected))
     except (ValueError, TypeError) as ex:
-        return JSONResponse({"error": str(ex)}, status_code=409)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
 
 
 @app.post("/api/longdub/{job_id}/corrections/dub")
@@ -8434,9 +8429,9 @@ def longdub_corrections_dub(job_id: str, body: LongDubCorrectionSelection, reque
         if blocked is not None: return blocked
         try:
             child = longdub_edits.start(job, body.selected, body.token)
-            return longdub_service.public_view(child)
+            return customer_payload(longdub_service.public_view(child))
         except (ValueError, TypeError) as ex:
-            return JSONResponse({"error": str(ex)}, status_code=409)
+            return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
 
 
 @app.post("/api/longdub/{job_id}/corrections/finish")
@@ -8447,7 +8442,7 @@ def longdub_corrections_finish(job_id: str, request: Request):
         longdub_edits.finish(job)
         return {"ok": True}
     except ValueError as ex:
-        return JSONResponse({"error": str(ex)}, status_code=409)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
 
 
 @app.post("/api/longdub/{job_id}/corrections/restore")
@@ -8457,15 +8452,15 @@ def longdub_corrections_restore(job_id: str, body: LongDubReattach, request: Req
     if job.get("status") != "done" or longdub_edits.active(job):
         return JSONResponse({"error": "Wait until the project finishes."}, status_code=409)
     ok, message = disk_guard.check(int(body.size or 0), disk_guard.WORK_LONG_GB, _is_final_output)
-    if not ok: return JSONResponse({"error": disk_guard.REFUSAL_MESSAGE}, status_code=503)
+    if not ok: return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE)}, status_code=503)
     ok, child = longdub_service.redo_project(job, uid, for_edits=True)
-    if not ok: return JSONResponse({"error": child[0]}, status_code=child[1])
+    if not ok: return JSONResponse({"error": customer_message(child[0])}, status_code=child[1])
     child["restore_for_edits"] = job_id
     ok, error = longdub_service.restore_init(child, uid, body.filename, body.size)
-    if not ok: return JSONResponse({"error": error[0]}, status_code=error[1])
+    if not ok: return JSONResponse({"error": customer_message(error[0])}, status_code=error[1])
     job["edit_restore_id"] = child["id"]
     longdub_service._save(job); longdub_service._save(child)
-    return longdub_service.public_view(child)
+    return customer_payload(longdub_service.public_view(child))
 
 
 
@@ -8497,7 +8492,7 @@ def _short_merge_price(req):
             # The music under the speech cannot be rebuilt reliably (almost no clean background is left, or the
             # silent stretches are too long). The merge is still possible: the background stays silent while the
             # original speakers talk and is unchanged elsewhere. The quote tells the user, who must accept it.
-            repairs, music_kept, music_note = 0, False, str(ex)
+            repairs, music_kept, music_note = 0, False, customer_message(str(ex))
             print(f"[merge-quote] {req.job_id}: music not preserved: {music_note}")
     return {"merge": merge, "music_each": fee, "music_repairs": repairs, "music_max": repairs * fee,
             "music_charged": 0, "max_total": merge + repairs * fee, "music_kept": music_kept, "music_note": music_note}
@@ -8514,7 +8509,7 @@ def merge_video_quote(req: MergeRequest, request: Request):
     try:
         return _short_merge_price(req)
     except Exception as ex:
-        return JSONResponse({"error": str(ex)}, status_code=409)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
     finally:
         finish_operation(req.job_id)
 
@@ -8542,7 +8537,7 @@ def merge_video(req: MergeRequest, request: Request):
         charged = price.get("music_charged", 0) + price.get("merge_charged", 0) if price else 0
         if charged:
             _ld_refund(uid, charged, req.job_id)
-        return JSONResponse({"error": str(ex)}, status_code=503)
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=503)
     finally:
         finish_operation(req.job_id)
 
@@ -8566,7 +8561,7 @@ def short_emotion_review(body: EmotionReviewRequest, request: Request):
     guard = _job_guard(request, body.job_id, allow_empty=False)
     if guard: return guard
     if _rate_limited(request, "emotion_review", 20, 60):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     source = UPLOAD_DIR / f"{body.job_id}_audio.wav"
     if not source.exists(): return JSONResponse({"error": "Attach the original audio first."}, status_code=409)
     duration = ffmpeg_utils.get_media_duration(source)
@@ -8593,7 +8588,7 @@ async def long_emotion_review(job_id: str, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err: return err
     if _rate_limited(request, "emotion_review", 20, 60):
-        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     body = await request.json()
     row = next((r for r in longdub_service.read_segments(job) if r["segment_id"] == body.get("segment_id")), None)
     source = longdub_service._wd(job) / "vocals_mono.wav"

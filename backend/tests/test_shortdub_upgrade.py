@@ -26,6 +26,9 @@ JOB_A, JOB_B = 'a' * 32, 'b' * 32
 
 
 def source_functions(filename, names, namespace):
+    from user_errors import customer_message, customer_payload
+    namespace.setdefault('customer_message', customer_message)
+    namespace.setdefault('customer_payload', customer_payload)
     tree = ast.parse((ROOT / filename).read_text(encoding='utf-8-sig'))
     nodes = []
     for node in tree.body:
