@@ -149,17 +149,22 @@ class PricingTests(unittest.TestCase):
             self.assertTrue(debit_confirmed(value))
 
     def test_spend_history_records_confirmed_debits_only(self):
-        tree = ast.parse((ROOT / 'main.py').read_text(encoding='utf-8-sig'))
-        wrapper = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'deduct_credits' and isinstance(n.args.vararg, ast.arg)][0]
-        namespace = {'_od': Mock(), '_record_spend': Mock(), 'debit_confirmed': debit_confirmed}
-        exec(compile(ast.fix_missing_locations(ast.Module(body=[wrapper], type_ignores=[])), 'main.py', 'exec'), namespace)
-        for result in (None, False):
-            namespace['_od'].return_value = result
-            namespace['deduct_credits']('user', 10, 'generate', JOB_A)
-        namespace['_record_spend'].assert_not_called()
-        namespace['_od'].return_value = 0
-        namespace['deduct_credits']('user', 10, 'generate', JOB_A)
-        namespace['_record_spend'].assert_called_once_with('user', 'generate', 10, JOB_A, None)
+        # History now commits inside the SQL transaction, rather than in a
+        # later Python wrapper. Keep testing the original no-phantom-spend rule.
+        from test_credit_billing import AtomicLedger
+        ledger = AtomicLedger(5,5)
+        namespace = source_functions('main.py', ['deduct_credits'], {'_sb_rpc': ledger.rpc})
+        self.assertFalse(debit_confirmed(namespace['deduct_credits']('user', 11, 'generate', JOB_A)))
+        self.assertEqual(ledger.history, [])
+        ledger.fail_history = True
+        self.assertIsNone(namespace['deduct_credits']('user', 10, 'generate', JOB_A))
+        self.assertEqual(ledger.history, [])
+        self.assertEqual(ledger.balance, {'subscription':5,'permanent':5})
+        ledger.fail_history = False
+        self.assertEqual(namespace['deduct_credits']('user', 10, 'generate', JOB_A), 0)
+        self.assertEqual([row['credits'] for row in ledger.history], [10])
+        self.assertEqual(ledger.calls[-1][1]['p_action'], 'generate')
+        self.assertEqual(ledger.calls[-1][1]['p_job_id'], JOB_A)
 
 
 class RouteTests(unittest.TestCase):

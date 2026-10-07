@@ -18,6 +18,7 @@ from unittest.mock import Mock, patch
 import test_shortdub_upgrade as short
 from shortdub_billing import debit_confirmed
 from user_errors import customer_message, customer_payload
+from test_credit_billing import AtomicLedger
 
 
 def extract(file, names, env):
@@ -60,46 +61,41 @@ class BillingReviewTests(unittest.TestCase):
         return fixture
 
     def test_failed_combined_bucket_debit_preserves_the_entire_balance(self):
-        db = DeployedCreditLedger(5,5)
-        def rpc(name,data):
-            if name == 'deduct_credits': return None  # HTTP failure before this RPC commits
-            return db.rpc(name,data)
-        n = extract('main.py', ['deduct_credits'], {'_sb_rpc':rpc})
+        # The new RPC includes both buckets and history in ONE transaction.
+        db = AtomicLedger(5,5)
+        db.fail_history = True
+        n = extract('main.py', ['deduct_credits'], {'_sb_rpc':db.rpc})
         self.assertFalse(debit_confirmed(n['deduct_credits']('user',10)))
-        self.assertEqual(db.balance, {'subscription':5,'permanent':5}, 'A failed second RPC must not leave the first bucket charged')
+        self.assertEqual(db.balance, {'subscription':5,'permanent':5}, 'A failed transaction must not leave either bucket charged')
+        self.assertEqual(db.history, [])
 
     def test_lost_subscription_rpc_response_does_not_charge_the_other_bucket_again(self):
-        ledger = {'subscription':5, 'permanent':10}
-        def rpc(name, data):
-            if name == 'deduct_subscription_credits':
-                ledger['subscription'] -= 5
-                return None  # commit succeeded; its HTTP response was lost
-            ledger['permanent'] -= data['amount']
-            return ledger['permanent']
+        db = AtomicLedger(5,10)
+        attempts = []
+        def rpc(name, data, strict=False):
+            attempts.append(data['p_operation_id'])
+            result = db.rpc(name,data,strict)
+            if len(attempts) == 1:
+                raise TimeoutError('mock response lost AFTER transaction committed')
+            return result
         n = extract('main.py', ['deduct_credits'], {'_sb_rpc':rpc})
         n['deduct_credits']('user', 10)
-        self.assertGreaterEqual(sum(ledger.values()), 5, 'A 10-credit operation may not consume 15 credits')
+        self.assertGreaterEqual(sum(db.balance.values()), 5, 'A 10-credit operation may not consume 15 credits')
+        self.assertEqual(db.balance, {'subscription':0,'permanent':5})
+        self.assertEqual(attempts[0],attempts[1])
+        self.assertEqual(len(db.history),1)
 
     def test_credit_purchase_is_recoverable_when_grant_fails_after_order_insert(self):
-        orders, granted = set(), []
-        class Reply(io.BytesIO):
-            def __enter__(self): return self
-            def __exit__(self, *args): return False
-        def open_request(req, timeout=0):
-            if req.data is None:
-                return Reply(json.dumps([{'session_id':'checkout'}] if 'checkout' in orders else []).encode())
-            orders.add(json.loads(req.data)['session_id'])
-            return Reply(b'{}')
-        attempts = []
-        def rpc(name, values):
-            attempts.append(values)
-            if len(attempts) == 1: return None
-            granted.append(values['amount']); return values['amount']
-        n = extract('main.py', ['_fulfill_order'], {'SUPABASE_SERVICE_KEY':'mock', 'SUPABASE_URL':'https://database.invalid',
-                   'urllib':NS(request=NS(Request=urllib.request.Request, urlopen=open_request)), 'json':json, '_sb_rpc':rpc})
+        db = AtomicLedger(0,0)
+        db.fail_pack = True
+        n = extract('main.py', ['_fulfill_order'], {'_sb_rpc':db.rpc})
+        self.assertIsNone(n['_fulfill_order']('user', 'checkout', 100))
+        self.assertEqual(db.orders,{})  # grant and receipt both rolled back
+        db.fail_pack = False
         n['_fulfill_order']('user', 'checkout', 100)
-        n['_fulfill_order']('user', 'checkout', 100)
-        self.assertEqual(granted, [100], 'A paid order recorded before a failed grant must still be recoverable')
+        granted = [r['amount'] for r in db.orders.values() if r['status']=='done']
+        self.assertEqual(granted, [100], 'A paid order must remain recoverable after a failed grant')
+        self.assertEqual(db.balance['permanent'],100)
 
     def clone_env(self):
         provider = Mock(return_value={'cloned_voices':{'Speaker 1':'ERROR: Voice could not be cloned.'}})
@@ -110,7 +106,8 @@ class BillingReviewTests(unittest.TestCase):
                    'deduct_credits':Mock(return_value=95), 'JSONResponse':short.Response,
                    'ELEVENLABS_API_KEY':'mock', 'INWORLD_API_KEY':'mock', 'eleven_service':NS(clone_voices=provider),
                    '_save_user_voice':Mock(), '_increment_clone_usage':Mock(), '_tag_voice_engine':Mock(),
-                   '_ld_refund':Mock(), '_sb_rpc':Mock()})
+                   '_ld_refund':Mock(), '_sb_rpc':Mock(), 'debit_confirmed':debit_confirmed,
+                   '_short_clone_settle':Mock(return_value={'status':'done'})})
         req = short.request(speakers_to_clone=[], segments=[NS(speaker='Speaker 1', text='original')])
         return n, req, provider
 
@@ -118,7 +115,7 @@ class BillingReviewTests(unittest.TestCase):
         n, req, _ = self.clone_env()
         n['clone'](req, object())
         charged = sum(c.args[1] for c in n['deduct_credits'].call_args_list)
-        refunded = sum(c.args[1] for c in n['_ld_refund'].call_args_list)
+        refunded = sum(c.args[3] for c in n['_short_clone_settle'].call_args_list)
         self.assertEqual(charged-refunded, 0, 'A clone request where every speaker failed must not leave a charge')
 
     def test_short_voice_clone_does_not_run_after_an_unconfirmed_debit(self):
@@ -237,20 +234,20 @@ class BillingReviewTests(unittest.TestCase):
         f.n['eleven_service'].regenerate_line.assert_not_called()
 
     def test_insufficient_combined_balance_is_not_reported_as_fully_paid(self):
-        db=DeployedCreditLedger(5,0)
+        db=AtomicLedger(5,0)
         n=extract('main.py',['deduct_credits'],{'_sb_rpc':db.rpc})
         result=n['deduct_credits']('user',10)
         self.assertFalse(debit_confirmed(result),'The deployed SQL returns zero after deducting only five of ten requested credits')
 
     def test_positive_debits_do_not_make_either_sql_bucket_negative(self):
-        db=DeployedCreditLedger(5,5)
+        db=AtomicLedger(5,5)
         n=extract('main.py',['deduct_credits'],{'_sb_rpc':db.rpc})
         for amount in (8,5,100):n['deduct_credits']('user',amount)
         self.assertGreaterEqual(db.balance['subscription'],0)
         self.assertGreaterEqual(db.balance['permanent'],0)
 
     def test_negative_debit_cannot_create_subscription_credits(self):
-        db=DeployedCreditLedger(5,5)
+        db=AtomicLedger(5,5)
         n=extract('main.py',['deduct_credits'],{'_sb_rpc':db.rpc})
         try:result=n['deduct_credits']('user',-3)
         except ValueError:result=None  # explicit rejection is also correct
@@ -261,25 +258,19 @@ class BillingReviewTests(unittest.TestCase):
 
     def test_concurrent_bucket_debits_do_not_lose_credits_for_the_failed_request(self):
         from concurrent.futures import ThreadPoolExecutor
-        first_took_subscription = threading.Event()
-        second_finished = threading.Event()
-        db = DeployedCreditLedger(5,5)
-        def rpc(name,data):
-            result = db.rpc(name,data)
-            if name == 'deduct_subscription_credits' and data['amount'] == 8:
-                first_took_subscription.set()
-                if not second_finished.wait(3): raise AssertionError('Mock scheduling timed out')
-            return result
+        ready = threading.Barrier(2)
+        db = AtomicLedger(5,5)
+        def rpc(name,data,strict=False):
+            ready.wait(timeout=3)  # both requests saw the same initial balance
+            return db.rpc(name,data,strict)
         n = extract('main.py',['deduct_credits'],{'_sb_rpc':rpc})
-        # Both callers already saw ten credits; one wants eight, one five.
         with ThreadPoolExecutor(max_workers=2) as pool:
-            first=pool.submit(n['deduct_credits'],'user',8)
-            self.assertTrue(first_took_subscription.wait(3))
-            second=debit_confirmed(n['deduct_credits']('user',5))
-            second_finished.set()
-            first_ok=debit_confirmed(first.result())
-        self.assertLessEqual(sum([8 if first_ok else 0,5 if second else 0]),10,
-                             'Concurrent accepted charges may not exceed the initial funded balance')
+            first = pool.submit(n['deduct_credits'],'user',8)
+            second = pool.submit(n['deduct_credits'],'user',5)
+            first_ok,second_ok = debit_confirmed(first.result()),debit_confirmed(second.result())
+        accepted = (8 if first_ok else 0) + (5 if second_ok else 0)
+        self.assertLessEqual(accepted,10,'Concurrent accepted charges may not exceed the initial funded balance')
+        self.assertEqual(sum(db.balance.values()),10-accepted)
 
     def test_checkpoint_failure_after_refund_cannot_refund_the_same_charge_twice(self):
         persisted = {'id':'job','uid':'user','filename':'clip.mp4','paid':{'dub':7}}

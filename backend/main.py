@@ -1276,13 +1276,36 @@ def _current_uid(request: Request):
         return None
 
 
+def _billing_pause_response():
+    from credit_billing import ready, UNAVAILABLE
+    if not ready(_sb_rpc):
+        return JSONResponse({"error": UNAVAILABLE}, status_code=503)
+    return None
+
+
+def _short_clone_settle(uid, debit_id, outcome, refund_due):
+    from credit_billing import settle_clone
+    return settle_clone(_sb_rpc, DATA_DIR, uid, debit_id, outcome, refund_due)
+
+
+def _credit_recovery():
+    from credit_billing import reconcile_clones
+    while True:
+        try:
+            reconcile_clones(_sb_rpc, DATA_DIR)
+        except Exception:
+            print("[credits] settlement recovery will retry later")
+        _time.sleep(60)
+
+
 def _paid_uid(request: Request):
     """(uid, None) for a caller that has a real account, otherwise (None, ready 4xx/5xx response).
     Every step that costs credits (and real money at the AI providers) goes through this: a session without an
     account -- the shared-password login, or a login the server cannot verify -- is never let through to run it for free."""
     uid = _current_uid(request)
     if uid:
-        return uid, None
+        paused = _billing_pause_response()
+        return (None, paused) if paused is not None else (uid, None)
     cookie = request.cookies.get("session", "")
     if cookie and _valid_tokens.get(cookie):
         # there is an account login but the lookup failed just now (network, Supabase hiccup): nothing was charged
@@ -1341,7 +1364,7 @@ def _sb_rpc(function: str, args: dict, strict=False):
     req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/rpc/{function}", data=body, headers={
         "Content-Type": "application/json",
         "apikey": SUPABASE_SERVICE_KEY,
-        
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -1429,68 +1452,22 @@ def _get_permanent_credits(uid):
         return None
 
 
-def deduct_credits(uid, amount):
-    """Draws credits from TWO buckets, in order: subscription_credits (this
-    cycle's subscription allowance, forfeited at next renewal -- see
-    _grant_subscription_credits) first, then the permanent `credits`
-    balance (signup bonus, admin grants, one-time pack purchases -- never
-    expires) for any shortfall. Ali's 2026-09-27 "use it or lose it"
-    decision: spending the expiring bucket first means a subscriber's
-    permanent pack credits are never touched while any subscription
-    allowance remains for the cycle.
+def deduct_credits(uid, amount, action="deduction", job_id=None, generated_seconds=None, operation_id=None):
+    """Atomic full debit and history receipt. False=insufficient; None=unconfirmed.
 
-    Each bucket's deduction is independently atomic (deduct_subscription_
-    credits is a row-locked Postgres function; the original deduct_credits
-    RPC below was already atomic before this feature existed), so this is
-    safe under concurrent requests -- each call only ever moves its own
-    correctly-computed shortfall from one bucket to the next, never a
-    stale/racy read.
-
-    If the new column/RPC isn't there yet (migration not run) or the RPC
-    call itself fails for any reason, sub_result comes back None/malformed
-    and shortfall stays at the FULL requested amount -- i.e. this draws
-    entirely from permanent credits, exactly today's behavior -- so this
-    is safe to deploy before Ali runs that migration."""
-    shortfall = int(amount)
-    if uid:
-        sub_result = _sb_rpc("deduct_subscription_credits", {"uid": uid, "amount": int(amount)})
-        if isinstance(sub_result, list) and sub_result and isinstance(sub_result[0], dict):
-            try:
-                shortfall = max(0, int(sub_result[0].get("shortfall", amount)))
-            except (TypeError, ValueError):
-                shortfall = int(amount)
-    if shortfall <= 0:
-        return True
-    return _sb_rpc("deduct_credits", {"uid": uid, "amount": shortfall})
+    An explicit operation_id makes a replay safe across process restarts.
+    Without one, a fresh user action gets an ID retained for transport retries.
+    Missing migration pauses billing; the old split debit is never used.
+    """
+    from credit_billing import debit
+    return debit(_sb_rpc, uid, amount, action, job_id, generated_seconds, operation_id)
 
 def _fulfill_order(uid: str, session_id: str, credits: int):
-    """Idempotently credit a paid checkout session. Safe to call many times."""
-    if not uid or not session_id or not credits or not SUPABASE_SERVICE_KEY:
-        return None
+    """Atomically record a paid pack and grant it once; failure remains retriable."""
+    from credit_billing import fulfill
     try:
-        chk = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/credit_orders?session_id=eq.{session_id}&select=session_id",
-            headers={"apikey": SUPABASE_SERVICE_KEY}
-        )
-        with urllib.request.urlopen(chk, timeout=10) as r:
-            if json.load(r):
-                return "already-fulfilled"
-                
-        body = json.dumps({"session_id": session_id, "uid": uid, "credits": credits}).encode("utf-8")
-        ins = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/credit_orders", 
-            data=body, 
-            headers={
-                "Content-Type": "application/json",
-                "apikey": SUPABASE_SERVICE_KEY,
-            }
-        )
-        with urllib.request.urlopen(ins, timeout=10) as r:
-            r.read()
-            
-        return _sb_rpc("add_credits", {"uid": uid, "amount": credits})
-    except Exception as e:
-        print("[stripe] fulfill error:", e)
+        return fulfill(_sb_rpc, uid, session_id, credits)
+    except ValueError:
         return None
 
 def _watch_and_deduct(job_id, uid, kind):
@@ -1610,6 +1587,9 @@ def billing_checkout(payload: dict, request: Request):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required to buy credits."}, status_code=401)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     pack_key = payload.get("pack", "")
     pack = get_packs().get(pack_key)
     if not pack:
@@ -1724,6 +1704,9 @@ def billing_subscribe(request: Request, plan_key: str = ""):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required to subscribe."}, status_code=401)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     # A second checkout would create a SECOND, parallel subscription (double
     # billing). Existing subscribers change tier from the Buy box, and
     # cancel/renew from the Account page.
@@ -1979,6 +1962,9 @@ def billing_change_plan(request: Request, plan_key: str = ""):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Login required."}, status_code=401)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     target = _plan_by_key_strict(plan_key)
     if not target:
         return JSONResponse({"error": "That plan doesn't exist."}, status_code=400)
@@ -2206,7 +2192,11 @@ def billing_sync(request: Request):
             if s.get("payment_status") == "paid":
                 credits = int((s.get("metadata") or {}).get("credits", 0))
                 res = _fulfill_order(uid, s.get("id", ""), credits)
-                if isinstance(res, int):
+                if res == "needs-review":
+                    return JSONResponse({"error": "A previous credit purchase needs review. Please contact support."}, status_code=503)
+                if res is None:
+                    return JSONResponse({"error": "Your credit purchase is still pending. Please try again later."}, status_code=503)
+                if type(res) is int:
                     added += credits
     except Exception as e:
         print(f"[billing-sync] failed: {e}")
@@ -2314,6 +2304,8 @@ async def stripe_webhook(request: Request):
                     print("[stripe-webhook] SUPABASE_SERVICE_KEY present:", bool(SUPABASE_SERVICE_KEY))
                     res = _fulfill_order(uid, session.get("id", ""), credits)
                     print("[stripe] fulfill result:", res)
+                    if res is None or res == "needs-review":
+                        return JSONResponse({"error": "Credit delivery is pending. Please retry later."}, status_code=503)
         elif etype == "invoice.paid":
             # Fires for the subscription's very first charge AND every
             # monthly renewal -- the one place credits actually get granted
@@ -4096,6 +4088,8 @@ def analyze_speakers(req: AnalyzeRequest, request: Request):
 
 @app.post("/api/clone")
 def clone(req: CloneRequest, request: Request):
+    from credit_billing import credit_amount, clone_refund_amount
+    import uuid as _u
     if _rate_limited(request, "clone", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
         return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     _g = _job_guard(request, req.job_id, allow_empty=False)
@@ -4104,53 +4098,70 @@ def clone(req: CloneRequest, request: Request):
     uid, _no_acct = _paid_uid(request)
     if _no_acct is not None:
         return _no_acct
-    # Same speaker-resolution logic as eleven_service.clone_voices itself
-    # (empty speakers_to_clone means "every distinct speaker with text") --
-    # duplicated here only so the slot/quota gate below knows how many NEW
-    # voices this call is actually about to try to create, before spending
-    # any ElevenLabs quota on them.
-    speakers_requested = list(set(s.speaker for s in req.segments if (s.text or "").strip()))
+    # Count exactly the non-empty speakers the engine will try to clone.
+    speakers_requested = sorted(set(s.speaker for s in req.segments if (s.text or "").strip()))
     if req.speakers_to_clone:
         speakers_requested = [s for s in speakers_requested if s in req.speakers_to_clone]
-    # Which engine will actually create these clones -- resolved BEFORE the
-    # authorize gate (used to be after) so the gate's ElevenLabs shared-quota
-    # check only applies when ElevenLabs is actually the engine being used;
-    # also feeds the cost check below so it uses THIS engine's own rate, not
-    # always ElevenLabs' cloneCredits.
+    if not speakers_requested:
+        return JSONResponse({"error": "Choose at least one speaker with speech to clone."}, status_code=400)
     engine = _active_voice_engine()
-    ok, plan_or_error = _authorize_new_clones(uid, len(speakers_requested) or 1, engine=engine)
+    ok, plan_or_error = _authorize_new_clones(uid, len(speakers_requested), engine=engine)
     if not ok:
         return JSONResponse({"error": customer_message(plan_or_error)}, status_code=402)
-    bal = get_credits(uid) if uid else None
     cfg = _get_pricing_config()
-    clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
-    if clone_cost <= 0:
-        clone_cost = 5
-    if bal is not None and bal < clone_cost:
-        plural = "s" if clone_cost != 1 else ""
-        return JSONResponse({"error": customer_message(f"Insufficient credits (cloning costs {clone_cost} credit{plural}). Use âž• Buy.")}, status_code=402)
-    if uid:
-        deduct_credits(uid, clone_cost, "clone", req.job_id)
-    if engine == "inworld":
-        result = inworld_service.clone_voices(req.job_id, req.segments, INWORLD_API_KEY, req.speakers_to_clone)
+    try:
+        clone_cost = credit_amount(cfg.get("inworldCloneCredits" if engine == "inworld" else "cloneCredits", 5))
+    except ValueError:
+        return JSONResponse({"error": "The cloning price is unavailable. Please try again later."}, status_code=503)
+    debit_id = str(_u.uuid4())
+    balance = deduct_credits(uid, clone_cost, "clone", req.job_id, operation_id=debit_id)
+    if not debit_confirmed(balance):
+        if balance is None:
+            _short_clone_settle(uid, debit_id, "cancelled", clone_cost)
+        message = "Not enough credits to clone these voices." if balance is False else "We couldn't confirm the payment. No voices were cloned; please try again later."
+        return JSONResponse({"error": message, "operation_id": debit_id}, status_code=402 if balance is False else 503)
+    try:
+        if engine == "inworld":
+            result = inworld_service.clone_voices(req.job_id, req.segments, INWORLD_API_KEY, req.speakers_to_clone)
+        else:
+            result = eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
+    except Exception:
+        result = {"error": "The voices could not be cloned. Please try again later.", "cloned_voices": {}}
+    if not isinstance(result, dict):
+        result = {"error": "The voices could not be cloned. Please try again later.", "cloned_voices": {}}
+    voices = result.get("cloned_voices")
+    voices = voices if isinstance(voices, dict) else {}
+    delivered = {speaker: voices[speaker] for speaker in speakers_requested
+                 if isinstance(voices.get(speaker), str) and voices[speaker].strip()
+                 and not voices[speaker].startswith("ERROR")}
+    for speaker, voice_id in delivered.items():
+        _save_user_voice(uid, voice_id, speaker, "", req.job_id)
+        if engine == "inworld":
+            _tag_voice_engine(voice_id, engine)
+    if delivered:
+        _increment_clone_usage(uid, len(delivered))
+    failed = len(speakers_requested) - len(delivered)
+    refund_due = clone_refund_amount(clone_cost, failed, len(speakers_requested))
+    outcome = "failed" if not delivered else "partial" if failed else "delivered"
+    settled = _short_clone_settle(uid, debit_id, outcome, refund_due)
+    refunded = refund_due if settled is not None else 0
+    result.update(credits_charged=clone_cost-refunded, credits_refunded=refunded,
+                  refund_pending=refund_due-refunded, operation_id=debit_id)
+    result["cloned_voices"] = {speaker: delivered.get(speaker) or (voices[speaker] if isinstance(voices.get(speaker), str) and voices[speaker].startswith("ERROR") else "ERROR: This voice could not be cloned.")
+                               for speaker in speakers_requested}
+    if not delivered:
+        result["status"] = "error"
+        result["error"] = (f"The voices could not be cloned. We refunded {refunded} credits." if refunded else
+                           "The voices could not be cloned. Your refund is pending and will be retried automatically.")
     else:
-        result = eleven_service.clone_voices(req.job_id, req.segments, ELEVENLABS_API_KEY, req.speakers_to_clone)
-    # Persist every voice that actually succeeded into this user's saved
-    # library (see _authorize_new_clones / user_voices) -- named after its
-    # speaker label for now; renaming/describing it is task #61 (voice
-    # library management UI), not built yet. Best-effort -- see
-    # _save_user_voice's docstring for why a failure here doesn't turn this
-    # into an error response.
-    if uid and isinstance(result, dict) and result.get("cloned_voices"):
-        cloned_count = 0
-        for speaker, voice_id in result["cloned_voices"].items():
-            if not str(voice_id).startswith("ERROR"):
-                _save_user_voice(uid, voice_id, speaker, "", req.job_id)
-                if engine == "inworld":
-                    _tag_voice_engine(voice_id, engine)
-                cloned_count += 1
-        if cloned_count:
-            _increment_clone_usage(uid, cloned_count)
+        result["status"] = "success"
+        result.pop("error", None)
+        warnings = result.get("warnings") if isinstance(result.get("warnings"), list) else []
+        result["warnings"] = warnings + [f"This request cost {clone_cost-refunded} credits; {refunded} credits refunded."]
+    if refund_due and settled is None:
+        result["notice"] = "Your refund is pending; it will be retried automatically."
+        if delivered:
+            result["warnings"].append(result["notice"])
     return customer_payload(result)
 
 @app.get("/api/my_voices")
@@ -4926,6 +4937,9 @@ def download_voice_sample(job_id: str, speaker: str, request: Request):
 async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     _g = _job_guard(request, job_id)
     if _g:
         return _g
@@ -4946,12 +4960,14 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     # endpoint -- and the same paid voice-creation quota -- as "Clone Selected
     # Voices" in /api/clone above, so charge it the same admin-configurable
     # price (cloneCredits). Checked up front so a low balance is rejected
-    # before spending the ElevenLabs quota; actually deducted only after the
-    # voice is created, so a rejected/too-long clip never gets charged.
+    # before spending provider quota; debited after local upload validation
+    # and returned if no voice is delivered.
     cfg = _get_pricing_config()
-    clone_cost = int(cfg.get("inworldCloneCredits", 5)) if engine == "inworld" else int(cfg.get("cloneCredits", 5))
-    if clone_cost <= 0:
-        clone_cost = 5
+    from credit_billing import credit_amount
+    try:
+        clone_cost = credit_amount(cfg.get("inworldCloneCredits" if engine == "inworld" else "cloneCredits", 5))
+    except ValueError:
+        return JSONResponse({"error": "The cloning price is unavailable. Please try again later."}, status_code=503)
     bal = get_credits(uid)
     if bal is not None and bal < clone_cost:
         plural = "s" if clone_cost != 1 else ""
@@ -4959,6 +4975,14 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     import uuid as _u
     tmp = OUTPUT_DIR / f"custom_upload_{_u.uuid4().hex}.bin"
     tmp.write_bytes(data)
+    debit_id = str(_u.uuid4())
+    balance = deduct_credits(uid, clone_cost, "custom_voice", job_id or None, operation_id=debit_id)
+    if not debit_confirmed(balance):
+        tmp.unlink(missing_ok=True)
+        if balance is None:
+            _short_clone_settle(uid, debit_id, "cancelled", clone_cost)
+        message = "Not enough credits to clone this voice." if balance is False else "We couldn't confirm the payment. No voice was cloned; please try again later."
+        return JSONResponse({"error": message, "operation_id": debit_id}, status_code=402 if balance is False else 503)
     try:
         if engine == "inworld":
             res = inworld_service.add_custom_voice(job_id or "custom", speaker, tmp, INWORLD_API_KEY)
@@ -4970,13 +4994,18 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     finally:
         try: tmp.unlink()
         except Exception: pass
-    if isinstance(res, str) and res.startswith("ERROR"): return {"error": customer_message(res)}
-    deduct_credits(uid, clone_cost, "custom_voice", job_id or "")
+    if not isinstance(res, str) or not res.strip() or res.startswith("ERROR"):
+        settled = _short_clone_settle(uid, debit_id, "failed", clone_cost)
+        refunded = clone_cost if settled is not None else 0
+        return {"error": (f"The voice could not be cloned. We refunded {refunded} credits." if refunded else
+                          "The voice could not be cloned. Your refund is pending and will be retried automatically."), "credits_charged": clone_cost-refunded,
+                "credits_refunded": refunded, "refund_pending": clone_cost-refunded, "operation_id": debit_id}
+    _short_clone_settle(uid, debit_id, "delivered", 0)
     _save_user_voice(uid, res, speaker, "", job_id or "")
     if engine == "inworld":
         _tag_voice_engine(res, engine)
     _increment_clone_usage(uid, 1)
-    return {"status": "success", "voice_id": res}
+    return {"status": "success", "voice_id": res, "credits_charged": clone_cost, "credits_refunded": 0, "operation_id": debit_id}
 
 def account_summary(request: Request):
     uid = _current_uid(request)
@@ -5017,27 +5046,9 @@ def _record_spend(uid, action, credits, job_id=None, generated_seconds=None):
         urllib.request.urlopen(req, timeout=5)
     except Exception:
         pass
-try:
-    _od = deduct_credits
-    def deduct_credits(*a, **k):
-        uid = a[0] if len(a) > 0 else k.get("uid")
-        amt = a[1] if len(a) > 1 else k.get("amount", k.get("credits"))
-        act = a[2] if len(a) > 2 else k.get("action", "deduction")
-        jid = a[3] if len(a) > 3 else k.get("job_id")
-        gsec = a[4] if len(a) > 4 else k.get("generated_seconds")
-        # _od (the original deduct_credits) only ever took (uid, amount) â€” call it
-        # with exactly that, never with the extra action/job_id tracking args,
-        # or it raises "takes 2 positional arguments but 4 were given" and the
-        # real credit deduction never happens.
-        r = _od(uid, amt)
-        try:
-            if debit_confirmed(r):
-                _record_spend(uid, act or "deduction", amt, jid, gsec)
-        except Exception:
-            pass
-        return r
-except NameError:
-    pass
+# Debit history is written atomically by lisan_atomic_debit.
+threading.Thread(target=_credit_recovery, daemon=True, name="credit-recovery").start()
+
 
 
 
@@ -5348,6 +5359,9 @@ def longdub_init(body: LongDubInit, request: Request):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
@@ -5531,6 +5545,9 @@ def longdub_accept(job_id: str, body: LongDubAccept, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
@@ -5740,6 +5757,9 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     blocked = _ld_studio_only(uid)
     if blocked:
         return blocked
@@ -6649,6 +6669,11 @@ def _save_pricing_config(config):
     row had never been created, PATCH silently matched zero rows and
     returned success without writing anything, so admin edits looked saved
     but never actually persisted (and public pages kept showing defaults)."""
+    from credit_billing import validate_pricing
+    try:
+        config = validate_pricing(config)
+    except ValueError as ex:
+        return False, str(ex)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return False, "Supabase not configured"  # not in DB, but UI already shows current values
     try:
@@ -8011,6 +8036,9 @@ def assistant_chat(req: AssistantRequest, request: Request):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"ok": False, "answer": "Please sign in to use the helper.", "support": False, "login": True}, status_code=401)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
     if _rate_limited(request, "assistant", 20, 600):
         return JSONResponse({"ok": False, "answer": "You are sending messages too fast. Please wait a minute.", "support": False}, status_code=429)
     contents = assistant_service.clean_messages(req.messages)
@@ -8039,11 +8067,12 @@ def assistant_chat(req: AssistantRequest, request: Request):
                 whole = min(whole, int(bal))
             if whole >= 1:
                 try:
-                    deduct_credits(uid, whole, "assistant", None)
-                    owed -= whole
-                    if bal is not None:
-                        bal -= whole
-                    assistant_service.add_charged(whole)
+                    confirmed = deduct_credits(uid, whole, "assistant", None)
+                    if debit_confirmed(confirmed):
+                        owed -= whole
+                        if bal is not None:
+                            bal -= whole
+                        assistant_service.add_charged(whole)
                 except Exception as ex:
                     print("[assistant] could not take credits:", ex)
             _assist_owed[uid] = min(owed, 5.0)
