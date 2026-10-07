@@ -245,6 +245,21 @@ function emotionsEstimateUsd() {
     const tok = Math.ceil(sec * AUDIO_TOKENS_PER_SEC) + segmentsData.length * 100;
     return tok / 1e6 * GEMINI_IN_PER_M + Math.ceil(tok * 0.1) / 1e6 * GEMINI_OUT_PER_M;
 }
+// Auto-Assign listens to each speaker that has no voice yet (up to 15 seconds each). Like the text steps, its cost is
+// not charged when it runs: it is added to the price of Generate Arabic Audio.
+function autoAssignEstimateUsd() {
+    try {
+        var sec = {}, seen = {};
+        (segmentsData || []).forEach(function(s) { var n = s.speaker || "Speaker 1"; seen[n] = true; sec[n] = (sec[n] || 0) + Math.max(0, s.end - s.start); });
+        var usd = 0;
+        Object.keys(seen).forEach(function(n) {
+            if (speakerChoices[n] || clonedBySpeaker[n]) return;
+            var tokIn = Math.ceil(Math.min(15, sec[n]) * AUDIO_TOKENS_PER_SEC) + 250;
+            usd += tokIn / 1e6 * GEMINI_IN_PER_M + 150 / 1e6 * GEMINI_OUT_PER_M;
+        });
+        return usd;
+    } catch (e) { return 0; }
+}
 function generateEstimateUsd() {
     return segmentsData.reduce((a, s) => a + lineCostUsd(s.arabic_text, s.emotion), 0);
 }
@@ -321,14 +336,15 @@ function updateBadges() {
     setDeferredBadge("badgeTashkeel", geminiCredits(tashkeelEstimateUsd()));
     setDeferredBadge("badgeEmotions", geminiCredits(emotionsEstimateUsd()));
     setBadge("badgeAutoFix", 0);
-    // Step 4: Auto-Assign and Browse Voice Library only pick/preview existing
+    // Step 4: Auto-Assign listens to the speakers to match voices (a small text-AI cost, settled in Generate);
+    // Browse Voice Library only previews existing
     // studio voices -- no new voice is created, so both are free. Choosing a
     // file is just a local file picker (no server call, no cost) -- only
     // clicking "Upload as this speaker's voice" actually creates a voice
     // (same ElevenLabs quota as Clone), so only THAT button carries the
     // cloneCredits price. (Both used to show the same badge, which read as
     // two separate 5-credit charges for one action.)
-    setBadge("badgeAutoAssign", 0);
+    setDeferredBadge("badgeAutoAssign", geminiCredits(autoAssignEstimateUsd()));      // listens to each speaker without a voice; settled in the Generate price
     setBadge("badgeVoiceLibrary", 0);
     // Clone cost badges follow the engine that is active right now (the server decides it, and it is
     // the same one the real clone / custom-voice charges use), so the badge never misquotes the price.
@@ -2268,7 +2284,7 @@ function scheduleGeneratePrice() {
             var priceNote = document.getElementById("generatePriceNote");
             if (priceNote) {
                 var textCredits = Number.isInteger(quote.analysis_credits) ? quote.analysis_credits : 0;
-                priceNote.textContent = textCredits > 0 ? subsText("Includes " + textCredits + " credit(s) for the translation and text work already done on this project. Voices: " + (quote.credits - textCredits) + ".", "يشمل " + textCredits + " رصيد مقابل الترجمة والعمل النصي الذي تم في هذا المشروع. الأصوات: " + (quote.credits - textCredits) + ".") : "";
+                priceNote.textContent = textCredits > 0 ? subsText("Includes " + textCredits + " credit(s) for the translation, text and voice-matching work already done on this project. Voices: " + (quote.credits - textCredits) + ".", "يشمل " + textCredits + " رصيد مقابل الترجمة والعمل النصي ومطابقة الأصوات الذي تم في هذا المشروع. الأصوات: " + (quote.credits - textCredits) + ".") : "";
             }
         } catch(e) { if(serial === generateQuoteSerial) { setBadge("badgeGenerate", "—"); generateQuoteStamp = ""; } }
     }, 400);
@@ -3277,6 +3293,7 @@ async function autoAssignVoices() {
     renderSpeakerVoices();
     notify("success", match ? subsText("Voices matched to your speakers. Change any speaker's voice in the Step 4 table.", "تمت مطابقة الأصوات مع المتحدثين. يمكنك تغيير صوت أي متحدث في جدول الخطوة 4.")
                             : "Voices auto-assigned. Change any speaker's voice in the Step 4 table.");
+    if (typeof updateBadges === "function") updateBadges();
     if (rough) notify("info", subsText("For " + rough + " speaker(s) the library has no close match. Cloning their voice will sound closer.", "لا يوجد في المكتبة صوت قريب لـ " + rough + " من المتحدثين. استنساخ أصواتهم سيكون أقرب."));
 }
 

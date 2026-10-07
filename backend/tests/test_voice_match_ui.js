@@ -142,3 +142,25 @@ test('the age list offers automatic, child, young, adult and older', () => {
     const {c} = context({reply: reply({})});
     assert.deepEqual(c.ageSelectFor('x').options.map(o => o.value), ['', 'child', 'young', 'adult', 'senior']);
 });
+
+test('the Auto-Assign price estimate counts only speakers without a voice, up to 15 seconds each, and is zero when all have one', () => {
+    const c = vm.createContext({
+        AUDIO_TOKENS_PER_SEC: 258, GEMINI_IN_PER_M: 0.30, GEMINI_OUT_PER_M: 2.50, Math, Object,
+        segmentsData: [{speaker: 'A', start: 0, end: 60}, {speaker: 'B', start: 0, end: 4}, {speaker: 'C', start: 0, end: 4}],
+        speakerChoices: {C: 'male:1'}, clonedBySpeaker: {}});
+    vm.runInContext(excerpt(app, 'function autoAssignEstimateUsd()', 'function generateEstimateUsd'), c);
+    const a = (15 * 258 + 250) / 1e6 * 0.30 + 150 / 1e6 * 2.50;       // A is capped at 15 seconds
+    const b = (4 * 258 + 250) / 1e6 * 0.30 + 150 / 1e6 * 2.50;
+    assert.ok(Math.abs(c.autoAssignEstimateUsd() - (a + b)) < 1e-12);
+    c.speakerChoices = {A: 'male:1', B: 'male:2', C: 'male:1'};
+    assert.equal(c.autoAssignEstimateUsd(), 0);
+    c.speakerChoices = {}; c.clonedBySpeaker = {A: true, B: true, C: true};
+    assert.equal(c.autoAssignEstimateUsd(), 0);
+    c.segmentsData = null;
+    assert.equal(c.autoAssignEstimateUsd(), 0);                       // never throws while the page is loading
+});
+
+test('the Auto-Assign button is a deferred-price badge, like the other text steps', () => {
+    assert.match(app, /setDeferredBadge\("badgeAutoAssign", geminiCredits\(autoAssignEstimateUsd\(\)\)\)/);
+    assert.doesNotMatch(app, /setBadge\("badgeAutoAssign", 0\)/);
+});

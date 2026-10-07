@@ -105,7 +105,7 @@
     <button id="darkModeBtn" class="btn-logout" title="Toggle dark mode" onclick="window._toggleDarkMode()">🌙</button>
     <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">0</span> <span id="creditsWord">credits</span></span>
     <button id="backBtn" class="btn-logout" onclick="location.href='/app'">← Back to App</button>
-    <button id="logoutBtn" class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
+    <button id="logoutBtn" class="btn-logout" onclick="try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
   </div>
 </div>
 <div class="acct-tabbar" id="acctTabbar">
@@ -291,7 +291,7 @@ var T = {
     delModalConfirm: "Yes, delete permanently",
     deleteAccountFailed: "Couldn't delete your account. Please try again or contact support.",
     genericFail: "Something went wrong. Please try again in a moment.",
-    actions: { transcribe: "Transcription", generate: "Voice generation", regenerate: "Line regeneration", merge: "Video merge", clone: "Voice cloning", lipsync: "Lip-sync", translate: "Translation", emotions: "Emotion detection", tashkeel: "Diacritics", long_dub_refund: "Refund", clone_refund: "Voice cloning refund", custom_voice_refund: "Custom voice refund", admin_adjustment: "Adjustment", long_dub: "Long video dubbing" }
+    actions: { transcribe: "Transcription", generate: "Voice generation", regenerate: "Line regeneration", merge: "Video merge", clone: "Voice cloning", lipsync: "Lip-sync", translate: "Translation", emotions: "Emotion detection", tashkeel: "Diacritics", long_dub_refund: "Refund", regenerate_refund: "Line regeneration refund", generate_refund: "Voice generation refund", merge_refund: "Video merge refund", transcribe_refund: "Transcription refund", lipsync_refund: "Lip-sync refund", clone_refund: "Voice cloning refund", custom_voice_refund: "Custom voice refund", admin_adjustment: "Adjustment", long_dub: "Long video dubbing" }
   },
   ar: {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
@@ -365,7 +365,7 @@ var T = {
     delModalConfirm: "نعم، احذف نهائيًا",
     deleteAccountFailed: "تعذّر حذف حسابك. حاول مرة أخرى أو تواصل مع الدعم.",
     genericFail: "حدث خطأ. يُرجى المحاولة بعد قليل.",
-    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", regenerate: "إعادة توليد سطر", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", clone_refund: "استرداد استنساخ الصوت", custom_voice_refund: "استرداد الصوت المخصص", admin_adjustment: "تعديل الرصيد", long_dub: "دبلجة فيديو طويل" }
+    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", regenerate: "إعادة توليد سطر", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", regenerate_refund: "استرداد إعادة توليد سطر", generate_refund: "استرداد توليد الصوت", merge_refund: "استرداد دمج الفيديو", transcribe_refund: "استرداد التفريغ الصوتي", lipsync_refund: "استرداد مزامنة الشفاه", clone_refund: "استرداد استنساخ الصوت", custom_voice_refund: "استرداد الصوت المخصص", admin_adjustment: "تعديل الرصيد", long_dub: "دبلجة فيديو طويل" }
   }
 }[LANG];
 
