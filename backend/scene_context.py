@@ -235,8 +235,8 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
             parts.append({"text": f"Frame at {_fmt_t(t)} (about {t:.0f} s):"})
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpg).decode("ascii")}})
         payload = {"contents": [{"parts": parts}],
-                   "generationConfig": {"temperature": 0.1, "maxOutputTokens": 2048, "responseMimeType": "application/json",
-                                        "thinkingConfig": {"thinkingBudget": 0}}}
+                   "generationConfig": {"maxOutputTokens": 3072, "responseMimeType": "application/json",
+                                        "thinkingConfig": {"thinkingLevel": "low"}}}
         data, err = gemini_service.call_gemini(api_key, payload, timeout=90)
         if data is None:
             print(f"[scene] {job_id}: no answer ({str(err)[:200]})")

@@ -376,7 +376,7 @@ async function geminiTextCall(key, prompt) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.2, responseMimeType: "application/json" }
+                    generationConfig: { responseMimeType: "application/json" }
                 })
             });
             if (!res.ok) { lastErr = `HTTP ${res.status}`; continue; }

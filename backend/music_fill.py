@@ -292,7 +292,7 @@ def describe_music(gemini_key, pcm, loud_db, log=None):
                       "silence), start with AMBIENCE: and describe the sound itself as comma separated tags: what makes "
                       "it, steady or changing, pitch, texture. Never invent music that is not there. No vocals. "
                       "No sentences, at most 25 words. Return just the line.")}]}],
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 512}}
+            "generationConfig": {"maxOutputTokens": 512}}
         data, err = gemini_service.call_gemini(gemini_key, payload, timeout=60)
         if data is None:
             if log:

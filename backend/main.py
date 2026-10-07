@@ -30,7 +30,6 @@ from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
 import gemini_service
-import arabic_waqf
 import eleven_service
 import inworld_service
 import ffmpeg_utils
@@ -3527,7 +3526,7 @@ def _gemini_text(prompt: str):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={GEMINI_API_KEY}"
         body = json.dumps({
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"}
+            "generationConfig": {"responseMimeType": "application/json"}
         }).encode("utf-8")
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
         try:
@@ -4335,9 +4334,6 @@ def tashkeel(req: TashkeelRequest, request: Request):
     if txt.endswith("```"):
         txt = txt[:-3]
     items = json.loads(txt.strip())
-    for it in items if isinstance(items, list) else []:
-        if isinstance(it, dict) and isinstance(it.get("arabic_text"), str):
-            it["arabic_text"] = arabic_waqf.pausal(it["arabic_text"])      # the last word before every pause ends with a sukoon
     return {"items": items}
 
 def _resolve_short_voices(req):
@@ -5578,6 +5574,7 @@ def _ld_public_rows(rows, job=None):
     out = []
     for r in rows:
         d = {k: r.get(k) for k in ("segment_id", "start", "end", "speaker", "speaker_id", "gender", "emotion", "text", "arabic_text")}
+        d["waqf"] = r.get("waqf") or "auto"
         d["overlaps"] = overlap_map.get(r.get("segment_id"), [])
         d["emotion_review"] = dub_review.emotion_review(r)
         d["heard"] = r.get("segment_id") not in unheard

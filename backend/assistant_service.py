@@ -374,7 +374,7 @@ def ask(contents, system_prompt):
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 700, "thinkingConfig": {"thinkingBudget": 0}},
+        "generationConfig": {"maxOutputTokens": 1200, "thinkingConfig": {"thinkingLevel": "low"}},
     }
     data, err = gemini_service.call_gemini(_key(), payload, timeout=40)
     if data is None:

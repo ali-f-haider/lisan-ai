@@ -13,7 +13,6 @@ from config import (
     OUTPUT_DIR,
 )
 from app_state import jobs_progress, usage_bucket, record_gemini
-from arabic_waqf import pausal as _pausal      # the last word before every pause ends with a sukoon, not a short vowel
 import delivery as _delivery
 from ffmpeg_utils import cut_audio_segment
 from user_errors import friendly_error
@@ -66,12 +65,57 @@ def normalize_emotions(value, min_tags: int = 2, max_tags: int = 3) -> str:
     return ", ".join(tags[:max_tags])
 
 
+_SAMPLING_KEYS = ("temperature", "topP", "topK", "top_p", "top_k")      # fixed by the model now; a request that sets them is refused soon
+_THINKING_LEVELS = ("minimal", "low", "medium", "high")
+
+
+def _level_for_budget(budget):
+    """The thinking level that stands for an old token budget (0 = 'off' becomes the lowest level every model accepts)."""
+    try:
+        b = int(budget)
+    except Exception:
+        return None
+    if b < 0:
+        return None                     # dynamic: the model's own default
+    return "low" if b <= 2048 else "medium" if b <= 8192 else "high"
+
+
+def _payload_for(payload, model_name):
+    """Copy of `payload` that fits `model_name`: no sampling parameters, the thinking set by level (never by budget), and no thinking
+    setting at all for a model that does not think (the 2.0 family). The caller's payload is not changed."""
+    try:
+        cfg = payload.get("generationConfig")
+        if not isinstance(cfg, dict):
+            return payload
+        cfg = {k: v for k, v in cfg.items() if k not in _SAMPLING_KEYS}
+        tc = cfg.get("thinkingConfig")
+        if isinstance(tc, dict):
+            tc = dict(tc)
+            budget = tc.pop("thinkingBudget", tc.pop("thinking_budget", None))
+            if tc.get("thinkingLevel") not in _THINKING_LEVELS:
+                tc.pop("thinkingLevel", None)
+                level = _level_for_budget(budget) if budget is not None else None
+                if level:
+                    tc["thinkingLevel"] = level
+            if str(model_name).startswith("gemini-2.0") or not tc:
+                cfg.pop("thinkingConfig", None)
+            else:
+                cfg["thinkingConfig"] = tc
+        out = dict(payload)
+        out["generationConfig"] = cfg
+        return out
+    except Exception:
+        return payload
+
+
 def call_gemini(api_key: str, payload: dict, timeout: int = 120):
     """Call Gemini, falling back across models. Returns (data, None) or (None, error)."""
     last_error = None
-    payload_bytes = json.dumps(payload).encode("utf-8")
     for model_name in GEMINI_MODELS:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        sent = _payload_for(payload, model_name)
+        payload_bytes = json.dumps(sent).encode("utf-8")
+        no_thinking = False
         for attempt in range(3):
             request = urllib.request.Request(url, data=payload_bytes, headers={"Content-Type": "application/json"})
             try:
@@ -84,6 +128,12 @@ def call_gemini(api_key: str, payload: dict, timeout: int = 120):
                 except Exception:
                     body = str(e)
                 last_error = f"[{model_name}] HTTP {e.code}: {body}"
+                if e.code == 400 and "thinking" in body.lower() and not no_thinking and (sent.get("generationConfig") or {}).get("thinkingConfig"):
+                    # this model does not take that thinking level: the same request once more without a thinking setting
+                    no_thinking = True
+                    cfg = {k: v for k, v in sent["generationConfig"].items() if k != "thinkingConfig"}
+                    payload_bytes = json.dumps({**sent, "generationConfig": cfg}).encode("utf-8")
+                    continue
                 if e.code in [429, 503] and attempt < 2:
                     time.sleep(5 * (attempt + 1))
                     continue
@@ -169,7 +219,7 @@ Example: If duration is 1.5 seconds, use maximum 3 words. If 2 seconds, max 4-5 
 Do not add filler words. Be extremely concise to fit the time limit.
 OTHER RULES:
 Translate into clear, natural MSA Arabic suitable for voice dubbing.
-Add full Tashkeel (Arabic diacritics) to every word. The last word of every sentence, clause or line is written in its pausal form: no fatha, kasra, damma or tanween on its last letter (a sukoon, or no mark).
+Add full Tashkeel (Arabic diacritics) to every word.
 Detect the emotion AND speaking style of each line. You MUST return exactly TWO comma-separated tags per line (never just one) — a primary emotion tag plus a secondary delivery tag (pacing, volume, or manner) that together best describe how the line should be performed. Choose both tags ONLY from this exact list:
 {', '.join(CANONICAL_EMOTIONS)}
 Example: a sad line spoken quietly would be "sad, softly". An urgent, angry line would be "angry, rushed".
@@ -186,7 +236,6 @@ Segments:
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": 0.3,
             "maxOutputTokens": 8192,
             "responseMimeType": "application/json",
         },
@@ -208,8 +257,6 @@ Segments:
         if isinstance(item, dict):
             item["emotion"] = normalize_emotions(item.get("emotion", ""))
             item["emotion"] = _delivery.ground(item["emotion"], paces.get(str(item.get("segment_id")), "unknown"))
-            if isinstance(item.get("arabic_text"), str):
-                item["arabic_text"] = _pausal(item["arabic_text"])
 
     return {"status": "success", "translated_segments": translated_segments}
 
@@ -228,14 +275,13 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
         "- Do NOT translate.\n"
         "- Do NOT change, add, remove, or reorder any words or letters.\n"
         "- Words that already carry tashkeel must stay exactly as they are.\n"
-        "- The last word of every sentence, clause or text is written in its pausal form (waqf): its last letter has a sukoon or no mark, never a fatha, kasra, damma or tanween.\n"
         "- Keep punctuation and spacing exactly as is.\n"
         '- Return ONLY a valid JSON array: [{"segment_id": "...", "arabic_text": "..."}]\n'
         "Texts:\n" + json.dumps(items, ensure_ascii=False, indent=1)
     )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+        "generationConfig": {"maxOutputTokens": 8192, "responseMimeType": "application/json"},
     }
     data, err = call_gemini(api_key, payload, timeout=120)
     record_gemini(job_id, data)
@@ -250,7 +296,7 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
     out = {}
     for it in arr if isinstance(arr, list) else []:
         if isinstance(it, dict) and it.get("segment_id") is not None and isinstance(it.get("arabic_text"), str):
-            out[str(it["segment_id"])] = _pausal(it["arabic_text"])
+            out[str(it["segment_id"])] = it["arabic_text"]
     return out
 
 
@@ -278,7 +324,7 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
     )
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.3, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+        "generationConfig": {"maxOutputTokens": 8192, "responseMimeType": "application/json"},
     }
     data, err = call_gemini(api_key, payload, timeout=90)
     record_gemini(job_id, data)
@@ -293,7 +339,7 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
     if isinstance(obj, list) and obj:
         obj = obj[0]
     text = obj.get("arabic_text") if isinstance(obj, dict) else None
-    return _pausal(text.strip()) if isinstance(text, str) and text.strip() else None
+    return text.strip() if isinstance(text, str) and text.strip() else None
 
 
 def pick_native_candidate(job_id: str, previews: list, api_key: str):
@@ -316,7 +362,7 @@ def pick_native_candidate(job_id: str, previews: list, api_key: str):
         f'Return ONLY valid JSON: {{"scores": [a score from 0 to 10 for each clip, in order, {n} numbers], "best": the number of the clip that sounds most native (1 to {n})}}')})
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 8192, "responseMimeType": "application/json"},
+        "generationConfig": {"maxOutputTokens": 8192, "responseMimeType": "application/json"},
     }
     data, err = call_gemini(api_key, payload, timeout=120)
     record_gemini(job_id, data)
@@ -408,7 +454,7 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
 def inspect_audio_style(job_id, audio, selected, api_key):
     if not api_key:
         raise ValueError('The listening service is unavailable.')
-    payload = {'generationConfig': {'responseMimeType': 'application/json', 'temperature': 0},
+    payload = {'generationConfig': {'responseMimeType': 'application/json'},
         'contents': [{'parts': [
             {'inline_data': {'mime_type': 'audio/mpeg', 'data': base64.b64encode(Path(audio).read_bytes()).decode()}},
             {'text': 'Listen to the actual vocal delivery, not just the meaning of the words. '
