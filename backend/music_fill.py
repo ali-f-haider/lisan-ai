@@ -435,9 +435,9 @@ TEXTURE_MIN_SEC = 3.0
 TEXTURE_MAX_SEC = 60.0
 
 
-def _pause_audio(src, spans, pad=0.4, min_len=0.5, trim=0.05):
+def _pause_audio(src, spans, pad=0.4, min_len=0.5, trim=0.05, timed=False):
     """The sound of the pauses between the speakers: float32 (n, 2) stretches of at least min_len seconds, the longest first, up to
-    TEXTURE_MAX_SEC. `src` is an int16 (n, 2) array at RATE."""
+    TEXTURE_MAX_SEC. `src` is an int16 (n, 2) array at RATE. timed=True: a list of (start second, stretch) instead."""
     n = src.shape[0]
     free = np.ones(n // 441 + 2, dtype=bool)
     for a, b in spans or []:
@@ -451,9 +451,86 @@ def _pause_audio(src, spans, pad=0.4, min_len=0.5, trim=0.05):
         if tot >= TEXTURE_MAX_SEC:
             break
         seg = src[a * 441:min(n, b * 441)].astype(np.float32) / 32768.0
-        out.append(seg)
+        out.append((a / 100.0, seg) if timed else seg)
         tot += len(seg) / RATE
     return out
+
+
+MATCH_MAX_DB = float(os.environ.get("MUSIC_FILL_MATCH_DB", "6") or 6)     # a piece of real sound is laid into a hole only if its spectrum is this close (mean dB over the bands) to the real sound beside the hole
+MATCH_LOOK_SEC = float(os.environ.get("MUSIC_FILL_MATCH_LOOK_SEC", "25") or 25)    # the real sound beside a hole is taken from the pauses this near to it
+MATCH_CHUNK_SEC = 1.5
+MATCH_NEAR_CHUNKS = 4
+_MATCH_EDGES = np.geomspace(100.0, 12000.0, 21)
+
+
+def _band_shape(x):
+    """The spectral shape of a sound: its mean level in 20 bands (100 Hz - 12 kHz) minus their average, so the loudness does not
+    matter, only what the sound is made of (a murmur, a hum, a chord). None when the sound is too short."""
+    mono = x.mean(axis=1) if x.ndim == 2 else x
+    n = 4096
+    if len(mono) < n:
+        return None
+    win = np.hanning(n).astype(np.float32)
+    acc, cnt = None, 0
+    for k in range(0, len(mono) - n + 1, n // 2):
+        pw = np.abs(np.fft.rfft(mono[k:k + n] * win)) ** 2
+        acc = pw if acc is None else acc + pw
+        cnt += 1
+    pw = acc / cnt
+    f = np.fft.rfftfreq(n, 1.0 / RATE)
+    out = np.array([10.0 * np.log10(pw[(f >= a) & (f < b)].mean() + 1e-14) for a, b in zip(_MATCH_EDGES[:-1], _MATCH_EDGES[1:])])
+    return out - out.mean()
+
+
+def _matching_pieces(timed, g0, g1, near=None):
+    """The real sound that may be laid into the hole g0..g1 (seconds): only pieces of the pauses that sound like the real sound
+    right beside it. Whatever else the pauses hold (the closing music of a scene, a laugh, a bang) is not what was in the hole, so it is
+    never used: the hole stays as it is rather than getting something that does not belong.
+    timed = _pause_audio(..., timed=True); near = clean sound beside the hole in the track itself (list of arrays), used when no pause is
+    near enough. Returns (list of float32 (n, 2) stretches, note)."""
+    chunks = []
+    for t0, seg in timed:
+        k = int(MATCH_CHUNK_SEC * RATE)
+        pos = 0
+        while pos < len(seg):
+            end = pos + k
+            if len(seg) - end < k // 2:
+                end = len(seg)
+            part = seg[pos:end]
+            sh = _band_shape(part) if len(part) >= 4096 else None
+            if sh is not None:
+                chunks.append((t0 + pos / RATE, t0 + end / RATE, pos, end, seg, sh))
+            pos = end
+    if not chunks:
+        return [], "no real sound of this scene to take pieces from"
+    mid = (g0 + g1) / 2.0
+    close = [c for c in chunks if min(abs(c[1] - g0), abs(c[0] - g1), abs((c[0] + c[1]) / 2 - mid)) <= MATCH_LOOK_SEC]
+    close.sort(key=lambda c: min(abs(c[1] - g0), abs(c[0] - g1)))
+    ref = None
+    if close:
+        ref = np.median(np.stack([c[5] for c in close[:MATCH_NEAR_CHUNKS]]), axis=0)
+    elif near:
+        shapes = [sh for sh in (_band_shape(x) for x in near if len(x) >= 4096) if sh is not None]
+        if shapes:
+            ref = np.median(np.stack(shapes), axis=0)
+    if ref is None:
+        return [], "no real sound beside the hole to compare the pieces with"
+    keep = [c for c in chunks if float(np.mean(np.abs(c[5] - ref))) <= MATCH_MAX_DB]
+    if not keep:
+        return [], "none of the real sound sounds like what is beside the hole"
+    keep.sort(key=lambda c: (id(c[4]), c[2]))
+    pieces, cur, last = [], [], None
+    for t_a, t_b, a, b, seg, _ in keep:       # neighbouring chunks of one stretch become one piece again
+        if last is not None and last[0] is seg and last[1] == a:
+            cur.append(seg[a:b])
+        else:
+            if cur:
+                pieces.append(np.concatenate(cur))
+            cur = [seg[a:b]]
+        last = (seg, b)
+    if cur:
+        pieces.append(np.concatenate(cur))
+    return pieces, f"{len(keep)} of {len(chunks)} pieces of real sound sound like the hole's surroundings"
 
 
 def texture_segs(segs):
@@ -865,10 +942,11 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         # The engine itself is what counts: sound near the usual quiet level of the track. A loud event beside the hole (a plane
         # passing) neither makes the engine look unsteady nor sets the level the hole is filled to.
         steady_of, level_of = {}, {}
-        real_pool, tex = [], {"ok": None}
+        real_pool, real_timed, tex = [], [], {"ok": None}
         if LOCAL_FILL:
             try:
-                real_pool = _pause_audio(ref_pcm if ref_pcm is not None else pcm, spans)
+                real_timed = _pause_audio(ref_pcm if ref_pcm is not None else pcm, spans, timed=True)
+                real_pool = [x for _, x in real_timed]
                 tex = texture_segs(real_pool)
             except Exception as ex:
                 say(f"texture of the pauses not judged: {str(ex)[:120]}")
@@ -926,7 +1004,11 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 try:
                     if not synth_ok:
                         # the scene has a life of its own (people, dishes, traffic): only real pieces of it are used, never a made-up sound
-                        ok, note = _texture_fill(pcm, g0, g1, level_of.get((g0, g1), ctx_db), real_pool, allow_synth=False)
+                        pieces, why = _matching_pieces(real_timed, g0, g1, _clean_context(pcm, db, g0, g1, ctx_db))
+                        if pieces:
+                            ok, note = _texture_fill(pcm, g0, g1, level_of.get((g0, g1), ctx_db), pieces, allow_synth=False)
+                        else:
+                            ok, note = False, why
                     elif (g0, g1) in level_of:      # the engine itself, at its usual level: not a louder event next to the hole
                         ok, note = _texture_fill(pcm, g0, g1, level_of[(g0, g1)],
                                                  engine_pool(g0, g1))
