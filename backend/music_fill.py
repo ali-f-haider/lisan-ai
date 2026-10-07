@@ -482,6 +482,27 @@ def _band_shape(x):
     return out - out.mean()
 
 
+TONAL_MIN = int(float(os.environ.get("MUSIC_FILL_TONAL_MIN", "3") or 3))    # this many lasting musical tones in a piece: it is music (or a hum), not a murmur
+
+
+def tonal_lines(x):
+    """How many steady tones (a lasting line in the spectrum, 100-4000 Hz: a note, a chord, a hum) the sound holds. A murmur, a crowd, room
+    noise, clatter and speech have none that last; music has many. x: float32 (n,) or (n, 2); 0 when it is shorter than 0.8 s."""
+    try:
+        from scipy.ndimage import median_filter
+        from scipy.signal import stft
+        mono = x.mean(axis=1) if x.ndim == 2 else x
+        if len(mono) < int(0.8 * RATE):
+            return 0
+        f, _, z = stft(mono, RATE, nperseg=8192, noverlap=6144)
+        sel = (f >= 100) & (f < 4000)
+        lev = 20.0 * np.log10(np.abs(z[sel]) + 1e-9)
+        peak = (lev - median_filter(lev, size=(31, 1), mode="nearest")) > 8.0
+        return int((peak.mean(axis=1) >= 0.7).sum())
+    except Exception:
+        return 0
+
+
 def _matching_pieces(timed, g0, g1, near=None):
     """The real sound that may be laid into the hole g0..g1 (seconds): only pieces of the pauses that sound like the real sound
     right beside it. Whatever else the pauses hold (the closing music of a scene, a laugh, a bang) is not what was in the hole, so it is
@@ -499,28 +520,32 @@ def _matching_pieces(timed, g0, g1, near=None):
             part = seg[pos:end]
             sh = _band_shape(part) if len(part) >= 4096 else None
             if sh is not None:
-                chunks.append((t0 + pos / RATE, t0 + end / RATE, pos, end, seg, sh))
+                chunks.append((t0 + pos / RATE, t0 + end / RATE, pos, end, seg, sh, tonal_lines(part) >= TONAL_MIN))
             pos = end
     if not chunks:
         return [], "no real sound of this scene to take pieces from"
     mid = (g0 + g1) / 2.0
     close = [c for c in chunks if min(abs(c[1] - g0), abs(c[0] - g1), abs((c[0] + c[1]) / 2 - mid)) <= MATCH_LOOK_SEC]
     close.sort(key=lambda c: min(abs(c[1] - g0), abs(c[0] - g1)))
-    ref = None
+    ref, ref_music = None, False
     if close:
         ref = np.median(np.stack([c[5] for c in close[:MATCH_NEAR_CHUNKS]]), axis=0)
+        ref_music = sum(1 for c in close[:MATCH_NEAR_CHUNKS] if c[6]) * 2 > len(close[:MATCH_NEAR_CHUNKS])
     elif near:
         shapes = [sh for sh in (_band_shape(x) for x in near if len(x) >= 4096) if sh is not None]
         if shapes:
             ref = np.median(np.stack(shapes), axis=0)
+            tones = [tonal_lines(x) >= TONAL_MIN for x in near if len(x) >= int(0.8 * RATE)]
+            ref_music = bool(tones) and sum(tones) * 2 > len(tones)
     if ref is None:
         return [], "no real sound beside the hole to compare the pieces with"
-    keep = [c for c in chunks if float(np.mean(np.abs(c[5] - ref))) <= MATCH_MAX_DB]
+    # what is beside the hole decides what it is: music (lasting tones) only gets music, anything else only gets sound that is not music
+    keep = [c for c in chunks if c[6] == ref_music and float(np.mean(np.abs(c[5] - ref))) <= MATCH_MAX_DB]
     if not keep:
-        return [], "none of the real sound sounds like what is beside the hole"
+        return [], "none of the real sound sounds like what is beside the hole" + (" (it is music there)" if ref_music else " (the pauses hold music, which was not there)")
     keep.sort(key=lambda c: (id(c[4]), c[2]))
     pieces, cur, last = [], [], None
-    for t_a, t_b, a, b, seg, _ in keep:       # neighbouring chunks of one stretch become one piece again
+    for t_a, t_b, a, b, seg, _sh, _mu in keep:       # neighbouring chunks of one stretch become one piece again
         if last is not None and last[0] is seg and last[1] == a:
             cur.append(seg[a:b])
         else:

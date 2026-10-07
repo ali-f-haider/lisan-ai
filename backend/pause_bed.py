@@ -265,6 +265,14 @@ class _Pieces:
                 grains.append(s[k:k + g])
             if not grains and len(s) >= 2 * f:
                 grains.append(s)
+        self.music_left_out = 0
+        if len(grains) >= 4:
+            # Music in the pauses (the closing music of a scene) is not the sound that was under the speech: when only a minority of the
+            # pieces is music (lasting tones), those pieces are left out. When most of the pauses are music, music was the bed.
+            tonal = [music_fill.tonal_lines(x) >= music_fill.TONAL_MIN for x in grains]
+            if sum(tonal) * 2 < len(grains):
+                self.music_left_out = int(sum(tonal))
+                grains = [x for x, t in zip(grains, tonal) if not t]
         pw = np.array([float(np.mean(x ** 2)) + 1e-14 for x in grains]) if grains else np.array([])
         self.power = 0.0
         self.grains = []
