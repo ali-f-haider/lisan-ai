@@ -3696,10 +3696,45 @@ def sweep_voices():
                     _save(job)
 
 
+# A copied voice made from only a second or two of speech sounds unlike the
+# speaker and unstable from line to line. Below this much clear speech the
+# speaker borrows another voice instead (same gender when there is one) and the
+# clone fee is returned. Changeable with the Railway variable CLONE_MIN_REFERENCE_SECONDS.
+try:
+    CLONE_MIN_REFERENCE_S = max(0.5, float(os.environ.get("CLONE_MIN_REFERENCE_SECONDS") or 3.0))
+except ValueError:
+    CLONE_MIN_REFERENCE_S = 3.0
+
+
+def _speaker_gender(rows, spid):
+    """The gender most of this speaker's lines were marked with (or None)."""
+    count = {}
+    for r in rows:
+        if r.get("speaker_id") == spid and r.get("gender") in ("male", "female"):
+            count[r["gender"]] = count.get(r["gender"], 0) + 1
+    if not count:
+        return None
+    return max(sorted(count), key=lambda g: count[g])
+
+
+def _pick_donor(spid, good, rows):
+    """Which already-copied speaker lends a voice to `spid`: the one with the
+    most lines among those of the same gender, else the one with the most
+    lines overall. Ties go to the earlier speaker, so a restart picks the same."""
+    def lines(s):
+        return sum(1 for r in rows if r.get("speaker_id") == s)
+    gender = _speaker_gender(rows, spid)
+    same = [s for s in good if gender and _speaker_gender(rows, s) == gender]
+    pool = same or list(good)
+    best = max(lines(s) for s in pool)
+    return next(s for s in pool if lines(s) == best)
+
+
 def _clone_sample(job, spid, rows, out_dir):
     """One reference clip (up to ~20 s, well under Inworld's 30 s limit) for a
     speaker, cut from that speaker's longest lines in the separated voices.
-    Returns (path or None, seconds)."""
+    Lines found only by ear are added when the heard ones do not reach
+    CLONE_MIN_REFERENCE_S. Returns (path or None, seconds)."""
     wd = _wd(job)
     ref = wd / "vocals_mono.wav"
     if not ref.exists():
@@ -3707,17 +3742,17 @@ def _clone_sample(job, spid, rows, out_dir):
     total = float(job.get("analysis", {}).get("audio_duration") or 0) or ffmpeg_utils.get_media_duration(ref)
     cands = [r for r in rows if r.get("speaker_id") == spid and (r.get("text") or "").strip()
              and r["end"] - r["start"] > 0.3]
-    try:     # a voice is copied from clear speech the AI heard; lines found only by ear are used only when there is nothing else
-        _un = unheard_ids(job, rows)
-        _heard = [r for r in cands if r.get("segment_id") not in _un]
-        if _heard:
-            cands = _heard
+    _un = set()
+    try:     # a voice is copied from clear speech the AI heard; lines found only by ear are used only to reach the minimum
+        _un = set(unheard_ids(job, rows))
     except Exception:
         pass
-    cands.sort(key=lambda r: r["end"] - r["start"], reverse=True)
+    cands.sort(key=lambda r: (r.get("segment_id") in _un, -(r["end"] - r["start"])))
     parts, acc = [], 0.0
     for r in cands:
         if acc >= 20.0:
+            break
+        if r.get("segment_id") in _un and acc >= CLONE_MIN_REFERENCE_S:
             break
         a = max(0.0, float(r["start"]) - 0.35)
         b = min(total, float(r["end"]) + 0.35)
@@ -4246,23 +4281,23 @@ def _run_dubbing(job):
 
         # 1. temporary voice per speaker ---------------------------------
         sp_ids = [s for s in plan["speakers"]]
-        for i, spid in enumerate(sp_ids):
-            if spid in dub["voices"] or spid in dub["fallback"]:
-                continue
-            _mark(job, "clone", 3 + int(7 * i / max(1, len(sp_ids))), f"Copying the voice of {names.get(spid, spid)}...")
+        def _make_voice(spid, min_secs):
+            """Copy one speaker's voice from at least `min_secs` of their clear speech."""
             wav, secs = _clone_sample(job, spid, rows_all, d)
-            vid, err = (None, f"not enough clear speech to copy this voice ({secs:.1f}s)")
-            if wav is not None:
+            vid, err = (None, f"not enough clear speech to copy this voice ({secs:.1f}s, at least {min_secs:g}s needed)")
+            if wav is not None and secs >= min_secs:
                 refs_ = job_dir(job["id"]) / "editrefs"
                 refs_.mkdir(exist_ok=True)
                 shutil.copyfile(wav, refs_ / f"{spid}.wav")
                 vid, err = _clone_with_retry(f"lisan-tmp-{job['id'][:8]}-{spid}", wav)
+            if wav is not None:
                 try:
                     wav.unlink()
                 except Exception:
                     pass
             if vid:
                 dub["voices"][spid] = vid
+                dub["fallback"].pop(spid, None)
                 job.setdefault("voices_pending_delete", []).append(vid)
                 _save(job)
                 _ev(job, "voice_cloned", "ok", f"{names.get(spid)}: reference {secs:.1f}s, voice labelled '{inworld_service.CLONE_SAMPLE_LANGUAGE}'")
@@ -4270,6 +4305,18 @@ def _run_dubbing(job):
                 dub["fallback"][spid] = ""     # resolved below once the others are done
                 _save(job)
                 _ev(job, "voice_cloned", "failed", f"{names.get(spid)}: {err}")
+
+        for i, spid in enumerate(sp_ids):
+            if spid in dub["voices"] or spid in dub["fallback"]:
+                continue
+            _mark(job, "clone", 3 + int(7 * i / max(1, len(sp_ids))), f"Copying the voice of {names.get(spid, spid)}...")
+            _make_voice(spid, CLONE_MIN_REFERENCE_S)
+        if not dub["voices"]:
+            # Nobody had enough speech for the normal minimum (a very short video):
+            # there is no better voice to borrow, so copy each speaker from what they have.
+            for spid in [s for s in sp_ids if s in dub["fallback"] and not dub["fallback"][s]]:
+                _mark(job, "clone", 9, f"Copying the voice of {names.get(spid, spid)}...")
+                _make_voice(spid, 0.5)
         # Optional (INWORLD_LOCALIZE=1): give each copied voice a native Arabic
         # accent. All speakers are done at the same time; a voice that cannot be
         # localized simply keeps sounding as it is. Checkpointed, so a restart
@@ -4294,11 +4341,13 @@ def _run_dubbing(job):
         if not good:
             _fail(job, "We couldn't copy the speakers' voices from this video", "dub")
             return
-        # A speaker whose voice couldn't be copied borrows the voice of the
-        # speaker with the most lines, and its clone charge is refunded.
+        # A speaker whose voice couldn't be copied (or had too little clear
+        # speech to copy well) borrows a copied voice - the busiest speaker of
+        # the same gender when there is one - and its clone charge is refunded.
         busiest = max(good, key=lambda s: sum(1 for r in rows if r.get("speaker_id") == s))
         for spid in [s for s in sp_ids if s in dub["fallback"] and not dub["fallback"][s]]:
-            dub["fallback"][spid] = dub["voices"][busiest]
+            donor = _pick_donor(spid, good, rows)
+            dub["fallback"][spid] = dub["voices"][donor]
             refund = int(plan["clone_each"])
             if refund and _remaining(job, "dub") >= refund:
                 if _refund(job, uid, refund, "dub", f"clone:{spid}"):
@@ -4306,7 +4355,7 @@ def _run_dubbing(job):
                 else:
                     _ev(job, "clone_refund", "failed", f"{names.get(spid)}: the refund was not confirmed and will be retried")
             job.setdefault("warnings", []).append(
-                f"The voice of {names.get(spid)} could not be copied, so {names.get(busiest)}'s voice was used for those lines.")
+                f"The voice of {names.get(spid)} could not be copied, so {names.get(donor)}'s voice was used for those lines.")
             _save(job)
 
         def voice_for(spid):
