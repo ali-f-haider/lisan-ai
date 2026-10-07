@@ -74,6 +74,7 @@
 
   <div class="card hidden" id="jobCard">
     <h3 id="jobHeading">Your video</h3>
+    <div id="jobSpin" style="display:none;justify-content:center;margin:4px 0 8px;" role="status" aria-hidden="true"><picture><source srcset="/static/loading-spinner.webp" type="image/webp"><img src="/static/loading-spinner.gif" alt="" style="width:72px;height:72px;display:block;"></picture></div>
     <div id="jobBody"></div>
   </div>
 
@@ -241,6 +242,7 @@ var T = {
     chooseSame: "Choose the same file to continue", wrongFile: "That isn't the same file that was being uploaded. Choose the original file to continue.",
     cancelUpload: "Cancel upload",
     finishBtn: "Get my estimate", finishing: "Checking your file…",
+    busyFile: "Loading your file… one moment.", busyStart: "Starting… one moment.", busyDub: "Starting the dubbing… one moment.",
     estHeading: "2. Your estimate",
     estIntro: function (name, minutes, n, lip) { return name + " — " + minutes + " min — " + n + " speaker" + (n === 1 ? "" : "s") + " — " + (lip ? "with lip-sync" : "without lip-sync"); },
     estLipRow: "Lip-sync (highest possible price)", estLipSub: function (perSec) { return perSec + " credits per second, only for the parts where somebody speaks. The exact price is shown before dubbing."; },
@@ -492,6 +494,7 @@ var T = {
     chooseSame: "اختر الملف نفسه للمتابعة", wrongFile: "هذا ليس الملف نفسه الذي كان قيد الرفع. اختر الملف الأصلي للمتابعة.",
     cancelUpload: "إلغاء الرفع",
     finishBtn: "احصل على التقدير", finishing: "جارٍ فحص الملف…",
+    busyFile: "جارٍ تحميل الملف… لحظة من فضلك.", busyStart: "جارٍ البدء… لحظة من فضلك.", busyDub: "جارٍ بدء الدبلجة… لحظة من فضلك.",
     estHeading: "٢. تقدير التكلفة",
     estIntro: function (name, minutes, n, lip) { return name + " — " + minutes + " د — " + n + " متحدثين — " + (lip ? "مع مزامنة الشفاه" : "بدون مزامنة الشفاه"); },
     estLipRow: "مزامنة الشفاه (أعلى سعر ممكن)", estLipSub: function (perSec) { return perSec + " رصيد لكل ثانية، فقط للمقاطع التي يتحدث فيها أحد. يظهر السعر الدقيق قبل بدء الدبلجة."; },
@@ -660,6 +663,30 @@ function fmtTime(sec) { sec = Math.max(0, Math.round(sec || 0)); var m = Math.fl
 function fmtMin(sec) { return (Math.round((sec || 0) / 6) / 10).toString(); }
 function fmtDate(ts) { try { return new Date(ts * 1000).toLocaleString(LANG === "ar" ? "ar" : undefined, { dateStyle: "medium", timeStyle: "short" }); } catch (e) { return ""; } }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+// The Lisan loading animation: a blocking panel for the short waits (loading a file, starting the dubbing) so nothing is started twice,
+// and a spinner under the heading of the job card (it lives outside #jobBody: the job view is redrawn every few seconds, which would restart the animation).
+var busyN = 0;
+function busyShow(text) {
+  busyN++;
+  var box = $("ldBusy");
+  if (!box) {
+    box = document.createElement("div"); box.id = "ldBusy"; box.setAttribute("role", "status"); box.setAttribute("aria-live", "polite");
+    box.style.cssText = "position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.45);";
+    box.innerHTML = '<div style="background:var(--card,#fff);color:var(--text,#1a1a2e);border-radius:14px;padding:22px 30px;display:flex;flex-direction:column;align-items:center;gap:8px;box-shadow:0 10px 40px rgba(0,0,0,.3);max-width:80vw;text-align:center;">' +
+      '<picture><source srcset="/static/loading-spinner.webp" type="image/webp"><img src="/static/loading-spinner.gif" alt="" style="width:70px;height:70px;display:block;"></picture>' +
+      '<div id="ldBusyText" style="font-weight:700;font-size:15px;"></div></div>';
+    document.body.appendChild(box);
+  }
+  $("ldBusyText").textContent = text || "";
+  box.style.display = "flex";
+}
+function busyHide() {
+  busyN = Math.max(0, busyN - 1);
+  var box = $("ldBusy");
+  if (box && !busyN) box.style.display = "none";
+}
+var finishingFile = false;     // the file is uploaded and being checked
+function setSpin(on) { var e = $("jobSpin"); if (e) e.style.display = on ? "flex" : "none"; }
 function alertMsg(m) { if (window.LisanDialog && LisanDialog.alert) return LisanDialog.alert(m); alert(m); return Promise.resolve(); }
 
 function api(method, url, body, opts) {
@@ -865,8 +892,8 @@ function roLoad(j) {
 }
 
 function renderJob() {
-  if (!cur) { $("jobBody").innerHTML = ""; return; }
-  if (cur.status === "editing") { renderReattach(); return; }
+  if (!cur) { $("jobBody").innerHTML = ""; setSpin(false); return; }
+  if (cur.status === "editing") { setSpin(false); renderReattach(); return; }
   var j = cur, h = "";
   var heading = T.jobHeading;
   if (j.status === "estimated") heading = T.estHeading;
@@ -944,6 +971,7 @@ function renderJob() {
   }
   if (lastErr) h += '<div class="ld-err">' + esc(lastErr) + "</div>";
   $("jobBody").innerHTML = h;
+  setSpin((j.status === "uploading" && (uploading || finishingFile)) || (isWorking(j.status) && j.stage !== "review"));
   wireJobButtons();
   if (j.status === "done" && j.file_available) wireSubs(j, "dn");
   var sb = $("btnShowLines");
@@ -1321,8 +1349,10 @@ function onFilePicked(file) {
   if (!(nsp >= 1 && nsp <= maxSp)) { showUploadError(T.spkBad(maxSp)); return; }
   var wantLip = !!($("lipYes") && $("lipYes").checked && !$("lipYes").disabled);
   if (wantLip && /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(file.name)) { showUploadError(T.lipAudio); return; }
+  busyShow(T.busyFile);
   api("POST", "/api/longdub/init", { filename: file.name, size: file.size, speakers: nsp, lipsync: wantLip, lip_res: wantLip ? ($("lipRes").value || "720P") : "",
                                         name: $("projName").value.trim(), description: $("projDesc").value.trim() }).then(function (r) {
+    busyHide();
     if (!r.ok) { showUploadError(r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr)); return; }
     cur = r.data; jobs.unshift(cur);
     $("projName").value = ""; $("projDesc").value = "";
@@ -1331,7 +1361,7 @@ function onFilePicked(file) {
     var sub = pendingSub; pendingSub = null; renderPendingSub();
     if (sub) { var jid = cur.id; attachSubtitle(jid, sub).then(function () { if (cur && cur.id === jid) renderJob(); }); }
     continueUpload(cur, file);
-  }).catch(function () { showUploadError(T.netErr); });
+  }).catch(function () { busyHide(); showUploadError(T.netErr); });
 }
 
 async function putChunk(job, index, blob) {
@@ -1379,9 +1409,10 @@ async function continueUpload(job, file) {
 }
 
 function finishUpload(job) {
-  uploading = false; lastErr = "";
+  uploading = false; lastErr = ""; finishingFile = true; setSpin(true);
   $("jobBody").insertAdjacentHTML("beforeend", "<p class='note'>" + esc(T.finishing) + "</p>");
   return api("POST", "/api/longdub/" + job.id + "/finish").then(function (r) {
+    finishingFile = false;
     if (!r.ok) {
       lastErr = safeErr(r.data.error, T.genericErr);
       // The server removes a file it can't use (too long, no audio...).
@@ -1394,7 +1425,7 @@ function finishUpload(job) {
     setCredits(r.data.credits);
     cur = r.data; lastErr = "";
     return loadList().then(function () { render(); if (cur && isWorking(cur.status)) startPoll(); });
-  }).catch(function () { lastErr = T.netErr; renderJob(); });
+  }).catch(function () { finishingFile = false; lastErr = T.netErr; renderJob(); });
 }
 
 // --------------------------------------------------------- accept / delete
@@ -1402,13 +1433,15 @@ function finishUpload(job) {
 function onAccept() {
   var b = $("btnAccept"); if (b) b.disabled = true;
   lastErr = "";
+  busyShow(T.busyStart);
   api("POST", "/api/longdub/" + cur.id + "/accept", { agree: !!($("agreeBox") && $("agreeBox").checked) }).then(function (r) {
+    busyHide();
     if (!r.ok) { lastErr = safeErr(r.data.error, T.genericErr); renderJob(); return; }
     setCredits(r.data.credits);
     cur = r.data;
     render(); startPoll();
     loadList().then(renderList);
-  }).catch(function () { lastErr = T.netErr; renderJob(); });
+  }).catch(function () { busyHide(); lastErr = T.netErr; renderJob(); });
 }
 
 function onDelete() { deleteJob(cur); }
@@ -2258,7 +2291,9 @@ function doConfirm() {
   ask.then(function (yes) {
     if (!yes) return;
     var b = $("btnConfirm"); if (b) b.disabled = true;
+    busyShow(T.busyDub);
     flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, tracks: tracksPref, keep_music: musicPref, music_budget: musicMax }); }).then(function (r) {
+      busyHide();
       if (!r.ok) {
         lastErr = r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr);
         if (r.status === 409 && r.data.price) {
@@ -2275,7 +2310,7 @@ function doConfirm() {
       cur = r.data; segs = []; spk = [];
       render(); startPoll();
       loadList().then(renderList);
-    }).catch(function () { lastErr = T.netErr; renderConfirm(); });
+    }).catch(function () { busyHide(); lastErr = T.netErr; renderConfirm(); });
   });
 }
 

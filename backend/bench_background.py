@@ -14,6 +14,8 @@ background (music + sound effects):
     dropout / excess       share of 0.5 s windows more than 10 dB under / 6 dB over the true background (lower is better)
     leak_db                how much of the ORIGINAL voice is left in it (amplitude, dB; -30 or lower is inaudible)
     fg_db                  level at the loudest foreground effects (plates, impacts) against the truth (0 is perfect)
+    hiss_db                level of the 2.5-10 kHz band under the speech against the truth (0 is perfect; +3 and more is audible hiss:
+                           what a separator leaves of a voice -- breath, "s", "sh" -- sounds like wind)
 Nothing is charged: the music model is switched off, so only the free path and the fallbacks are scored."""
 import argparse
 import json
@@ -81,6 +83,8 @@ def score(x, bg, speech, fg, speech_mask):
         out['leak_db'] = round(float(20 * np.log10(abs(coef[1]) + 1e-6)), 1)
     else:
         out['leak_db'] = None
+    a, b = band_db(x, sm, 2500, 10000), band_db(bg, sm, 2500, 10000)
+    out['hiss_db'] = round(float(a - b), 2) if a is not None and b is not None else None
     f = n // 441
     ef = np.square(fg[:f * 441]).reshape(f, 441).mean(axis=1)
     if f > 100 and ef.max() > 1e-9:
@@ -91,6 +95,18 @@ def score(x, bg, speech, fg, speech_mask):
     else:
         out['fg_db'] = None
     return out
+
+
+def band_db(x, mask, lo, hi):
+    n = min(len(x), len(mask))
+    frames = np.flatnonzero(np.repeat(mask[::441][:n // 441], 1))
+    if len(frames) < 100:
+        return None
+    seg = np.concatenate([x[i * 441:(i + 1) * 441] for i in frames[:6000]])
+    f = np.fft.rfftfreq(2048, 1 / SR)
+    k = len(seg) // 2048
+    P = np.abs(np.fft.rfft(seg[:k * 2048].reshape(k, 2048) * np.hanning(2048), axis=1)) ** 2
+    return 10 * np.log10(P[:, (f >= lo) & (f < hi)].mean(axis=0).sum() + 1e-14)
 
 
 def synthetic_dub(lines, n, path):
@@ -159,8 +175,8 @@ def main():
         r = results[mid]
         if 'engine' in r:
             e, w = r['engine'], r['raw']
-            print(f"{mid} raw: pause {w['pause_db']} speech {w['speech_db']} drop {w['dropout']} leak {w['leak_db']} fg {w['fg_db']} | "
-                  f"engine: pause {e['pause_db']} speech {e['speech_db']} drop {e['dropout']} exc {e['excess']} leak {e['leak_db']} fg {e['fg_db']}", flush=True)
+            print(f"{mid} raw: pause {w['pause_db']} speech {w['speech_db']} drop {w['dropout']} leak {w['leak_db']} fg {w['fg_db']} hiss {w['hiss_db']} | "
+                  f"engine: pause {e['pause_db']} speech {e['speech_db']} drop {e['dropout']} exc {e['excess']} leak {e['leak_db']} fg {e['fg_db']} hiss {e['hiss_db']}", flush=True)
         else:
             print(mid, r, flush=True)
     Path(a.out).write_text(json.dumps(results, indent=1), encoding='utf-8')

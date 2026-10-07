@@ -45,6 +45,7 @@ import bg_duck
 import music_fill
 import dub_audio
 import dub_background
+import delivery
 import dub_review
 from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
@@ -1968,7 +1969,7 @@ def glossary_apply(job):
     return True, {"fixed": fixed, "still": len(still), "mine": len(mine2), "remaining": max(0, len(missing) - len(todo))}
 
 
-def _translate_batch(job_id, batch, glossary=None):
+def _translate_batch(job_id, batch, glossary=None, paces=None):
     """Returns {segment_id: (arabic, emotion)} for the batch, {} on failure. glossary = the project's term list:
     only the terms that really occur in this batch's English are sent to the translator."""
     import gemini_service
@@ -1981,7 +1982,8 @@ def _translate_batch(job_id, batch, glossary=None):
             hits.append(e)
     for attempt in range(2):
         try:
-            res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY, glossary=hits or None)
+            res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY, glossary=hits or None,
+                                                      paces={k: v for k, v in (paces or {}).items() if k in {x["segment_id"] for x in batch}} or None)
             if isinstance(res, dict) and res.get("status") == "success":
                 out = {}
                 for it in res.get("translated_segments", []):
@@ -1995,18 +1997,67 @@ def _translate_batch(job_id, batch, glossary=None):
     return {}
 
 
+def _row_paces(rows):
+    """{segment_id: "slow" | "normal" | "fast" | "unknown"}: how fast the speaker really speaks in each line (measured, see delivery.py)."""
+    order = sorted(rows, key=lambda r: float(r.get("start") or 0))
+    return {r["segment_id"]: delivery.pace(order, i) for i, r in enumerate(order)}
+
+
+def _ground_rows(rows):
+    """A speed tag of the delivery (rushed, very fast, slowly, drawn out) must agree with the measured pace of the speaker: the AI reads the
+    text only and calls a frightened sentence "rushed" even when the speaker is slow. A delivery the user picked is never touched.
+    Returns the number of lines changed; never raises."""
+    changed = 0
+    try:
+        paces = _row_paces(rows)
+        for r in rows:
+            if r.get("emotion_set"):
+                continue
+            new = delivery.ground(r.get("emotion"), paces.get(r["segment_id"], "unknown"))
+            if new != r.get("emotion"):
+                r["emotion"] = new
+                changed += 1
+    except Exception as ex:
+        print(f"[longdub] delivery grounding skipped: {ex}")
+    return changed
+
+
+def ground_emotions(job):
+    """_ground_rows for the saved lines of a job (run before the price is fixed, so the price already counts the final tags)."""
+    try:
+        rows = read_segments(job)
+        before = {r["segment_id"]: r.get("emotion") for r in rows}
+        n = _ground_rows(rows)
+        if not n:
+            return 0
+        with _lock_for(job["id"]):
+            fresh = {x["segment_id"]: x for x in read_segments(job)}
+            for r in rows:
+                f = fresh.get(r["segment_id"])
+                if f is not None and not f.get("emotion_set") and f.get("emotion") == before.get(r["segment_id"]):
+                    f["emotion"] = r["emotion"]
+            _write_segments(job, [fresh[r["segment_id"]] for r in rows if r["segment_id"] in fresh])
+        _ev(job, "delivery_grounding", "ok", f"{n} speed tag(s) matched to the measured pace of the speaker")
+        return n
+    except Exception as ex:
+        print(f"[longdub] delivery grounding failed: {ex}")
+        return 0
+
+
 def _translate_all(job, rows):
     total = len(rows)
     missing = 0
+    paces = _row_paces(rows)
     for i in range(0, total, TRANSLATE_BATCH):
         batch = rows[i:i + TRANSLATE_BATCH]
         _mark(job, "translate", 88 + int(10 * i / max(1, total)), f"Translating to Arabic ({min(i + TRANSLATE_BATCH, total)} of {total} lines)...")
-        got = _translate_batch(job["id"], batch, job.get("glossary"))
+        got = _translate_batch(job["id"], batch, job.get("glossary"), paces=paces)
         for r in batch:
             if r["segment_id"] in got and got[r["segment_id"]][0]:
                 r["arabic_text"], r["emotion"] = got[r["segment_id"]]
             else:
                 missing += 1
+    _ground_rows(rows)
     if missing:
         job.setdefault("warnings", []).append(
             f"{missing} line(s) could not be translated automatically. Please type the Arabic for them, or use 'Translate again'.")
@@ -2122,6 +2173,7 @@ def ensure_tashkeel(job):
     """Adds tashkeel to every line that lacks it. Returns (lines_changed, None)
     or (0, error message) when the AI service did not answer (nothing changed)."""
     import gemini_service
+    ground_emotions(job)          # before the price is fixed: the speed tags agree with the measured pace of the speaker
     rows = read_segments(job)
     todo = [r for r in rows if (r.get("arabic_text") or "").strip() and needs_tashkeel(r["arabic_text"])]
     if not todo:
@@ -3594,6 +3646,8 @@ def _clone_with_retry(name, wav):
 
 def _tts_with_retry(voice_id, text):
     import inworld_service
+    from arabic_waqf import pausal
+    text = pausal(text)          # the voice stops at the end of every line: its last word is read in the pausal form (sukoon), whatever the text says
     import urllib.error
     last = ""
     for wait in (0, 4, 12, 30):
@@ -3860,13 +3914,14 @@ def _ar_letters(text):
     return len(re.sub(r"[\s\u064B-\u065F\u0670\u0640]", "", text or ""))
 
 
-def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
+def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None):
     """A line that is still too long after using the silence after it and the
     "good" stretch would have its end cut. Instead, ask for a SHORTER version of
     the same sentence (same meaning), speak that, and use it if it is shorter.
     Up to REPHRASE_TRIES tries. Returns (meta, new_text) -- new_text is None when
-    nothing better was found (the original line and meta stay)."""
+    nothing better was found (the original line and meta stay). cap = the speed-up this speaker's delivery allows (default TEMPO_MAX)."""
     import gemini_service
+    cap = min(TEMPO_MAX, cap or TEMPO_MAX)
     sid = r["segment_id"]
     cur_text = r["arabic_text"].strip()
     best_meta, best_text, best_out = meta, None, None
@@ -3876,7 +3931,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
         if letters < REPHRASE_MIN_LETTERS or actual <= 0:
             break
         # speech time we are aiming for, so that at the "good" limit it fits the room with a little to spare
-        target_raw = room * TEMPO_MAX * (0.92 if attempt == 1 else 0.82)
+        target_raw = room * cap * (0.92 if attempt == 1 else 0.82)
         ratio = target_raw / actual
         if ratio >= 0.97:
             break
@@ -3915,10 +3970,10 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d):
             raw2.unlink()
         except Exception:
             pass
-        if m2["dur"] < best_meta["dur"] - 0.05:
+        if m2["dur"] < best_meta["dur"] - 0.05 or m2["tempo"] < best_meta["tempo"] - 0.03:      # shorter, or as long but played less fast
             best_meta, best_text, best_out = m2, new, out2
             cur_text = new
-            if m2["dur"] <= room + 0.02:
+            if m2["dur"] <= room + 0.02 and m2["tempo"] <= cap + 0.02:
                 break
         else:
             break
@@ -4086,6 +4141,7 @@ def _run_dubbing(job):
         if not loud_ref.exists():
             loud_ref = wd / "audio.wav"
         n = len(rows)
+        paces_ = _row_paces(rows)          # how fast each speaker really speaks (measured): a slow one is not fast-forwarded
         for i, r in enumerate(rows):
             sid = r["segment_id"]
             if sid in dub["lines"] or sid in dub["failed"]:
@@ -4106,9 +4162,14 @@ def _run_dubbing(job):
             room = max(nxt - float(r["start"]), 0.05)
             meta = _fit_line(raw, d / "fit" / f"{sid}.wav", slot, room, loud_ref, float(r["start"]))
             new_text = None
-            if REPHRASE_ENABLED and meta["dur"] > room + 0.02 and _ar_letters(r["arabic_text"]) >= REPHRASE_MIN_LETTERS:
+            pace_ = paces_.get(sid, "unknown")
+            cap_ = min(TEMPO_MAX, delivery.tempo_cap(pace_))
+            meta["pace"] = pace_
+            # too long for its room, or fast-forwarded more than this speaker's delivery allows: the wording is shortened first
+            if REPHRASE_ENABLED and (meta["dur"] > room + 0.02 or meta["tempo"] > cap_ + 0.02) and _ar_letters(r["arabic_text"]) >= REPHRASE_MIN_LETTERS:
                 _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Shortening a line to fit (line {i + 1} of {n})...")
-                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d)
+                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d, cap=cap_)
+                meta["pace"] = pace_
             meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text) if new_text is None else len(f"{tag}{new_text}")})
             if new_text is not None:
                 fits = meta["dur"] <= room + 0.02
@@ -4145,7 +4206,7 @@ def _run_dubbing(job):
                     continue
                 txt_ = (dub.get("rephrased") or {}).get(r["segment_id"], {}).get("after") or r["arabic_text"]
                 fm.append(f"{r['segment_id']}@{float(r['start']):.1f}:{_ar_letters(txt_)}L raw{m_.get('raw', 0):.1f}s "
-                          f"slot{m_.get('slot', 0):.1f}s room{m_.get('room', 0):.1f}s x{m_.get('tempo', 1):.2f} "
+                          f"slot{m_.get('slot', 0):.1f}s room{m_.get('room', 0):.1f}s x{m_.get('tempo', 1):.2f} {m_.get('pace', '?')} "
                           f"[{str(r.get('emotion') or 'neutral').replace(' ', '')}]")
             print(f"[longdub] {job['id']} fit_map (tempo limit x{TEMPO_MAX:.2f}): " + " | ".join(fm[:60]))
         except Exception:
@@ -4363,7 +4424,8 @@ def _run_dubbing(job):
             if _mf_.get("incomplete") or _mf_.get("unavailable"):
                 _ev(job, "background_music_fill", "info", "some music sections could not be rebuilt and stay silent while people speak: " + str(_mf_.get("reason") or "")[:400])
             else:
-                _ev(job, "background_music_fill", "ok", _mf_["reason"])
+                _ev(job, "background_music_fill", "ok", _mf_["reason"] + (" | original in pauses: " + str(_mf_["original_in_pauses"]) if _mf_.get("original_in_pauses") else "")
+                    + (" | steady background: " + str(_mf_["steady_bed"]) if _mf_.get("steady_bed") else ""))
         # Laughter, applause and cheers: the separator files them under "voices", so the separated background
         # has none. They are cut out of the separated voices outside the spoken words and laid back as their own layer.
         react = None

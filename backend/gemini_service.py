@@ -13,6 +13,8 @@ from config import (
     OUTPUT_DIR,
 )
 from app_state import jobs_progress, usage_bucket, record_gemini
+from arabic_waqf import pausal as _pausal      # the last word before every pause ends with a sukoon, not a short vowel
+import delivery as _delivery
 from ffmpeg_utils import cut_audio_segment
 from user_errors import friendly_error
 from resource_meter import metered as _metered
@@ -133,24 +135,29 @@ def _glossary_block(glossary):
             + json.dumps(rows, ensure_ascii=False) + "\n")
 
 
-def translate_segments(job_id: str, segments: list, api_key: str, glossary=None) -> dict:
+def translate_segments(job_id: str, segments: list, api_key: str, glossary=None, paces=None) -> dict:
     """Translate all segments to Arabic (MSA + Tashkeel) and detect emotions. glossary = [{en, ar}]: the customer's own
-    terms, which the translation must use."""
+    terms, which the translation must use. paces = {segment_id: "slow" | "normal" | "fast"}: how fast the speaker really speaks in each
+    line (measured from the recording): the speed tags must agree with it."""
     if not api_key:
         return {"error": "Translation is temporarily unavailable. Please try again later."}
     if not segments:
         return {"error": "There are no lines to translate yet."}
 
+    paces = {str(k): v for k, v in (paces or {}).items() if v in ("slow", "normal", "fast")}
     segments_for_prompt = []
     for seg in segments:
-        segments_for_prompt.append({
+        item = {
             "segment_id": seg.segment_id,
             "start": seg.start,
             "end": seg.end,
             "duration": round(seg.end - seg.start, 2),
             "english_text": seg.text,
             "speaker": seg.speaker,
-        })
+        }
+        if str(seg.segment_id) in paces:
+            item["measured_pace"] = paces[str(seg.segment_id)]
+        segments_for_prompt.append(item)
 
     prompt = f"""You are a professional Arabic translator and voice dubbing specialist.
 Translate the following English audio segments into Modern Standard Arabic (MSA).
@@ -162,10 +169,11 @@ Example: If duration is 1.5 seconds, use maximum 3 words. If 2 seconds, max 4-5 
 Do not add filler words. Be extremely concise to fit the time limit.
 OTHER RULES:
 Translate into clear, natural MSA Arabic suitable for voice dubbing.
-Add full Tashkeel (Arabic diacritics) to every word.
+Add full Tashkeel (Arabic diacritics) to every word. The last word of every sentence, clause or line is written in its pausal form: no fatha, kasra, damma or tanween on its last letter (a sukoon, or no mark).
 Detect the emotion AND speaking style of each line. You MUST return exactly TWO comma-separated tags per line (never just one) — a primary emotion tag plus a secondary delivery tag (pacing, volume, or manner) that together best describe how the line should be performed. Choose both tags ONLY from this exact list:
 {', '.join(CANONICAL_EMOTIONS)}
 Example: a sad line spoken quietly would be "sad, softly". An urgent, angry line would be "angry, rushed".
+Some segments carry "measured_pace" (slow, normal or fast): how fast the speaker REALLY speaks there, measured from the recording. It beats the meaning of the words: use "rushed" only for "fast"; a frightened or urgent sentence spoken at a "slow" or "normal" pace is still not "rushed". Never use "slowly" or "drawn out" for "fast".
 Preserve the core meaning, but prioritize fitting the time limit.
 {_glossary_block(glossary)}Return ONLY valid JSON. No explanations.
 Return JSON array:
@@ -199,6 +207,9 @@ Segments:
     for item in translated_segments:
         if isinstance(item, dict):
             item["emotion"] = normalize_emotions(item.get("emotion", ""))
+            item["emotion"] = _delivery.ground(item["emotion"], paces.get(str(item.get("segment_id")), "unknown"))
+            if isinstance(item.get("arabic_text"), str):
+                item["arabic_text"] = _pausal(item["arabic_text"])
 
     return {"status": "success", "translated_segments": translated_segments}
 
@@ -217,6 +228,7 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
         "- Do NOT translate.\n"
         "- Do NOT change, add, remove, or reorder any words or letters.\n"
         "- Words that already carry tashkeel must stay exactly as they are.\n"
+        "- The last word of every sentence, clause or text is written in its pausal form (waqf): its last letter has a sukoon or no mark, never a fatha, kasra, damma or tanween.\n"
         "- Keep punctuation and spacing exactly as is.\n"
         '- Return ONLY a valid JSON array: [{"segment_id": "...", "arabic_text": "..."}]\n'
         "Texts:\n" + json.dumps(items, ensure_ascii=False, indent=1)
@@ -238,7 +250,7 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
     out = {}
     for it in arr if isinstance(arr, list) else []:
         if isinstance(it, dict) and it.get("segment_id") is not None and isinstance(it.get("arabic_text"), str):
-            out[str(it["segment_id"])] = it["arabic_text"]
+            out[str(it["segment_id"])] = _pausal(it["arabic_text"])
     return out
 
 
@@ -281,7 +293,7 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
     if isinstance(obj, list) and obj:
         obj = obj[0]
     text = obj.get("arabic_text") if isinstance(obj, dict) else None
-    return text.strip() if isinstance(text, str) and text.strip() else None
+    return _pausal(text.strip()) if isinstance(text, str) and text.strip() else None
 
 
 def pick_native_candidate(job_id: str, previews: list, api_key: str):

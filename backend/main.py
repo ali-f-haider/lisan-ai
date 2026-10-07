@@ -30,6 +30,7 @@ from app_state import jobs_progress, usage_bucket
 from models import Segment
 import whisper_service
 import gemini_service
+import arabic_waqf
 import eleven_service
 import inworld_service
 import ffmpeg_utils
@@ -4333,7 +4334,11 @@ def tashkeel(req: TashkeelRequest, request: Request):
         txt = txt.split("\n", 1)[1] if "\n" in txt else txt[3:]
     if txt.endswith("```"):
         txt = txt[:-3]
-    return {"items": json.loads(txt.strip())}
+    items = json.loads(txt.strip())
+    for it in items if isinstance(items, list) else []:
+        if isinstance(it, dict) and isinstance(it.get("arabic_text"), str):
+            it["arabic_text"] = arabic_waqf.pausal(it["arabic_text"])      # the last word before every pause ends with a sukoon
+    return {"items": items}
 
 def _resolve_short_voices(req):
     voice_ids = list(req.speaker_voices.values()) + ([req.default_voice_id] if req.default_voice_id else [])

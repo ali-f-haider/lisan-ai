@@ -524,6 +524,7 @@ def _meter_stage_generate(job_id):
 
 @_metered("shortdub_generate", lambda req, *a, **k: getattr(req, "job_id", ""), stage_of=_meter_stage_generate)
 def generate_worker(req):
+    from arabic_waqf import pausal as _pausal      # a stop at the end of a line: the last word is read with a sukoon, not a short vowel
     global eleven_client
     overlap_flags = dict(getattr(req, 'overlap_allowed', None) or {})
     dead_space_flags = dict(getattr(req, 'dead_space_allowed', None) or {})
@@ -583,7 +584,7 @@ def generate_worker(req):
                     api_key = req.inworld_api_key.strip()
                     if not api_key:
                         raise UserError("Voice generation is temporarily unavailable. Please try again later.")
-                    tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
+                    tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text)}"
                     # Own counter, separate from eleven_chars -- so
                     # main.py's _watch_and_deduct() can charge this engine's
                     # own admin-configured rate (inworldCharsPerCredit) even
@@ -597,7 +598,7 @@ def generate_worker(req):
                         raise UserError("Voice generation is temporarily unavailable. Please try again later.")
                     if eleven_client is None:
                         eleven_client = ElevenLabs(api_key=api_key)
-                    tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
+                    tts_text = f"{_emotion_tags(seg.emotion)} {_pausal(seg.arabic_text)}"
                     bucket["eleven_chars"] += len(tts_text)
                     response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
                     audio_bytes = response if isinstance(response, bytes) else b"".join(chunk for chunk in response if chunk)
@@ -832,6 +833,7 @@ def _measure_line_loudness(job_id, seg, stretched, target_duration):
 
 def regenerate_line(req):
     """Re-speak ONE segment with TTS, stretch it into its window, volume-match it, then rebuild the mix."""
+    from arabic_waqf import pausal as _pausal      # a stop at the end of a line: the last word is read with a sukoon, not a short vowel
     global eleven_client
     try:
         seg = req.segment
@@ -851,7 +853,7 @@ def regenerate_line(req):
             api_key = req.inworld_api_key.strip()
             if not api_key:
                 return {"error": "Voice generation is temporarily unavailable. Please try again later."}
-            tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{seg.arabic_text}"
+            tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text)}"
             bucket["inworld_chars"] += len(tts_text)
             audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
         else:
@@ -860,7 +862,7 @@ def regenerate_line(req):
                 return {"error": "Voice generation is temporarily unavailable. Please try again later."}
             if eleven_client is None:
                 eleven_client = ElevenLabs(api_key=api_key)
-            tts_text = f"{_emotion_tags(seg.emotion)} {seg.arabic_text}"
+            tts_text = f"{_emotion_tags(seg.emotion)} {_pausal(seg.arabic_text)}"
             bucket["eleven_chars"] += len(tts_text)
             response = eleven_client.text_to_speech.convert(text=tts_text, voice_id=voice_id, model_id=TTS_MODEL_ID, language_code="ar")
             audio_bytes = response if isinstance(response, bytes) else b"".join(c for c in response if c)
