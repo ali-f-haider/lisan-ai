@@ -142,7 +142,7 @@ class RephraseInsteadOfSpeedUpTests(unittest.TestCase):
         self.saved = (g.shorten_arabic_line, ls._tts_with_retry, ls._fit_line, ls._ev)
         self.asked = []
         g.shorten_arabic_line = lambda jid, en, ar, max_letters, key: (self.asked.append(max_letters) or "هَذَا نَصٌّ أَقْصَرُ")
-        ls._tts_with_retry = lambda voice, text: (b"x", "")
+        ls._tts_with_retry = lambda voice, text, *a, **k: (b"x", "")
         ls._ev = lambda *a, **k: None
 
         def fit(raw, out, slot, room, loud_ref, start):

@@ -25,6 +25,8 @@ class Segment(BaseModel):
     # Step 5.5 table (one per segment). Replaces the old single Step 5
     # dropdown that applied the same limit to every line in the job.
     tempo_mode: str = "excellent"
+    # How the voice ends this line: "auto" (by the punctuation and the silence after it), "stop" or "join". Only the voice's copy of the text changes.
+    waqf: str = "auto"
 
 class GenerateRequest(BaseModel):
     job_id: str = ""

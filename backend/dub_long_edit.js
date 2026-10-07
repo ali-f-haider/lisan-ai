@@ -145,6 +145,14 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       menu.appendChild(label);
     }); refresh(); parent.appendChild(shell);
   }
+  function waqfPicker(parent,row) {
+    var wrap=document.createElement('label'); wrap.className='ld-waqf'; wrap.title=tr('How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line. The text itself is never changed.','كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي. النص نفسه لا يتغيّر.');
+    var select=document.createElement('select'); select.setAttribute('aria-label',tr('Line ending','نهاية السطر'));
+    [['auto','Auto','تلقائي'],['stop','Stop','وقف'],['join','Join','وصل']].forEach(function(o){var opt=document.createElement('option'); opt.value=o[0]; opt.textContent=tr(o[1],o[2]); select.appendChild(opt);});
+    select.value=row.waqf||'auto'; select.onchange=function(){ if(working){select.value=row.waqf||'auto';return;} change(row,'waqf',select.value); };
+    var title=document.createElement('span'); title.textContent=tr('Line ending','نهاية السطر');
+    wrap.append(title,select); parent.appendChild(wrap);
+  }
   async function action(row,operation,extra) {
     if(working) return;
     setBusy(true); $('error').textContent='';
@@ -192,7 +200,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       button(controls,'Delete line','حذف السطر',async function(){if(await LisanDialog.confirm(tr('Delete this correction line? The first dub stays saved.','حذف هذا السطر من التصحيحات؟ تظل الدبلجة الأولى محفوظة.'),{danger:true}))action(row,'delete');},true);
       var wrap=document.createElement('div');wrap.className='ld-arwrap';var arabic=document.createElement('textarea');arabic.className='ar';arabic.dir='rtl';arabic.maxLength=2000;arabic.value=row.arabic_text||'';arabic.classList.toggle('missing',!arabic.value.trim());arabic.setAttribute('aria-label',tr('Arabic text','النص العربي'));
       var foot=document.createElement('div');foot.className='ld-arfoot';var countText=document.createElement('span');countText.className='ld-cnt';function updateCount(){countText.textContent=arabic.value.length+tr(' characters',' حرفاً');}updateCount();arabic.oninput=function(){change(row,'arabic_text',arabic.value);arabic.classList.toggle('missing',!arabic.value.trim());updateCount();};
-      var right=document.createElement('div');right.className='ld-foot-r';stylePicker(right,row);
+      var right=document.createElement('div');right.className='ld-foot-r';stylePicker(right,row);waqfPicker(right,row);
       button(right,'Check style from audio','فحص الأسلوب بالصوت',function(){checkStyle(row);});
       button(right,'Tashkeel','تشكيل',function(){action(row,'tashkeel');});button(right,'Translate again','أعد الترجمة',function(){action(row,'retranslate');});
       foot.append(countText,right);wrap.append(arabic,foot);line.append(tools,original,wrap);$('lines').appendChild(line);

@@ -142,11 +142,13 @@ class OriginalInPausesTests(unittest.TestCase):
         with_orig = db_mod.prepare(self.d / 'base.wav', self.d / 'voice.wav', self.d / 'dub.wav', self.d, 'a', self.spans,
                                    preserve_music=False, strict=False, original=self.d / 'orig.wav')
         self.assertIn('original_in_pauses', with_orig['music_fill'])
+        self.assertIn('share of pauses per 30 s', with_orig['music_fill']['pause_note'])       # the job log says where the original was used
         y, _ = sf.read(with_orig['path'])
         self.assertGreater(len(y), N - 10)
         without = db_mod.prepare(self.d / 'base.wav', self.d / 'voice.wav', self.d / 'dub.wav', self.d, 'b', self.spans,
                                  preserve_music=False, strict=False)
         self.assertNotIn('original_in_pauses', without['music_fill'])
+        self.assertIn('no original recording', without['music_fill']['pause_note'])
         self.assertTrue(Path(without['path']).exists())
 
 

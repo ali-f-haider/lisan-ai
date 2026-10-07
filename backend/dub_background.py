@@ -131,6 +131,13 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
             reference = original
         elif log:
             log('original sound not used in the pauses: ' + blend['reason'])
+    notes = {}                  # why the original sound was (not) used: shown in the job log
+    if original is None:
+        notes['pause_note'] = 'no original recording was given'
+    elif not spans:
+        notes['pause_note'] = 'no speech map'
+    elif not blend['ok']:
+        notes['pause_note'] = 'the original sound is NOT used in the pauses: ' + str(blend.get('reason') or '')
     short = 0
     if key and clean == muted and preserve_music and spans:
         try:
@@ -169,6 +176,10 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
             clean = final
             info['original_in_pauses'] = done['reason']
             temps.append(final)
+            notes['pause_note'] = (f"{done['reason']}; stem judged {'dirty (transcript only)' if done.get('dirty') else 'clean'}; "
+                                   f"share of pauses per 30 s: {done.get('by_30s')}")
+        else:
+            notes['pause_note'] = 'the original sound is NOT used in the pauses: ' + str(done.get('reason') or '')
     # Levels: the final level matching restores the original loudness, so "lower" has to be told to it: what was rebuilt locally
     # (an engine, wind, a room tone) is laid LOCAL_FILL_DB under it, the real background kept under the speech KEEP_SPEECH_DB.
     lower = []
@@ -185,8 +196,11 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
         if bed['ok'] and floored.exists():
             os.replace(floored, matched)
             info['steady_bed'] = bed['reason']
-        elif log:
-            log('steady background not restored: ' + bed['reason'])
+        else:
+            notes['bed_note'] = 'steady background not restored: ' + str(bed['reason'])
+            if log:
+                log('steady background not restored: ' + bed['reason'])
+    info.update(notes)
     return {'path': matched, 'music_fill': info, 'measurements': measurements, 'temps': temps}
 
 
