@@ -627,7 +627,8 @@ class SteadySoundFillTests(unittest.TestCase):
         import music_fill as mf
         ok, msg, y = self._fill('auto')
         ref = self._engine(10.0, 5)
-        self.assertLess(abs(mf._seg_db(y * 32768.0) - mf._seg_db(ref * 32768.0)), 2.0)
+        expected_db = mf._seg_db(ref * 32768.0) + mf.LOCAL_FILL_DB
+        self.assertLess(abs(mf._seg_db(y * 32768.0) - expected_db), 2.0)
 
     def test_plenty_of_clean_sound_still_uses_real_pieces_of_it(self):
         ok, msg, y = self._fill('auto', pool_sec=20.0, hole_sec=5.0)

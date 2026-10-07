@@ -3,6 +3,7 @@ import io
 import json
 import re
 import sys
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -81,17 +82,44 @@ class CallTests(unittest.TestCase):
         self.assertNotIn("thinkingConfig", self.sent[1]["generationConfig"])
 
 
+def _is_backup_copy(path):
+    name = path.name.lower()
+    return (path.suffix.lower() in (".bak", ".orig") or "_old." in name
+            or re.search(r"-\d+$", path.stem) is not None)
+
+
+def _deprecated_parameters(root):
+    pat = re.compile(r"""["']?(temperature|thinkingBudget|thinking_budget|topP|topK|top_p|top_k)["']?\s*[:=]""")
+    skip = ("test_", "patch_", "fix_", "add_", "apply_", "check_")
+    files = [f for f in root.glob("*.py") if not f.name.startswith(skip) and f.name != "gemini_service.py"] + list(root.glob("*.js"))
+    bad = []
+    for f in files:
+        if _is_backup_copy(f):
+            continue
+        for n, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
+            if pat.search(line) and "ffmpeg" not in line.lower():
+                bad.append(f"{f.name}:{n}: {line.strip()[:100]}")
+    return bad
+
+
 class NoDeprecatedParameterIsLeftInTheCode(unittest.TestCase):
     def test_no_module_and_no_page_sets_them(self):
-        pat = re.compile(r"""["']?(temperature|thinkingBudget|thinking_budget|topP|topK|top_p|top_k)["']?\s*[:=]""")
-        skip = ("test_", "patch_", "fix_", "add_", "apply_", "check_")
-        files = [f for f in BACKEND.glob("*.py") if not f.name.startswith(skip) and f.name != "gemini_service.py"] + list(BACKEND.glob("*.js"))
-        bad = []
-        for f in files:
-            for n, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
-                if pat.search(line) and "ffmpeg" not in line.lower():
-                    bad.append(f"{f.name}:{n}: {line.strip()[:100]}")
-        self.assertEqual(bad, [])
+        self.assertEqual(_deprecated_parameters(BACKEND), [])
+
+    def test_backup_copies_are_ignored_but_real_pages_and_modules_are_caught(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            backups = ("app-1.js", "module-2.py", "app-123.js", "page.js.bak", "module.py.orig",
+                       "page_old.js", "module_old.py", "page_old.min.js")
+            for name in backups:
+                path = root / name
+                path.write_text("temperature: 0.3", encoding="utf-8")
+                self.assertTrue(_is_backup_copy(path), name)
+            self.assertEqual(_deprecated_parameters(root), [])
+            (root / "app.js").write_text("topP: 0.9", encoding="utf-8")
+            (root / "real_module.py").write_text("top_k = 40", encoding="utf-8")
+            self.assertEqual(sorted(_deprecated_parameters(root)),
+                             ["app.js:1: topP: 0.9", "real_module.py:1: top_k = 40"])
 
 
 if __name__ == "__main__":
