@@ -187,12 +187,16 @@ class BillingReviewTests(unittest.TestCase):
         req = short.request(enhance_background=False, keep_music=True)
         return n, req, bed
 
-    def test_local_only_short_video_merge_is_free(self):
+    def test_local_video_merge_is_charged_its_assembly_fee_once(self):
+        # Owner decision: assembly uses server CPU, memory and disk, so it is charged.
+        # It is quoted before the work and charged once, with no AI-music component.
         with tempfile.TemporaryDirectory() as folder:
             n, req, _ = self.merge_env(folder)
             price = n['_short_merge_price'](req)
+            self.assertEqual(price['merge'], 1)
             n['_merge_video_run'](req, object(), price)
-            n['deduct_credits'].assert_not_called()
+            self.assertEqual([c.args for c in n['deduct_credits'].call_args_list],
+                             [('user', 1, 'merge', short.JOB_A)])
 
     def test_short_merge_charges_each_successful_ai_music_hole_once(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -282,20 +286,26 @@ class BillingReviewTests(unittest.TestCase):
         n['_fail'](copy.deepcopy(persisted),'Generation failed.','dub')
         self.assertEqual(refund.call_count,1,'A replayed saved job may not repeat its already-paid refund')
 
-    def test_local_merge_component_in_long_and_correction_prices_is_free(self):
+    def test_assembly_fee_is_quoted_in_long_and_correction_prices_and_never_below_one(self):
+        # Owner decision: final assembly uses server CPU, memory and disk, so it is charged.
         rows=[{'segment_id':'line','arabic_text':'مرحبا','text':'Hello','speaker_id':'s1','emotion':'neutral'}]
-        cfg={'chars_per_credit':60,'clone_credits':5,'merge_credits':1}
         parent={'id':'job','uid':'user','status':'done','paid':{},'duration':5,'edit_assets':True,
                 'speaker_list':[{'id':'s1','name':'Speaker 1'}],'dub':{'voices':{'s1':'voice'}}}
-        env={'Hooks':NS(pricing=lambda:cfg),'read_segments':lambda _:rows,'math':math,
-             'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1}
-        long=extract('longdub_service.py',['dub_price'],env)
-        corrections=extract('longdub_edits.py',['quote'], {'rows':lambda _:rows,'active':lambda _:False,
-                  'restore_source':lambda _:None,'background':lambda _:Path('retained.wav'), 'math':math,
-                  'ld':NS(Hooks=NS(pricing=lambda:cfg)), 'hashlib':__import__('hashlib'),'json':json})
         with patch.dict(sys.modules, {'inworld_service':NS(instruction_tag=lambda _: '')}):
-            for kind,price in [('long',long['dub_price'](parent)),('correction',corrections['quote'](parent,['line']))]:
-                with self.subTest(kind=kind): self.assertEqual(price['merge'],0,'Local assembly must add no credits')
+            for configured in (1, 3, 0):
+                cfg={'chars_per_credit':60,'clone_credits':5,'merge_credits':configured}
+                env={'Hooks':NS(pricing=lambda cfg=cfg:cfg),'read_segments':lambda _:rows,'math':math,
+                     'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1}
+                long=extract('longdub_service.py',['dub_price'],env)
+                corrections=extract('longdub_edits.py',['quote'], {'rows':lambda _:rows,'active':lambda _:False,
+                          'restore_source':lambda _:None,'background':lambda _:Path('retained.wav'), 'math':math,
+                          'ld':NS(Hooks=NS(pricing=lambda cfg=cfg:cfg)), 'hashlib':__import__('hashlib'),'json':json})
+                expected = max(1, configured)
+                for kind,price in [('long',long['dub_price'](parent)),('correction',corrections['quote'](parent,['line']))]:
+                    with self.subTest(kind=kind, configured=configured):
+                        self.assertEqual(price['merge'], expected)
+                        self.assertEqual(price['due'], price['voice'] + price['clones'] + expected,
+                                         'The total shown must include exactly the assembly fee')
 
     def test_completed_music_checkpoint_is_reused_without_paid_repairs(self):
         with tempfile.TemporaryDirectory() as folder:

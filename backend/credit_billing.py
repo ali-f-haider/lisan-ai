@@ -44,9 +44,10 @@ def validate_pricing(config):
     if not isinstance(config, dict):
         raise ValueError("Enter valid pricing values and save again.")
     out = dict(config)
-    # Zero means no bonus/reserve, no local assembly fee, or an explicitly
-    # waived long-analysis/processing fee. Voice/transcription rates stay paid.
-    free = {"freeCredits", "minReserve", "mergeCredits", "longDubFlatCredits"}
+    # Zero means no bonus/reserve or an explicitly waived long-analysis/processing
+    # fee. Voice/transcription rates stay paid, and so does final assembly: it
+    # uses server CPU, memory and disk, so the platform never charges less than 1.
+    free = {"freeCredits", "minReserve", "longDubFlatCredits"}
     whole = {"freeCredits", "minReserve", "transcribeCredits", "mergeCredits",
              "cloneCredits", "inworldCloneCredits", "subscriptionCredits",
              "charsPerCredit", "inworldCharsPerCredit", "longDubFlatCredits"}

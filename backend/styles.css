@@ -103,13 +103,20 @@ body.dark {
    so this keeps working even for rows generated after the page loads.
    (The amber "reminder" banners' own #fef3c7/#92400e colors are handled
    in the next block below, alongside the other ad-hoc colored boxes.) */
-body.dark [style*="color:#1a237e"] { color: var(--primary-fg) !important; }
-body.dark [style*="color:#374151"] { color: var(--text) !important; }
-body.dark [style*="color:#42a5f5"] { color: var(--accent) !important; }
-body.dark [style*="color:#6b7280"] { color: var(--text-muted) !important; }
-body.dark [style*="color:#059669"] { color: var(--success) !important; }
-body.dark [style*="color:#dc2626"] { color: var(--error) !important; }
-body.dark [style*="color:#94a3b8"] { color: var(--text-muted) !important; }
+body.dark [style*="color:#1a237e"],
+body.dark [style*="color: rgb(26, 35, 126)"] { color: var(--primary-fg) !important; }
+body.dark [style*="color:#374151"],
+body.dark [style*="color: rgb(55, 65, 81)"] { color: var(--text) !important; }
+body.dark [style*="color:#42a5f5"],
+body.dark [style*="color: rgb(66, 165, 245)"] { color: var(--accent) !important; }
+body.dark [style*="color:#6b7280"],
+body.dark [style*="color: rgb(107, 114, 128)"] { color: var(--text-muted) !important; }
+body.dark [style*="color:#059669"],
+body.dark [style*="color: rgb(5, 150, 105)"] { color: var(--success) !important; }
+body.dark [style*="color:#dc2626"],
+body.dark [style*="color: rgb(220, 38, 38)"] { color: var(--error) !important; }
+body.dark [style*="color:#94a3b8"],
+body.dark [style*="color: rgb(148, 163, 184)"] { color: var(--text-muted) !important; }
 /* Ad-hoc colored "info box" divs in index.html (lip-sync opt-in, voice-
    cloning consent, "project loaded" / temp-file / result-saved reminders,
    enhance-background-audio, voice library browser) -- each sets only a
@@ -123,11 +130,18 @@ body.dark [style*="color:#94a3b8"] { color: var(--text-muted) !important; }
    changed. Retinting the backgrounds (translucent, so the box still reads
    as "blue" / "amber" / "green") and fixing the one hardcoded text color
    fixes all of them the same way. */
-body.dark [style*="background:#f0f9ff"] { background: rgba(56,189,248,0.14) !important; border-color: rgba(56,189,248,0.4) !important; }
-body.dark [style*="background:#fef3c7"] { background: rgba(217,119,6,0.18) !important; border-color: rgba(217,119,6,0.45) !important; }
-body.dark [style*="background:#f0fdf4"] { background: rgba(52,211,153,0.14) !important; border-color: rgba(52,211,153,0.4) !important; }
-body.dark [style*="background:#f9fafb"] { background: var(--muted-surface) !important; border-color: var(--border) !important; }
-body.dark [style*="color:#92400e"] { color: var(--warning) !important; }
+body.dark [style*="background:#f0f9ff"],
+body.dark [style*="background: rgb(240, 249, 255)"] { background: rgba(56,189,248,0.14) !important; border-color: rgba(56,189,248,0.4) !important; }
+body.dark [style*="background:#fef3c7"],
+body.dark [style*="background: rgb(254, 243, 199)"] { background: rgba(217,119,6,0.18) !important; border-color: rgba(217,119,6,0.45) !important; }
+body.dark [style*="background:#f0fdf4"],
+body.dark [style*="background: rgb(240, 253, 244)"] { background: rgba(52,211,153,0.14) !important; border-color: rgba(52,211,153,0.4) !important; }
+body.dark [style*="background:#f9fafb"],
+body.dark [style*="background: rgb(249, 250, 251)"] { background: var(--muted-surface) !important; border-color: var(--border) !important; }
+body.dark [style*="color:#92400e"],
+body.dark [style*="color: rgb(146, 64, 14)"] { color: var(--warning) !important; }
+/* Native checkboxes/radios otherwise paint a white box on a dark page. */
+body.dark input[type="checkbox"], body.dark input[type="radio"] { color-scheme: dark; }
 /* Plain content links with no inline color of their own (e.g. the ones
    inside account.html's subscription/files-note JS strings) -- without
    this they render in the browser's default link blue, which has poor
@@ -299,29 +313,49 @@ body.dark.ui-new {
    above (retinted to the new palette), covering the common/high-visibility
    ones. A few rare, low-confidence one-offs are intentionally left
    classic-styled for this first pass. */
-body.ui-new [style*="color:#1a237e"] { color: var(--primary-fg) !important; }
+body.ui-new [style*="color:#1a237e"],
+body.ui-new [style*="color: rgb(26, 35, 126)"] { color: var(--primary-fg) !important; }
 body.ui-new [style*="color: #1a237e"] { color: var(--primary-fg) !important; }
-body.ui-new [style*="color:#1a1a2e"] { color: var(--text) !important; }
-body.ui-new [style*="color:#374151"] { color: var(--text) !important; }
-body.ui-new [style*="color:#42a5f5"] { color: var(--accent) !important; }
-body.ui-new [style*="background:#42a5f5"] { background: var(--accent) !important; }
-body.ui-new [style*="color:#6b7280"] { color: var(--text-muted) !important; }
+body.ui-new [style*="color:#1a1a2e"],
+body.ui-new [style*="color: rgb(26, 26, 46)"] { color: var(--text) !important; }
+body.ui-new [style*="color:#374151"],
+body.ui-new [style*="color: rgb(55, 65, 81)"] { color: var(--text) !important; }
+body.ui-new [style*="color:#42a5f5"],
+body.ui-new [style*="color: rgb(66, 165, 245)"] { color: var(--accent) !important; }
+body.ui-new [style*="background:#42a5f5"],
+body.ui-new [style*="background: rgb(66, 165, 245)"] { background: var(--accent) !important; }
+body.ui-new [style*="color:#6b7280"],
+body.ui-new [style*="color: rgb(107, 114, 128)"] { color: var(--text-muted) !important; }
 body.ui-new [style*="color: #6b7280"] { color: var(--text-muted) !important; }
-body.ui-new [style*="color:#64748b"] { color: var(--text-muted) !important; }
-body.ui-new [style*="color:#94a3b8"] { color: var(--text-muted) !important; }
-body.ui-new [style*="color:#9ca3af"] { color: var(--text-muted) !important; }
-body.ui-new [style*="color:#059669"] { color: var(--success) !important; }
-body.ui-new [style*="color:#2e7d32"] { color: var(--success) !important; }
-body.ui-new [style*="color:#dc2626"] { color: var(--error) !important; }
+body.ui-new [style*="color:#64748b"],
+body.ui-new [style*="color: rgb(100, 116, 139)"] { color: var(--text-muted) !important; }
+body.ui-new [style*="color:#94a3b8"],
+body.ui-new [style*="color: rgb(148, 163, 184)"] { color: var(--text-muted) !important; }
+body.ui-new [style*="color:#9ca3af"],
+body.ui-new [style*="color: rgb(156, 163, 175)"] { color: var(--text-muted) !important; }
+body.ui-new [style*="color:#059669"],
+body.ui-new [style*="color: rgb(5, 150, 105)"] { color: var(--success) !important; }
+body.ui-new [style*="color:#2e7d32"],
+body.ui-new [style*="color: rgb(46, 125, 50)"] { color: var(--success) !important; }
+body.ui-new [style*="color:#dc2626"],
+body.ui-new [style*="color: rgb(220, 38, 38)"] { color: var(--error) !important; }
 body.ui-new [style*="color: #dc2626"] { color: var(--error) !important; }
-body.ui-new [style*="color:#92400e"] { color: var(--warning) !important; }
-body.ui-new [style*="background:#fef3c7"] { background: var(--locked-bg) !important; }
-body.ui-new [style*="background:#f9fafb"] { background: var(--muted-surface) !important; border-color: var(--border) !important; }
-body.ui-new [style*="background:#f3f4f6"] { background: var(--muted-surface) !important; }
-body.ui-new [style*="background:#f0fdf4"] { background: var(--credits-info-bg) !important; border-color: var(--credits-info-border) !important; }
-body.ui-new [style*="background:#ecfdf5"] { background: var(--credits-info-bg) !important; }
-body.ui-new [style*="background:#f0f9ff"] { background: var(--notify-info-bg) !important; }
-body.ui-new [style*="background:#fef2f2"] { background: var(--notify-error-bg) !important; }
+body.ui-new [style*="color:#92400e"],
+body.ui-new [style*="color: rgb(146, 64, 14)"] { color: var(--warning) !important; }
+body.ui-new [style*="background:#fef3c7"],
+body.ui-new [style*="background: rgb(254, 243, 199)"] { background: var(--locked-bg) !important; }
+body.ui-new [style*="background:#f9fafb"],
+body.ui-new [style*="background: rgb(249, 250, 251)"] { background: var(--muted-surface) !important; border-color: var(--border) !important; }
+body.ui-new [style*="background:#f3f4f6"],
+body.ui-new [style*="background: rgb(243, 244, 246)"] { background: var(--muted-surface) !important; }
+body.ui-new [style*="background:#f0fdf4"],
+body.ui-new [style*="background: rgb(240, 253, 244)"] { background: var(--credits-info-bg) !important; border-color: var(--credits-info-border) !important; }
+body.ui-new [style*="background:#ecfdf5"],
+body.ui-new [style*="background: rgb(236, 253, 245)"] { background: var(--credits-info-bg) !important; }
+body.ui-new [style*="background:#f0f9ff"],
+body.ui-new [style*="background: rgb(240, 249, 255)"] { background: var(--notify-info-bg) !important; }
+body.ui-new [style*="background:#fef2f2"],
+body.ui-new [style*="background: rgb(254, 242, 242)"] { background: var(--notify-error-bg) !important; }
 
 body {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
