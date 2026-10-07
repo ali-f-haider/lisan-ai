@@ -10,6 +10,8 @@ import math
 import os
 from pathlib import Path
 import uuid
+import threading
+import time
 from urllib.error import HTTPError
 
 UNAVAILABLE = "Credit payments are temporarily paused. Please try again later."
@@ -126,10 +128,35 @@ def rpc_result(rpc, name, args):
     return None
 
 
+_ready_lock = threading.Lock()
+_ready_until = 0.0
+_ready_rpc = None
+
+
+def reset_ready_cache():
+    """Forget only the short positive readiness cache; useful for tests."""
+    global _ready_until, _ready_rpc
+    with _ready_lock:
+        _ready_until = 0.0
+        _ready_rpc = None
+
+
 def ready(rpc):
-    result = rpc_result(rpc, "lisan_billing_ready", {})
-    return bool(result and result.get("version") == 1 and
-                all(result.get(k) is True for k in ("debit", "pack", "refund", "cancel")))
+    global _ready_until, _ready_rpc
+    # Hold the lock while refreshing so simultaneous paid clicks share it.
+    # A failure never extends the deadline or hides a recovered service.
+    with _ready_lock:
+        if _ready_rpc == rpc and time.monotonic() < _ready_until:
+            return True
+        _ready_until = 0.0
+        _ready_rpc = None
+        result = rpc_result(rpc, "lisan_billing_ready", {})
+        ok = bool(result and result.get("version") == 1 and
+                  all(result.get(k) is True for k in ("debit", "pack", "refund", "cancel")))
+        if ok:
+            _ready_rpc = rpc
+            _ready_until = time.monotonic() + 30.0
+        return ok
 
 
 def receipt(result, uid, amount, kind, operation_id):

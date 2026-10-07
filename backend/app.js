@@ -2239,6 +2239,72 @@ function scheduleGeneratePrice() {
         } catch(e) { if(serial === generateQuoteSerial) { setBadge("badgeGenerate", "—"); generateQuoteStamp = ""; } }
     }, 400);
 }
+function shortRegenerationError(message) {
+    const words = {
+    "This request ID belongs to different work. Reload the project before starting a new take.": "يخص معرّف هذا الطلب عملاً مختلفاً. أعد تحميل المشروع قبل بدء محاولة جديدة.",
+    "This take's audio is no longer available. Nothing was charged again.": "لم يعد صوت هذه المحاولة متاحاً. لم تُخصم أي أرصدة مرة أخرى.",
+    "The line could not be re-spoken. Your credits were refunded.": "تعذرت إعادة نطق السطر. أُعيدت أرصدتك.",
+    "The line could not be re-spoken. Your refund is pending and will be retried automatically.": "تعذرت إعادة نطق السطر. استعادة رصيدك قيد الانتظار وستتم إعادة محاولتها تلقائياً.",
+    "This request's result could not be confirmed. Please contact support before starting another take.": "تعذر تأكيد نتيجة هذا الطلب. يرجى التواصل مع الدعم قبل بدء محاولة أخرى.",
+    "This project has reached its re-speaking limit. Please contact support.": "وصل هذا المشروع إلى حد محاولات إعادة النطق. يرجى التواصل مع الدعم.",
+    "Credit payments are temporarily paused. Please retry this same request later.": "خصم الأرصدة متوقف مؤقتاً. يرجى إعادة محاولة الطلب نفسه لاحقاً.",
+    "This payment request could not be verified. Please contact support.": "تعذر التحقق من طلب الخصم هذا. يرجى التواصل مع الدعم.",
+    "This earlier request has no available saved result. Nothing was charged again.": "لا توجد نتيجة محفوظة متاحة لهذا الطلب السابق. لم تُخصم أي أرصدة مرة أخرى.",
+    "You do not have enough credits for this line. Add credits, then start a new take.": "رصيدك لا يكفي لهذا السطر. أضف أرصدة ثم ابدأ محاولة جديدة.",
+    "Payment could not be confirmed. Retry this same request; no audio generation has started.": "تعذر تأكيد الخصم. أعد محاولة الطلب نفسه؛ لم يبدأ توليد الصوت.",
+    "This request needs review. Please contact support before retrying.": "يحتاج هذا الطلب إلى مراجعة. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.",
+    "The request was interrupted. Please contact support before retrying.": "انقطع الطلب. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.",
+    "The generated audio could not be confirmed. Please contact support before retrying.": "تعذر تأكيد الصوت المولّد. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.",
+    "This request could not be saved safely. Please contact support before retrying.": "تعذر حفظ هذا الطلب بأمان. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.",
+    "This request's saved result could not be read. Please contact support before retrying.": "تعذرت قراءة النتيجة المحفوظة لهذا الطلب. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.",
+    "We could not save this request safely. Please contact support before retrying.": "تعذر حفظ هذا الطلب بأمان. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.",
+    "Retry this line to check the same request. No new take will be started.": "أعد محاولة هذا السطر للتحقق من الطلب نفسه. لن تبدأ محاولة جديدة."
+};
+    return window.currentLang === "ar" && words[message] ? words[message] : message;
+}
+function shortRegenerationKey(payload) {
+    return "lisan_regenerate_v1:" + payload.job_id + ":" + payload.segment.segment_id;
+}
+function shortRegenerationUuid() {
+    const source = window.crypto;
+    if (!source) throw new Error(subsText("Please reload this page before re-speaking the line.", "يرجى إعادة تحميل الصفحة قبل إعادة نطق السطر."));
+    if (typeof source.randomUUID === "function") return source.randomUUID();
+    const bytes = source.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+    return hex.slice(0,8) + "-" + hex.slice(8,12) + "-" + hex.slice(12,16) + "-" + hex.slice(16,20) + "-" + hex.slice(20);
+}
+function shortRegenerationWork(value) {
+    if (Array.isArray(value)) return value.map(shortRegenerationWork);
+    if (value && typeof value === "object") {
+        const sorted = {};
+        Object.keys(value).sort().forEach(key => { sorted[key] = shortRegenerationWork(value[key]); });
+        return sorted;
+    }
+    return value;
+}
+function shortRegenerationRequest(payload) {
+    const key = shortRegenerationKey(payload);
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(key) || "null"); }
+    catch (e) { throw new Error(subsText("This request could not be restored. Please contact support before retrying.", "تعذر استعادة هذا الطلب. يرجى التواصل مع الدعم قبل المحاولة مرة أخرى.")); }
+    if (saved) {
+        const work = Object.assign({}, saved);
+        delete work.operation_id; delete work.accepted_credits;
+        if (JSON.stringify(shortRegenerationWork(work)) !== JSON.stringify(shortRegenerationWork(payload)))
+            throw new Error(subsText("A previous request for this line is unresolved. Restore its text and settings before retrying, or contact support.", "لم تُحسم نتيجة الطلب السابق لهذا السطر. أعد نصه وإعداداته السابقة قبل المحاولة، أو تواصل مع الدعم."));
+        return saved;
+    }
+    return Object.assign({}, payload, { operation_id: shortRegenerationUuid() });
+}
+function saveShortRegeneration(payload) {
+    try { localStorage.setItem(shortRegenerationKey(payload), JSON.stringify(payload)); }
+    catch (e) { throw new Error(subsText("Please allow this page to save the request before re-speaking the line.", "يرجى السماح لهذه الصفحة بحفظ الطلب قبل إعادة نطق السطر.")); }
+}
+function finishShortRegeneration(payload) {
+    try { localStorage.removeItem(shortRegenerationKey(payload)); } catch (e) {}
+}
+
 async function quoteShortPrice(endpoint, payload) {
     const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     const quote = await res.json();
@@ -2276,19 +2342,28 @@ async function generateAudio() {
     }
 }
 async function regenerateLine(i, btn) {
+    if (btn.disabled) return;
     const seg = segmentsData[i];
     if (!(seg.arabic_text || "").trim()) { notify("error", "This line has no Arabic text yet."); return; }
     const voice_id = speakerVoices[seg.speaker] || "";
     if (!voice_id) { notify("error", "No voice for " + seg.speaker + ". Pick one in Step 4 first."); return; }
     btn.disabled = true; btn.textContent = "⏳";
+    let payload = null, busyKey = null;
     try {
-        const payload = JSON.parse(JSON.stringify({
+        payload = JSON.parse(JSON.stringify({
             job_id: currentJobId || "", segment: Object.assign({}, seg, { waqf: shortWaqfMode(seg.waqf) }),
             segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })),
             voice_id: voice_id, tempo_mode: seg.tempo_mode || "excellent",
             duration_mode: document.getElementById("durationMode").value, total_duration: totalDuration
         }));
-        await quoteShortPrice("/api/regenerate_line/quote", payload);
+        busyKey = shortRegenerationKey(payload);
+        window._shortRegenerationBusy = window._shortRegenerationBusy || {};
+        if (window._shortRegenerationBusy[busyKey]) { busyKey = null; return; }
+        window._shortRegenerationBusy[busyKey] = true;
+        payload = shortRegenerationRequest(payload);
+        // An unresolved click keeps its accepted price and ID across reloads.
+        if (!Number.isInteger(payload.accepted_credits)) await quoteShortPrice("/api/regenerate_line/quote", payload);
+        saveShortRegeneration(payload);
         notify("info", `Re-speaking line ${i + 1} only...`);
         const res = await fetch("/api/regenerate_line", {
             method: "POST",
@@ -2297,10 +2372,12 @@ async function regenerateLine(i, btn) {
         });
         let data = null;
         try { data = await res.json(); } catch (e) { data = null; }
+        if (data && data.operation_complete === true) finishShortRegeneration(payload);
         if (!res.ok || !data || data.status !== "success") {
-            notify("error", "Regenerate failed: " + ((data && (data.error || data.detail)) || "Please try again in a moment."));
+            notify("error", subsText("Regenerate failed: ", "فشلت إعادة النطق: ") + shortRegenerationError((data && (data.error || data.detail)) || "Retry this line to check the same request. No new take will be started."));
             return;
         }
+        finishShortRegeneration(payload);
         const cr = data.credits_charged;
         if (typeof refreshCredits === "function") refreshCredits();
         notify("success", window.currentLang === "ar"
@@ -2340,6 +2417,7 @@ async function regenerateLine(i, btn) {
     } catch (e) {
         notify("error", e.message);
     } finally {
+        if (busyKey && window._shortRegenerationBusy) delete window._shortRegenerationBusy[busyKey];
         btn.disabled = false; btn.textContent = "🔄";
     }
 }

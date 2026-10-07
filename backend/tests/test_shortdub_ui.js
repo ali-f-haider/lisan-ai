@@ -21,7 +21,8 @@ function context() {
     const element = () => ({ disabled: false, textContent: '', classList: { add() {}, remove() {} } });
     const messages = [], calls = [], confirmations = [];
     const c = vm.createContext({
-        window: { currentLang: 'en', clonedVoiceIds: [] },
+        window: { currentLang: 'en', clonedVoiceIds: [], crypto: require('node:crypto').webcrypto },
+        localStorage: (() => { const data=new Map(); return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)}; })(),
         document: { getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }, querySelector() { return null; } },
         segmentsData: [{ segment_id: 'seg_0', arabic_text: 'مرحبا', emotion: 'neutral', speaker: 'Speaker 1', start: 0 }],
         speakerVoices: { 'Speaker 1': 'voice' }, currentJobId: 'a'.repeat(32), totalDuration: 4,

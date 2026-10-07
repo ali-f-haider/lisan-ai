@@ -762,6 +762,12 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
     <!-- ===================== LOGS ===================== -->
     <div class="panel" id="panel-audit">
       <div class="card">
+        <h3>Billing health</h3>
+        <p class="muted" id="billingHealthStatus">Loading billing health...</p>
+        <button class="btn" type="button" onclick="loadBillingHealth()">Refresh billing health</button>
+        <div id="billingHealthLists" style="margin-top:14px"></div>
+      </div>
+      <div class="card">
         <h3>📜 Credit Adjustments Audit Log</h3>
         <p class="muted" style="margin-bottom:12px;">Every manual credit grant, deduction or "Set" done by an admin (Users tab), with the reason typed at the time. The newest 100 are shown.</p>
         <table>
@@ -853,7 +859,7 @@ function doLogin() {
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadBusiness(); loadUsers(); loadPricing(); loadMaintenance(); loadAudit(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
+  loadBusiness(); loadUsers(); loadPricing(); loadMaintenance(); loadAudit(); loadBillingHealth(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -884,6 +890,42 @@ function maintShow(d) {
     st.textContent = 'No banner is showing.';
   }
 }
+async function loadBillingHealth() {
+  const status = document.getElementById('billingHealthStatus');
+  const host = document.getElementById('billingHealthLists');
+  const r = await api('/api/admin/billing_health');
+  host.replaceChildren();
+  if (!r.ok || r.data.installed !== true) {
+    status.textContent = r.data.installed === false ? 'Not installed yet' : 'Billing health could not be read. Please try again.';
+    return;
+  }
+  const groups = r.data.lists;
+  const labels = {pending:'Requests pending over 10 minutes', refunds_owed:'Refunds still owed', legacy_packs:'Earlier packs needing review', clone_refunds:'Pending cloning refunds'};
+  const count = Object.keys(labels).reduce((sum,key) => sum + groups[key].count, 0);
+  status.textContent = (r.data.ready ? 'Billing is ready.' : 'Billing is paused.') + (count === 0 ? ' Nothing needs attention.' : ' Check the lists below; some requests may appear in more than one list.');
+  Object.keys(labels).forEach(key => {
+    const group = groups[key];
+    const heading = document.createElement('h4');
+    heading.textContent = labels[key] + ': ' + group.count;
+    host.appendChild(heading);
+    if (!group.rows.length) return;
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    ['Request reference','Account ID','Credits','Age (minutes)','Kind'].forEach(label => {
+      const th = document.createElement('th'); th.textContent = label; header.appendChild(th);
+    });
+    table.appendChild(header);
+    group.rows.forEach(row => {
+      const tr = document.createElement('tr');
+      [row.operation_id,row.account_id,row.amount,Math.floor(row.age_seconds / 60),row.kind].forEach(value => {
+        const td = document.createElement('td'); td.textContent = String(value); tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    host.appendChild(table);
+  });
+}
+
 async function loadMaintenance() {
   try { document.getElementById('maintTz').textContent = "Times are in your computer's time zone (" + Intl.DateTimeFormat().resolvedOptions().timeZone + "); users see them in theirs."; } catch (e) {}
   const r = await api('/api/admin/maintenance');
@@ -952,13 +994,13 @@ async function adjustCredits(uid, sign, idx) {
   if (!reason.trim()) { toast('Reason is required. Please click + Grant / − Deduct again and type a reason.', true); return; }
   const amountRaw = await LisanDialog.prompt(`How many credits to ${sign>0?'grant':'deduct'}?`, { title: sign>0 ? 'Grant credits' : 'Deduct credits' });
   if (amountRaw === null) return; // user clicked Cancel — no action, no message needed
-  const amount = parseInt(amountRaw);
-  if (!amount || amount <= 0) { toast(`"${amountRaw}" is not a valid number of credits. Please try again and type a number like 5.`, true); return; }
+  const amount = Number(amountRaw);
+  if (!Number.isInteger(amount) || amount <= 0 || amount > 10000) { toast(`"${amountRaw}" is not a valid number of credits. Please try again and type a number like 5.`, true); return; }
   const r = await api('/api/admin/adjust_credits', {
     method: 'POST',
     body: JSON.stringify({ uid, delta: sign * amount, reason: reason.trim() })
   });
-  if (r.ok) { toast(`Adjusted ${sign * amount} credits`); if(r.data.spend_warning) toast('Spend log error: ' + r.data.spend_warning, true); if(r.data.audit_warning) toast('Audit log error: ' + r.data.audit_warning, true); } else { toast('Failed: ' + (r.data.error||''), true); }
+  if (r.ok) { toast(`Adjusted ${r.data.adjusted_credits} credits`); if(r.data.spend_warning) toast('Spend log error: ' + r.data.spend_warning, true); if(r.data.audit_warning) toast('Audit log error: ' + r.data.audit_warning, true); } else { toast('Failed: ' + (r.data.error||''), true); }
   loadUsers();
 }
 
@@ -966,8 +1008,8 @@ async function setCredits(uid, idx) {
   const u = usersCache[idx];
   const newAmountRaw = await LisanDialog.prompt(`Set credits for ${u.display_name||u.email||uid.slice(0,8)} to:`, { title: 'Set credits', value: u.credits });
   if (newAmountRaw === null) return; // user clicked Cancel — no action, no message needed
-  const newAmount = parseInt(newAmountRaw);
-  if (isNaN(newAmount)) { toast(`"${newAmountRaw}" is not a valid number. Please try again and type a number.`, true); return; }
+  const newAmount = Number(newAmountRaw);
+  if (!String(newAmountRaw).trim() || !Number.isInteger(newAmount) || newAmount < 0) { toast(`"${newAmountRaw}" is not a valid number. Please try again and type a number.`, true); return; }
   const delta = newAmount - u.credits;
   if (delta === 0) { toast('No change — that is already the current credit amount.'); return; }
   const reason = await LisanDialog.prompt(`Reason for setting credits to ${newAmount}:`, { title: 'Set credits' });

@@ -5,12 +5,14 @@ Route and worker functions are extracted from the actual source; external
 services are replaced by mocks so importing the live cleanup threads is avoided.
 """
 import ast
+import json
 import copy
 import re
 import sys
 import tempfile
 import threading
 import unittest
+import uuid
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -50,7 +52,7 @@ def segment(text='مرحبا', sid='seg_0', **kwargs):
 
 def request(**kwargs):
     seg = segment()
-    values = dict(job_id=JOB_A, segment=seg, segments=[seg], voice_id='voice', voice_engine='elevenlabs',
+    values = dict(job_id=JOB_A, operation_id=str(uuid.uuid4()), segment=seg, segments=[seg], voice_id='voice', voice_engine='elevenlabs',
                   speaker_voices={'Speaker 1': 'voice'}, default_voice_id='', speaker_voice_engines={},
                   default_voice_engine='elevenlabs', accepted_credits=None, tts_provider='elevenlabs',
                   elevenlabs_api_key='test', inworld_api_key='test', gemini_api_key='test', cloned_voice_ids=[],
@@ -169,6 +171,9 @@ class PricingTests(unittest.TestCase):
 
 class RouteTests(unittest.TestCase):
     def setUp(self):
+        self.store = tempfile.TemporaryDirectory()
+        self.addCleanup(self.store.cleanup)
+        self.output = Path(self.store.name)
         self.buckets = {}
         self.progress, self.charges = {}, {}
         self.cfg = {'charsPerCredit': 60, 'inworldCharsPerCredit': 100, 'minReserve': 20}
@@ -188,7 +193,18 @@ class RouteTests(unittest.TestCase):
         names = ['_resolve_short_voices', '_short_quote', '_quote_response', 'generate_quote', 'regenerate_quote',
                  '_check_short_payment', '_run_short_generate', '_short_edit', 'generate', 'regenerate_line',
                  'restretch_line', 'remix_audio', 'generate_progress']
+        n.update(OUTPUT_DIR=self.output, json=json,
+                 _short_clone_settle=Mock(return_value={'status':'done'}),
+                 _sb_rpc=Mock(side_effect=lambda name,args,strict=False: {
+                     'operation_id':args['p_operation_id'],'uid':args['p_uid'],
+                     'amount':args['p_amount'],'kind':'debit','status':'pending'}))
         self.n = source_functions('main.py', names, n)
+        def generated(req):
+            line_audio_path(self.output, req.job_id, req.segment.segment_id, 'raw', '.mp3').write_bytes(b'raw take')
+            line_audio_path(self.output, req.job_id, req.segment.segment_id, 'stretched', '.wav').write_bytes(b'stretched take')
+            (self.output / (req.job_id+'_final_dubbed.mp3')).write_bytes(b'final mix')
+            return self.n['eleven_service'].regenerate_line.return_value
+        self.n['eleven_service'].regenerate_line.side_effect = generated
 
     def tearDown(self):
         finish_operation(JOB_A)
@@ -237,13 +253,16 @@ class RouteTests(unittest.TestCase):
         result = self.n['regenerate_line'](req, object())
         self.assertEqual(result['credits_charged'], 2)
         self.assertEqual(self.charges[JOB_A]['credits_charged'], 2)
-        self.n['deduct_credits'].assert_called_once_with('user', 2, 'regenerate', JOB_A)
+        self.n['deduct_credits'].assert_called_once_with('user', 2, 'regenerate', JOB_A, operation_id=req.operation_id)
         self.assertFalse(operation_active(JOB_A))
 
-    def test_provider_error_does_not_charge_and_unlocks_job(self):
+    def test_provider_error_is_refunded_and_unlocks_job(self):
         self.n['eleven_service'].regenerate_line.return_value = {'error': 'provider failed'}
-        self.assertIn('error', self.call_regenerate())
-        self.n['deduct_credits'].assert_not_called()
+        result = self.call_regenerate()
+        self.assertIn('error', result)
+        self.assertEqual(result['credits_charged'], 0)
+        self.assertEqual(result['credits_refunded'], 1)
+        self.n['_short_clone_settle'].assert_called_once()
         self.assertFalse(operation_active(JOB_A))
 
     def test_debit_failure_is_not_reported_as_paid_success(self):
@@ -425,7 +444,7 @@ class HttpRouteTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/generate/quote', json=self.payload).status_code, 400)
 
     def test_http_regeneration_charge_is_in_response(self):
-        payload = dict(job_id=JOB_A, segment=self.payload['segments'][0], voice_id='voice')
+        payload = dict(job_id=JOB_A, operation_id=str(uuid.uuid4()), segment=self.payload['segments'][0], voice_id='voice')
         quote = self.client.post('/api/regenerate_line/quote', json=payload)
         self.assertEqual(quote.status_code, 200, quote.text)
         payload['accepted_credits'] = quote.json()['credits']

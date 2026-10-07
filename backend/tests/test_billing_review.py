@@ -58,6 +58,7 @@ class BillingReviewTests(unittest.TestCase):
         fixture.setUp()
         fixture.n.update(customer_message=customer_message, customer_payload=customer_payload)
         self.addCleanup(fixture.tearDown)
+        self.addCleanup(fixture.doCleanups)
         return fixture
 
     def test_failed_combined_bucket_debit_preserves_the_entire_balance(self):
@@ -218,7 +219,7 @@ class BillingReviewTests(unittest.TestCase):
         req = short.request(segment=short.segment('x'*51), accepted_credits=2)
         self.assertEqual(f.n['regenerate_quote'](req, object())['credits'], 2)
         self.assertEqual(f.n['regenerate_line'](req, object())['credits_charged'], 2)
-        f.n['deduct_credits'].assert_called_once_with('user',2,'regenerate',short.JOB_A)
+        f.n['deduct_credits'].assert_called_once_with('user',2,'regenerate',short.JOB_A,operation_id=req.operation_id)
 
     def test_inflight_double_click_is_blocked_and_failed_regeneration_is_free(self):
         f = self.short_routes()
@@ -228,8 +229,10 @@ class BillingReviewTests(unittest.TestCase):
         f.n['eleven_service'].regenerate_line.assert_not_called()
         short.finish_operation(short.JOB_A)
         f.n['eleven_service'].regenerate_line.return_value = {'error':'Voice generation failed.'}
-        f.n['regenerate_line'](req,object())
-        f.n['deduct_credits'].assert_not_called()
+        result = f.n['regenerate_line'](req,object())
+        self.assertEqual(result['credits_charged'],0)
+        self.assertEqual(result['credits_refunded'],1)
+        f.n['_short_clone_settle'].assert_called_once_with('user',req.operation_id,'failed',1)
 
     def test_local_retiming_and_remix_do_not_charge(self):
         f = self.short_routes()

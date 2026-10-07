@@ -3476,6 +3476,8 @@ def _cleanup_worker():
                     except Exception:
                         pass
             try:
+                from shortdub_operations import maintain_receipts
+                maintain_receipts(OUTPUT_DIR, UPLOAD_DIR)
                 freed_dirs = disk_guard.remove_stale_dirs((UPLOAD_DIR, OUTPUT_DIR), short_cutoff)
                 if freed_dirs:
                     print(f"[cleanup] removed old working folders, freed {freed_dirs / 1048576:.0f} MB")
@@ -3997,6 +3999,11 @@ def abandon_job(job_id: str, request: Request):
                 if p.is_file():
                     p.unlink()
     except Exception:
+        pass
+    try:
+        from shortdub_operations import clear_receipts
+        clear_receipts(OUTPUT_DIR, job_id)
+    except OSError:
         pass
     return {"ok": True}
 
@@ -4826,10 +4833,14 @@ def lipsync(req: LipSyncRequest, request: Request):
     # just doesn't act on it while testing.
     if not LIPSYNC_TEST_MODE:
         bal = get_credits(uid) if uid else None
-        if bal is not None and bal < lipsync_cost:
+        if bal is None:
+            return JSONResponse({"error": "Your balance could not be checked. No generation has started."}, status_code=503)
+        if bal < lipsync_cost:
             return JSONResponse({"error": customer_message(f"Insufficient credits ({bal} left). Lip-sync for this {round(dur)}s video costs {lipsync_cost} credits. Use âž• Buy.")}, status_code=402)
         if uid:
-            deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
+            paid = deduct_credits(uid, lipsync_cost, "lipsync", req.job_id)
+            if not debit_confirmed(paid):
+                return JSONResponse({"error": "Payment could not be confirmed. No generation has started. Please contact support before retrying."}, status_code=503)
 
     jobs_progress[f"lipsync_{req.job_id}"] = {"status": "processing", "percent": 5,
                                               "message": "Preparing...", "error": None,
