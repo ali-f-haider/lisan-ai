@@ -1101,6 +1101,7 @@ html.js .rv.in{opacity:1;transform:none}
       } catch (x) {}
       window.location.reload();
     }
+    try{sessionStorage.removeItem("lisan_notify_log");sessionStorage.removeItem("lisan_notify_log_owner");}catch(e){}
     fetch("/api/logout", { method: "POST", credentials: "same-origin" }).then(done, done);
   }
   function logoutLink(cls) {

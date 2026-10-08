@@ -7903,15 +7903,9 @@ def admin_mem_diag(request: Request):
         pass
     processes.sort(key=lambda p: p["rss_mb"], reverse=True)
 
-    # On-disk size of the Whisper/pyannote model-cache directories -- not the
-    # same thing as how much of them is currently resident in RAM (that would
-    # need a mincore() walk per file, which isn't worth the risk of a raw
-    # ctypes/mmap bug on a live server for a number this diagnostic), but a
-    # close proxy: these files get read start-to-finish on every model load,
-    # so their on-disk size is close to the ceiling of what could be cached.
-    # If this total is in the same ballpark as cgroup's "cache_mb" above
-    # (accounting for job files too), that confirms the model files -- not a
-    # leak -- are the bulk of the plateau.
+    # Disk cache sizes are context only: they do not measure resident weights
+    # or prove which files contribute to the container page cache. The new
+    # runtime flags report cached model objects, not their memory sizes.
     model_cache_dirs = []
     try:
         for cache_dir in whisper_service._model_cache_dirs():
@@ -7933,8 +7927,14 @@ def admin_mem_diag(request: Request):
         pass
 
     idle_minutes = round((_time.time() - app_state.last_job_activity) / 60, 1)
+    from memory_diagnostics import snapshot as _memory_snapshot
+    try:
+        runtime = _memory_snapshot(globals())
+    except Exception:
+        runtime = {"error": "The runtime inventory is temporarily unavailable."}
 
     return {
+        "runtime": runtime,
         "cgroup": cgroup, "host_meminfo": host_meminfo, "processes": processes,
         "model_cache_dirs": model_cache_dirs,
         "idle_minutes": idle_minutes,

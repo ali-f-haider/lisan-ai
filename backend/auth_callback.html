@@ -12,6 +12,7 @@
     <div id="err" style="color:#dc2626;margin-top:12px;display:none;"></div>
 </div>
 <script>
+try{sessionStorage.removeItem("lisan_notify_log");sessionStorage.removeItem("lisan_notify_log_owner");}catch(e){}
 function _done() {
     var hash = window.location.hash.substring(1);
     var params = new URLSearchParams(hash);

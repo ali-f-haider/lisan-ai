@@ -332,6 +332,14 @@ class _JobQueue:
         with self._lock:
             self._in_use -= 1
             self._try_advance()
+            nobody_left = self._in_use == 0
+        if nobody_left and _release_pending:
+            # Two jobs overlapped and each skipped freeing the model because the other was still running (see
+            # _release_model). The last one has now gone, so free it here -- otherwise nothing ever would.
+            try:
+                _release_model()
+            except Exception:
+                pass
 
 
 _transcribe_queue = _JobQueue(MAX_CONCURRENT_TRANSCRIPTIONS)
@@ -353,19 +361,30 @@ def _get_model():
 
 _DIAR_RUN_LOCK = threading.Lock()
 
+# True while a release was skipped because another job still held a slot. The slot queue frees the model when the
+# last job leaves (see _JobQueue.release), so overlapping jobs can no longer leave it loaded for good.
+_release_pending = False
+
 
 def _release_model():
     """Drop the loaded Whisper model so its memory is freed once a job's
     transcription step is done -- it isn't needed again until the next
     job requests it via _get_model()."""
-    global _model
+    global _model, _release_pending
     if _transcribe_queue.running() > 1:
-        return          # another job is still using it: the last job to finish frees it
+        _release_pending = True     # another job is still using it: the last job to leave frees it
+        return
     with _model_lock:
         _model = None
+        _release_pending = False
     import gc
     gc.collect()
     _trim_memory()
+
+
+# Counts releases of the speaker-detection pipeline. A worker that was given up on (timeout) must not put a pipeline it
+# finished building AFTER that release back into the cache, where nothing would ever remove it.
+_diar_release_count = 0
 
 
 def _release_diarization_pipeline(hf_token):
@@ -374,6 +393,8 @@ def _release_diarization_pipeline(hf_token):
     the Whisper model, this pipeline used to stay in `diarization_pipelines`
     for the entire lifetime of the process once any job used speaker
     detection -- that's a major reason idle memory usage kept climbing."""
+    global _diar_release_count
+    _diar_release_count += 1
     diarization_pipelines.pop(hf_token, None)
     import gc
     gc.collect()
@@ -420,10 +441,13 @@ def get_speaker_turns(input_path: str, hf_token: str, speaker_count, min_speaker
     except Exception as e:
         raise Exception(f"Missing dependency: {e}. Run: pip install soundfile")
 
+    release_count = _diar_release_count
     pipeline = diarization_pipelines.get(hf_token)
     if pipeline is None:
         pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=hf_token)
-        diarization_pipelines[hf_token] = pipeline
+        if _diar_release_count == release_count:
+            diarization_pipelines[hf_token] = pipeline
+        # else: a release ran while this was loading (the job gave up waiting); keep it for this run only.
 
     normalized_path = normalize_audio_for_diarization(input_path)
     audio_data, sample_rate = sf.read(normalized_path, dtype='float32')
@@ -453,6 +477,12 @@ def get_speaker_turns(input_path: str, hf_token: str, speaker_count, min_speaker
     turns = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
         turns.append({"start": float(turn.start), "end": float(turn.end), "speaker": str(speaker)})
+    if _diar_release_count != release_count:
+        # This run outlived the release that was meant to free its pipeline: free what it still holds.
+        pipeline = result = diarization = waveform = audio_data = None
+        import gc
+        gc.collect()
+        _trim_memory()
     return turns
 
 
@@ -788,15 +818,21 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         lang_warned = True
             except Exception as _lex:
                 print(f"[lang-check] {job_id}: skipped ({_lex})")
-            segments_gen, info = _get_model().transcribe(
-                str(audio_path),
-                beam_size=5,
-                language="en",
-                word_timestamps=True,
-                vad_filter=True,
-                condition_on_previous_text=False,
-            )
-            total_duration = float(info.duration) if info.duration else 1.0
+            try:
+                segments_gen, info = _get_model().transcribe(
+                    str(audio_path),
+                    beam_size=5,
+                    language="en",
+                    word_timestamps=True,
+                    vad_filter=True,
+                    condition_on_previous_text=False,
+                )
+                total_duration = float(info.duration) if info.duration else 1.0
+            except BaseException:
+                # The language check above may already have loaded the model; an early failure here
+                # skipped the release below, leaving it loaded until some later job happened to free it.
+                _release_model()
+                raise
 
             raw_segments = []
             start_pct = 50 if diar_thread is not None else 15
