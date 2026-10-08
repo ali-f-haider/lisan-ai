@@ -333,8 +333,10 @@ def run(job):
                 raise ValueError('A selected line could not be generated: ' + str(err))
             raw = work / f'{sid}.mp3'; raw.write_bytes(audio)
             slot = row['end'] - row['start']
+            # a corrected line may run on into the silence after it (never over the next line), exactly as in the first dubbing
+            room = max(slot, (_later[0] - 0.05 - row['start']) if _later else slot)
             ref = ld._wd(source) / 'vocals_mono.wav' if source else refs / f'{row["speaker_id"]}.wav'
-            meta = ld._fit_line(raw, fit / f'{sid}.wav', slot, slot, ref, row['start'] if source else 0)
+            meta = ld._fit_line(raw, fit / f'{sid}.wav', slot, room, ref, row['start'] if source else 0)
             # the original line is measured the same way as the corrected line (the speech level, see ld._speech_levels), so the two compare
             original = None
             if source:
@@ -355,7 +357,8 @@ def run(job):
                 # the speaker's usual level (kept from the first dubbing) keeps a corrected line at the same level as its neighbours
                 anchor = (parent.get('voice_anchor') or {}).get(str(row['speaker_id']))
                 meta['gain_db'] = ld._voice_gain(original, measured, peak, anchor)
-            meta.update(seg=sid, start=row['start'], allowed=slot, trim=meta['dur'] > slot)
+            allowed = min(meta['dur'], room)
+            meta.update(seg=sid, start=row['start'], allowed=allowed, trim=meta['dur'] > allowed + 0.02)
             checkpoint[sid] = meta; ld._save(job)
             raw.unlink(missing_ok=True)
         pieces = []

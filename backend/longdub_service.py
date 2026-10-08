@@ -53,6 +53,7 @@ from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
 import subs_align
 import speaker_vote_live
+import dub_timing
 
 LONG_DIR = DATA_DIR / "longjobs"
 LONG_DIR.mkdir(parents=True, exist_ok=True)
@@ -3839,6 +3840,11 @@ try:      # the fastest a line may be played before its wording is shortened (en
     TEMPO_MAX = min(1.5, max(1.1, float(os.environ.get("LONGDUB_TEMPO_MAX") or 1.25)))
 except ValueError:
     TEMPO_MAX = 1.25
+try:      # the last-resort speed (env LONGDUB_TEMPO_HARD, 1.25 - 1.6): used only to avoid cutting a line, after rephrasing
+    TEMPO_HARD = min(1.6, max(1.25, float(os.environ.get("LONGDUB_TEMPO_HARD") or 1.4)))
+except ValueError:
+    TEMPO_HARD = 1.4
+NOCUT_MIN_LETTERS = 6          # when a line would otherwise be cut, even a short line may be reworded (not below this many letters)
 MAX_FAILED_LINE_SHARE = 0.10   # more failed lines than this and the whole job fails (refunded)
 
 
@@ -4285,27 +4291,36 @@ def _mix_chunk(items, s0, s1, fit_dir, out_wav):
                                                          str(out_wav)])
 
 
-def _plan_timeline(lines, total):
-    """Decide, for every generated line, how much of it may play (it may run
-    into the silence after it but never over the next line) and split the
+def _plan_timeline(lines, total, place=None, overlap=None):
+    """Decide, for every generated line, how much of it may play and split the
     timeline into stretches that start at a line, so no line crosses a
-    stretch boundary. Returns (kept_items, chunks[(items, s0, s1)], dropped)."""
+    stretch boundary. `place` ({segment: start}, from dub_timing) moves lines a little so that none has to be cut;
+    `overlap` ({segment: seconds}) is how much of a line's tail may play under the next line. Without them a line may
+    run into the silence after it but never over the next line (its end is then cut -- the old behaviour, now only
+    the last resort). Returns (kept_items, chunks[(items, s0, s1)], dropped)."""
+    place = place or {}
+    overlap = overlap or {}
+    for it in lines:
+        it["orig_start"] = it["start"]
+        if it.get("seg") in place:
+            it["start"] = float(place[it["seg"]])
     lines = sorted(lines, key=lambda x: x["start"])
     dropped = []
     for i, it in enumerate(lines):
         nxt = lines[i + 1]["start"] - 0.05 if i + 1 < len(lines) else total
-        room = nxt - it["start"]
+        room = nxt - it["start"] + float(overlap.get(it.get("seg"), 0.0))
         it["allowed"] = min(it["dur"], room)
         it["trim"] = it["dur"] > it["allowed"] + 0.02
         if it["allowed"] <= 0.02:
             dropped.append(it)
     kept = [it for it in lines if it["allowed"] > 0.02]
-    groups, cur = [], []
+    groups, cur, cur_end = [], [], 0.0
     for it in kept:
-        if cur and it["start"] - cur[0]["start"] >= DUB_CHUNK_SPAN:
+        if cur and it["start"] - cur[0]["start"] >= DUB_CHUNK_SPAN and it["start"] >= cur_end - 1e-6:
             groups.append(cur)
-            cur = []
+            cur, cur_end = [], 0.0
         cur.append(it)
+        cur_end = max(cur_end, it["start"] + it["allowed"])
     if cur:
         groups.append(cur)
     total_samples = int(math.ceil(total * SAMPLE_RATE))
@@ -4332,7 +4347,7 @@ def _ar_letters(text):
     return len(re.sub(r"[\s\u064B-\u065F\u0670\u0640]", "", text or ""))
 
 
-def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None, gap=None):
+def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None, gap=None, min_letters=None):
     """A line that is still too long after using the silence after it and the
     "good" stretch would have its end cut. Instead, ask for a SHORTER version of
     the same sentence (same meaning), speak that, and use it if it is shorter.
@@ -4346,7 +4361,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
     for attempt in range(1, REPHRASE_TRIES + 1):
         letters = _ar_letters(cur_text)
         actual = float(best_meta.get("raw") or 0)
-        if letters < REPHRASE_MIN_LETTERS or actual <= 0:
+        if letters < (min_letters or REPHRASE_MIN_LETTERS) or actual <= 0:
             break
         # speech time we are aiming for, so that at the "good" limit it fits the room with a little to spare
         target_raw = room * cap * (0.92 if attempt == 1 else 0.82)
@@ -4403,6 +4418,104 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         except Exception:
             pass
     return best_meta, best_text
+
+
+def _speed_up_fit(d, sid, meta, factor):
+    """Play an already fitted line `factor` times faster (the last resort before a line would be cut). Updates meta."""
+    f = d / "fit" / f"{sid}.wav"
+    tmp = d / "fit" / f"{sid}_sp.wav"
+    ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(f), "-filter:a", f"atempo={factor:.6f}", "-ac", "2", "-ar", str(SAMPLE_RATE),
+                             "-acodec", "pcm_s16le", str(tmp)])
+    new_dur = ffmpeg_utils.get_media_duration(tmp)
+    if new_dur <= 0 or new_dur >= float(meta["dur"]) - 0.03:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+        return None
+    os.replace(tmp, f)
+    meta["tempo"] = round(float(meta.get("tempo") or 1.0) * factor, 3)
+    meta["dur"] = round(new_dur, 3)
+    meta["warn"] = True
+    return meta["dur"]
+
+
+def _no_cut_pass(job, dub, rows, total, voice_for, loud_ref, d, paces):
+    """No generated line may be cut short. Lines that would overrun the next line are first moved a little (they use
+    the silence before and after them), then reworded shorter (even short lines), then played a little faster than
+    the usual limit, and only then is more movement or a short overlap allowed (see dub_timing). Returns
+    {"place": {segment: start}, "overlap": {segment: seconds}} for _plan_timeline."""
+    import inworld_service
+    by_seg = {r["segment_id"]: r for r in rows}
+    items = [{"seg": sid, "start": float(m["start"]), "dur": float(m["dur"])} for sid, m in dub["lines"].items() if sid in by_seg]
+    nc = dub.setdefault("nocut", {"rephrased": [], "sped": []})
+
+    def reduce_cb(stage, sid, target):
+        m = dub["lines"].get(sid)
+        r = by_seg.get(sid)
+        if not m or not r:
+            return None
+        try:
+            if stage == "speed":
+                cur = float(m.get("tempo") or 1.0)
+                f = min(float(m["dur"]) / max(target, 0.2), TEMPO_HARD / max(cur, 1.0))
+                if f < 1.04:
+                    return None
+                got = _speed_up_fit(d, sid, m, f)
+                if got is not None and sid not in nc["sped"]:
+                    nc["sped"].append(sid)
+                return got
+            if stage == "rephrase" and REPHRASE_ENABLED:
+                i = [x["segment_id"] for x in rows].index(sid)
+                prev = (dub.get("rephrased") or {}).get(sid)
+                cur_text = (prev or {}).get("after") or r["arabic_text"]
+                rr = dict(r)
+                rr["arabic_text"] = cur_text
+                tag = inworld_service.instruction_tag(r.get("emotion"))
+                gap_ = (float(rows[i + 1]["start"]) - float(r["end"])) if i + 1 < len(rows) else 99.0
+                slot = max(float(r["end"]) - float(r["start"]), 0.5)
+                cap_ = min(TEMPO_MAX, delivery.tempo_cap(paces.get(sid, "unknown")))
+                meta2, new_text = _rephrase_to_fit(job, rr, tag, dict(m), slot, max(target, 0.3), voice_for(r["speaker_id"]), loud_ref, d,
+                                                   cap=cap_, gap=gap_, min_letters=NOCUT_MIN_LETTERS)
+                if new_text is None:
+                    return None
+                meta2.update({"start": float(r["start"]), "seg": sid, "chars": len(f"{tag}{new_text}"), "pace": paces.get(sid, "unknown")})
+                dub["lines"][sid] = meta2
+                dub.setdefault("rephrased", {})[sid] = {"t": round(float(r["start"]), 1), "before": (prev or {}).get("before") or r["arabic_text"].strip(),
+                                                        "after": new_text, "fits": meta2["dur"] <= target + 0.02}
+                _ev(job, "line_rephrased", "ok", f"{sid} at {r['start']:.1f}s (to avoid cutting it): {_ar_letters(cur_text)} -> {_ar_letters(new_text)} letters, "
+                                                 f"length {meta2['dur']:.2f}s, wanted {target:.2f}s")
+                if sid not in nc["rephrased"]:
+                    nc["rephrased"].append(sid)
+                return meta2["dur"]
+        except Exception as ex:
+            print(f"[longdub] no-cut step {stage} for {sid} failed: {ex}")
+        return None
+
+    plan = dub_timing.make_plan(items, total, reduce_cb)
+    # the lines may have become shorter: put the final lengths back on the metas used for the mix
+    for sid, m in dub["lines"].items():
+        if sid in plan["durs"]:
+            m["dur"] = round(float(plan["durs"][sid]), 3)
+    dub["place"] = {k: round(v, 3) for k, v in plan["starts"].items()}
+    dub["overlap"] = {k: round(v, 3) for k, v in plan["overlap"].items()}
+    steps = []
+    if plan["moved"]:
+        steps.append(f"{plan['moved']} line(s) moved by up to {plan['max_move']} s")
+    if plan["rephrased"]:
+        steps.append(f"{len(plan['rephrased'])} reworded shorter")
+    if plan["sped"]:
+        steps.append(f"{len(plan['sped'])} played faster than usual (up to {TEMPO_HARD}x)")
+    if plan["widened"]:
+        steps.append("the allowed movement was widened")
+    if plan["overlapped"]:
+        steps.append(f"{len(plan['overlapped'])} line end(s) overlap the next line by up to {dub_timing.MAX_OVERLAP} s")
+    if plan["drifted"]:
+        steps.append(f"a run of lines without a pause was moved by up to {dub_timing.DRIFT_LAG} s")
+    _ev(job, "no_cut_plan", "ok" if plan["ok"] else "partial",
+        ("; ".join(steps) if steps else "every line fits its place, nothing had to be changed")
+        + ("" if plan["ok"] else "; some lines still did not fit and may be cut at the very end of the video"))
+    return plan
 
 
 @_metered("longdub_dub", lambda job, *a, **k: job["id"], after=_log_resource)
@@ -4627,6 +4740,15 @@ def _run_dubbing(job):
             _fail(job, "We couldn't generate any of the lines. Please try again", "dub")
             return
         by_seg = {r["segment_id"]: r for r in rows}
+        try:
+            _no_cut_pass(job, dub, rows, total, voice_for, loud_ref, d, paces_)
+        except Exception as ex_nc:
+            import traceback
+            print(f"[longdub] no-cut pass failed (the plain timeline is used): {ex_nc}\n{traceback.format_exc()}")
+            _ev(job, "no_cut_plan", "failed", f"{type(ex_nc).__name__}: {ex_nc}"[:300])
+            dub.pop("place", None)
+            dub.pop("overlap", None)
+        _save(job)
         _level_voices(job, dub, rows)
         _ev(job, "speech_generation", "ok" if not failed else "partial",
             f"{len(dub['lines'])} of {n} lines generated, {len(failed)} failed")
@@ -4675,7 +4797,7 @@ def _run_dubbing(job):
         items = [dict(m) for m in dub["lines"].values()]
         for it in items:
             it["end"] = float(by_seg[it["seg"]]["end"])
-        kept, chunks, dropped = _plan_timeline(items, total)
+        kept, chunks, dropped = _plan_timeline(items, total, dub.get("place"), dub.get("overlap"))
         if dropped:
             _ev(job, "timeline", "partial", f"{len(dropped)} lines had no room and were left out")
             job.setdefault("warnings", []).append(f"{len(dropped)} line(s) had no room before the next line and were left out.")
@@ -4733,7 +4855,7 @@ def _run_dubbing(job):
                 _mark(job, "mix", 86, "Adding the room sound...")
                 _rl = [{"sid": str(it.get("seg") or ""), "t0": float(it["start"]),
                         "t1": float(it["start"]) + float(it["allowed"]) + 0.1,
-                        "orig_mid": (float(it["start"]) + float(it["end"])) / 2.0} for it in kept]
+                        "orig_mid": (float(it.get("orig_start", it["start"])) + float(it["end"])) / 2.0} for it in kept]
                 _room_out = d / "dub_full_room.wav"
                 _pref = job.get("room_pref") if job.get("room_pref") in ROOM_CHOICES else "auto"
                 _room_set = {"mode": "off" if _pref == "off" else "auto", "require_ok": True, "trim_db": ROOM_CHOICES[_pref] or 0.0}
@@ -4765,6 +4887,8 @@ def _run_dubbing(job):
         cut = sorted(round(x["start"], 1) for x in kept if x["trim"])
         fast = sorted(round(x["start"], 1) for x in kept if not x["trim"] and float(x.get("tempo") or 1.0) >= 1.2)
         dub["timing"] = {"n_cut": len(cut), "cut": cut[:30], "n_fast": len(fast), "fast": fast[:30]}
+        if cut:
+            _ev(job, "line_cut", "partial", f"{len(cut)} line(s) could not be fitted without cutting their end, at {cut[:12]}")
         if cut or fast:
             _ev(job, "timing_report", "partial",
                 f"cut short at {cut[:12]}; sped up to 1.2x or more at {fast[:12]}")
