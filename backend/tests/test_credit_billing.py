@@ -252,6 +252,23 @@ class CreditBillingTests(unittest.TestCase):
                 ok,message=env['_save_pricing_config'](cfg)
                 self.assertFalse(ok);self.assertTrue(message);network.assert_not_called()
 
+    def test_whole_credit_prices_reach_the_database_as_integers_never_as_40_point_0(self):
+        out=cb.validate_pricing({'lipsyncCreditsPerSec':'40','freeCredits':100,'cloneCredits':5.0})
+        for key in ('lipsyncCreditsPerSec','freeCredits','cloneCredits'):
+            with self.subTest(key=key):
+                self.assertIs(type(out[key]),int);self.assertNotIn('.',json.dumps(out[key]))
+        with self.assertRaises(ValueError):cb.validate_pricing({'lipsyncCreditsPerSec':40.5})
+        with self.assertRaises(ValueError):cb.validate_pricing({'lipsyncCreditsPerSec':0})
+
+    def test_blank_plan_caps_mean_no_cap_and_do_not_block_the_whole_save(self):
+        plan={'key':'pro','name':'Pro','price_usd':29.0,'credits_per_month':4000,'voice_slots':20,'clones_per_month':None,'storage_gb':None}
+        out=cb.validate_pricing({'subscriptionPlans':[plan]})['subscriptionPlans'][0]
+        self.assertIsNone(out['clones_per_month']);self.assertIsNone(out['storage_gb']);self.assertEqual(out['credits_per_month'],4000)
+        for field in ('voice_slots','bonus_pct'):
+            with self.subTest(field=field),self.assertRaises(ValueError):
+                cb.validate_pricing({'subscriptionPlans':[dict(plan,**{field:None})]})
+        with self.assertRaises(ValueError):cb.validate_pricing({'subscriptionPlans':[dict(plan,clones_per_month=-1)]})
+
     def test_only_intended_free_pricing_fields_accept_zero(self):
         cfg={'freeCredits':1,'minReserve':0,'longDubFlatCredits':0,'longDubAnalysisPerMin':0,
              'assistant':{'creditsPerCent':0,'dailyBudgetUsd':0}}

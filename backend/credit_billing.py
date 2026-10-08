@@ -52,7 +52,9 @@ def validate_pricing(config):
     free = {"minReserve", "longDubFlatCredits"}
     whole = {"freeCredits", "minReserve", "transcribeCredits", "mergeCredits",
              "cloneCredits", "inworldCloneCredits", "subscriptionCredits",
-             "charsPerCredit", "inworldCharsPerCredit", "longDubFlatCredits"}
+             "charsPerCredit", "inworldCharsPerCredit", "longDubFlatCredits",
+             # Stored in an integer column: 40.0 would be refused by the database as "invalid input syntax for type integer".
+             "lipsyncCreditsPerSec"}
     labels = {"freeCredits": "Signup credits", "minReserve": "Credit reserve",
               "transcribeCredits": "Transcription price", "mergeCredits": "Assembly price",
               "cloneCredits": "Cloning price", "inworldCloneCredits": "Alternative cloning price",
@@ -88,6 +90,9 @@ def validate_pricing(config):
             row[credits] = number(row.get(credits), "Pack or monthly credits", integer=True)
             for field in ("bonus_pct", "voice_slots", "clones_per_month", "storage_gb"):
                 if field in row:
+                    # Blank means "no separate cap" (the admin page sends null); that is a valid choice, not an error.
+                    if row[field] is None and field in ("clones_per_month", "storage_gb"):
+                        continue
                     row[field] = number(row[field], "Bonus or plan allowance", zero=True,
                                         integer=field != "storage_gb")
             rows.append(row)

@@ -1450,7 +1450,8 @@ async function savePricing() {
       body: JSON.stringify(update)
     });
     console.log('Save response:', res);
-    if (res.ok) {
+    // The server answers HTTP 200 with {ok:false, error} when a save is refused or fails: that is NOT a saved price.
+    if (res.ok && res.data && res.data.ok !== false) {
       toast('Pricing saved (' + packs.length + ' packs)');
       // Reload to verify
       setTimeout(() => loadPricing(), 500);
