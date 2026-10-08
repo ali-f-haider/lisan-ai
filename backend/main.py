@@ -5373,7 +5373,12 @@ def _ld_pricing():
         "chars_per_credit": int(_num(cfg.get("inworldCharsPerCredit"), 60)) or 60,
         "clone_credits": int(_num(cfg.get("inworldCloneCredits"), 5)),
         "merge_credits": int(_num(cfg.get("mergeCredits"), 1)),
-        "max_min": 60,  # v1.82: a single verified one-hour limit; old persisted ten-minute settings no longer cap uploads
+        # The longest video is the longest one the speaker check can listen to (one number in speaker_vote_live, 60 minutes);
+        # old persisted ten-minute settings no longer cap uploads.
+        "max_min": longdub_service.speaker_vote_live.ENGINE_MAX_MIN,
+        # the speaker check: two extra listening requests per video (measured about $0.05 for 7.8 minutes), flat + per minute
+        "speaker_check_flat": int(_num(os.environ.get("SPEAKER_CHECK_FLAT_CREDITS"), longdub_service.SPEAKER_CHECK_FLAT)),
+        "speaker_check_per_min": _num(os.environ.get("SPEAKER_CHECK_CREDITS_PER_MIN"), longdub_service.SPEAKER_CHECK_PER_MIN),
         # lip-sync: same per-second price as Step 7, and its own length limit
         "lipsync_per_sec": _num(cfg.get("lipsyncCreditsPerSec"), 40),
         "lipsync_max_min": _num(cfg.get("longDubLipsyncMaxMin"), 3),
@@ -5563,6 +5568,7 @@ def longdub_config(request: Request):
         "chunk_bytes": longdub_service.CHUNK_BYTES,
         "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"], "flat": p["flat"],
+        "speaker_check_flat": p["speaker_check_flat"], "speaker_check_per_min": p["speaker_check_per_min"],
         "credits": get_credits(uid), "studio": bool(LONGDUB_ALL_TIERS or _ld_is_studio(uid)), "watermark": bool(_wm_needed(uid)),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
         "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
@@ -5812,7 +5818,7 @@ def longdub_status(job_id: str, request: Request):
 
 _LD_SPEAKER_REASONS = ("no_detected_turn", "speaker_not_supported", "weak_time_coverage", "overlapping_speech", "short_reply",
                        "word_in_gap", "word_speaker_disagrees", "word_crosses_turns", "smoothed_assignment",
-                       "missing_word_times", "little_speaker_evidence", "invalid_line_times")
+                       "missing_word_times", "little_speaker_evidence", "invalid_line_times", "voters_split", "candidate_rejected")
 
 
 def _ld_speaker_review(r):
@@ -8141,6 +8147,7 @@ def _assistant_pricing_text():
     try:
         p = _ld_pricing()
         L.append(f"Long dub: videos up to {p['max_min']:g} minutes; analysis {p['analysis_per_min']:g} credits per minute of video plus a flat {p['flat']} credits "
+                 f"plus a speaker check of {p['speaker_check_flat']} credits flat and {p['speaker_check_per_min']:g} per minute (two extra checks of who says each line; returned if the check cannot run) "
                  f"(shown as the estimate before the user accepts); then the dub itself is priced on the lines and voices and shown before accepting; "
                  f"lip-sync for long dubs up to {p['lipsync_max_min']:g} minutes.")
     except Exception:

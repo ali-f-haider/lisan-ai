@@ -249,7 +249,7 @@ var T = {
     estLipRow: "Lip-sync (highest possible price)", estLipSub: function (perSec) { return perSec + " credits per second, only for the parts where somebody speaks. The exact price is shown before dubbing."; },
     estFeeRow: "Estimate fee (already paid)", estFeeSub: "Counts toward the total",
     estAnalysisRow: "Transcribe, detect speakers and translate", estAnalysisSub: "Charged when you accept",
-    estFlatRow: "Processing fee", estFlatSub: "Flat fee per video, charged when you accept",
+    estFlatRow: "Processing fee", estFlatSub: "Flat fee per video, charged when you accept", estSpkRow: "Speaker check", estSpkSub: "Extra checks of who says each line (flat fee plus a charge per minute); returned if it cannot run",
     estVoiceRow: "Arabic voice generation (about)", estVoiceSub: "Final price is calculated from your edited text",
     estCloneRow: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; }, estCloneSub: "Charged for each speaker whose voice is cloned",
     estMergeRow: "Final assembly", estMergeSub: "",
@@ -502,7 +502,7 @@ var T = {
     estLipRow: "مزامنة الشفاه (أعلى سعر ممكن)", estLipSub: function (perSec) { return perSec + " رصيد لكل ثانية، فقط للمقاطع التي يتحدث فيها أحد. يظهر السعر الدقيق قبل بدء الدبلجة."; },
     estFeeRow: "رسم التقدير (مدفوع)", estFeeSub: "يُحتسب من الإجمالي",
     estAnalysisRow: "التفريغ وتحديد المتحدثين والترجمة", estAnalysisSub: "يُخصم عند الموافقة",
-    estFlatRow: "رسم المعالجة", estFlatSub: "رسم ثابت لكل فيديو، يُخصم عند الموافقة",
+    estFlatRow: "رسم المعالجة", estFlatSub: "رسم ثابت لكل فيديو، يُخصم عند الموافقة", estSpkRow: "فحص المتحدثين", estSpkSub: "فحوصات إضافية لمعرفة من يقول كل سطر (رسم ثابت + رسم لكل دقيقة)؛ يُردّ إن تعذّر إجراؤه",
     estVoiceRow: "توليد الصوت العربي (تقريباً)", estVoiceSub: "السعر النهائي يُحسب من النص بعد تعديلك",
     estCloneRow: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; }, estCloneSub: "يُحتسب لكل متحدث يُستنسخ صوته",
     estMergeRow: "التجميع النهائي", estMergeSub: "",
@@ -1000,6 +1000,7 @@ function renderEstimate(j) {
   h += row(T.estFeeRow, T.estFeeSub, e.fee);
   h += row(T.estAnalysisRow, T.estAnalysisSub, e.analysis);
   if (e.flat) h += row(T.estFlatRow, T.estFlatSub, e.flat);
+  if (e.speaker_check) h += row(T.estSpkRow, T.estSpkSub, e.speaker_check);
   h += row(T.estVoiceRow, T.estVoiceSub, "≈ " + e.voice);
   h += row(T.estCloneRow(n, e.clone_each), T.estCloneSub, e.clones);
   if (lipOn) h += row(T.estLipRow, T.estLipSub(e.lipsync_per_sec), "≤ " + e.lipsync);
@@ -1010,7 +1011,7 @@ function renderEstimate(j) {
   if (e.times) h += "<p class='ld-times'>" + esc(T.estTimes(e.times)) + "</p>";
   h += "<p style='font-weight:600;'>" + esc(bal === null || bal === undefined ? "" : T.estBalance(bal)) + "</p>";
   if (paid) h += "<p class='note'>" + esc(T.estAlready(paid)) + " " + esc(T.estDeclineNote) + "</p>";
-  h += "<p class='note'>" + esc(T.estNow((e.analysis || 0) + (e.flat || 0))) + "</p>";
+  h += "<p class='note'>" + esc(T.estNow((e.analysis || 0) + (e.flat || 0) + (e.speaker_check || 0))) + "</p>";
   if (j.status === "estimated") h += subRow(j) + glossHtml(j, false);
   h += '<div class="ld-terms"><h4>' + esc(T.termsHeading) + "</h4><ul>" + T.terms(e).map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>" +
        '<label class="ld-agree"><input type="checkbox" id="agreeBox"><span>' + esc(T.agree) + "</span></label></div>";
@@ -2024,7 +2025,7 @@ function makeEmoPicker(value, onChange) {
 
 function speakerBadge(s) {
   if (s.speaker_confidence !== "low") return null;
-  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
+  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], voters_split: ["Not sure who says this line", "لسنا متأكدين ممن يقول هذا السطر"], candidate_rejected: ["May belong to another voice we could not confirm", "قد يعود إلى صوت آخر لم نتمكن من تأكيده"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
   var seen = {}, list = [];
   (s.speaker_reasons || []).forEach(function (k) { var n = T2[k]; if (n) { var t = n[ar ? 1 : 0]; if (!seen[t]) { seen[t] = 1; list.push(t); } } });
   var b = document.createElement("span"); b.className = "ld-spk-check"; b.tabIndex = 0;

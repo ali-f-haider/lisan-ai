@@ -44,6 +44,26 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(events[0][1], "partial")
         self.assertNotIn("Okay", events[0][2])             # counts and reasons only, never the dialogue
 
+    def test_only_short_lines_are_marked_and_timing_quirks_alone_are_not(self):
+        # a long line whose words sit in a gap between detected turns: the evidence helper calls it low, the badge must not
+        long_gap = row(0, 0, 4, "Speaker 1", words=[{"word": "we", "start": 0, "end": 4}])
+        turns = [{"start": 0, "end": 1.9, "speaker": "raw_a"}, {"start": 2.1, "end": 6, "speaker": "raw_a"},
+                 {"start": 6, "end": 9, "speaker": "raw_b"}]
+        short = row(1, 6, 6.6, "Speaker 2", text="Got it.", words=[{"word": "Got", "start": 6, "end": 6.6}])
+        rows = [long_gap, short]
+        self.run_review(rows, turns=turns)
+        self.assertNotEqual(rows[0]["speaker_confidence"], "low")
+        self.assertEqual(rows[1]["speaker_confidence"], "low")
+        self.assertIn("short_reply", rows[1]["speaker_reasons"])
+
+    def test_a_one_speaker_video_never_gets_a_badge(self):
+        rows = [row(0, 0, 0.5, "Speaker 1", text="Yes."), row(1, 1, 4, "Speaker 1")]
+        self.run_review(rows, turns=[{"start": 0, "end": 4, "speaker": "raw_a"}], stated=1)
+        self.assertNotIn("low", [r["speaker_confidence"] for r in rows])
+
+    def test_the_short_limit_is_the_measured_one(self):
+        self.assertEqual(ld.SPEAKER_CHECK_SHORT_SECONDS, 1.0)
+
     def test_count_mismatch_makes_one_plain_warning_and_no_change_to_the_count(self):
         job, _, _ = self.run_review([row(0, 0, 3)], stated=3)
         self.assertEqual(job["speaker_count_review"], {"stated": 3, "detected": 2, "needs_review": True})
@@ -68,8 +88,10 @@ class ReviewTests(unittest.TestCase):
 
     def test_analysis_attaches_the_evidence_after_the_speakers_exist_and_before_saving(self):
         src = inspect.getsource(ld._run_analysis)
+        v = src.index("_vote_speakers(job, rows, wd, vocals_all)")
         a = src.index("_init_speakers(job, rows)")
-        b = src.index("_review_speakers(job, rows, turns, label_map)")
+        b = src.index("_review_speakers(job, rows, turns, label_map, vote=vote)")
+        self.assertLess(v, a)
         c = src.index("_write_segments(job, rows)", b)
         self.assertLess(a, b)
         self.assertLess(b, c)

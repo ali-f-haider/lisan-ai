@@ -52,6 +52,7 @@ import dub_review
 from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
 import subs_align
+import speaker_vote_live
 
 LONG_DIR = DATA_DIR / "longjobs"
 LONG_DIR.mkdir(parents=True, exist_ok=True)
@@ -524,9 +525,12 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None)
     merge = max(1, int(cfg.get("merge_credits", 1)))
     per_sec = _lip_rate(cfg, lip_res)
     lip = int(math.ceil(max(0.0, float(duration_sec)) * per_sec)) if lipsync else 0
-    total = fee + analysis + flat + voice + clones + merge + lip
+    # the speaker check (two extra listening requests, see speaker_vote_live.py): flat + per minute, only for videos it can run on
+    sc_flat, sc_min = max(0, int(cfg.get("speaker_check_flat", 0) or 0)), max(0.0, float(cfg.get("speaker_check_per_min", 0) or 0))
+    speaker_check = (sc_flat + int(math.ceil(minutes * sc_min))) if (sc_flat or sc_min) and speaker_vote_live.fits(duration_sec) else 0
+    total = fee + analysis + flat + speaker_check + voice + clones + merge + lip
     return {
-        "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "voice": voice,
+        "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "speaker_check": speaker_check, "voice": voice,
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
         "speakers": speakers, "assumed_speakers": speakers,
         "lipsync_wanted": bool(lipsync), "lipsync": lip, "lipsync_per_sec": per_sec if lipsync else 0,
@@ -816,7 +820,8 @@ def accept(job, uid, agreed=False):
     # most of the server work happens) and is booked under paid["analysis"], so
     # refunds and the "already paid" line treat it like the rest of that part.
     # Estimates made before the flat fee existed have no "flat" key (= 0).
-    need_now = int(est["analysis"]) + int(est.get("flat", 0) or 0)
+    # The speaker check (est["speaker_check"], 0 for older estimates) is paid the same way; it is returned if the check cannot run.
+    need_now = int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0)
     bal = Hooks.get_credits(uid)
     # He must be able to cover the whole estimate (minus what he already paid)
     # to proceed -- the exact voice cost is confirmed later after editing.
@@ -836,7 +841,8 @@ def accept(job, uid, agreed=False):
             if not _debit_ok(_charge(job, "analysis", uid, need_now, "long_dub_analysis")):
                 return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["analysis"] = need_now
-            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits", need_now)
+            job["speaker_check_paid"] = int(est.get("speaker_check", 0) or 0)
+            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits" + (f" (of which {job['speaker_check_paid']} for the speaker check)" if job["speaker_check_paid"] else ""), need_now)
         job["status"] = "accepted"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -1494,31 +1500,62 @@ def split_rows_at_pauses(rows, silences, min_gap=PAUSE_MIN_SEC):
 
 
 SPEAKER_REVIEW_FIELDS = ("speaker_confidence", "speaker_reasons", "speaker_time_coverage")
+# A line is marked "check speaker" only when it is shorter than this (seconds). Measured on one labelled clip (30 lines, 3 people):
+# every wrong speaker was a reply under 0.9 s; every line over that was right. Voice matching, a second detector and forcing the
+# speaker count all failed on those fragments, so the honest signal is their length. Not shown at all when only one speaker exists.
+SPEAKER_CHECK_SHORT_SECONDS = 1.0
+
+# The speaker vote (speaker_vote.py / speaker_vote_live.py): two extra listening checks decide who says each line, together with the
+# app's own detector. It costs us real money per video, so it is a separate line in the estimate (flat + per minute, measured:
+# about $0.05 for 7.8 minutes). The values come from main._ld_pricing; these are only the fallbacks.
+SPEAKER_CHECK_FLAT = 4
+SPEAKER_CHECK_PER_MIN = 0.4
+VOTE_FIELDS = ("speaker_vote",)
 
 
 def _clear_speaker_review(row):
     """The user changed this line's speaker or timing: the saved evidence no longer describes it, so it is dropped
     (a stale "check speaker" badge must never override the user's own correction)."""
-    for k in SPEAKER_REVIEW_FIELDS:
+    for k in SPEAKER_REVIEW_FIELDS + VOTE_FIELDS:
         row.pop(k, None)
 
 
-def _review_speakers(job, rows, turns, label_map):
+def _review_speakers(job, rows, turns, label_map, vote=None):
     """Marks lines whose speaker rests on weak evidence (a very short reply, speech overlapping, a word the detector did
     not place, ...) so the editor can say "check speaker", and compares the number of speakers found with the number the
     user stated. Only describes; it never changes a speaker, a price or a voice. Never raises."""
     try:
         import speaker_quality
         for r in rows:
-            _clear_speaker_review(r)
-        if not turns:
+            for k in SPEAKER_REVIEW_FIELDS:
+                r.pop(k, None)             # (the vote evidence set just before this stays)
+        voted = bool(vote and vote.get("status") == "ok")
+        if not turns and not voted:
             return 0
-        quality = speaker_quality.assess_rows(rows, turns, label_map)
+        quality = speaker_quality.assess_rows(rows, turns, label_map) if turns else {}
         counts, reasons = {"low": 0, "medium": 0, "high": 0}, {}
+        several = len({t.get("speaker") for t in turns}) > 1 and len({r.get("speaker") for r in rows}) > 1
         for r in rows:
             q = quality.get(r.get("segment_id"))
             if not q:
-                continue
+                if not (voted and speaker_vote_live.review_from_vote(r)):
+                    continue
+                q = {"speaker_confidence": "high", "speaker_reasons": [], "speaker_time_coverage": 0.0}      # no detector evidence: the vote's alone
+            q = dict(q)
+            try:
+                short = several and 0 < float(r["end"]) - float(r["start"]) < SPEAKER_CHECK_SHORT_SECONDS
+            except (KeyError, TypeError, ValueError):
+                short = False
+            if short:
+                q["speaker_confidence"] = "low"
+                if "short_reply" not in q["speaker_reasons"]:
+                    q["speaker_reasons"] = list(q["speaker_reasons"]) + ["short_reply"]
+            elif q["speaker_confidence"] == "low":
+                q["speaker_confidence"] = "medium"      # timing quirks alone (a word between two detected turns...) are not shown
+            if voted:
+                v = speaker_vote_live.review_from_vote(r)      # lines the vote ruled on: its evidence replaces the detector's
+                if v:
+                    q.update(v)
             r.update(q)
             counts[q["speaker_confidence"]] = counts.get(q["speaker_confidence"], 0) + 1
             if q["speaker_confidence"] == "low":
@@ -1526,13 +1563,21 @@ def _review_speakers(job, rows, turns, label_map):
                     reasons[why] = reasons.get(why, 0) + 1
         review = speaker_quality.count_mismatch(turns, job.get("stated_speakers"))
         used = len({r.get("speaker") for r in rows})
+        if voted:       # after the vote the number to compare is the speakers that really have lines
+            try:
+                stated_n = int(job.get("stated_speakers"))
+                review = {"stated": stated_n, "detected": used, "needs_review": stated_n != used} if stated_n >= 1 else None
+            except (TypeError, ValueError):
+                review = None
         detail = (f"{len(rows)} lines: {counts['low']} to check, {counts['medium']} medium, {counts['high']} sure; "
                   f"{len({t.get('speaker') for t in turns})} speakers detected, {used} with lines, "
                   f"{job.get('stated_speakers')} stated by the user")
         if reasons:
             detail += "; why: " + ", ".join(f"{k} {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:6])
         job["speaker_count_review"] = review
-        if review and review.get("needs_review"):
+        if voted and vote.get("new_speakers"):
+            job.setdefault("warnings", []).append(speaker_vote_live.ADDED_SPEAKER_MESSAGE)
+        elif review and review.get("needs_review"):
             job.setdefault("warnings", []).append(
                 f"We found {review['detected']} speaker{'s' if review['detected'] != 1 else ''} in this video, but you said "
                 f"{review['stated']}. Please check who says each line, and merge or add speakers if needed.")
@@ -1541,6 +1586,62 @@ def _review_speakers(job, rows, turns, label_map):
     except Exception as ex:
         print(f"[longdub] speaker check skipped: {ex}")
         return 0
+
+
+def _speaker_check_refund(job, why):
+    """The speaker check could not run on this video: the extra charge for it is returned (once). Never raises."""
+    try:
+        amount = int(job.get("speaker_check_paid") or 0)
+        if amount <= 0:
+            return 0
+        if _refund(job, job["uid"], amount, "analysis", "speaker_check_unused"):
+            job["speaker_check_paid"] = 0
+            _save(job)
+            _ev(job, "speaker_check_refunded", "ok", f"{amount} credits: {why}", amount)
+            return amount
+        job["speaker_check_refund_pending"] = amount
+        _save(job)
+        _ev(job, "speaker_check_refunded", "partial", f"{amount} credits not yet confirmed: {why}")
+    except Exception as ex:
+        print(f"[longdub] speaker check refund skipped: {ex}")
+    return 0
+
+
+def _vote_speakers(job, rows, wd, vocals_all):
+    """Who says each line, decided by a vote (speaker_vote.py): the dialogue, the voices and the app's own detector.
+    Changes row["speaker"] (and may add a new speaker); returns a summary dict whose "status" is "ok" only when the vote acted.
+    On any problem the rows stay as the detector left them and the charge for the check is returned. Never raises."""
+    summary = {"status": "skipped"}
+    try:
+        an = job.setdefault("analysis", {})
+        dur = float(an.get("audio_duration") or job.get("duration") or 0)
+        if not speaker_vote_live.fits(dur):
+            _ev(job, "speaker_vote", "skipped", f"video of {dur / 60:.1f} min is outside the check's limit")
+        else:
+            _mark(job, "speakers", 88, "Checking who says each line...")
+            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY)
+            summary = speaker_vote_live.apply(rows, votes)
+            usage = votes.get("usage") or {}
+            summary["rename"] = speaker_vote_live.compact_names(rows) if summary["status"] == "ok" else {}
+            an["speaker_vote"] = {k: summary.get(k) for k in ("status", "changed", "badged", "merged", "voters")}
+            an["speaker_vote"]["new_speakers"] = len(summary.get("new_speakers") or [])
+            an["speaker_vote"]["usd"] = usage.get("usd")
+            _save(job)
+            got = [k for k in ("dialogue", "audio") if votes.get(k)]
+            _ev(job, "speaker_vote", "ok" if summary["status"] == "ok" else "skipped",
+                f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}; "
+                f"result {summary['status']}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
+                f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
+                f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
+                f"cost ${float(usage.get('usd') or 0):.4f}")
+    except Exception as ex:
+        print(f"[longdub] speaker vote skipped: {type(ex).__name__}: {ex}")
+        summary = {"status": "error"}
+    if summary.get("status") != "ok":
+        for r in rows:
+            r.pop("speaker_vote", None)
+        _speaker_check_refund(job, "the speaker check could not run on this video")
+    return summary
 
 
 def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
@@ -1841,8 +1942,11 @@ def _run_analysis(job):
             _fail(job, "This video has too much speech to dub in one go. Please split it into shorter videos.", "analysis")
             return
         rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
+        vote = _vote_speakers(job, rows, wd, vocals_all)     # changes who says which line when the checks clearly agree
+        if vote.get("rename"):
+            label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
         _init_speakers(job, rows)
-        _review_speakers(job, rows, turns, label_map)
+        _review_speakers(job, rows, turns, label_map, vote=vote)
         _write_segments(job, rows)
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
                                            f"{job.get('stated_speakers')} stated by the user; "
