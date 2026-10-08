@@ -1,0 +1,473 @@
+{
+  "note": "Invented fixed word-lines, not film dialogue. Before labels measured from the unchanged pre-Job-11 helper. DER is row-span attribution proxy, not detector improvement.",
+  "cases": [
+    {
+      "name": "complete_reply",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "Ready"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "word": "Okay."
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "speaker": "B"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "B",
+        "A"
+      ]
+    },
+    {
+      "name": "question_answer",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "Ready?"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "word": "yes"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "speaker": "B"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "B",
+        "A"
+      ]
+    },
+    {
+      "name": "paused_reply",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "Ready"
+        },
+        {
+          "start": 1.3,
+          "end": 1.6,
+          "word": "yes"
+        },
+        {
+          "start": 2.1,
+          "end": 3,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 1.3,
+          "end": 1.6,
+          "speaker": "B"
+        },
+        {
+          "start": 2.1,
+          "end": 3,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "B",
+        "A"
+      ]
+    },
+    {
+      "name": "overlapping_reply",
+      "words": [
+        {
+          "start": 0,
+          "end": 1,
+          "word": "Ready"
+        },
+        {
+          "start": 0.9,
+          "end": 1.3,
+          "word": "yes"
+        },
+        {
+          "start": 1.2,
+          "end": 2,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 1,
+          "speaker": "A"
+        },
+        {
+          "start": 1,
+          "end": 1.2,
+          "speaker": "B"
+        },
+        {
+          "start": 1.2,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "B",
+        "A"
+      ]
+    },
+    {
+      "name": "continuous_false_flip",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "We"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "word": "can"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "word": "continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "speaker": "B"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "A",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "A",
+        "A"
+      ]
+    },
+    {
+      "name": "single_speaker",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "We"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "word": "can"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "word": "continue."
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "speaker": "A"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "A",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "A",
+        "A"
+      ]
+    },
+    {
+      "name": "ambiguous_unpunctuated_reply",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "Ready"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "word": "yes"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "speaker": "B"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "A",
+        "A"
+      ]
+    },
+    {
+      "name": "long_single_word_turn",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "Ready"
+        },
+        {
+          "start": 0.8,
+          "end": 2.3,
+          "word": "absolutely"
+        },
+        {
+          "start": 2.3,
+          "end": 3.2,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 2.3,
+          "speaker": "B"
+        },
+        {
+          "start": 2.3,
+          "end": 3.2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "B",
+        "A"
+      ]
+    },
+    {
+      "name": "quoted_reply",
+      "words": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "word": "Ready"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "word": "\"Yes!\""
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "word": "Continue"
+        }
+      ],
+      "turns": [
+        {
+          "start": 0,
+          "end": 0.8,
+          "speaker": "A"
+        },
+        {
+          "start": 0.8,
+          "end": 1.1,
+          "speaker": "B"
+        },
+        {
+          "start": 1.1,
+          "end": 2,
+          "speaker": "A"
+        }
+      ],
+      "truth": [
+        "A",
+        "B",
+        "A"
+      ],
+      "before_labels": [
+        "A",
+        "A",
+        "A"
+      ],
+      "after_labels": [
+        "A",
+        "B",
+        "A"
+      ]
+    }
+  ]
+}

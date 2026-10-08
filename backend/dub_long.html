@@ -19,7 +19,7 @@
     <button id="darkModeBtn" class="btn-logout" title="Toggle dark mode" onclick="window._toggleDarkMode()">🌙</button>
     <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">–</span> <span id="creditsWord">credits</span></span>
     <button id="backBtn" class="btn-logout" onclick="location.href='/app'">← Back to App</button>
-    <button id="logoutBtn" class="btn-logout" onclick="fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
+    <button id="logoutBtn" class="btn-logout" onclick="try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
   </div>
 </div>
 
@@ -2022,6 +2022,18 @@ function makeEmoPicker(value, onChange) {
   return { el: btn, set: function (v) { cur = parseEmotions(v); refresh(); } };
 }
 
+function speakerBadge(s) {
+  if (s.speaker_confidence !== "low") return null;
+  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
+  var seen = {}, list = [];
+  (s.speaker_reasons || []).forEach(function (k) { var n = T2[k]; if (n) { var t = n[ar ? 1 : 0]; if (!seen[t]) { seen[t] = 1; list.push(t); } } });
+  var b = document.createElement("span"); b.className = "ld-spk-check"; b.tabIndex = 0;
+  b.textContent = ar ? "راجع المتحدث" : "Check speaker";
+  b.title = list.length ? list.join(" · ") : (ar ? "راجع من يقول هذا السطر" : "Check who says this line");
+  b.setAttribute("aria-label", b.textContent + (list.length ? ": " + list.join(", ") : ""));
+  return b;
+}
+
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   if ((s.overlaps || []).length) row.classList.add("ld-overlap");
@@ -2034,6 +2046,7 @@ function buildRow(s) {
   time.appendChild(tf0.wrap); time.appendChild(tf1.wrap); time.appendChild(terr);
   var sel = document.createElement("select"); sel.className = "ld-spksel"; fillSelect(sel, s.speaker_id);
   time.appendChild(sel);
+  var spkBadge = speakerBadge(s); if (spkBadge) time.appendChild(spkBadge);
   var lb = document.createElement("div"); lb.className = "ld-lbtns";
   var bIns = document.createElement("button"); bIns.className = "btn-plain"; bIns.textContent = T.insertLine;
   var bSplit = document.createElement("button"); bSplit.className = "btn-plain"; bSplit.textContent = T.splitLine; bSplit.title = T.splitHint;
@@ -2128,7 +2141,7 @@ function buildRow(s) {
     });
   });
   sel.addEventListener("change", function () {
-    s.speaker_id = sel.value; queueSave(s.segment_id, "speaker_id", sel.value); pricePreview = null;
+    s.speaker_id = sel.value; queueSave(s.segment_id, "speaker_id", sel.value); pricePreview = null; s.speaker_confidence = null; if (spkBadge) { spkBadge.remove(); spkBadge = null; }
     renderSpeakers();
   });
   btnTash.addEventListener("click", function () {

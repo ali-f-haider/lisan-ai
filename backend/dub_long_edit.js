@@ -54,6 +54,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     var batch = (state.batches || []).find(function(b) { return b.page === Math.floor(index / 10); });
     if (batch) batch.reviewed = false;
   }
+  function speakerBadge(row){if(row.speaker_confidence!=='low')return null;var names={short_reply:['Short reply','رد قصير'],overlapping_speech:['Voices overlap','تداخل أصوات'],no_detected_turn:['Speech outside the detected turns','كلام خارج الأدوار المكتشفة'],word_in_gap:['Speech outside the detected turns','كلام خارج الأدوار المكتشفة'],speaker_not_supported:['The detected voice may belong to someone else','قد يكون الصوت لمتحدث آخر'],word_speaker_disagrees:['The detected voice may belong to someone else','قد يكون الصوت لمتحدث آخر'],weak_time_coverage:['The detected voice may belong to someone else','قد يكون الصوت لمتحدث آخر'],smoothed_assignment:['The detected voice may belong to someone else','قد يكون الصوت لمتحدث آخر']};var seen={},list=[];(row.speaker_reasons||[]).forEach(function(k){var n=names[k];if(n){var t=tr(n[0],n[1]);if(!seen[t]){seen[t]=1;list.push(t);}}});var b=document.createElement('span');b.className='ld-spk-check';b.tabIndex=0;b.textContent=tr('Check speaker','راجع المتحدث');b.title=list.length?list.join(' · '):tr('Check who says this line','راجع من يقول هذا السطر');b.setAttribute('aria-label',b.textContent+(list.length?': '+list.join(', '):''));return b;}
   function change(row, field, value) {
     row[field] = value;
     if (field === 'emotion') row.emotion_set = true;
@@ -188,7 +189,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       var label=document.createElement('label'); label.className='ld-select-line'; var box=document.createElement('input'); box.type='checkbox'; box.checked=selected.has(row.segment_id);
       box.onchange=function(){if(box.checked)selected.add(row.segment_id);else selected.delete(row.segment_id);count();}; label.append(box,document.createTextNode(tr('Correct line ','تصحيح السطر ')+(page*10+index+1))); tools.appendChild(label);
       timeInput(tools,row,'start','Start','البداية'); timeInput(tools,row,'end','End','النهاية');
-      var speaker=document.createElement('select'); state.speaker_list.forEach(function(s){var opt=document.createElement('option');opt.value=s.id;opt.textContent=s.name;speaker.appendChild(opt);}); speaker.value=row.speaker_id;speaker.setAttribute('aria-label',tr('Speaker','المتحدث'));speaker.onchange=function(){change(row,'speaker_id',speaker.value);};tools.appendChild(speaker);
+      var speaker=document.createElement('select'); state.speaker_list.forEach(function(s){var opt=document.createElement('option');opt.value=s.id;opt.textContent=s.name;speaker.appendChild(opt);}); speaker.value=row.speaker_id;speaker.setAttribute('aria-label',tr('Speaker','المتحدث'));speaker.onchange=function(){change(row,'speaker_id',speaker.value);if(badge){badge.remove();badge=null;}};tools.appendChild(speaker);var badge=speakerBadge(row);if(badge)tools.appendChild(badge);
       var warning=document.createElement('p');warning.className='ld-time-notice ld-overlap-warning hidden';warning.textContent=tr('⚠ Overlaps another line. Check both timings.','⚠ يتداخل مع سطر آخر. راجع توقيت السطرين.');tools.appendChild(warning);
       if(manualNoticeId===row.segment_id){var notice=document.createElement('p');notice.className='ld-time-notice';notice.setAttribute('role','status');notice.textContent=tr('Set both times manually for precise placement.','أدخل الوقتين يدوياً لتحديد الموضع بدقة.');tools.appendChild(notice);}
       var original=document.createElement('textarea'); original.className='en'; original.dir='ltr'; original.maxLength=2000; original.value=row.text||''; original.setAttribute('aria-label',tr('Original text','النص الأصلي')); original.oninput=function(){change(row,'text',original.value);};
@@ -290,7 +291,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   $('projects').onchange=function(){if(this.value)open(this.value).catch(error);};
   $('language').onclick=function(){localStorage.setItem('lisan_lang',lang==='en'?'ar':'en');location.reload();};
   $('back').onclick=function(){location.href='/dub-long';};$('appLink').onclick=function(){location.href='/app';};
-  $('logout').onclick=function(){fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login';});};
+  $('logout').onclick=function(){try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login';});};
   function dark(on){document.body.classList.toggle('dark',on);localStorage.setItem('lisan_dark_mode',on?'1':'0');$('darkModeBtn').textContent=on?'☀️':'🌙';}
   dark(localStorage.getItem('lisan_dark_mode')!=='0');$('darkModeBtn').onclick=function(){dark(!document.body.classList.contains('dark'));};
   window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});

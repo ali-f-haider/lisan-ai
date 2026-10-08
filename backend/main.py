@@ -5810,6 +5810,25 @@ def longdub_status(job_id: str, request: Request):
     return v
 
 
+_LD_SPEAKER_REASONS = ("no_detected_turn", "speaker_not_supported", "weak_time_coverage", "overlapping_speech", "short_reply",
+                       "word_in_gap", "word_speaker_disagrees", "word_crosses_turns", "smoothed_assignment",
+                       "missing_word_times", "little_speaker_evidence", "invalid_line_times")
+
+
+def _ld_speaker_review(r):
+    """The "check speaker" evidence saved with a line: only a known confidence, a bounded coverage number and reasons from a fixed list
+    (a project made before this existed simply has none, and the editor shows nothing)."""
+    conf = r.get("speaker_confidence")
+    if conf not in ("low", "medium", "high"):
+        return {}
+    reasons = [x for x in (r.get("speaker_reasons") or []) if x in _LD_SPEAKER_REASONS][:8]
+    try:
+        cov = min(1.0, max(0.0, float(r.get("speaker_time_coverage") or 0.0)))
+    except (TypeError, ValueError):
+        cov = 0.0
+    return {"speaker_confidence": conf, "speaker_reasons": reasons, "speaker_time_coverage": round(cov, 3)}
+
+
 def _ld_public_rows(rows, job=None):
     # Word-level timings stay on the server -- the editor only needs the text and the times.
     unheard = set()
@@ -5827,6 +5846,7 @@ def _ld_public_rows(rows, job=None):
         d["emotion_review"] = dub_review.emotion_review(r)
         d["heard"] = r.get("segment_id") not in unheard
         d["manual_time"] = bool(r.get("manual_time"))
+        d.update(_ld_speaker_review(r))
         out.append(d)
     return out
 

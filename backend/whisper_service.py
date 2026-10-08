@@ -531,6 +531,7 @@ def assign_speaker_for_segment(start: float, end: float, turns: list):
 
 def group_words_by_speaker(segment_words, turns):
     """Split one Whisper segment's words into consecutive same-speaker groups."""
+    from speaker_quality import can_smooth_words
     if not turns or not segment_words:
         return []
     groups = []
@@ -565,7 +566,8 @@ def group_words_by_speaker(segment_words, turns):
         if len(words) == 1 and 0 < i < len(groups) - 1:
             prev_spk = groups[i - 1][0]
             next_spk = groups[i + 1][0]
-            if prev_spk == next_spk and prev_spk != spk and smoothed:
+            if (prev_spk == next_spk and prev_spk != spk and smoothed
+                    and can_smooth_words(groups[i - 1][1], words, groups[i + 1][1])):
                 smoothed[-1] = (prev_spk, smoothed[-1][1] + words)
                 continue
         smoothed.append((spk, words))
@@ -617,9 +619,10 @@ def smooth_speaker_islands(rows):
             continue
         words = len((cur.get("text") or "").split())
         dur = float(cur["end"]) - float(cur["start"])
-        if words > SPEAKER_ISLAND_MAX_WORDS or dur > SPEAKER_ISLAND_MAX_SEC:
+        if words > SPEAKER_ISLAND_MAX_WORDS or not 0 < dur <= SPEAKER_ISLAND_MAX_SEC:
             continue
-        if float(cur["start"]) - float(prev["end"]) > SPEAKER_ISLAND_GAP_SEC or float(nxt["start"]) - float(cur["end"]) > SPEAKER_ISLAND_GAP_SEC:
+        if not (0 <= float(cur["start"]) - float(prev["end"]) <= SPEAKER_ISLAND_GAP_SEC
+                and 0 <= float(nxt["start"]) - float(cur["end"]) <= SPEAKER_ISLAND_GAP_SEC):
             continue
         if ends_sentence(prev.get("text")) or ends_sentence(cur.get("text")):
             continue

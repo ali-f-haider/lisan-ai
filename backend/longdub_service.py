@@ -1493,6 +1493,56 @@ def split_rows_at_pauses(rows, silences, min_gap=PAUSE_MIN_SEC):
     return out, cuts[0]
 
 
+SPEAKER_REVIEW_FIELDS = ("speaker_confidence", "speaker_reasons", "speaker_time_coverage")
+
+
+def _clear_speaker_review(row):
+    """The user changed this line's speaker or timing: the saved evidence no longer describes it, so it is dropped
+    (a stale "check speaker" badge must never override the user's own correction)."""
+    for k in SPEAKER_REVIEW_FIELDS:
+        row.pop(k, None)
+
+
+def _review_speakers(job, rows, turns, label_map):
+    """Marks lines whose speaker rests on weak evidence (a very short reply, speech overlapping, a word the detector did
+    not place, ...) so the editor can say "check speaker", and compares the number of speakers found with the number the
+    user stated. Only describes; it never changes a speaker, a price or a voice. Never raises."""
+    try:
+        import speaker_quality
+        for r in rows:
+            _clear_speaker_review(r)
+        if not turns:
+            return 0
+        quality = speaker_quality.assess_rows(rows, turns, label_map)
+        counts, reasons = {"low": 0, "medium": 0, "high": 0}, {}
+        for r in rows:
+            q = quality.get(r.get("segment_id"))
+            if not q:
+                continue
+            r.update(q)
+            counts[q["speaker_confidence"]] = counts.get(q["speaker_confidence"], 0) + 1
+            if q["speaker_confidence"] == "low":
+                for why in q["speaker_reasons"]:
+                    reasons[why] = reasons.get(why, 0) + 1
+        review = speaker_quality.count_mismatch(turns, job.get("stated_speakers"))
+        used = len({r.get("speaker") for r in rows})
+        detail = (f"{len(rows)} lines: {counts['low']} to check, {counts['medium']} medium, {counts['high']} sure; "
+                  f"{len({t.get('speaker') for t in turns})} speakers detected, {used} with lines, "
+                  f"{job.get('stated_speakers')} stated by the user")
+        if reasons:
+            detail += "; why: " + ", ".join(f"{k} {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:6])
+        job["speaker_count_review"] = review
+        if review and review.get("needs_review"):
+            job.setdefault("warnings", []).append(
+                f"We found {review['detected']} speaker{'s' if review['detected'] != 1 else ''} in this video, but you said "
+                f"{review['stated']}. Please check who says each line, and merge or add speakers if needed.")
+        _ev(job, "speaker_check", "partial" if counts["low"] else "ok", detail)
+        return counts["low"]
+    except Exception as ex:
+        print(f"[longdub] speaker check skipped: {ex}")
+        return 0
+
+
 def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
     """Same row building as whisper_service.transcribe_worker (speaker-turn
     grouping, 15 s cap per line, merge of mid-sentence splits), copied so the
@@ -1792,6 +1842,7 @@ def _run_analysis(job):
             return
         rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
         _init_speakers(job, rows)
+        _review_speakers(job, rows, turns, label_map)
         _write_segments(job, rows)
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
                                            f"{job.get('stated_speakers')} stated by the user; "
@@ -2456,6 +2507,7 @@ def update_segments(job, edits):
             if e.get("speaker_id") in sp_names and e["speaker_id"] != r.get("speaker_id"):
                 r["speaker_id"] = e["speaker_id"]
                 r["speaker"] = sp_names[e["speaker_id"]]
+                _clear_speaker_review(r)
                 changed += 1
             if isinstance(e.get("text"), str):
                 r["text"] = e["text"][:MAX_TEXT_LEN]
@@ -2597,6 +2649,7 @@ def set_line_time(job, segment_id, start, end, manual=False):
         if err:
             return False, err, None
         r["start"], r["end"] = start, end
+        _clear_speaker_review(r)
         if manual:
             r["manual_time"] = True
         rows = _by_start(rows)
@@ -2712,6 +2765,8 @@ def split_line(job, segment_id, position):
         return False, err, None, None
     first = dict(r0)
     second = dict(r0)
+    _clear_speaker_review(first)
+    _clear_speaker_review(second)
     first.update({"text": plan["left"], "words": plan["w_left"], "end": plan["t1"], "arabic_text": ""})
     second.update({"text": plan["right"], "words": plan["w_right"], "start": plan["t2"], "arabic_text": "", "added": True})
     with _lock_for(job["id"]):

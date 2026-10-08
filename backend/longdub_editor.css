@@ -170,3 +170,5 @@
 .ld-downloads a.ld-dl {padding:9px 16px;font-size:13px}
 .ld-waqf {display:flex;gap:6px;align-items:center;font-size:12px}
 .ld-waqf select {width:auto;padding:4px 6px;font-size:12px}
+.ld-spk-check {display:inline-block;margin-top:6px;padding:2px 8px;border:1px solid var(--warning,#d97706);border-radius:999px;font-size:12px;line-height:1.5;color:var(--text,inherit);background:rgba(217,119,6,.12);cursor:help}
+.ld-spk-check:focus-visible {outline:2px solid var(--warning,#d97706);outline-offset:2px}
