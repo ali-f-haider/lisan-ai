@@ -49,9 +49,12 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(E.merge("rushed, hesitant", None, "fast"), "neutral")
 
     def test_speed_requires_high_confidence_and_matching_measurement(self):
-        for heard, measured, expected in (("slow", "slow", "sad, slowly"), ("fast", "fast", "sad, rushed"),
+        for heard, measured, expected in (("fast", "fast", "sad, rushed"),
                                          ("slow", "fast", "sad"), ("fast", "unknown", "sad"), ("normal", "normal", "sad")):
             self.assertEqual(E.merge("sad", self.evidence("sad", heard), measured), expected)
+        self.assertEqual(E.merge("sad", self.evidence("sad", "slow"), "slow"), "sad")        # automatic slow tags are switched off
+        with patch.object(E.delivery, "AUTO_SLOW_ALLOWED", True):
+            self.assertEqual(E.merge("sad", self.evidence("sad", "slow"), "slow"), "sad, slowly")
         self.assertEqual(E.merge("sad", self.evidence("sad", "fast", "medium"), "fast"), "sad")
 
     def test_coherence_wins_even_over_high_confidence_slow(self):

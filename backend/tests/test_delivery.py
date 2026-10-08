@@ -2,6 +2,7 @@
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -60,7 +61,14 @@ class GroundTests(unittest.TestCase):
 
     def test_slow_tags_are_removed_for_a_fast_speaker(self):
         self.assertEqual(D.ground("sad, slowly", "fast"), "sad")
-        self.assertEqual(D.ground("sad, slowly", "slow"), "sad, slowly")
+        with mock.patch.object(D, "AUTO_SLOW_ALLOWED", True):       # the switch is OFF by default (see below)
+            self.assertEqual(D.ground("sad, slowly", "slow"), "sad, slowly")
+
+    def test_automatic_slow_tags_are_off_by_default(self):
+        # the word times of the transcription hide pauses inside words: a thoughtful speaker measures as "slow"
+        self.assertFalse(D.AUTO_SLOW_ALLOWED)
+        for p in ("slow", "normal", "fast", "unknown"):
+            self.assertEqual(D.ground("sad, slowly, drawn out", p), "sad")
 
     def test_nothing_left_is_neutral_and_unknown_removes_speed(self):
         self.assertEqual(D.ground("rushed", "slow"), "neutral")

@@ -21,6 +21,11 @@ CAP = {"slow": 1.08, "normal": 1.15, "fast": 1.25, "unknown": 1.15}
 _VOWELS = re.compile(r"[aeiouy]+")
 FAST_TAGS = ("rushed", "very fast")
 SLOW_TAGS = ("slowly", "drawn out")
+# Automatic "slowly" / "drawn out" are switched OFF (Ali's finding, 2026-10-08): the word times of the transcription spread real pauses
+# over the neighbouring words, so a speaker who pauses to think is measured as a slow speaker, and the dub then stretches a whole
+# sentence to imitate it. A speed instruction is added only for a FAST speaker until the pace is measured from the audio itself
+# (pauses taken out, judged against the speaker's own usual pace). A user can still pick any delivery by hand. Set True to switch back.
+AUTO_SLOW_ALLOWED = False
 URGENT_TAGS = frozenset(("anxious", "fearful", "terrified", "angry", "shouting", "yelling", "screaming",
                          "commanding", "pleading", "excited", "frustrated", "appalled", "surprised", "rushed", "very fast"))
 
@@ -133,7 +138,7 @@ def ground(emotion, p):
         parts = [x.strip() for x in emotion.split(",") if x.strip()]
         urgent = any(x.lower() in URGENT_TAGS for x in parts)
         keep = [x for x in parts if not (x.lower() in FAST_TAGS and p != "fast")
-                and not (x.lower() in SLOW_TAGS and (p != "slow" or urgent))]
+                and not (x.lower() in SLOW_TAGS and not (AUTO_SLOW_ALLOWED and p == "slow" and not urgent))]
         return ", ".join(keep) if keep else "neutral"
     except Exception:
         return "neutral"
