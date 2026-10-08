@@ -725,6 +725,9 @@
      data-tip-src            on a note element: it moves behind a "?" button
                              placed in data-tip-host (an element id) or, by
                              default, in the first heading of its card.
+     data-tip-html="<p>..</p>"  on a <button class="lt-btn">: a ready-made "?" button
+                             whose bubble shows that html (for text that the page
+                             re-renders often, no attach() call needed).
      data-tip="text"         on any element: plain hover/focus bubble, no "?".
      title="..."             on the top bar and round icon buttons is turned
                              into the same bubble automatically (no native
@@ -754,7 +757,10 @@
         ".lt-bubble p+p,.lt-bubble ol,.lt-bubble ul{margin-top:8px;}",
         ".lt-bubble ol,.lt-bubble ul{margin-bottom:0;padding-inline-start:20px;padding-inline-end:0;}",
         ".lt-bubble li+li{margin-top:4px;}",
+        ".lt-bubble ul+p,.lt-bubble ol+p{margin-top:8px;}",
         ".lt-bubble strong{font-weight:600;color:var(--text,#1a1a2e);}",
+        ".lt-bubble .lt-sub{display:block;font-size:12px;line-height:1.5;color:var(--text-muted,#667085);}",
+        ".lt-bubble li>strong:first-child{white-space:nowrap;}",
         ".lt-bubble a{color:var(--primary-fg,#3949ab);}",
         "@media (prefers-reduced-motion:reduce){.lt-bubble,.lt-bubble.lt-on{transition:none;}}"
     ].join("\n");
@@ -795,6 +801,7 @@
                 if (s.tagName === "OL" || s.tagName === "UL") { parts.push("<" + s.tagName.toLowerCase() + ">" + h + "</" + s.tagName.toLowerCase() + ">"); return; }
             }
             h = cleanHtml(h);
+            if (h && /^<(p|ul|ol|div|table)[\s>]/i.test(h)) { parts.push(h); return; }
             if (h) parts.push("<p>" + h + "</p>");
         });
         return parts.join("");
@@ -872,6 +879,11 @@
         registry.forEach(function (e) { if (e.el.parentNode !== e.host && document.documentElement.contains(e.host)) e.host.appendChild(e.el); });
         (root || document).querySelectorAll("[data-tip-src]:not([data-tip-done])").forEach(function (src) {
             var host = hostFor(src); if (host) attach(host, src);
+        });
+        (root || document).querySelectorAll("button[data-tip-html]:not([data-lt-bound])").forEach(function (el) {
+            el.setAttribute("data-lt-bound", "1");
+            var entry = { el: el, sources: [function () { return el.getAttribute("data-tip-html"); }] };
+            bind(entry, true);
         });
         (root || document).querySelectorAll("[data-tip]:not([data-lt-bound])").forEach(function (el) {
             el.setAttribute("data-lt-bound", "1");

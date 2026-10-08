@@ -88,6 +88,11 @@
   .ld-agree { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; font-size: 14px; font-weight: 600; cursor: pointer; }
   .ld-agree input { width: auto; margin-top: 3px; }
   .ld-times { font-size: 14px; margin: 8px 0; }
+  .ld-totalline { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: 10px 0 6px; font-size: 15px; }
+  .ld-totalline strong { font-size: 19px; }
+  .ld-optrow { display: flex; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .ld-termsbox summary { cursor: pointer; font-size: 14px; font-weight: 600; }
+  .ld-termsbox > ul { margin: 8px 18px; }
   .ld-upsell { text-align: center; padding: 10px 0; }
 
   /* Editor */

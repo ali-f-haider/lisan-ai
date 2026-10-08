@@ -8,11 +8,11 @@
 <div id="notifyPanel" aria-live="polite"></div>
 <main class="ld-wrap"><section class="card"><h3 id="chooseLabel"></h3><select id="projects" class="ld-edit-select"><option>…</option></select>
 <span id="intro" data-tip-src data-tip-host="chooseLabel"></span></section>
-<section class="card hidden" id="recovery"><h3 id="recoveryTitle"></h3><p id="recoveryText" class="ld-plain-note"></p><input type="file" id="original" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg"><button type="button" id="restore" class="btn-plain"></button><p id="restoreStatus" role="status"></p></section>
+<section class="card hidden" id="recovery"><h3 id="recoveryTitle"></h3><p id="recoveryText" class="ld-plain-note" data-tip-src data-tip-host="recoveryTitle"></p><input type="file" id="original" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg"><button type="button" id="restore" class="btn-plain"></button><p id="restoreStatus" role="status"></p></section>
 <section class="card hidden" id="editor"><div class="ld-edhead"><span id="selectedCount"></span><span id="saveState" class="ld-saved"></span></div>
 <nav class="ld-pages" id="pages" aria-label="Transcript pages"></nav><div class="ld-colhead"><div id="timeHeading"></div><div id="originalHeading"></div><div id="arabicHeading"></div></div><div id="lines"></div>
-<nav class="ld-pages ld-pages-bottom" id="pagesBottom" aria-label="Transcript pages"></nav><div class="ld-row-btns"><button type="button" id="dub"></button><button type="button" id="finish" class="btn-plain"></button></div>
+<nav class="ld-pages ld-pages-bottom" id="pagesBottom" aria-label="Transcript pages"></nav><div class="ld-row-btns"><button type="button" id="dub"></button><button type="button" id="finish" class="btn-plain"></button><span id="trackHelpHost"></span></div>
 <div id="genProgress" class="ld-edit-progress hidden"><div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressFill" class="progress-fill" style="width:0%"></div></div><p id="progress" role="status"></p></div>
-<p class="ld-plain-note" id="trackHelp"></p></section><p class="ld-err" id="error" role="alert"></p>
+<span id="trackHelp" data-tip-src data-tip-host="trackHelpHost"></span></section><p class="ld-err" id="error" role="alert"></p>
 <section class="card hidden" id="exports"><h3 id="exportsTitle"></h3><div id="history"></div></section></main>
 <script src="/dialogs.js"></script><script src="/longdub_editor.js"></script><script src="/dub_long_edit.js"></script></body></html>
