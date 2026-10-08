@@ -25,7 +25,7 @@ def row(i, start, dur, n_words, speaker="Speaker 1", gap=0.0, emotion="fearful, 
 
 def scene(rate_syll, n=12, **kw):
     """n lines of 3 s each at about `rate_syll` syllables per second."""
-    words = max(3, round(rate_syll * 3 / 2))
+    words = max(5, round(rate_syll * 3 / 2))
     return [row(i, i * 5.0, 3.0, words, **kw) for i in range(n)]
 
 
@@ -62,9 +62,9 @@ class GroundTests(unittest.TestCase):
         self.assertEqual(D.ground("sad, slowly", "fast"), "sad")
         self.assertEqual(D.ground("sad, slowly", "slow"), "sad, slowly")
 
-    def test_nothing_left_is_neutral_and_unknown_changes_nothing(self):
+    def test_nothing_left_is_neutral_and_unknown_removes_speed(self):
         self.assertEqual(D.ground("rushed", "slow"), "neutral")
-        self.assertEqual(D.ground("fearful, rushed", "unknown"), "fearful, rushed")
+        self.assertEqual(D.ground("fearful, rushed", "unknown"), "fearful")
         self.assertEqual(D.ground("", "slow"), "")
         self.assertEqual(D.ground(None, "slow"), None)
 

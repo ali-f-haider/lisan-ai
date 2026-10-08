@@ -1,21 +1,19 @@
-"""How a speaker speaks, measured from the recording (nothing is asked from an AI, nothing is charged).
+"""Conservative, local evidence about delivery; no requests and no credits.
 
-The words of every line carry their start and end times (the transcription). From them: how many syllables per second the speaker
-really says in a line, and in the moment around it (the lines before and after). From that:
-
-* `pace(rows, i)`     "slow" | "normal" | "fast" for the line i in its moment.
-* `tempo_cap(pace)`   how much a dubbed line may be played faster than natural before its wording is shortened instead: a slow,
-                      monotonous speaker must not be fast-forwarded, a fast one may.
-* `ground(emotion, pace)`  a delivery tag about speed ("rushed", "very fast", "slowly", "drawn out") must agree with the measured pace; the
-                      AI that reads the TEXT (a frightened sentence sounds "rushed" on paper) is wrong when the speaker is slow.
-Nothing here raises: when a line cannot be measured the answer is "unknown" and nothing is changed."""
+Short lines and lines dominated by pauses cannot establish a speaking pace.
+Speed tags must agree with timing evidence and with the other delivery tags.
+"""
+from itertools import islice
+import math
 import re
 
-MIN_WORDS = 3                  # a line with fewer words says too little about the pace
-MIN_SECONDS = 0.8
-GAP_SEC = 0.4                  # a silence inside a line longer than this is not speaking
-MOMENT = 4                     # lines before and after that make "this moment"
-SLOW_BELOW = 4.3               # syllables per second (the median of conversation is about 5)
+MIN_WORDS = 5
+MIN_SECONDS = 1.5
+GAP_SEC = 0.25
+PAUSE_FRACTION = 0.25          # conservative ambiguity guard, not an accuracy score
+MOMENT = 4
+MIN_NEIGHBOURS = 3             # includes the current line
+SLOW_BELOW = 4.3
 FAST_ABOVE = 6.0
 # the fastest a dubbed line may be played before its wording is shortened (the hard limit is longdub_service.TEMPO_MAX)
 CAP = {"slow": 1.08, "normal": 1.15, "fast": 1.25, "unknown": 1.15}
@@ -23,6 +21,8 @@ CAP = {"slow": 1.08, "normal": 1.15, "fast": 1.25, "unknown": 1.15}
 _VOWELS = re.compile(r"[aeiouy]+")
 FAST_TAGS = ("rushed", "very fast")
 SLOW_TAGS = ("slowly", "drawn out")
+URGENT_TAGS = frozenset(("anxious", "fearful", "terrified", "angry", "shouting", "yelling", "screaming",
+                         "commanding", "pleading", "excited", "frustrated", "appalled", "surprised", "rushed", "very fast"))
 
 
 def syllables(text):
@@ -38,30 +38,40 @@ def syllables(text):
     return n
 
 
-def line_rate(row):
-    """Syllables per second spoken in the line, or None when it cannot be measured."""
+def _line_stats(row):
     try:
-        words = [w for w in (row.get("words") or []) if isinstance(w, dict) and w.get("start") is not None and w.get("end") is not None]
-        text = row.get("text") or ""
-        if len(words) >= MIN_WORDS:
-            span = float(words[-1]["end"]) - float(words[0]["start"])
-            gaps = 0.0
-            for a, b in zip(words, words[1:]):
-                g = float(b["start"]) - float(a["end"])
-                if g > GAP_SEC:
-                    gaps += g
-            span -= gaps
-            syl = syllables(" ".join(str(w.get("word") or "") for w in words))
-        else:
-            if len(text.split()) < MIN_WORDS:
+        words = []
+        for w in row.get("words") or []:
+            if not isinstance(w, dict) or not str(w.get("word") or "").strip():
+                continue
+            a, b = float(w["start"]), float(w["end"])
+            if not math.isfinite(a) or not math.isfinite(b) or a < 0 or b <= a:
                 return None
-            span = float(row["end"]) - float(row["start"])
-            syl = syllables(text)
-        if span < MIN_SECONDS or syl < 3:
+            words.append((a, b, str(w["word"])))
+        if len(words) < MIN_WORDS:
             return None
-        return syl / span
+        words.sort()
+        end = words[0][1]
+        gaps = 0.0
+        for a, b, _ in words[1:]:
+            gap = a - end
+            if gap >= GAP_SEC:
+                gaps += gap
+            end = max(end, b)
+        total = end - words[0][0]
+        spoken = total - gaps
+        syl = syllables(" ".join(w[2] for w in words))
+        if spoken < MIN_SECONDS or syl < MIN_WORDS:
+            return None
+        return syl / spoken, gaps / total
     except Exception:
         return None
+
+
+def line_rate(row):
+    """Diagnostic syllables per voiced second; large pauses are excluded."""
+    stats = _line_stats(row)
+    return stats[0] if stats else None
 
 
 def _median(v):
@@ -70,25 +80,39 @@ def _median(v):
     return None if not n else (v[n // 2] if n % 2 else 0.5 * (v[n // 2 - 1] + v[n // 2]))
 
 
+def _usable_rate(row):
+    stats = _line_stats(row)
+    return stats[0] if stats and stats[1] < PAUSE_FRACTION else None
+
+
 def moment_rate(rows, i):
-    """Median speaking rate of line i and its neighbours (the moment the speaker is in), or None."""
-    lo, hi = max(0, i - MOMENT), min(len(rows), i + MOMENT + 1)
-    rates = [line_rate(r) for r in rows[lo:hi]]
-    return _median([x for x in rates if x])
+    """Median of nearby lines by this speaker; mixed fallback needs three usable lines."""
+    try:
+        speaker = rows[i].get("speaker")
+        if speaker:
+            before = list(islice((j for j in range(i - 1, -1, -1) if rows[j].get("speaker") == speaker), MOMENT))
+            after = list(islice((j for j in range(i + 1, len(rows)) if rows[j].get("speaker") == speaker), MOMENT))
+            rates = [_usable_rate(rows[j]) for j in before + [i] + after]
+            rates = [x for x in rates if x is not None]
+            if len(rates) >= MIN_NEIGHBOURS:
+                return _median(rates)
+        lo, hi = max(0, i - MOMENT), min(len(rows), i + MOMENT + 1)
+        rates = [_usable_rate(r) for r in rows[lo:hi]]
+        rates = [x for x in rates if x is not None]
+        return _median(rates) if len(rates) >= MIN_NEIGHBOURS else None
+    except Exception:
+        return None
 
 
 def pace(rows, i):
     try:
-        own = line_rate(rows[i])
+        own = _usable_rate(rows[i])
         around = moment_rate(rows, i)
-        rate = around if around is not None else own
-        if rate is None:
+        if own is None or around is None:
             return "unknown"
-        if own is not None and around is not None:
-            rate = 0.5 * (own + around)          # the line itself counts as much as its moment
-        if rate < SLOW_BELOW:
+        if own < SLOW_BELOW and around < SLOW_BELOW:
             return "slow"
-        if rate > FAST_ABOVE:
+        if own > FAST_ABOVE and around > FAST_ABOVE:
             return "fast"
         return "normal"
     except Exception:
@@ -100,19 +124,16 @@ def tempo_cap(p):
 
 
 def ground(emotion, p):
-    """The delivery string with the speed tags that disagree with the measured pace removed ("neutral" when nothing is left)."""
+    """Remove unsupported or contradictory speed tags; never infer a new emotion."""
     try:
-        parts = [x.strip() for x in str(emotion or "").split(",") if x.strip()]
-        if not parts or p == "unknown":
+        if emotion is None or emotion == "":
             return emotion
-        drop = set()
-        if p != "fast":
-            drop.update(FAST_TAGS)
-        if p == "fast":
-            drop.update(SLOW_TAGS)
-        keep = [x for x in parts if x.lower() not in drop]
-        if len(keep) == len(parts):
-            return emotion
+        if not isinstance(emotion, str):
+            return "neutral"
+        parts = [x.strip() for x in emotion.split(",") if x.strip()]
+        urgent = any(x.lower() in URGENT_TAGS for x in parts)
+        keep = [x for x in parts if not (x.lower() in FAST_TAGS and p != "fast")
+                and not (x.lower() in SLOW_TAGS and (p != "slow" or urgent))]
         return ", ".join(keep) if keep else "neutral"
     except Exception:
-        return emotion
+        return "neutral"

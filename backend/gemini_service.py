@@ -223,15 +223,15 @@ Do not add filler words. Be extremely concise to fit the time limit.
 OTHER RULES:
 Translate into clear, natural MSA Arabic suitable for voice dubbing.
 Add full Tashkeel (Arabic diacritics) to every word.
-Detect the emotion AND speaking style of each line. You MUST return exactly TWO comma-separated tags per line (never just one) — a primary emotion tag plus a secondary delivery tag (pacing, volume, or manner) that together best describe how the line should be performed. Choose both tags ONLY from this exact list:
-{', '.join(CANONICAL_EMOTIONS)}
-Example: a sad line spoken quietly would be "sad, softly". An urgent, angry line would be "angry, rushed".
-Some segments carry "measured_pace" (slow, normal or fast): how fast the speaker REALLY speaks there, measured from the recording. It beats the meaning of the words: use "rushed" only for "fast"; a frightened or urgent sentence spoken at a "slow" or "normal" pace is still not "rushed". Never use "slowly" or "drawn out" for "fast".
+Detect the primary emotion of each line. Return ONE primary emotion tag, with at most ONE optional non-pacing delivery tag only when clearly supported. A single tag is valid; use "neutral" when unclear. Never invent a second tag. Choose tags ONLY from this exact list:
+{', '.join(t for t in CANONICAL_EMOTIONS if t not in ('slowly', 'drawn out', 'rushed', 'hesitant', 'stammering'))}
+Example: a sad line may be "sad"; when quiet delivery is clearly supported it may be "sad, softly". An urgent, angry line may be "angry". Do not return speed instructions: slowly, drawn out, rushed, very fast, hesitant or stammering. Audio listening and independent timing evidence decide speed separately.
+Some segments carry "measured_pace" for timing and fitting context only. It is not an emotion label or a confidence score, and must not override the meaning or force a delivery tag. Pauses or short subtitle lines do not prove slow speech.
 Preserve the core meaning, but prioritize fitting the time limit.
 {_glossary_block(glossary)}Return ONLY valid JSON. No explanations.
 Return JSON array:
 [
-{{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral, conversational"}}
+{{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral"}}
 ]
 Segments:
 {json.dumps(segments_for_prompt, ensure_ascii=False)}"""

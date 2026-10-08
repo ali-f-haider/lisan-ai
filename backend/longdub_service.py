@@ -47,6 +47,7 @@ import music_fill
 import dub_audio
 import dub_background
 import delivery
+import emotion_listen
 import dub_review
 from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
@@ -1816,6 +1817,9 @@ def _run_analysis(job):
 
         # 7. translate in small batches ------------------------------------
         _translate_all(job, rows)
+        # 7b. the AI listens to each line's isolated voice for its delivery (emotion); falls back to the text guess without speed tags
+        _mark(job, "translate", 98, "Listening to how each line is spoken...")
+        _listen_and_merge(job, rows, wd, vocals_all=vocals_all)
         _write_segments(job, rows)
         missing_ar = sum(1 for r in rows if not (r.get("arabic_text") or "").strip())
         _ev(job, "translation", "ok" if not missing_ar else "partial",
@@ -1825,8 +1829,9 @@ def _run_analysis(job):
         # (a mono copy of the separated voices stays: it is the reference for
         # cloning and for volume matching later)
         try:
-            ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vocals_all), "-ac", "1", "-ar", str(SAMPLE_RATE),
-                                     "-acodec", "pcm_s16le", str(wd / "vocals_mono.wav")])
+            if not (wd / "vocals_mono.wav").exists():      # already made for the emotion check
+                ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vocals_all), "-ac", "1", "-ar", str(SAMPLE_RATE),
+                                         "-acodec", "pcm_s16le", str(wd / "vocals_mono.wav")])
         except Exception as ex:
             print(f"[longdub] could not keep a mono voices copy: {ex}")
         for sub in ("pieces", "vocals", "bg", "asr", "sep"):
@@ -2083,9 +2088,7 @@ def glossary_apply(job):
             r = cur_by.get(sid)
             if r is None or not ar or (r.get("arabic_text") or "") != before.get(sid) or r.get("ar_set"):
                 continue
-            r["arabic_text"] = ar
-            if not r.get("emotion_set"):
-                r["emotion"] = emo
+            r["arabic_text"] = ar          # only the wording changes: the delivery (listened to) stays
         _write_segments(job, cur)
     still, mine2 = glossary_check(job)
     fixed = max(0, len(missing) - len(still))
@@ -2112,8 +2115,9 @@ def _translate_batch(job_id, batch, glossary=None, paces=None):
                 out = {}
                 for it in res.get("translated_segments", []):
                     if isinstance(it, dict) and it.get("segment_id"):
+                        # the text alone never decides a speed: pacing words are dropped here, only listening may add one
                         out[str(it["segment_id"])] = (str(it.get("arabic_text") or "").strip(),
-                                                      str(it.get("emotion") or "neutral"))
+                                                      emotion_listen.merge(str(it.get("emotion") or "neutral"), None, "unknown"))
                 return out
         except Exception as ex:
             print(f"[longdub] translate batch failed (attempt {attempt + 1}): {ex}")
@@ -2165,6 +2169,45 @@ def ground_emotions(job):
         return n
     except Exception as ex:
         print(f"[longdub] delivery grounding failed: {ex}")
+        return 0
+
+
+def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
+    """The delivery of the automatic lines (never a line whose delivery the user picked): the AI LISTENS to the isolated voice of each
+    line (emotion_listen), the text guess only fills in where listening gave nothing, and a speed tag (slowly / rushed) is added only
+    when the listener (high confidence) and the measured pace of the speaker agree and it fits the emotion. The cost of listening is part
+    of the dubbing price (no separate charge). selected_ids = only these lines (an edit); all rows are still sent as text context.
+    Changes the rows in place; never raises; returns the number of lines that were really listened to."""
+    try:
+        wd = wd or job_dir(job["id"])
+        vocals = wd / "vocals_mono.wav"
+        if not vocals.exists() and vocals_all is not None:
+            try:
+                ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(vocals_all), "-ac", "1", "-ar", str(SAMPLE_RATE),
+                                         "-acodec", "pcm_s16le", str(vocals)])
+            except Exception as ex:
+                print(f"[longdub] could not make the mono voices copy for the emotion check: {ex}")
+        heard = {}
+        if vocals.exists() and GEMINI_API_KEY:
+            heard = emotion_listen.listen(job["id"], rows, vocals, GEMINI_API_KEY, cache_dir=wd / "emotion_listen_cache",
+                                          max_workers=2, selected_ids=selected_ids) or {}
+        paces = _row_paces(rows)
+        fallbacks = set()
+        for r in rows:
+            sid = r.get("segment_id")
+            if r.get("emotion_set") or (selected_ids is not None and sid not in selected_ids):
+                continue
+            r["emotion"] = emotion_listen.merge(r.get("emotion"), heard.get(sid), paces.get(sid, "unknown"))
+            try:
+                dur_ = float(r["end"]) - float(r["start"])
+            except Exception:
+                dur_ = 0.0
+            if sid not in heard and 0.3 <= dur_ <= 30:
+                fallbacks.add(sid)
+        _ev(job, "emotions", "partial" if fallbacks else "ok", emotion_listen.summary(rows, heard, fallbacks))
+        return len(heard)
+    except Exception as ex:
+        print(f"[longdub] emotion listening skipped: {ex}")
         return 0
 
 
@@ -2685,6 +2728,8 @@ def split_line(job, segment_id, position):
         x["arabic_text"], emo = got[x["segment_id"]]
         if not x.get("emotion_set"):
             x["emotion"] = emo
+    _listen_and_merge(job, _by_start([x for x in rows if x["segment_id"] != segment_id] + [first, second]),
+                      selected_ids={segment_id, new_id})
     with _lock_for(job["id"]):
         rows = read_segments(job)
         idx = next((i for i, x in enumerate(rows) if x["segment_id"] == segment_id), None)
@@ -2729,6 +2774,7 @@ def retranslate_line(job, segment_id):
     r.pop("ar_set", None)
     if not r.get("emotion_set"):      # a delivery the user picked is never overwritten
         r["emotion"] = new_emo
+        _listen_and_merge(job, rows, selected_ids={segment_id})     # listens again only when the line's English/time/speaker/voice changed
     _write_segments(job, rows)
     return True, "", r["arabic_text"]
 

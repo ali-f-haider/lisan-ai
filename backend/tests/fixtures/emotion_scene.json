@@ -1,0 +1,1142 @@
+[
+  {
+    "segment_id": "line_00",
+    "start": 0.0,
+    "end": 2.153846,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 0.0,
+        "end": 0.358974
+      },
+      {
+        "word": "every",
+        "start": 0.358974,
+        "end": 0.717949
+      },
+      {
+        "word": "empty",
+        "start": 0.717949,
+        "end": 1.076923
+      },
+      {
+        "word": "package",
+        "start": 1.076923,
+        "end": 1.435897
+      },
+      {
+        "word": "over",
+        "start": 1.435897,
+        "end": 1.794872
+      },
+      {
+        "word": "carefully",
+        "start": 1.794872,
+        "end": 2.153846
+      }
+    ]
+  },
+  {
+    "segment_id": "line_01",
+    "start": 2.853846,
+    "end": 8.478846,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "thoughtful, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 2.853846,
+        "end": 3.478846
+      },
+      {
+        "word": "every",
+        "start": 3.478846,
+        "end": 4.103846
+      },
+      {
+        "word": "empty",
+        "start": 4.103846,
+        "end": 4.728846
+      },
+      {
+        "word": "container",
+        "start": 4.728846,
+        "end": 5.353846
+      },
+      {
+        "word": "over",
+        "start": 5.353846,
+        "end": 5.978846
+      },
+      {
+        "word": "beside",
+        "start": 5.978846,
+        "end": 6.603846
+      },
+      {
+        "word": "the",
+        "start": 6.603846,
+        "end": 7.228846
+      },
+      {
+        "word": "wooden",
+        "start": 7.228846,
+        "end": 7.853846
+      },
+      {
+        "word": "table",
+        "start": 7.853846,
+        "end": 8.478846
+      }
+    ]
+  },
+  {
+    "segment_id": "line_02",
+    "start": 9.178846,
+    "end": 11.332692,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 9.178846,
+        "end": 9.537821
+      },
+      {
+        "word": "every",
+        "start": 9.537821,
+        "end": 9.896795
+      },
+      {
+        "word": "empty",
+        "start": 9.896795,
+        "end": 10.255769
+      },
+      {
+        "word": "package",
+        "start": 10.255769,
+        "end": 10.614744
+      },
+      {
+        "word": "over",
+        "start": 10.614744,
+        "end": 10.973718
+      },
+      {
+        "word": "carefully",
+        "start": 10.973718,
+        "end": 11.332692
+      }
+    ]
+  },
+  {
+    "segment_id": "line_03",
+    "start": 12.032692,
+    "end": 17.657692,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "thoughtful, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 12.032692,
+        "end": 12.657692
+      },
+      {
+        "word": "every",
+        "start": 12.657692,
+        "end": 13.282692
+      },
+      {
+        "word": "empty",
+        "start": 13.282692,
+        "end": 13.907692
+      },
+      {
+        "word": "container",
+        "start": 13.907692,
+        "end": 14.532692
+      },
+      {
+        "word": "over",
+        "start": 14.532692,
+        "end": 15.157692
+      },
+      {
+        "word": "beside",
+        "start": 15.157692,
+        "end": 15.782692
+      },
+      {
+        "word": "the",
+        "start": 15.782692,
+        "end": 16.407692
+      },
+      {
+        "word": "wooden",
+        "start": 16.407692,
+        "end": 17.032692
+      },
+      {
+        "word": "table",
+        "start": 17.032692,
+        "end": 17.657692
+      }
+    ]
+  },
+  {
+    "segment_id": "line_04",
+    "start": 18.357692,
+    "end": 20.511538,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 18.357692,
+        "end": 18.716667
+      },
+      {
+        "word": "every",
+        "start": 18.716667,
+        "end": 19.075641
+      },
+      {
+        "word": "empty",
+        "start": 19.075641,
+        "end": 19.434615
+      },
+      {
+        "word": "package",
+        "start": 19.434615,
+        "end": 19.79359
+      },
+      {
+        "word": "over",
+        "start": 19.79359,
+        "end": 20.152564
+      },
+      {
+        "word": "carefully",
+        "start": 20.152564,
+        "end": 20.511538
+      }
+    ]
+  },
+  {
+    "segment_id": "line_05",
+    "start": 21.211538,
+    "end": 26.836538,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "thoughtful, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 21.211538,
+        "end": 21.836538
+      },
+      {
+        "word": "every",
+        "start": 21.836538,
+        "end": 22.461538
+      },
+      {
+        "word": "empty",
+        "start": 22.461538,
+        "end": 23.086538
+      },
+      {
+        "word": "container",
+        "start": 23.086538,
+        "end": 23.711538
+      },
+      {
+        "word": "over",
+        "start": 23.711538,
+        "end": 24.336538
+      },
+      {
+        "word": "beside",
+        "start": 24.336538,
+        "end": 24.961538
+      },
+      {
+        "word": "the",
+        "start": 24.961538,
+        "end": 25.586538
+      },
+      {
+        "word": "wooden",
+        "start": 25.586538,
+        "end": 26.211538
+      },
+      {
+        "word": "table",
+        "start": 26.211538,
+        "end": 26.836538
+      }
+    ]
+  },
+  {
+    "segment_id": "line_06",
+    "start": 27.536538,
+    "end": 29.690385,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 27.536538,
+        "end": 27.895513
+      },
+      {
+        "word": "every",
+        "start": 27.895513,
+        "end": 28.254487
+      },
+      {
+        "word": "empty",
+        "start": 28.254487,
+        "end": 28.613462
+      },
+      {
+        "word": "package",
+        "start": 28.613462,
+        "end": 28.972436
+      },
+      {
+        "word": "over",
+        "start": 28.972436,
+        "end": 29.33141
+      },
+      {
+        "word": "carefully",
+        "start": 29.33141,
+        "end": 29.690385
+      }
+    ]
+  },
+  {
+    "segment_id": "line_07",
+    "start": 30.390385,
+    "end": 36.015385,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "thoughtful, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 30.390385,
+        "end": 31.015385
+      },
+      {
+        "word": "every",
+        "start": 31.015385,
+        "end": 31.640385
+      },
+      {
+        "word": "empty",
+        "start": 31.640385,
+        "end": 32.265385
+      },
+      {
+        "word": "container",
+        "start": 32.265385,
+        "end": 32.890385
+      },
+      {
+        "word": "over",
+        "start": 32.890385,
+        "end": 33.515385
+      },
+      {
+        "word": "beside",
+        "start": 33.515385,
+        "end": 34.140385
+      },
+      {
+        "word": "the",
+        "start": 34.140385,
+        "end": 34.765385
+      },
+      {
+        "word": "wooden",
+        "start": 34.765385,
+        "end": 35.390385
+      },
+      {
+        "word": "table",
+        "start": 35.390385,
+        "end": 36.015385
+      }
+    ]
+  },
+  {
+    "segment_id": "line_08",
+    "start": 36.715385,
+    "end": 38.869231,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 36.715385,
+        "end": 37.074359
+      },
+      {
+        "word": "every",
+        "start": 37.074359,
+        "end": 37.433333
+      },
+      {
+        "word": "empty",
+        "start": 37.433333,
+        "end": 37.792308
+      },
+      {
+        "word": "package",
+        "start": 37.792308,
+        "end": 38.151282
+      },
+      {
+        "word": "over",
+        "start": 38.151282,
+        "end": 38.510256
+      },
+      {
+        "word": "carefully",
+        "start": 38.510256,
+        "end": 38.869231
+      }
+    ]
+  },
+  {
+    "segment_id": "line_09",
+    "start": 39.569231,
+    "end": 45.194231,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "thoughtful, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 39.569231,
+        "end": 40.194231
+      },
+      {
+        "word": "every",
+        "start": 40.194231,
+        "end": 40.819231
+      },
+      {
+        "word": "empty",
+        "start": 40.819231,
+        "end": 41.444231
+      },
+      {
+        "word": "container",
+        "start": 41.444231,
+        "end": 42.069231
+      },
+      {
+        "word": "over",
+        "start": 42.069231,
+        "end": 42.694231
+      },
+      {
+        "word": "beside",
+        "start": 42.694231,
+        "end": 43.319231
+      },
+      {
+        "word": "the",
+        "start": 43.319231,
+        "end": 43.944231
+      },
+      {
+        "word": "wooden",
+        "start": 43.944231,
+        "end": 44.569231
+      },
+      {
+        "word": "table",
+        "start": 44.569231,
+        "end": 45.194231
+      }
+    ]
+  },
+  {
+    "segment_id": "line_10",
+    "start": 45.894231,
+    "end": 48.048077,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 45.894231,
+        "end": 46.253205
+      },
+      {
+        "word": "every",
+        "start": 46.253205,
+        "end": 46.612179
+      },
+      {
+        "word": "empty",
+        "start": 46.612179,
+        "end": 46.971154
+      },
+      {
+        "word": "package",
+        "start": 46.971154,
+        "end": 47.330128
+      },
+      {
+        "word": "over",
+        "start": 47.330128,
+        "end": 47.689103
+      },
+      {
+        "word": "carefully",
+        "start": 47.689103,
+        "end": 48.048077
+      }
+    ]
+  },
+  {
+    "segment_id": "line_11",
+    "start": 48.748077,
+    "end": 54.373077,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "thoughtful, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 48.748077,
+        "end": 49.373077
+      },
+      {
+        "word": "every",
+        "start": 49.373077,
+        "end": 49.998077
+      },
+      {
+        "word": "empty",
+        "start": 49.998077,
+        "end": 50.623077
+      },
+      {
+        "word": "container",
+        "start": 50.623077,
+        "end": 51.248077
+      },
+      {
+        "word": "over",
+        "start": 51.248077,
+        "end": 51.873077
+      },
+      {
+        "word": "beside",
+        "start": 51.873077,
+        "end": 52.498077
+      },
+      {
+        "word": "the",
+        "start": 52.498077,
+        "end": 53.123077
+      },
+      {
+        "word": "wooden",
+        "start": 53.123077,
+        "end": 53.748077
+      },
+      {
+        "word": "table",
+        "start": 53.748077,
+        "end": 54.373077
+      }
+    ]
+  },
+  {
+    "segment_id": "line_12",
+    "start": 55.073077,
+    "end": 57.226923,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 55.073077,
+        "end": 55.432051
+      },
+      {
+        "word": "every",
+        "start": 55.432051,
+        "end": 55.791026
+      },
+      {
+        "word": "empty",
+        "start": 55.791026,
+        "end": 56.15
+      },
+      {
+        "word": "package",
+        "start": 56.15,
+        "end": 56.508974
+      },
+      {
+        "word": "over",
+        "start": 56.508974,
+        "end": 56.867949
+      },
+      {
+        "word": "carefully",
+        "start": 56.867949,
+        "end": 57.226923
+      }
+    ]
+  },
+  {
+    "segment_id": "line_13",
+    "start": 57.926923,
+    "end": 63.941209,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "anxious, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 57.926923,
+        "end": 58.284066
+      },
+      {
+        "word": "every",
+        "start": 58.634066,
+        "end": 58.991209
+      },
+      {
+        "word": "empty",
+        "start": 59.341209,
+        "end": 59.698352
+      },
+      {
+        "word": "container",
+        "start": 60.048352,
+        "end": 60.405495
+      },
+      {
+        "word": "over",
+        "start": 60.755495,
+        "end": 61.112637
+      },
+      {
+        "word": "beside",
+        "start": 61.462637,
+        "end": 61.81978
+      },
+      {
+        "word": "the",
+        "start": 62.16978,
+        "end": 62.526923
+      },
+      {
+        "word": "wooden",
+        "start": 62.876923,
+        "end": 63.234066
+      },
+      {
+        "word": "table",
+        "start": 63.584066,
+        "end": 63.941209
+      }
+    ]
+  },
+  {
+    "segment_id": "line_14",
+    "start": 64.641209,
+    "end": 66.795055,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 64.641209,
+        "end": 65.000183
+      },
+      {
+        "word": "every",
+        "start": 65.000183,
+        "end": 65.359158
+      },
+      {
+        "word": "empty",
+        "start": 65.359158,
+        "end": 65.718132
+      },
+      {
+        "word": "package",
+        "start": 65.718132,
+        "end": 66.077106
+      },
+      {
+        "word": "over",
+        "start": 66.077106,
+        "end": 66.436081
+      },
+      {
+        "word": "carefully",
+        "start": 66.436081,
+        "end": 66.795055
+      }
+    ]
+  },
+  {
+    "segment_id": "line_15",
+    "start": 67.495055,
+    "end": 73.509341,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "anxious, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 67.495055,
+        "end": 67.852198
+      },
+      {
+        "word": "every",
+        "start": 68.202198,
+        "end": 68.559341
+      },
+      {
+        "word": "empty",
+        "start": 68.909341,
+        "end": 69.266484
+      },
+      {
+        "word": "container",
+        "start": 69.616484,
+        "end": 69.973626
+      },
+      {
+        "word": "over",
+        "start": 70.323626,
+        "end": 70.680769
+      },
+      {
+        "word": "beside",
+        "start": 71.030769,
+        "end": 71.387912
+      },
+      {
+        "word": "the",
+        "start": 71.737912,
+        "end": 72.095055
+      },
+      {
+        "word": "wooden",
+        "start": 72.445055,
+        "end": 72.802198
+      },
+      {
+        "word": "table",
+        "start": 73.152198,
+        "end": 73.509341
+      }
+    ]
+  },
+  {
+    "segment_id": "line_16",
+    "start": 74.209341,
+    "end": 76.363187,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 74.209341,
+        "end": 74.568315
+      },
+      {
+        "word": "every",
+        "start": 74.568315,
+        "end": 74.927289
+      },
+      {
+        "word": "empty",
+        "start": 74.927289,
+        "end": 75.286264
+      },
+      {
+        "word": "package",
+        "start": 75.286264,
+        "end": 75.645238
+      },
+      {
+        "word": "over",
+        "start": 75.645238,
+        "end": 76.004212
+      },
+      {
+        "word": "carefully",
+        "start": 76.004212,
+        "end": 76.363187
+      }
+    ]
+  },
+  {
+    "segment_id": "line_17",
+    "start": 77.063187,
+    "end": 83.077473,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "anxious, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 77.063187,
+        "end": 77.42033
+      },
+      {
+        "word": "every",
+        "start": 77.77033,
+        "end": 78.127473
+      },
+      {
+        "word": "empty",
+        "start": 78.477473,
+        "end": 78.834615
+      },
+      {
+        "word": "container",
+        "start": 79.184615,
+        "end": 79.541758
+      },
+      {
+        "word": "over",
+        "start": 79.891758,
+        "end": 80.248901
+      },
+      {
+        "word": "beside",
+        "start": 80.598901,
+        "end": 80.956044
+      },
+      {
+        "word": "the",
+        "start": 81.306044,
+        "end": 81.663187
+      },
+      {
+        "word": "wooden",
+        "start": 82.013187,
+        "end": 82.37033
+      },
+      {
+        "word": "table",
+        "start": 82.72033,
+        "end": 83.077473
+      }
+    ]
+  },
+  {
+    "segment_id": "line_18",
+    "start": 83.777473,
+    "end": 85.931319,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 83.777473,
+        "end": 84.136447
+      },
+      {
+        "word": "every",
+        "start": 84.136447,
+        "end": 84.495421
+      },
+      {
+        "word": "empty",
+        "start": 84.495421,
+        "end": 84.854396
+      },
+      {
+        "word": "package",
+        "start": 84.854396,
+        "end": 85.21337
+      },
+      {
+        "word": "over",
+        "start": 85.21337,
+        "end": 85.572344
+      },
+      {
+        "word": "carefully",
+        "start": 85.572344,
+        "end": 85.931319
+      }
+    ]
+  },
+  {
+    "segment_id": "line_19",
+    "start": 86.631319,
+    "end": 92.645604,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "anxious, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 86.631319,
+        "end": 86.988462
+      },
+      {
+        "word": "every",
+        "start": 87.338462,
+        "end": 87.695604
+      },
+      {
+        "word": "empty",
+        "start": 88.045604,
+        "end": 88.402747
+      },
+      {
+        "word": "container",
+        "start": 88.752747,
+        "end": 89.10989
+      },
+      {
+        "word": "over",
+        "start": 89.45989,
+        "end": 89.817033
+      },
+      {
+        "word": "beside",
+        "start": 90.167033,
+        "end": 90.524176
+      },
+      {
+        "word": "the",
+        "start": 90.874176,
+        "end": 91.231319
+      },
+      {
+        "word": "wooden",
+        "start": 91.581319,
+        "end": 91.938462
+      },
+      {
+        "word": "table",
+        "start": 92.288462,
+        "end": 92.645604
+      }
+    ]
+  },
+  {
+    "segment_id": "line_20",
+    "start": 93.345604,
+    "end": 95.499451,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 93.345604,
+        "end": 93.704579
+      },
+      {
+        "word": "every",
+        "start": 93.704579,
+        "end": 94.063553
+      },
+      {
+        "word": "empty",
+        "start": 94.063553,
+        "end": 94.422527
+      },
+      {
+        "word": "package",
+        "start": 94.422527,
+        "end": 94.781502
+      },
+      {
+        "word": "over",
+        "start": 94.781502,
+        "end": 95.140476
+      },
+      {
+        "word": "carefully",
+        "start": 95.140476,
+        "end": 95.499451
+      }
+    ]
+  },
+  {
+    "segment_id": "line_21",
+    "start": 96.199451,
+    "end": 102.213736,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "anxious, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 96.199451,
+        "end": 96.556593
+      },
+      {
+        "word": "every",
+        "start": 96.906593,
+        "end": 97.263736
+      },
+      {
+        "word": "empty",
+        "start": 97.613736,
+        "end": 97.970879
+      },
+      {
+        "word": "container",
+        "start": 98.320879,
+        "end": 98.678022
+      },
+      {
+        "word": "over",
+        "start": 99.028022,
+        "end": 99.385165
+      },
+      {
+        "word": "beside",
+        "start": 99.735165,
+        "end": 100.092308
+      },
+      {
+        "word": "the",
+        "start": 100.442308,
+        "end": 100.799451
+      },
+      {
+        "word": "wooden",
+        "start": 101.149451,
+        "end": 101.506593
+      },
+      {
+        "word": "table",
+        "start": 101.856593,
+        "end": 102.213736
+      }
+    ]
+  },
+  {
+    "segment_id": "line_22",
+    "start": 102.913736,
+    "end": 105.067582,
+    "speaker": "A",
+    "text": "Move every empty package over carefully",
+    "emotion": "fearful, rushed",
+    "words": [
+      {
+        "word": "Move",
+        "start": 102.913736,
+        "end": 103.272711
+      },
+      {
+        "word": "every",
+        "start": 103.272711,
+        "end": 103.631685
+      },
+      {
+        "word": "empty",
+        "start": 103.631685,
+        "end": 103.990659
+      },
+      {
+        "word": "package",
+        "start": 103.990659,
+        "end": 104.349634
+      },
+      {
+        "word": "over",
+        "start": 104.349634,
+        "end": 104.708608
+      },
+      {
+        "word": "carefully",
+        "start": 104.708608,
+        "end": 105.067582
+      }
+    ]
+  },
+  {
+    "segment_id": "line_23",
+    "start": 105.767582,
+    "end": 111.781868,
+    "speaker": "B",
+    "text": "Bring every empty container over beside the wooden table",
+    "emotion": "anxious, slowly",
+    "words": [
+      {
+        "word": "Bring",
+        "start": 105.767582,
+        "end": 106.124725
+      },
+      {
+        "word": "every",
+        "start": 106.474725,
+        "end": 106.831868
+      },
+      {
+        "word": "empty",
+        "start": 107.181868,
+        "end": 107.539011
+      },
+      {
+        "word": "container",
+        "start": 107.889011,
+        "end": 108.246154
+      },
+      {
+        "word": "over",
+        "start": 108.596154,
+        "end": 108.953297
+      },
+      {
+        "word": "beside",
+        "start": 109.303297,
+        "end": 109.66044
+      },
+      {
+        "word": "the",
+        "start": 110.01044,
+        "end": 110.367582
+      },
+      {
+        "word": "wooden",
+        "start": 110.717582,
+        "end": 111.074725
+      },
+      {
+        "word": "table",
+        "start": 111.424725,
+        "end": 111.781868
+      }
+    ]
+  }
+]
