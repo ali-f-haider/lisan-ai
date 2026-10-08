@@ -4930,10 +4930,12 @@ def sweep_orphan_voices(force=False):
         return 0
     _orphan_sweep_at[0] = now
     deleted = 0
+    orphans = 0
     for vid, name in listed:
         match = re.match(r"lisan-tmp-([0-9a-f]{8})-", name)
         if not match or match.group(1) in known:
             continue
+        orphans += 1
         if deleted >= ORPHAN_SWEEP_MAX:
             break
         res = inworld_service.delete_voice(vid, INWORLD_API_KEY)
@@ -4943,6 +4945,8 @@ def sweep_orphan_voices(force=False):
             print(f"[longdub] could not delete the leftover voice {name}: {res.get('error')}")
     if deleted:
         print(f"[longdub] deleted {deleted} leftover temporary voice(s) with no project")
+    # One line per run (at most once a day) so the log shows the check really ran, even when there was nothing to delete.
+    print(f"[longdub] leftover-voice check: {len(listed)} temporary voice(s) at the provider, {orphans} with no project, {deleted} deleted")
     return deleted
 
 

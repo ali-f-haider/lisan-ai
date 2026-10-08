@@ -33,6 +33,18 @@ class OrphanVoiceTests(unittest.TestCase):
         self.assertEqual(self.run_sweep(listed), 2)
         self.assertEqual(sorted(self.deleted), ["v1", "v4"])
 
+    def test_every_run_leaves_one_log_line_even_when_nothing_is_deleted(self):
+        import contextlib, io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.run_sweep(voices(("v2", f"lisan-tmp-{LIVE}-spk1")))
+        self.assertIn("leftover-voice check: 1 temporary voice(s) at the provider, 0 with no project, 0 deleted", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.run_sweep(voices(("v1", f"lisan-tmp-{OLD}-spk1")), force=True)
+        self.assertIn("deleted 1 leftover temporary voice(s) with no project", out.getvalue())
+        self.assertIn("1 with no project, 1 deleted", out.getvalue())
+
     def test_an_unreadable_voice_list_deletes_nothing(self):
         self.assertEqual(self.run_sweep(None), 0); self.assertEqual(self.deleted, [])
 

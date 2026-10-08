@@ -49,6 +49,17 @@ class RegisterBackupTests(unittest.TestCase):
         vn.FILE.write_text(json.dumps({"engines": {"e": {"male": {"a": 1, "b": 2}}}}))
         self.assertEqual(r2_backup.backup_register_files([vn.FILE]), 1)
 
+    def test_the_log_shows_a_save_but_stays_quiet_when_nothing_changed(self):
+        import contextlib, io
+        vn.FILE.write_text(json.dumps({"engines": {"e": {"male": {"a": 1}}}}))
+        first, second = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(first):
+            r2_backup.backup_register_files([vn.FILE])
+        with contextlib.redirect_stdout(second):
+            r2_backup.backup_register_files([vn.FILE])
+        self.assertIn("[register-backup] saved 1 changed register file(s)", first.getvalue())
+        self.assertEqual(second.getvalue(), "")
+
     def test_missing_register_is_restored_from_the_newest_copy(self):
         good = {"engines": {"inworld": {"male": {"v9": 17}}}}
         vn.FILE.write_text(json.dumps(good)); r2_backup.backup_register_files([vn.FILE]); vn.FILE.unlink(); vn.reset_memory()

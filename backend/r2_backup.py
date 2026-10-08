@@ -400,6 +400,8 @@ def backup_register_files(paths):
                     client.delete_object(Bucket=R2_BUCKET_NAME, Key=obj["Key"])
     except Exception as e:
         print(f"[register-backup] error: {e}")
+    if sent:
+        print(f"[register-backup] saved {sent} changed register file(s) to R2")
     return sent
 
 
