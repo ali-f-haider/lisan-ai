@@ -360,7 +360,7 @@ def _stripe_fail(ex, where=""):
     return JSONResponse({"error": msg or "We couldn't complete that with our payment provider. Please try again, or contact support if it keeps happening."}, status_code=502)
 
 
-_PRIVATE_PROGRESS_KEYS = ("error_trace", "background_path", "generation_id")
+_PRIVATE_PROGRESS_KEYS = ("error_trace", "background_path", "generation_id", "provider_video")
 
 
 def _public_progress(d):
@@ -3065,6 +3065,12 @@ def _voice_engines_for_ids(voice_ids: list) -> dict:
     before no matter what state the migration is in."""
     result = {}
     ids = [v for v in set(voice_ids or []) if v]
+    # Inworld's own stock voices (the Step 4 library when the admin switch is on Inworld) are not in user_voices:
+    # they belong to Inworld by what they are, whatever the switch says today.
+    for vid in list(ids):
+        if inworld_service.is_library_voice(vid, INWORLD_API_KEY):
+            result[vid] = "inworld"
+            ids.remove(vid)
     if not ids or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return result
     import urllib.request as _ur
@@ -4107,9 +4113,56 @@ def source(job_id: str, request: Request):
         return JSONResponse({"error": "not found"}, status_code=404)
     return FileResponse(p)
 
+def _library_voices():
+    """The voice list of Step 4 and Auto-Assign. It follows the admin "Voice Engine" switch: on Inworld the stock
+    voices of Inworld are listed (Arabic ones first); on the other engine, or when Inworld cannot be reached at all
+    (not even a saved copy), the original list is used, so Step 4 is never empty.
+    Every voice carries a permanent `number` (voice_numbers.py): "Male voice 17" always means the same voice."""
+    engine, got = "elevenlabs", None
+    if _active_voice_engine() == "inworld":
+        got = inworld_service.fetch_library(INWORLD_API_KEY)
+        if got.get("voices"):
+            engine = "inworld"
+        else:
+            print("[voices] the Inworld voice list is unavailable; using the other list for now")
+    if engine != "inworld":
+        got = eleven_service.fetch_voices(ELEVENLABS_API_KEY)
+    voices = got.get("voices") if isinstance(got, dict) else None
+    if not voices:
+        return got
+    rows = [dict(v) for v in voices]
+    if engine == "elevenlabs":
+        # the original numbering was the position in the list sorted by voice id: a new register starts from exactly that
+        rows.sort(key=lambda v: (str(v.get("voice_id", "")).lower(), str(v.get("voice_id", "")).swapcase()))
+    import voice_numbers
+    voice_numbers.assign(engine, rows)
+    # shown in this order: the voices made for Arabic first, otherwise by number (a number never changes, the order may)
+    rows.sort(key=lambda v: (v.get("arabic") is False, v.get("number") or 0))
+    for i, v in enumerate(rows):
+        v["order"] = i
+    return dict(got, voices=rows)
+_library_voices.cache_key = lambda: _active_voice_engine()        # the Auto-Assign cache must not outlive a switch of engine
+
 @app.post("/api/voices")
 def voices(payload: dict = {}):
-    return eleven_service.fetch_voices(ELEVENLABS_API_KEY)
+    return _library_voices()
+
+@app.get("/api/voices/preview/{voice_id}")
+def voice_preview(voice_id: str, request: Request):
+    """A short sample of one stock voice (Inworld library only). The first play makes the sample (one short
+    sentence), every later play - by anyone - is served from disk."""
+    if not inworld_service.is_library_voice(voice_id, INWORLD_API_KEY):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    path = inworld_service.preview_path(voice_id)
+    if not (path.is_file() and path.stat().st_size > 0):
+        if _rate_limited(request, "voice_preview", 20, 600):
+            return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+        try:
+            path = inworld_service.make_preview(voice_id, INWORLD_API_KEY)
+        except Exception as ex:
+            print(f"[voices] preview of {voice_id} failed: {ex}")
+            return JSONResponse({"error": "This preview is not available right now."}, status_code=503)
+    return FileResponse(path, media_type="audio/mpeg")
 
 @app.post("/api/voice_library/search")
 def voice_library_search(req: VoiceLibrarySearchRequest):
@@ -4141,7 +4194,7 @@ def voice_library_add(req: VoiceLibraryAddRequest):
 # Auto-Assign: pick library voices by the speaker's age, pitch and tone (see voice_match.py).
 import voice_match_routes
 voice_match_routes.register(app, job_guard=_job_guard, rate_limited=_rate_limited, rate_message=_RATE_LIMIT_MSG,
-                            resolve_audio=resolve_job_audio, fetch_voices=lambda: eleven_service.fetch_voices(ELEVENLABS_API_KEY),
+                            resolve_audio=resolve_job_audio, fetch_voices=_library_voices,
                             gemini_key=lambda: GEMINI_API_KEY)
 
 @app.post("/api/analyze_speakers")
@@ -4885,7 +4938,9 @@ def lipsync(req: LipSyncRequest, request: Request):
                     finally:
                         progress = jobs_progress.get(f"lipsync_{req.job_id}", {})
                         try:
-                            state = finish(receipt, OUTPUT_DIR, progress)
+                            refund_cb = None if LIPSYNC_TEST_MODE else (
+                                lambda amount, operation_id: _ld_refund(uid, amount, req.job_id, operation_id, "lipsync-no-video"))
+                            state = finish(receipt, OUTPUT_DIR, progress, refund=refund_cb)
                             if state == "unknown":
                                 progress.update(status="error", error="The lip-sync result could not be confirmed. Please contact support before starting another take.")
                             progress.update(operation_id=receipt.stem, operation_complete=state in ("done", "failed"))
@@ -6529,8 +6584,9 @@ def _get_pricing_config():
     """Returns pricing config from DB, with defaults if not set."""
     # Uses Supabase service key to read from a `pricing_config` table
     # If table doesn't exist or is empty, returns defaults
+    from signup_credits import configured_amount, DEFAULT_SIGNUP_CREDITS
     defaults = {
-        "freeCredits": 150,
+        "freeCredits": DEFAULT_SIGNUP_CREDITS,
         "minReserve": 150,
         "maxVideoMin": 60,
         # Real per-step charges -- these are the ones actually read by
@@ -6674,7 +6730,7 @@ def _get_pricing_config():
         if rows and isinstance(rows, list) and len(rows) > 0:
             row = rows[0]
             return {
-                "freeCredits": row.get("free_credits", defaults["freeCredits"]),
+                "freeCredits": configured_amount(row.get("free_credits", defaults["freeCredits"])),
                 "minReserve": row.get("min_reserve", defaults["minReserve"]),
                 "maxVideoMin": row.get("max_video_min", defaults["maxVideoMin"]),
                 "transcribeCredits": row.get("transcribe_credits", defaults["transcribeCredits"]),
@@ -6820,7 +6876,7 @@ def _save_pricing_config(config):
         _clean_ga = _ga_match.group(0) if _ga_match else _raw_ga
         body = json.dumps({
             "id": "singleton",
-            "free_credits": config.get("freeCredits", 150),
+            "free_credits": config.get("freeCredits", 100),
             "min_reserve": config.get("minReserve", 150),
             "max_video_min": config.get("maxVideoMin", 60),
             "transcribe_credits": config.get("transcribeCredits", 3),

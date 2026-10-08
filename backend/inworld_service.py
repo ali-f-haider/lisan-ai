@@ -763,3 +763,164 @@ def cleanup_cloned_voices(api_key: str, keep_ids: list = None) -> dict:
         return {"deleted": deleted, "errors": errors}
     except Exception as e:
         return {"deleted": 0, "errors": [_http_error_detail(e)]}
+
+
+# ======================================================================
+# The stock-voice LIBRARY (what Step 4 and Auto-Assign list when the admin
+# "Voice Engine" switch is on Inworld). Only Inworld's own ready-made voices
+# (source SYSTEM) are listed; the account's clones are never mixed in.
+# The list is cached in memory for an hour and on disk, so a short Inworld
+# outage never empties Step 4 and a voice picked earlier still resolves to
+# this engine when a line is generated.
+# ======================================================================
+import threading
+import tempfile
+
+from config import DATA_DIR
+
+LIBRARY_TTL = 3600.0
+LIBRARY_FILE = Path(DATA_DIR) / "inworld_library.json"
+PREVIEW_DIR = Path(DATA_DIR) / "voice_previews"
+# One short, neutral Arabic sentence (with vowel marks) that every preview says. Made once per voice, then kept on disk.
+PREVIEW_TEXT = "مَرْحَباً، هَذَا صَوْتِي. هَلْ يُنَاسِبُ مَشْهَدَكَ؟"
+_library = {"at": 0.0, "voices": None}
+_library_lock = threading.Lock()
+_preview_lock = threading.Lock()
+
+
+def _is_arabic(v):
+    code = str(v.get("langCode") or v.get("languageCode") or "").lower().replace("-", "_")
+    return code == "ar" or code.startswith("ar_")
+
+
+def library_row(v):
+    """One Inworld voice -> the row Step 4 uses, or None when it should not be listed."""
+    if not isinstance(v, dict) or str(v.get("source") or "").upper() != "SYSTEM":
+        return None
+    voice_id = str(v.get("voiceId") or "").strip()
+    gender = str(v.get("gender") or "").strip().lower()
+    if not voice_id or gender not in ("male", "female"):
+        return None
+    tags = [str(t) for t in (v.get("tags") or []) if t]
+    return {
+        "voice_id": voice_id,
+        "name": v.get("displayName") or voice_id,
+        "gender": gender,
+        "age": str(v.get("ageGroup") or ""),
+        "category": "premade",
+        "accent": str(v.get("langCode") or v.get("languageCode") or ""),
+        "use_case": ", ".join(tags[:2]),
+        "descriptive": " ".join([str(v.get("description") or "")] + tags),
+        "arabic": _is_arabic(v),
+        # no ready-made sound file exists: a first play makes one short sample (see make_preview)
+        "preview_url": "/api/voices/preview/" + urllib.parse.quote(voice_id, safe=""),
+    }
+
+
+def _ordered(rows):
+    """Voices made for Arabic first, then the others; stable inside each group. `order` is what Step 4 numbers by."""
+    rows = sorted(rows, key=lambda r: (not r["arabic"], r["accent"].lower(), r["voice_id"].lower()))
+    for i, r in enumerate(rows):
+        r["order"] = i
+    return rows
+
+
+def _save_library(rows):
+    try:
+        LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=str(LIBRARY_FILE.parent), suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, ensure_ascii=False)
+        os.replace(tmp, LIBRARY_FILE)
+    except Exception:
+        pass
+
+
+def _load_library():
+    try:
+        rows = json.loads(LIBRARY_FILE.read_text(encoding="utf-8"))
+        return rows if isinstance(rows, list) and rows else None
+    except Exception:
+        return None
+
+
+def fetch_library(api_key, now=time.monotonic):
+    """{"voices": [...]} or {"error": ...}. Cached; on an Inworld failure the last good list (memory, then disk) is served."""
+    with _library_lock:
+        if _library["voices"] is not None and now() - _library["at"] < LIBRARY_TTL:
+            return {"voices": _library["voices"]}
+    rows, error = [], ""
+    if not _configured(api_key):
+        error = "not configured"
+    else:
+        try:
+            token = None
+            for _page in range(25):
+                path = "/voices/v1/voices?pageSize=200" + (("&pageToken=" + urllib.parse.quote(str(token), safe="")) if token else "")
+                data = _request("GET", path, api_key, timeout=30)
+                rows += [r for r in (library_row(v) for v in (data.get("voices") or [])) if r]
+                token = data.get("nextPageToken")
+                if not token:
+                    break
+        except Exception as e:
+            rows, error = [], _http_error_detail(e)
+    if rows:
+        rows = _ordered(rows)
+        with _library_lock:
+            _library.update(at=now(), voices=rows)
+        _save_library(rows)
+        return {"voices": rows}
+    print(f"[inworld-library] list failed: {error or 'no stock voices found'}")
+    with _library_lock:
+        stale = _library["voices"]
+    stale = stale or _load_library()
+    if stale:
+        with _library_lock:
+            _library.update(at=now() - LIBRARY_TTL + 120.0, voices=stale)       # try again in two minutes
+        return {"voices": stale}
+    return {"error": "We couldn't load the voice list. Please try again in a moment."}
+
+
+def reset_library_cache():
+    with _library_lock:
+        _library.update(at=0.0, voices=None)
+
+
+def library_ids(api_key=None):
+    """Ids of the stock voices (memory, else disk, else one list request when a key is given). Never raises."""
+    try:
+        with _library_lock:
+            rows = _library["voices"]
+        rows = rows or _load_library()
+        if not rows and api_key:
+            rows = fetch_library(api_key).get("voices")
+        return {r["voice_id"] for r in (rows or [])}
+    except Exception:
+        return set()
+
+
+def is_library_voice(voice_id, api_key=None):
+    return bool(voice_id) and voice_id in library_ids(api_key)
+
+
+def preview_path(voice_id):
+    safe = urllib.parse.quote(str(voice_id), safe="")
+    return PREVIEW_DIR / (safe + ".mp3")
+
+
+def make_preview(voice_id, api_key, synth=None):
+    """Path of this stock voice's preview sample. Made once (one short sentence) and kept; raises when it cannot be made."""
+    path = preview_path(voice_id)
+    if path.is_file() and path.stat().st_size > 0:
+        return path
+    with _preview_lock:
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+        audio = (synth or synthesize)(voice_id, PREVIEW_TEXT, api_key, language="ar")
+        if not audio:
+            raise RuntimeError("empty preview")
+        PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_bytes(audio)
+        os.replace(tmp, path)
+    return path

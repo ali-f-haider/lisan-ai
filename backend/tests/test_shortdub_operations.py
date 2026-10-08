@@ -3,6 +3,7 @@ import asyncio
 import copy
 import io
 import json
+import math
 import tempfile
 import threading
 import unittest
@@ -201,8 +202,8 @@ class HealthTests(unittest.TestCase):
     def payload(self):
         row={'operation_id':str(uuid.uuid4()),'account_id':UID,'amount':3,'age_seconds':700,'kind':'debit',
              'email':'private@example.test','receipt':'private checkout','text':'private customer text'}
-        return {'ready':{'version':1,'debit':True,'pack':True,'refund':True,'cancel':True},
-                'lists':{key:{'count':25,'rows':[row]*25} for key in CATEGORIES}}
+        return {'ready':{'version':2,'debit':True,'pack':True,'refund':True,'cancel':True,'admin_adjust':True,'subscription_grant':True},
+                'lists':{key:{'count':25,'rows':[row]*25} for key in CATEGORIES+('admin_pending','subscription_pending','subscription_stale','receipt_mismatches','subscription_legacy')}}
     def test_route_shape_and_whitelist_exclude_all_personal_text(self):
         rpc=Mock(return_value=self.payload())
         env=source_functions('main.py',['admin_billing_health'],{'_admin_check':Mock(return_value=True),'_sb_rpc':rpc,
@@ -215,7 +216,7 @@ class HealthTests(unittest.TestCase):
         encoded=json.dumps(result)
         for private in ('private@example.test','private checkout','private customer text'):
             self.assertNotIn(private,encoded)
-        rpc.assert_called_once_with('lisan_billing_health',{},strict=True)
+        rpc.assert_called_once_with('lisan_billing_health_v2',{},strict=True)
     def test_missing_function_is_not_installed_and_outage_is_distinct(self):
         error=HTTPError('https://example.test/rpc',404,'Missing',{},io.BytesIO(b'{"code":"PGRST202"}'))
         self.assertEqual(load_health(Mock(side_effect=error))['installed'],False)
@@ -230,18 +231,21 @@ class InputBoundaryTests(unittest.TestCase):
     def lip_env(self):
         self.folder=tempfile.TemporaryDirectory();self.addCleanup(self.folder.cleanup)
         output=Path(self.folder.name);video=output/'synthetic.mp4';video.write_bytes(b'synthetic')
+        (output/(JOB_A+'_final_dubbed.mp3')).write_bytes(b'synthetic dubbed audio')
+        from billing_action_fixtures import begin_receipt, OP
         from types import SimpleNamespace as NS
         env=source_functions('main.py',['lipsync'],dict(_job_guard=Mock(return_value=None),LIPSYNC_ENABLED=True,
             _rate_limited=Mock(return_value=False),LIGHT_RATE_MAX=1,LIGHT_RATE_WINDOW_SEC=1,
-            _paid_uid=lambda _:('user',None),find_job_video=lambda _:video,
+            _paid_uid=lambda _:(UID,None),find_job_video=lambda _:video,
             ffmpeg_utils=NS(get_media_duration=lambda _:5),_storage_block=lambda *args:None,OUTPUT_DIR=output,
             LIPSYNC_MIN_SEC=1,LIPSYNC_MAX_SEC=30,lipsync_res=lambda _: '720p',lipsync_rate=lambda *args:2,
             _get_pricing_config=lambda:{},LIPSYNC_TEST_MODE=False,get_credits=Mock(return_value=100),
             deduct_credits=Mock(return_value=None),debit_confirmed=lambda value:type(value)is int and value>=0,
             JSONResponse=Response,jobs_progress={},threading=NS(Thread=Mock(return_value=NS(start=Mock()))),
             lipsync_service=NS(lipsync_worker=Mock()),ELEVENLABS_API_KEY='synthetic',FAL_API_KEY='synthetic',
-            DASHSCOPE_API_KEY='synthetic',DASHSCOPE_WORKSPACE_ID='synthetic',DASHSCOPE_REGION='synthetic',_wm_needed=lambda _:False))
-        return env,NS(job_id=JOB_A,resolution='720p')
+            DASHSCOPE_API_KEY='synthetic',DASHSCOPE_WORKSPACE_ID='synthetic',DASHSCOPE_REGION='synthetic',_wm_needed=lambda _:False, LIPSYNC_REF_IMAGES_ENABLED=False,math=math,json=json,
+            _short_edit=lambda job,fn:fn(),_sb_rpc=begin_receipt))
+        return env,NS(job_id=JOB_A,resolution='720p',operation_id=OP)
     def test_unconfirmed_lipsync_payment_starts_no_worker(self):
         env,req=self.lip_env()
         self.assertEqual(env['lipsync'](req,object()).status_code,503)
@@ -260,7 +264,7 @@ class InputBoundaryTests(unittest.TestCase):
         self.assertEqual(env['_job_charges'][JOB_A],{'credits_charged':0,'payment_pending':True})
     def test_invalid_balance_and_subscription_values_never_reach_database(self):
         env=source_functions('main.py',['set_credits','_set_subscription_credits','_grant_subscription_credits'],
-             {'SUPABASE_URL':'https://example.test','SUPABASE_SERVICE_KEY':'synthetic'})
+             {'SUPABASE_URL':'https://example.test','SUPABASE_SERVICE_KEY':'synthetic', '_sb_rpc':Mock(side_effect=AssertionError('Invalid input must not call billing'))})
         for value in (-1,'bad',True,float('nan'),float('inf'),1.5):
             with patch('urllib.request.urlopen') as network:
                 self.assertFalse(env['set_credits'](UID,value))
@@ -268,20 +272,24 @@ class InputBoundaryTests(unittest.TestCase):
                 self.assertIsNone(env['_grant_subscription_credits'](UID,'invoice',value))
                 network.assert_not_called()
     def admin_env(self,current=50):
-        return source_functions('main.py',['admin_adjust_credits'],dict(_admin_check=Mock(return_value=True),
-            _get_permanent_credits=Mock(return_value=current),set_credits=Mock(return_value=True),
-            _log_spend=Mock(return_value=True),_log_audit=Mock(return_value=True),JSONResponse=Response))
+        from billing_action_fixtures import Actions
+        env=source_functions('main.py',['admin_adjust_credits'],dict(_admin_check=Mock(return_value=True),
+            set_credits=Mock(return_value=True),_log_spend=Mock(return_value=True),_log_audit=Mock(return_value=True),JSONResponse=Response))
+        actions=Actions({'credits':current})
+        actions.history_write=env['_log_spend'];actions.audit_write=env['_log_audit']
+        env['_sb_rpc']=actions.rpc
+        return env
     def test_invalid_signed_admin_adjustment_is_a_clear_400(self):
         for delta in ('bad',1.5,True,float('nan'),float('inf'),0,10001):
-            env=self.admin_env(); req=Mock(json=AsyncMock(return_value={'uid':UID,'delta':delta,'reason':'Test'}))
+            env=self.admin_env(); req=Mock(json=AsyncMock(return_value={'uid':UID,'delta':delta,'reason':'Test','operation_id':'00000000-0000-4000-9000-000000000001'}))
             self.assertEqual(asyncio.run(env['admin_adjust_credits'](req)).status_code,400)
             env['set_credits'].assert_not_called()
     def test_balance_outage_does_not_replace_an_unknown_balance(self):
-        env=self.admin_env(None); req=Mock(json=AsyncMock(return_value={'uid':UID,'delta':10,'reason':'Test'}))
+        env=self.admin_env(None); req=Mock(json=AsyncMock(return_value={'uid':UID,'delta':10,'reason':'Test','operation_id':'00000000-0000-4000-9000-000000000001'}))
         self.assertEqual(asyncio.run(env['admin_adjust_credits'](req)).status_code,503)
         env['set_credits'].assert_not_called()
     def test_admin_history_sign_and_clamping_match_the_actual_balance_change(self):
-        env=self.admin_env(5); req=Mock(json=AsyncMock(return_value={'uid':UID,'delta':-10,'reason':'Test'}))
+        env=self.admin_env(5); req=Mock(json=AsyncMock(return_value={'uid':UID,'delta':-10,'reason':'Test','operation_id':'00000000-0000-4000-9000-000000000001'}))
         result=asyncio.run(env['admin_adjust_credits'](req))
         self.assertEqual(result['adjusted_credits'],-5)
         env['_log_spend'].assert_called_once_with(UID,'admin_adjustment',5,job_id=None,reason='Test')

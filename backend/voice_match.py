@@ -287,7 +287,7 @@ def measure_missing(voices, fetch_wav, budget_seconds=8.0, workers=4):
     budget is used; the rest is done on the next call, so the first request stays quick."""
     from concurrent.futures import ThreadPoolExecutor, wait
     known = load_measurements()
-    todo = [v for v in voices if v.get("voice_id") and v.get("preview_url")
+    todo = [v for v in voices if v.get("voice_id") and v.get("preview_url") and not str(v["preview_url"]).startswith("/")
             and known.get(v["voice_id"], {}).get("preview_url") != v["preview_url"]]
     if not todo:
         return known

@@ -241,6 +241,7 @@ test('choosing the first voice and programmatic auto-assignment refresh the gene
         ensureVoicePools:async()=>true, applyChoice(name){p.c.speakerVoices[name]='v1';}});
     vm.runInContext(excerpt(app,'var speakerGenderPick = {};', 'function updateSpeakerName('),p.c);
     vm.runInContext(excerpt(app,'async function renderSpeakerVoices()', 'async function ensureVoicePools()'),p.c);
+    vm.runInContext(excerpt(app,'// The permanent number of a voice', 'function buildVoicePools('),p.c);      // the option text helper (adds the "not made for Arabic" warning)
     await p.c.renderSpeakerVoices(); assert.equal(p.badges.at(-1),'—');
     // Gender is two radio buttons in the voice cell; the speaker cell holds exactly the name (older patches that add
     // custom, cloned and saved voices find the row and its dropdown that way).
@@ -282,6 +283,7 @@ test('a speaker has one gender: Step 1.5 sets it for all lines, Step 4 can chang
         voicePools:{male:[{voice_id:'v1'}],female:[{voice_id:'v2'}]},
         applyChoice(name){const m=c.speakerChoices[name].split(':');c.speakerVoices[name]=c.voicePools[m[0]][+m[1]-1].voice_id;}});
     vm.runInContext(excerpt(app,'var speakerGenderPick = {};', 'function updateSpeakerName('),c);
+    vm.runInContext(excerpt(app,'// The permanent number of a voice', 'function buildVoicePools('),c);
     assert.equal(c.speakerGenderOf('Ali'),'male');
     c.setSpeakerGender('Sara','female');
     assert.deepEqual(c.segmentsData.map(s=>s.gender),['male','female','female']);

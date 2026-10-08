@@ -1134,7 +1134,7 @@ function autoPickVoiceFor(name) {
     Object.keys(speakerVoices).forEach(function(k) { if (k !== name && speakerVoices[k]) used[speakerVoices[k]] = true; });
     var free = pool.map(function(p, i) { return i; }).filter(function(i) { return !used[pool[i].voice_id]; });
     var pick = free.length ? free[Math.floor(Math.random() * free.length)] : Math.floor(Math.random() * pool.length);
-    speakerChoices[name] = g + ":" + (pick + 1);
+    speakerChoices[name] = g + ":" + voiceNumber(pool[pick], pick);
     applyChoice(name);
 }
 function setSpeakerGender(name, g) {
@@ -1189,9 +1189,25 @@ function updateSpeakerName(i, newName) {
     cleanUnusedSpeakerVoices(); renderSpeakerVoices();
 }
 
+// The voice list may carry its own `order` (the Inworld library puts the voices made for Arabic first); without one the numbering follows the voice id as before.
+function voiceSort(a, b) {
+    if (typeof a.order === "number" && typeof b.order === "number" && a.order !== b.order) return a.order - b.order;
+    return a.voice_id.localeCompare(b.voice_id);
+}
+// The permanent number of a voice (set by the server and never changed); a list without numbers is numbered by position, as before.
+function voiceNumber(voice, i) { return voice && typeof voice.number === "number" ? voice.number : i + 1; }
+// Where the voice with this number sits in the pool, or -1 (the voice is gone).
+function poolIndexOfNumber(pool, n) {
+    for (var k = 0; k < pool.length; k++) { if (voiceNumber(pool[k], k) === n) return k; }
+    return -1;
+}
+// "Male voice 3", plus a short warning when the voice was not made for Arabic (the vowel marks may not be followed).
+function voiceOptionText(label, voice, i) {
+    return label + " " + voiceNumber(voice, i) + (voice && voice.arabic === false ? " " + subsText("(not made for Arabic)", "(غير مخصص للعربية)") : "");
+}
 function buildVoicePools(voices) {
-    voicePools.male = voices.filter(v => (v.gender || "").toLowerCase() === "male").sort((a, b) => a.voice_id.localeCompare(b.voice_id));
-    voicePools.female = voices.filter(v => (v.gender || "").toLowerCase() === "female").sort((a, b) => a.voice_id.localeCompare(b.voice_id));
+    voicePools.male = voices.filter(v => (v.gender || "").toLowerCase() === "male").sort(voiceSort);
+    voicePools.female = voices.filter(v => (v.gender || "").toLowerCase() === "female").sort(voiceSort);
 }
 async function ensureVoicePools() {
     if (voicePools.male.length || voicePools.female.length) return true;
@@ -1222,8 +1238,12 @@ function applyChoice(name) {
     const g = m[1];
     const pool = voicePools[g] || [];
     if (!pool.length) return;
-    let idx = parseInt(m[2], 10) - 1;
-    if (idx >= pool.length) idx = pool.length - 1;
+    const wanted = parseInt(m[2], 10);
+    let idx = poolIndexOfNumber(pool, wanted);
+    if (idx < 0) {        // that voice no longer exists: the closest number takes its place
+        idx = 0;
+        pool.forEach((p, k) => { if (Math.abs(voiceNumber(p, k) - wanted) < Math.abs(voiceNumber(pool[idx], idx) - wanted)) idx = k; });
+    }
     const usedByOthers = new Set();
     Object.keys(speakerVoices).forEach(s => { if (s !== name && speakerVoices[s]) usedByOthers.add(speakerVoices[s]); });
     let j = idx;
@@ -1233,8 +1253,8 @@ function applyChoice(name) {
         if (found >= 0) j = found;
     }
     speakerVoices[name] = pool[j].voice_id;
-    speakerChoices[name] = g + ":" + (j + 1);
-    speakerVoiceNames[name] = (g === "male" ? "🎲 Male voice " : "🎲 Female voice ") + (j + 1);
+    speakerChoices[name] = g + ":" + voiceNumber(pool[j], j);
+    speakerVoiceNames[name] = (g === "male" ? "🎲 Male voice " : "🎲 Female voice ") + voiceNumber(pool[j], j);
 }
 async function renderSpeakerVoices() {
     const tbody = document.querySelector("#speakerVoicesTable tbody");
@@ -1253,7 +1273,7 @@ async function renderSpeakerVoices() {
         }
         const addGroup = (g, label) => {
             voicePools[g].slice(0, 8).forEach((p, i) => {
-                const o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
+                const o = document.createElement("option"); o.value = g + ":" + voiceNumber(p, i); o.textContent = voiceOptionText(label, p, i); sel.appendChild(o);
             });
         };
         addGroup("male", "🎲 Male voice");
@@ -1284,7 +1304,7 @@ async function autoAssignVoices() {
         const usedIds = new Set(Object.values(speakerVoices));
         const freeIdx = pool.map((p, i) => i).filter(i => !usedIds.has(pool[i].voice_id));
         const pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
-        speakerChoices[name] = g + ":" + (pick + 1);
+        speakerChoices[name] = g + ":" + voiceNumber(pool[pick], pick);
         applyChoice(name);
     });
     renderSpeakerVoices();
@@ -2166,7 +2186,7 @@ async function autoAssignVoices() {
         const usedIds = new Set(Object.values(speakerVoices));
         const freeIdx = pool.map((p, i) => i).filter(i => !usedIds.has(pool[i].voice_id));
         const pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
-        speakerChoices[name] = g + ":" + (pick + 1);
+        speakerChoices[name] = g + ":" + voiceNumber(pool[pick], pick);
         applyChoice(name);
     });
     renderSpeakerVoices();
@@ -2902,7 +2922,7 @@ async function renderSpeakerVoices() {
         // Male voices
         const addGroup = (g, label) => {
             (voicePools[g] || []).slice(0, 8).forEach((p, i) => {
-                const o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
+                const o = document.createElement("option"); o.value = g + ":" + voiceNumber(p, i); o.textContent = voiceOptionText(label, p, i); sel.appendChild(o);
             });
         };
         addGroup("male", "🎲 Male voice");
@@ -2957,7 +2977,7 @@ async function autoAssignVoices() {
         const usedIds = new Set(Object.values(speakerVoices));
         const freeIdx = pool.map((p, i) => i).filter(i => !usedIds.has(pool[i].voice_id));
         const pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
-        speakerChoices[name] = g + ":" + (pick + 1);
+        speakerChoices[name] = g + ":" + voiceNumber(pool[pick], pick);
         applyChoice(name);
     });
     renderSpeakerVoices();
@@ -3252,7 +3272,7 @@ async function renderSpeakerVoices() {
             // voices from this dropdown even though Browse Voice Library
             // could show them all).
             (voicePools[g] || []).forEach(function(p, i) {
-                var o = document.createElement("option"); o.value = g + ":" + (i + 1); o.textContent = label + " " + (i + 1); sel.appendChild(o);
+                var o = document.createElement("option"); o.value = g + ":" + voiceNumber(p, i); o.textContent = voiceOptionText(label, p, i); sel.appendChild(o);
             });
         };
         if (speakerGenderOf(name) === "female") { addGroup("female", "🎲 Female voice"); addGroup("male", "🎲 Male voice"); }
@@ -3344,7 +3364,7 @@ function randomVoiceChoice(name) {
     Object.values(speakerVoices).forEach(function(v) { usedIds[v] = true; });
     var freeIdx = pool.map(function(p, i) { return i; }).filter(function(i) { return !usedIds[pool[i].voice_id]; });
     var pick = freeIdx.length ? freeIdx[Math.floor(Math.random() * freeIdx.length)] : Math.floor(Math.random() * pool.length);
-    speakerChoices[name] = g + ":" + (pick + 1);
+    speakerChoices[name] = g + ":" + voiceNumber(pool[pick], pick);
     applyChoice(name);
 }
 
@@ -3353,7 +3373,7 @@ function choiceForVoiceId(voiceId) {
     var found = "";
     ["male", "female"].forEach(function(g) {
         var i = (voicePools[g] || []).findIndex(function(v) { return v.voice_id === voiceId; });
-        if (i >= 0 && !found) found = g + ":" + (i + 1);
+        if (i >= 0 && !found) found = g + ":" + voiceNumber(voicePools[g][i], i);
     });
     return found;
 }
@@ -3412,10 +3432,10 @@ function maskedVoiceList() {
     // real account voice name is never shown in Browse.
     var out = [];
     (voicePools.male || []).forEach(function (v, i) {
-        out.push({ label: "🎲 Male voice " + (i + 1), preview_url: v.preview_url || "", age: v.age || "", use_case: v.use_case || "" });
+        out.push({ label: voiceOptionText("🎲 Male voice", v, i), preview_url: v.preview_url || "", age: v.age || "", use_case: v.use_case || "" });
     });
     (voicePools.female || []).forEach(function (v, i) {
-        out.push({ label: "🎲 Female voice " + (i + 1), preview_url: v.preview_url || "", age: v.age || "", use_case: v.use_case || "" });
+        out.push({ label: voiceOptionText("🎲 Female voice", v, i), preview_url: v.preview_url || "", age: v.age || "", use_case: v.use_case || "" });
     });
     return out;
 }

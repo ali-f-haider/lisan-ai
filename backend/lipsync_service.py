@@ -595,6 +595,7 @@ def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
 def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None, watermark=False):
     key = f"lipsync_{job_id}"
     upload_path = None
+    provider_returned = False   # True once the provider's generated video is in hand (kept for diagnosis)
     try:
         jobs_progress[key] = {"status": "processing", "percent": 5, "message": "Preparing files...",
                               "error": None, "result": None, "generation_id": None}
@@ -632,6 +633,7 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             jobs_progress[key]["message"] = "Retrieving your lip-sync video..."
             _synclabs_lipsync(None, dubbed_audio, sync_key, model, raw_video, jobs_progress[key], job_id)
 
+        provider_returned = True
         jobs_progress[key]["percent"] = 92
         jobs_progress[key]["message"] = "Adding the background sound back..."
         background = job_background_audio(job_id)
@@ -686,7 +688,8 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
     except Exception as e:
         _msg = _ls_friendly(e)
         jobs_progress[key] = {"status": "error", "percent": 0, "message": _msg, "error": _msg,
-                              "result": None, "generation_id": jobs_progress.get(key, {}).get("generation_id")}
+                              "result": None, "generation_id": jobs_progress.get(key, {}).get("generation_id"),
+                              "provider_video": provider_returned}
     finally:
         if upload_path is not None:
             try: upload_path.unlink()

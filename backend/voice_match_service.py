@@ -23,14 +23,18 @@ LISTEN_SECONDS = 15.0       # speech sent to the listener
 MIN_PIECE = 0.4
 MAX_LISTENED_SPEAKERS = 6   # the rest are matched on pitch and the person's choices only
 _VOICES_TTL = 600.0
-_voices_cache = {"at": 0.0, "voices": None}
+_voices_cache = {"at": 0.0, "voices": None, "key": None}
 _voices_lock = threading.Lock()
 
 
 def library_voices(fetch_voices):
-    """The account's voices (cached ten minutes). [] when the list cannot be loaded."""
+    """The account's voices (cached ten minutes, per voice engine: a `cache_key` function on the loader names it). [] when the list cannot be loaded."""
+    try:
+        key = fetch_voices.cache_key()
+    except Exception:
+        key = None
     with _voices_lock:
-        if _voices_cache["voices"] is not None and time.monotonic() - _voices_cache["at"] < _VOICES_TTL:
+        if _voices_cache["voices"] is not None and _voices_cache.get("key") == key and time.monotonic() - _voices_cache["at"] < _VOICES_TTL:
             return _voices_cache["voices"]
     try:
         got = fetch_voices()
@@ -40,13 +44,13 @@ def library_voices(fetch_voices):
     if not voices:
         return []
     with _voices_lock:
-        _voices_cache.update(at=time.monotonic(), voices=voices)
+        _voices_cache.update(at=time.monotonic(), voices=voices, key=key)
     return voices
 
 
 def reset_cache():
     with _voices_lock:
-        _voices_cache.update(at=0.0, voices=None)
+        _voices_cache.update(at=0.0, voices=None, key=None)
 
 
 def _speaker_audio(src, pieces, cut, work, seconds):

@@ -49,7 +49,7 @@ def validate_pricing(config):
     # Zero means no bonus/reserve or an explicitly waived long-analysis/processing
     # fee. Voice/transcription rates stay paid, and so does final assembly: it
     # uses server CPU, memory and disk, so the platform never charges less than 1.
-    free = {"freeCredits", "minReserve", "longDubFlatCredits"}
+    free = {"minReserve", "longDubFlatCredits"}
     whole = {"freeCredits", "minReserve", "transcribeCredits", "mergeCredits",
              "cloneCredits", "inworldCloneCredits", "subscriptionCredits",
              "charsPerCredit", "inworldCharsPerCredit", "longDubFlatCredits"}
@@ -63,6 +63,10 @@ def validate_pricing(config):
               "geminiCreditsPerCent": "Text-service price factor", "musicFillCredits": "Music repair price"}
     for key, label in labels.items():
         if key in out:
+            if key == "freeCredits":
+                from signup_credits import validate_amount
+                out[key] = validate_amount(out[key])
+                continue
             out[key] = number(out[key], label, zero=key in free or key == "longDubAnalysisPerMin",
                               integer=key in whole or key == "musicFillCredits")
     if "geminiCreditsPerCent" in out and not 0.1 <= out["geminiCreditsPerCent"] <= 100:

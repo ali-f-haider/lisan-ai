@@ -33,6 +33,7 @@ function context(opts = {}) {
         }
     });
     vm.runInContext(excerpt(app, 'var speakerGenderPick = {};', 'function updateSpeakerName('), c);
+    vm.runInContext(excerpt(app, '// The permanent number of a voice', 'function buildVoicePools('), c);      // voice numbers (a voice list without numbers is numbered by position)
     vm.runInContext(excerpt(app, 'async function autoAssignVoices()', '// ===== VOICE LIBRARY BROWSER'), c);
     return {c, messages, fetches};
 }

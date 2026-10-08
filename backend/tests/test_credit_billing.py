@@ -253,10 +253,10 @@ class CreditBillingTests(unittest.TestCase):
                 self.assertFalse(ok);self.assertTrue(message);network.assert_not_called()
 
     def test_only_intended_free_pricing_fields_accept_zero(self):
-        cfg={'freeCredits':0,'minReserve':0,'longDubFlatCredits':0,'longDubAnalysisPerMin':0,
+        cfg={'freeCredits':1,'minReserve':0,'longDubFlatCredits':0,'longDubAnalysisPerMin':0,
              'assistant':{'creditsPerCent':0,'dailyBudgetUsd':0}}
         self.assertEqual(cb.validate_pricing(cfg),cfg)
-        for key in ('transcribeCredits','cloneCredits','inworldCloneCredits','charsPerCredit','subscriptionPriceUsd','musicFillCredits','mergeCredits'):
+        for key in ('freeCredits','transcribeCredits','cloneCredits','inworldCloneCredits','charsPerCredit','subscriptionPriceUsd','musicFillCredits','mergeCredits'):
             with self.subTest(key=key),self.assertRaises(ValueError):cb.validate_pricing({key:0})
 
     def test_admin_valid_numeric_strings_are_normalized_without_changing_other_fields(self):
