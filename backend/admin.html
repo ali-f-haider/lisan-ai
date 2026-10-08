@@ -2132,6 +2132,23 @@ async function loadMemDiag() {
   r.data.processes.slice(0, 15).forEach(p => {
     text += p.rss_mb.toString().padStart(8) + ' MB   ' + p.name + '  (pid ' + p.pid + ')\n';
   });
+  const rt = r.data.runtime;
+  if (rt && !rt.error) {
+    const v = x => (x === null || x === undefined) ? '?' : x;
+    text += '\n--- What is loaded right now ---\n';
+    const m = rt.models || {};
+    text += 'Speech model loaded: ' + v(m.transcription_loaded) + ' | speaker detection loaded: ' + v(m.speaker_detection_loaded) + ' | activity detection loaded: ' + v(m.activity_detection_loaded) + '\n';
+    text += 'Jobs processing: ' + v(m.processing_jobs) + ' | waiting: ' + v(m.waiting_jobs) + '\n';
+    const t = rt.threads || {};
+    text += 'Threads: ' + v(t.python_live) + ' (system: ' + v(t.os_live) + ')\n';
+    const roll = rt.process_rollup_mib || {};
+    if (Object.keys(roll).length) text += 'Server process (MB): ' + Object.keys(roll).map(k => k.replace('_mib', '') + ' ' + roll[k]).join(', ') + '\n';
+    const ce = rt.container_entries || {};
+    const nonEmpty = Object.keys(ce).filter(k => ce[k]);
+    text += 'Held in memory (counts): ' + (nonEmpty.length ? nonEmpty.map(k => k + ' ' + ce[k]).join(', ') : 'nothing') + '\n';
+    const po = rt.python_objects || {};
+    if (po.gc_tracked_count != null) text += 'Python objects: ' + po.gc_tracked_count + ' (most: ' + (po.top_types_by_count || []).map(x => x.type + ' ' + x.count).join(', ') + ')\n';
+  }
   out.textContent = text;
 }
 

@@ -3482,6 +3482,35 @@ def _check_expiring_outputs():
 
 _last_expiry_check = 0.0
 
+# When the server has been quiet this long, hand freed memory back to the system once (garbage collection plus
+# malloc_trim) and log how much real program memory that released. One trim per quiet period.
+IDLE_TRIM_MINUTES = 5
+_idle_trim_for = [None]
+
+
+def _idle_memory_trim():
+    """True when a trim ran. Skipped while any transcription or long-dub worker is running, and after the first trim
+    of a quiet period. The log line (before -> after) shows whether the memory held after a job was really free."""
+    last = app_state.last_job_activity
+    if _idle_trim_for[0] == last or (_time.time() - last) / 60 < IDLE_TRIM_MINUTES:
+        return False
+    try:
+        if whisper_service._transcribe_queue.running() > 0 or longdub_service._RUNNING:
+            return False
+    except Exception:
+        return False
+    _idle_trim_for[0] = last
+    import gc
+    before = resource_meter.read_mem()[1]
+    gc.collect()
+    whisper_service._trim_memory()
+    after = resource_meter.read_mem()[1]
+    if before is not None and after is not None:
+        print(f"[memory] idle trim: real program memory {before * 1024:.0f} MB -> {after * 1024:.0f} MB")
+    else:
+        print("[memory] idle trim done (memory figures unavailable)")
+    return True
+
 
 def _cleanup_worker():
     global _last_expiry_check
@@ -3570,6 +3599,11 @@ def _cleanup_worker():
                 print(f"[cleanup] removed {removed} old file(s)")
         except Exception as e:
             print("[cleanup] error:", e)
+
+        try:
+            _idle_memory_trim()
+        except Exception as e:
+            print("[cleanup] idle memory trim error:", e)
 
         try:
             idle_minutes = (_time.time() - app_state.last_job_activity) / 60
