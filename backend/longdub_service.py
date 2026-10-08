@@ -4901,6 +4901,51 @@ def sweep_stale(park_hours=None):
     return removed
 
 
+TEMP_VOICE_PREFIX = "lisan-tmp-"      # the name every long-dub temporary copied voice gets (see _make_voice)
+ORPHAN_SWEEP_EVERY = 24 * 3600
+ORPHAN_SWEEP_MAX = 50                 # at most this many deletions per run
+_orphan_sweep_at = [0.0]
+
+
+def sweep_orphan_voices(force=False):
+    """Delete temporary copied voices at Inworld that NO project on disk can use any more.
+
+    A voice is named lisan-tmp-<first 8 characters of the project id>-<speaker>. When the project folder is gone
+    (deleted, expired, a restart that lost its record) nothing can ever delete that voice by its project, so it
+    stays and counts against the account's voice slots. A voice whose project folder still exists is never touched
+    here: the project's own cleanup (and its seven-day correction window) owns it. If the list of voices or of
+    projects cannot be read completely, nothing is deleted. Runs at most once a day."""
+    if not INWORLD_API_KEY or not LONG_DIR.is_dir():
+        return 0
+    now = time.time()
+    if not force and now - _orphan_sweep_at[0] < ORPHAN_SWEEP_EVERY:
+        return 0
+    import inworld_service
+    try:
+        known = {d.name[:8] for d in LONG_DIR.iterdir() if d.is_dir()}
+    except OSError:
+        return 0
+    listed = inworld_service.list_voices_with_prefix(INWORLD_API_KEY, TEMP_VOICE_PREFIX)
+    if listed is None:
+        return 0
+    _orphan_sweep_at[0] = now
+    deleted = 0
+    for vid, name in listed:
+        match = re.match(r"lisan-tmp-([0-9a-f]{8})-", name)
+        if not match or match.group(1) in known:
+            continue
+        if deleted >= ORPHAN_SWEEP_MAX:
+            break
+        res = inworld_service.delete_voice(vid, INWORLD_API_KEY)
+        if res.get("ok") or "404" in str(res.get("error", "")):
+            deleted += 1
+        else:
+            print(f"[longdub] could not delete the leftover voice {name}: {res.get('error')}")
+    if deleted:
+        print(f"[longdub] deleted {deleted} leftover temporary voice(s) with no project")
+    return deleted
+
+
 def start_housekeeping():
     def _loop():
         while True:
@@ -4908,6 +4953,7 @@ def start_housekeeping():
             try:
                 sweep_stale()
                 sweep_voices()
+                sweep_orphan_voices()
             except Exception as ex:
                 print(f"[longdub] sweep error: {ex}")
     threading.Thread(target=_loop, daemon=True).start()

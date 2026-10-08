@@ -356,3 +356,71 @@ def latest_db_backup():
     except Exception:
         return None
     return None
+# ---- small "register" files that live only on the server's data volume (e.g. voice_numbers.json) -----------------
+# A lost volume would otherwise lose the permanent voice numbers. Copies are kept per day (30 days) next to the
+# database backups; the newest copy is used to restore a file that is missing. Best effort, never raises.
+REGISTER_PREFIX = "register-backups/"
+_register_sent = {}
+
+
+def backup_register_files(paths):
+    """Upload each existing file when its content changed since the last upload from this process. Returns how many."""
+    if not _enabled():
+        return 0
+    client = _get_client()
+    if client is None:
+        return 0
+    import datetime as _dt
+    import hashlib
+    sent = 0
+    try:
+        today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+        for path in paths:
+            try:
+                with open(path, "rb") as stream:
+                    data = stream.read()
+                if not data or len(data) > 5_000_000:
+                    continue
+                digest = hashlib.sha256(data).hexdigest()
+                key = f"{REGISTER_PREFIX}{today}/{os.path.basename(str(path))}"
+                if _register_sent.get(key) == digest:
+                    continue
+                client.put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=data, ContentType="application/json")
+                _register_sent[key] = digest
+                sent += 1
+            except FileNotFoundError:
+                continue
+            except Exception as e:
+                print(f"[register-backup] {path}: {e}")
+        cutoff = (_dt.datetime.utcnow() - _dt.timedelta(days=DB_BACKUP_KEEP_DAYS)).strftime("%Y-%m-%d")
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=REGISTER_PREFIX):
+            for obj in page.get("Contents", []):
+                if obj["Key"][len(REGISTER_PREFIX):].split("/", 1)[0] < cutoff:
+                    client.delete_object(Bucket=R2_BUCKET_NAME, Key=obj["Key"])
+    except Exception as e:
+        print(f"[register-backup] error: {e}")
+    return sent
+
+
+def restore_register_file(name):
+    """The newest backed-up copy of `name` as bytes, or None (no storage configured, no copy, any failure)."""
+    if not _enabled():
+        return None
+    client = _get_client()
+    if client is None:
+        return None
+    try:
+        days = set()
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=REGISTER_PREFIX, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                days.add(cp["Prefix"][len(REGISTER_PREFIX):].strip("/"))
+        for day in sorted(days, reverse=True):
+            try:
+                return client.get_object(Bucket=R2_BUCKET_NAME, Key=f"{REGISTER_PREFIX}{day}/{name}")["Body"].read()
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[register-backup] restore failed: {e}")
+    return None

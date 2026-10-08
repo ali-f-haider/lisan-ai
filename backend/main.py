@@ -3486,6 +3486,11 @@ def _cleanup_worker():
         r2_backup.backup_db_tables(SUPABASE_URL, SUPABASE_SERVICE_KEY)
     except Exception as e:
         print("[db-backup] first run error:", e)
+    try:
+        import voice_numbers
+        r2_backup.backup_register_files([voice_numbers.FILE])
+    except Exception as e:
+        print("[register-backup] first run error:", e)
     while True:
         _time.sleep(CLEANUP_INTERVAL_MIN * 60)
         try:
@@ -3496,6 +3501,11 @@ def _cleanup_worker():
             r2_backup.backup_db_tables(SUPABASE_URL, SUPABASE_SERVICE_KEY)
         except Exception as e:
             print("[db-backup] sweep error:", e)
+        try:
+            import voice_numbers
+            r2_backup.backup_register_files([voice_numbers.FILE])
+        except Exception as e:
+            print("[register-backup] sweep error:", e)
         try:
             now = _time.time()
             short_cutoff = now - CLEANUP_RETENTION_HOURS * 3600

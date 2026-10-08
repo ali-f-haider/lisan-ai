@@ -924,3 +924,29 @@ def make_preview(voice_id, api_key, synth=None):
         tmp.write_bytes(audio)
         os.replace(tmp, path)
     return path
+
+
+def list_voices_with_prefix(api_key: str, prefix: str):
+    """[(voiceId, displayName), ...] of this account's OWN clones whose name starts with `prefix`, or None when the list
+    could not be read completely (the caller must then do nothing). Stock voices (SYSTEM) are never returned."""
+    if not _configured(api_key):
+        return None
+    found, token = [], None
+    try:
+        for _page in range(25):
+            path = "/voices/v1/voices?pageSize=200"
+            if token:
+                path += "&pageToken=" + urllib.parse.quote(str(token), safe="")
+            data = _request("GET", path, api_key, timeout=30)
+            for v in (data.get("voices") or []):
+                name = str(v.get("displayName") or "")
+                if str(v.get("source") or "").upper() == "SYSTEM" or not name.startswith(prefix) or not v.get("voiceId"):
+                    continue
+                found.append((str(v["voiceId"]), name))
+            token = data.get("nextPageToken")
+            if not token:
+                return found
+        return None          # more pages than we are willing to read: do not act on a partial list
+    except Exception as e:
+        print(f"[inworld] could not list voices: {_http_error_detail(e)}")
+        return None

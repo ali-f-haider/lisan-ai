@@ -26,12 +26,30 @@ def _empty():
     return {"engines": {}}
 
 
+def _restore():
+    """The data volume lost the register: use the newest off-site copy when there is one (and it is sound), else None."""
+    try:
+        import r2_backup
+        raw = r2_backup.restore_register_file(FILE.name)
+        if not raw:
+            return None
+        data = json.loads(raw.decode("utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("engines"), dict):
+            return None
+        _write(data)
+        print("[voice-numbers] the register was missing; restored it from the off-site backup")
+        return data
+    except Exception as ex:
+        print(f"[voice-numbers] could not restore the register from backup ({ex})")
+        return None
+
+
 def _read():
     """The saved register, an empty one when none exists yet, None when the file exists but cannot be trusted."""
     try:
         data = json.loads(FILE.read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return _empty()
+        return _restore() or _empty()
     except (OSError, ValueError):
         return None
     if not isinstance(data, dict) or not isinstance(data.get("engines"), dict):
