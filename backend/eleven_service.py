@@ -764,7 +764,7 @@ def generate_worker(req):
     except Exception as e:
         jobs_progress[_pk] = {"status": "error", "percent": 0, "error": friendly_error(e), "result": None}
 
-def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None, dead_space_flags=None):
+def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=None, flags=None, dead_space_flags=None, offsets=None):
     """Rebuild this job's final dubbed audio from existing line files (.wav OR .mp3), applying Step 5.5 gains."""
     overlap_flags = dict(flags or {})
     dead_space_flags = dict(dead_space_flags or {})
@@ -777,7 +777,11 @@ def rebuild_final_mix(segments, total_duration, duration_mode="exact", job_id=No
             sp = line_audio_path(OUTPUT_DIR, job_id, s.segment_id, "stretched", ".mp3")
         if not sp.exists():
             continue
-        items.append({"file": sp.name, "sid": s.segment_id, "start": s.start, "end": s.end,
+        try:
+            off = float((offsets or {}).get(s.segment_id, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            off = 0.0
+        items.append({"file": sp.name, "sid": s.segment_id, "start": max(0.0, s.start + off), "end": s.end + off,
                       "duration": get_media_duration(sp)})
     if not items:
         raise Exception("No generated line audio found. Run Generate once first.")
@@ -944,7 +948,7 @@ def regenerate_line(req):
         line_info = _measure_line_loudness(req.job_id, seg, stretched, target_duration)
         if line_info and line_info.get("orig_db") is not None and line_info.get("dub_db") is not None:
             USER_GAINS.setdefault(req.job_id, {})[seg.segment_id] = line_info["auto_gain_db"]
-        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None))
+        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None), offsets=getattr(req, "offsets", None))
         return {"status": "success",
                 "stretched_duration": round(get_media_duration(stretched), 2),
                 "target": round(target_duration, 2),
@@ -1000,7 +1004,7 @@ def restretch_line(req):
         # Refresh this line's measured loudness for the Step 5.5 sliders; the
         # user's current gain for the line is deliberately left untouched.
         line_info = _measure_line_loudness(req.job_id, seg, stretched, target_duration)
-        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None))
+        mix = rebuild_final_mix(req.segments, req.total_duration, req.duration_mode, job_id=req.job_id, flags=getattr(req, "overlap_allowed", None), dead_space_flags=getattr(req, "dead_space_allowed", None), offsets=getattr(req, "offsets", None))
         return {"status": "success",
                 "stretched_duration": round(get_media_duration(stretched), 2),
                 "target": round(target_duration, 2),

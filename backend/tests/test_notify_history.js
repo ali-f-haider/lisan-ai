@@ -50,15 +50,42 @@ test('the history keeps at most 200 messages and lives only in the tab (sessionS
 
 test('a reloaded page gets its list back; another account does not see it; clearing empties it', () => {
     const first = context();
-    first.c.notifyLogForUser('Ali');
+    first.c.notifyLogForUser('Ali', 'login-1');
     first.c.recordNotification('info', 'kept');
     const again = context(first.store);
     assert.equal(again.c.notifyLog.length, 1);
-    again.c.notifyLogForUser('Ali');
+    again.c.notifyLogForUser('Ali', 'login-1');
     assert.equal(again.c.notifyLog.length, 1);
-    again.c.notifyLogForUser('Someone else');
+    again.c.notifyLogForUser('Someone else', 'login-1');
     assert.equal(again.c.notifyLog.length, 0);
     assert.equal(JSON.parse(again.store.lisan_notify_log).length, 0);
+});
+
+test('a NEW login by the same person always starts with an empty list; a reload or a renamed account inside one login does not', () => {
+    const first = context();
+    first.c.notifyLogForUser('uid-1', 'login-A');
+    first.c.recordNotification('error', 'old problem');
+    const reload = context(first.store);
+    reload.c.notifyLogForUser('uid-1', 'login-A');
+    assert.equal(reload.c.notifyLog.length, 1);
+    const renamed = context(first.store);                      // the account id is the owner, not the display name
+    renamed.c.notifyLogForUser('uid-1', 'login-A');
+    assert.equal(renamed.c.notifyLog.length, 1);
+    const relogin = context(first.store);                      // same account, new login (expired session, Google, other page)
+    relogin.c.notifyLogForUser('uid-1', 'login-B');
+    assert.equal(relogin.c.notifyLog.length, 0);
+    assert.equal(relogin.c.notifyUnread, 0);
+    assert.equal(JSON.parse(relogin.store.lisan_notify_log).length, 0);
+    const oldFormat = context({ lisan_notify_log: JSON.stringify([{ t: 5, type: 'info', text: 'from before' }]), lisan_notify_log_owner: 'Ali' });
+    oldFormat.c.notifyLogForUser('uid-1', 'login-B');            // an owner saved by the previous version is not trusted
+    assert.equal(oldFormat.c.notifyLog.length, 0);
+});
+
+test('the page hands the server login id to the list owner check, and the server provides one', () => {
+    const calls = app.match(/notifyLogForUser\([^;]*\);/g) || [];
+    const real = calls.filter(x => !x.startsWith('notifyLogForUser(account'));
+    assert.ok(real.length >= 2);
+    real.forEach(x => assert.ok(/data\.login_id/.test(x), x));
 });
 
 test('a damaged saved list is ignored', () => {

@@ -54,7 +54,7 @@ def validate_pricing(config):
              "cloneCredits", "inworldCloneCredits", "subscriptionCredits",
              "charsPerCredit", "inworldCharsPerCredit", "longDubFlatCredits",
              # Stored in an integer column: 40.0 would be refused by the database as "invalid input syntax for type integer".
-             "lipsyncCreditsPerSec"}
+             "lipsyncCreditsPerSec", "maxVideoMin", "inworldSlotLimit", "longDubMaxMin", "longDubLipsyncMaxMin"}
     labels = {"freeCredits": "Signup credits", "minReserve": "Credit reserve",
               "transcribeCredits": "Transcription price", "mergeCredits": "Assembly price",
               "cloneCredits": "Cloning price", "inworldCloneCredits": "Alternative cloning price",
@@ -62,7 +62,9 @@ def validate_pricing(config):
               "inworldCharsPerCredit": "Alternative characters per credit",
               "longDubFlatCredits": "Processing price", "lipsyncCreditsPerSec": "Lip-sync price",
               "subscriptionPriceUsd": "Monthly price", "longDubAnalysisPerMin": "Analysis price",
-              "geminiCreditsPerCent": "Text-service price factor", "musicFillCredits": "Music repair price"}
+              "geminiCreditsPerCent": "Text-service price factor", "musicFillCredits": "Music repair price",
+              "maxVideoMin": "Video length limit", "inworldSlotLimit": "Voice slot limit",
+              "longDubMaxMin": "Long video length limit", "longDubLipsyncMaxMin": "Lip-sync length limit"}
     for key, label in labels.items():
         if key in out:
             if key == "freeCredits":
@@ -91,7 +93,8 @@ def validate_pricing(config):
             for field in ("bonus_pct", "voice_slots", "clones_per_month", "storage_gb"):
                 if field in row:
                     # Blank means "no separate cap" (the admin page sends null); that is a valid choice, not an error.
-                    if row[field] is None and field in ("clones_per_month", "storage_gb"):
+                    if field in ("clones_per_month", "storage_gb") and (row[field] is None or isinstance(row[field], str) and not row[field].strip()):
+                        row[field] = None
                         continue
                     row[field] = number(row[field], "Bonus or plan allowance", zero=True,
                                         integer=field != "storage_gb")
@@ -111,6 +114,12 @@ def validate_pricing(config):
             if key in value:
                 value[key] = number(value[key], "Helper price or budget", zero=True, maximum=limit)
         out["assistant"] = value
+    for key, label in (("subscriptionName", "Subscription name"), ("gaMeasurementId", "Analytics identifier")):
+        if key in out and not isinstance(out[key], str):
+            raise ValueError(f"{label} must be text.")
+    for key in ("siteGateEnabled", "elevenAlertsEnabled", "railwayAlertsEnabled", "diskAlertsEnabled"):
+        if key in out and type(out[key]) is not bool:
+            raise ValueError("Choose an on or off setting before saving.")
     try:
         json.dumps(out, allow_nan=False)
     except (TypeError, ValueError):

@@ -38,6 +38,9 @@ def load_health(rpc):
     names = ("debit", "pack", "refund", "cancel") + (("admin_adjust", "subscription_grant") if extended else ())
     ready = extended and isinstance(flags, dict) and flags.get("version") == (2 if extended else 1) and all(flags.get(key) is True for key in names)
     output = {"installed": True, "ready": ready, "extended": extended,
+              "action_ready": {key: flags.get(key) if isinstance(flags, dict) and type(flags.get(key)) is bool else None
+                               for key in ("debit", "pack", "refund", "cancel", "admin_adjust", "subscription_grant", "signup_credits")
+                               if extended or key in ("debit", "pack", "refund", "cancel")},
               "signup_configured": flags.get("signup_credits") is True if extended and isinstance(flags, dict) else None, "lists": {}}
     for key in CATEGORIES + (EXTRA_CATEGORIES if extended else ()):
         group = result["lists"].get(key)

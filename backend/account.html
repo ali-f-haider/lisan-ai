@@ -385,8 +385,19 @@ function creditChange(amount, action) {
 }
 function safeMsg(m) {
   m = String(m || "");
-  if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|null|stripe|supabase|api[ _-]?key|\/api\/|Server error|fetch/i.test(m)) return T.genericFail;
+  if (!m || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|null|stripe|supabase|gemini|inworld|elevenlabs|fal[ ._-]?ai|openai|anthropic|api[ _-]?key|\/api\/|Server error|fetch/i.test(m)) return T.genericFail;
   return m;
+}
+
+function accountResponse(response, expected) {
+  return response.json().then(function (data) {
+    var valid = data && typeof data === 'object' && !Array.isArray(data);
+    var confirmed = valid && (expected === 'url' || expected === 'cancel' ?
+      (typeof data.url === 'string' && data.url.length > 0) || (expected === 'cancel' && data.already_canceling === true) : expected === 'success' ? data.status === 'success' : data.ok === true);
+    if (!response.ok || !confirmed || data.ok === false || data.error)
+      throw new Error(safeMsg(valid && (data.error || data.detail)));
+    return data;
+  });
 }
 
 (function applyStaticText() {
@@ -505,18 +516,18 @@ function loadUserInfo() {
 // missed, and cancelling from the Stripe dashboard/portal changes it without
 // Lisan being in the loop), then render.
 function refreshSubscriptionThenLoad() {
-  return fetch("/api/billing/refresh_subscription", { method: "POST" }).catch(function(){}).then(loadUserInfo);
+  return fetch("/api/billing/refresh_subscription", { method: "POST" }).then(accountResponse).catch(function(e){ LisanDialog.alert(safeMsg(e.message), { type: "error" }); }).then(loadUserInfo);
 }
 refreshSubscriptionThenLoad();
 
 function manageSubscription() {
   var btn = document.getElementById("subManageBtn");
   btn.disabled = true;
-  fetch("/api/billing/portal", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+  fetch("/api/billing/portal", { method: "POST" }).then(function(r){return accountResponse(r, "url");}).then(function(d){
     btn.disabled = false;
     if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); return; }
     window.location.href = d.url;
-  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(T.genericFail, { type: "error" }); });
+  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
 }
 
 function cancelSubscription() {
@@ -524,7 +535,7 @@ function cancelSubscription() {
     if (!ok) return;
     var btn = document.getElementById("subCancelBtn");
     btn.disabled = true;
-    fetch("/api/billing/cancel", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+    fetch("/api/billing/cancel", { method: "POST" }).then(function(r){return accountResponse(r, "cancel");}).then(function(d){
       btn.disabled = false;
       if (d.already_canceling) {
         // Already cancelled (e.g. in the Stripe dashboard): nothing to do at
@@ -535,21 +546,21 @@ function cancelSubscription() {
       }
       if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); refreshSubscriptionThenLoad(); return; }
       window.location.href = d.url;
-    }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.cancelSubFailed, { type: "error" }); });
+    }).catch(function(e){ btn.disabled = false; LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
   });
 }
 
 function resumeSubscription() {
   var btn = document.getElementById("subResumeBtn");
   btn.disabled = true;
-  fetch("/api/billing/resume", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+  fetch("/api/billing/resume", { method: "POST" }).then(accountResponse).then(function(d){
     btn.disabled = false;
     if (d.error) { LisanDialog.alert(safeMsg(d.error), { type: "error" }); refreshSubscriptionThenLoad(); return; }
     refreshSubscriptionThenLoad().then(function () {
       var end = window._subInfo && window._subInfo.subscription_current_period_end;
       LisanDialog.alert(T.subRenewed(fmtDay(end)), { type: "success" });
     });
-  }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.renewSubFailed, { type: "error" }); });
+  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
 }
 
 function openDeleteAccountModal() { document.getElementById("deleteAccountModal").classList.remove("hidden"); }
@@ -558,10 +569,10 @@ function closeDeleteAccountModal() { document.getElementById("deleteAccountModal
 function confirmDeleteAccount() {
   var btn = document.getElementById("delModalConfirmBtn");
   btn.disabled = true;
-  fetch("/api/account/delete", { method: "POST" }).then(function(r){return r.json();}).then(function(d){
+  fetch("/api/account/delete", { method: "POST" }).then(accountResponse).then(function(d){
     if (d.error) { btn.disabled = false; LisanDialog.alert(safeMsg(d.error), { type: "error" }); return; }
     window.location.href = "/login";
-  }).catch(function(){ btn.disabled = false; LisanDialog.alert(T.deleteAccountFailed, { type: "error" }); });
+  }).catch(function(e){ btn.disabled = false; LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
 }
 fetch("/api/account/summary").then(function(r){return r.json();}).then(function(d){
   var pt = document.querySelector("#purchasesTable tbody");
@@ -691,7 +702,7 @@ function loadMyJobs() {
 function deleteMyJob(jobId) {
   LisanDialog.confirm(T.confirmDelete, { okText: T.deleteVoiceBtn ? T.deleteVoiceBtn.replace(/^\S+\s*/, "") : undefined, danger: true }).then(function (ok) {
     if (!ok) return;
-    fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (res) {
+    fetch("/api/my_jobs/" + encodeURIComponent(jobId), { method: "DELETE" }).then(function(r){ return accountResponse(r, "success"); }).then(function (res) {
       if (res && res.storage) renderStorage(res.storage);
       var el = document.getElementById("job-" + jobId);
       if (el) el.remove();
@@ -699,7 +710,7 @@ function deleteMyJob(jobId) {
       if (list && !list.children.length) {
         list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet(window._subActive) + '</p>';
       }
-    }).catch(function () { LisanDialog.alert(T.deleteFailed, { type: "error" }); });
+    }).catch(function(e){ LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
   });
 }
 
@@ -766,12 +777,14 @@ function saveVoice(id) {
   // confirmation looked identical to it doing nothing at all (Ali's report,
   // 2026-09-28). This now shows a brief "Saved" message next to the
   // buttons so success is actually visible, not just assumed.
+  var previousSaved = document.getElementById("vsaved-" + id);
+  if (previousSaved) previousSaved.style.display = "none";
   var name = document.getElementById("vname-" + id).value;
   var description = document.getElementById("vdesc-" + id).value;
   fetch("/api/my_voices/" + encodeURIComponent(id), {
     method: "PATCH", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: name, description: description })
-  }).then(function (r) { return r.json(); }).then(function (d) {
+  }).then(accountResponse).then(function (d) {
     if (d.error) { LisanDialog.alert(T.saveVoiceFailed, { type: "error" }); return; }
     var savedEl = document.getElementById("vsaved-" + id);
     if (savedEl) {
@@ -779,18 +792,18 @@ function saveVoice(id) {
       clearTimeout(savedEl._hideTimer);
       savedEl._hideTimer = setTimeout(function () { savedEl.style.display = "none"; }, 2500);
     }
-  }).catch(function () { LisanDialog.alert(T.saveVoiceFailed, { type: "error" }); });
+  }).catch(function(e){ LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
 }
 
 function deleteVoice(id) {
   LisanDialog.confirm(T.confirmDeleteVoice, { okText: T.deleteVoiceBtn ? T.deleteVoiceBtn.replace(/^\S+\s*/, "") : undefined, danger: true }).then(function (ok) {
     if (!ok) return;
-    fetch("/api/my_voices/" + encodeURIComponent(id), { method: "DELETE" }).then(function (r) { return r.json(); }).then(function (d) {
+    fetch("/api/my_voices/" + encodeURIComponent(id), { method: "DELETE" }).then(accountResponse).then(function (d) {
       if (d.error) { LisanDialog.alert(T.deleteVoiceFailed, { type: "error" }); return; }
       var el = document.getElementById("voice-" + id);
       if (el) el.remove();
       loadMyVoices();
-    }).catch(function () { LisanDialog.alert(T.deleteVoiceFailed, { type: "error" }); });
+    }).catch(function(e){ LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
   });
 }
 

@@ -765,6 +765,8 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <h3>Billing health</h3>
         <p class="muted" id="billingHealthStatus">Loading billing health...</p>
         <button class="btn" type="button" onclick="loadBillingHealth()">Refresh billing health</button>
+        <p id="billingHealthDetails" class="muted"></p>
+        <p id="billingHealthActions" class="muted"></p>
         <div id="billingHealthLists" style="margin-top:14px"></div>
       </div>
       <div class="card">
@@ -822,14 +824,25 @@ function escapeHtml(s) {
 }
 
 async function api(path, opts={}) {
-  const res = await fetch(path, {
-    ...opts,
-    headers: { 'X-Admin-Token': ADMIN_TOKEN, 'Content-Type': 'application/json', ...(opts.headers||{}) }
-  });
-  if (res.status === 401) { sessionStorage.removeItem('adminToken'); location.reload(); }
-  const txt = await res.text();
-  try { return { ok: res.ok, status: res.status, data: JSON.parse(txt) }; }
-  catch { return { ok: res.ok, status: res.status, data: { error: txt } }; }
+  try {
+    const res = await fetch(path, {
+      ...opts,
+      headers: { 'X-Admin-Token': ADMIN_TOKEN, 'Content-Type': 'application/json', ...(opts.headers||{}) }
+    });
+    if (res.status === 401) { sessionStorage.removeItem('adminToken'); location.reload(); }
+    const txt = await res.text();
+    let data;
+    try { data = JSON.parse(txt); }
+    catch { return { ok: false, status: res.status, data: { error: txt || 'The server returned an unreadable reply. Please try again.' } }; }
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+      return { ok: false, status: res.status, data: { error: 'The server returned an unreadable reply. Please try again.' } };
+    if ((!res.ok || data.ok === false) && !data.error)
+      data.error = data.detail || data.message || 'The request could not be confirmed. Please try again.';
+    if (data.error && typeof data.error !== 'string') data.error = JSON.stringify(data.error);
+    return { ok: res.ok && data.ok !== false && !data.error, status: res.status, data: data };
+  } catch (e) {
+    return { ok: false, status: 0, data: { error: 'Could not reach the server. Please try again.' } };
+  }
 }
 
 function toast(msg, isError) {
@@ -837,14 +850,15 @@ function toast(msg, isError) {
   t.className = 'toast' + (isError ? ' error' : '');
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 3500);
+  if (isError) t.onclick = () => t.remove();
+  setTimeout(() => t.remove(), isError ? 10000 : 3500);
 }
 
 function doLogin() {
   const code = document.getElementById('adminCode').value.trim();
   if (!code) return;
   fetch('/api/admin/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: code }) })
-    .then(r => r.json())
+    .then(async r => { const d = await r.json(); if (!r.ok || !d || d.ok === false || d.error) throw new Error('Sign-in could not be confirmed. Please try again.'); return d; })
     .then(d => {
       if (d.token) {
         ADMIN_TOKEN = d.token;
@@ -853,7 +867,7 @@ function doLogin() {
       } else {
         toast('Invalid code', true);
       }
-    });
+    }).catch(e => toast(e.message || 'Sign-in could not be confirmed. Please try again.', true));
 }
 
 async function showAdmin() {
@@ -895,16 +909,27 @@ async function loadBillingHealth() {
   const host = document.getElementById('billingHealthLists');
   const r = await api('/api/admin/billing_health');
   host.replaceChildren();
+  const details = document.getElementById('billingHealthDetails');
+  const actions = document.getElementById('billingHealthActions');
+  details.textContent = ''; actions.textContent = '';
   if (!r.ok || r.data.installed !== true) {
+    details.textContent = r.data.installed === false ? 'Detailed checks: not installed yet' : 'Detailed checks: could not be verified';
     status.textContent = r.data.installed === false ? 'Not installed yet' : 'Billing health could not be read. Please try again.';
     return;
   }
+  details.textContent = r.data.extended === true ? 'Detailed checks: active' : 'Detailed checks: not installed yet';
+  const flags = r.data.action_ready || {};
+  const actionNames = {debit:'credit deductions', pack:'credit packs', refund:'refunds', cancel:'cloning cancellations', admin_adjust:'credit adjustments', subscription_grant:'subscription credits'};
+  const paused = Object.keys(actionNames).filter(key => flags[key] === false).map(key => actionNames[key]);
+  const unknown = Object.keys(actionNames).filter(key => flags[key] !== true && flags[key] !== false).map(key => actionNames[key]);
+  actions.textContent = (paused.length ? 'Paused actions: ' + paused.join(', ') + '.' : '') +
+    (unknown.length ? ' Not verified: ' + unknown.join(', ') + '.' : '');
   const groups = r.data.lists;
   const allLabels = {pending:'Requests pending over 10 minutes', refunds_owed:'Refunds still owed', legacy_packs:'Earlier packs needing review', clone_refunds:'Pending cloning refunds', admin_pending:'Unconfirmed credit adjustments', subscription_pending:'Subscription deliveries pending', subscription_stale:'Older invoices needing review', receipt_mismatches:'Requests with conflicting details', subscription_legacy:'Earlier subscription receipts needing review'};
   const labels=Object.fromEntries(Object.entries(allLabels).filter(([key])=>groups[key]));
   const featureNotes=(r.data.extended===false?' Detailed billing checks are not installed yet.':'')+(r.data.signup_configured===false?' Signup still uses the previous fixed allowance.':'');
   const count = Object.keys(labels).reduce((sum,key) => sum + groups[key].count, 0);
-  status.textContent = (r.data.ready ? 'Billing is ready.' : 'Some billing actions are paused.') + (count === 0 ? ' Nothing needs attention.' : ' Check the lists below; some requests may appear in more than one list.')+featureNotes;
+  status.textContent = (r.data.ready ? 'Billing is ready.' : paused.length ? 'Some billing actions are paused.' : 'Billing readiness could not be fully verified.') + (count === 0 ? ' Nothing needs attention.' : ' Check the lists below; some requests may appear in more than one list.')+featureNotes;
   Object.keys(labels).forEach(key => {
     const group = groups[key];
     const heading = document.createElement('h4');
@@ -949,7 +974,7 @@ async function saveMaintenance() {
     message: document.getElementById('maintMsg').value.trim()
   };
   const r = await api('/api/admin/maintenance', { method: 'POST', body: JSON.stringify(body) });
-  if (!r.ok) { toast(r.data.error || 'Could not save.', true); return; }
+  if (!r.ok || r.data.ok !== true) { toast(r.data.error || 'The save could not be confirmed. Please try again.', true); return; }
   toast(enabled ? 'Banner saved.' : 'Banner turned off.');
   loadMaintenance();
 }
@@ -959,7 +984,7 @@ async function clearMaintenance() {
   document.getElementById('maintEnd').value = '';
   document.getElementById('maintMsg').value = '';
   const r = await api('/api/admin/maintenance', { method: 'POST', body: JSON.stringify({ enabled: false, start: '', end: '', message: '' }) });
-  if (!r.ok) { toast(r.data.error || 'Could not save.', true); return; }
+  if (!r.ok || r.data.ok !== true) { toast(r.data.error || 'The save could not be confirmed. Please try again.', true); return; }
   toast('Banner turned off.');
   loadMaintenance();
 }
@@ -1278,8 +1303,9 @@ document.addEventListener('input', e => {
 
 let pricingLoaded = false;
 async function loadPricing() {
+  pricingLoaded = false;
   const r = await api('/api/admin/pricing');
-  if (!r.ok) return;
+  if (!r.ok) { toast(r.data.error || 'Could not load the current settings. Please try again.', true); return; }
   pricingLoaded = true;
   ['freeCredits','minReserve','maxVideoMin','transcribeCredits','mergeCredits','charsPerCredit','cloneCredits','inworldCharsPerCredit','inworldCloneCredits','inworldSlotLimit','longDubAnalysisPerMin','longDubFlatCredits','longDubLipsyncMaxMin','lipsyncCreditsPerSec','geminiCreditsPerCent','gaMeasurementId','subscriptionName','subscriptionCredits','subscriptionPriceUsd'].forEach(k => {
     document.getElementById(k).value = r.data[k] ?? '';
@@ -1451,7 +1477,7 @@ async function savePricing() {
     });
     console.log('Save response:', res);
     // The server answers HTTP 200 with {ok:false, error} when a save is refused or fails: that is NOT a saved price.
-    if (res.ok && res.data && res.data.ok !== false) {
+    if (res.ok && res.data && res.data.ok === true) {
       toast('Pricing saved (' + packs.length + ' packs)');
       // Reload to verify
       setTimeout(() => loadPricing(), 500);
@@ -1920,9 +1946,8 @@ async function loadResourceUsage() {
 async function loadRailwayMemory() {
   loadResourceUsage();
   const r = await api('/api/admin/railway_memory');
-  if (!r.ok) return;
   const d = r.data;
-  if (!d.ok) {
+  if (!r.ok || !d.ok) {
     document.getElementById('rmUsed').textContent = '—';
     document.getElementById('rmLimit').textContent = '—';
     document.getElementById('rmPercent').textContent = '—';

@@ -91,7 +91,7 @@ function notify(type, msg) {
 // ===== Notification history (this session only) =====
 // Every message that appears as a pop-up is also written to a list the user can open with the small V tab under Log Out,
 // because the pop-ups disappear after 10 seconds. The list is kept in this browser tab only (it is NOT sent to the server or
-// saved in the database); it is emptied on Log Out and when a different account opens the page.
+// saved in the database); it is emptied on Log Out and at every new login.
 const NOTIFY_LOG_KEY = "lisan_notify_log", NOTIFY_LOG_OWNER_KEY = "lisan_notify_log_owner", NOTIFY_LOG_MAX = 200;
 var notifyLog = [], notifyUnread = 0, notifyHistoryOpen = false;
 try {
@@ -104,11 +104,15 @@ function clearNotifyLog() {
     if (typeof renderNotifyHistory === "function") renderNotifyHistory();
 }
 // Called when the account is known: a log that belongs to another account is dropped.
-function notifyLogForUser(name) {
+function notifyLogForUser(account, loginId) {
+    // The owner is the account PLUS the server's id of this particular login. A new login (same person or not, from any
+    // page, after an expired session or a Google sign-in) therefore always starts with an empty list; a renamed
+    // account or a reload inside the same login keeps it.
     try {
+        var key = String(account || "") + "|" + String(loginId || "");
         var owner = sessionStorage.getItem(NOTIFY_LOG_OWNER_KEY);
-        if (owner !== null && owner !== String(name || "")) clearNotifyLog();
-        sessionStorage.setItem(NOTIFY_LOG_OWNER_KEY, String(name || ""));
+        if (owner !== null && owner !== key) clearNotifyLog();
+        sessionStorage.setItem(NOTIFY_LOG_OWNER_KEY, key);
     } catch (e) {}
 }
 function recordNotification(type, text) {
@@ -2369,6 +2373,20 @@ function shortRegenerationError(message) {
 };
     return window.currentLang === "ar" && words[message] ? words[message] : message;
 }
+// The Step 5.5 / timeline choices that shape the final mix (lines allowed to
+// overlap, lines allowed to run into the silent gap, dragged offsets). Every
+// request that rebuilds the final audio must carry them, otherwise the rebuilt
+// mix silently drops what the user chose earlier. Generate and Apply already
+// send the first two through the fetch wrapper further down.
+function currentMixSettings() {
+    const offsets = {}, dragged = typeof segmentOffsets === "object" && segmentOffsets ? segmentOffsets : {};
+    Object.keys(dragged).forEach(k => { if (Math.abs(dragged[k]) > 0.001) offsets[k] = dragged[k]; });
+    return {
+        overlap_allowed: Object.assign({}, window.overlapAllowed || {}),
+        dead_space_allowed: Object.assign({}, window.deadSpaceAllowed || {}),
+        offsets: offsets
+    };
+}
 function shortRegenerationKey(payload) {
     return "lisan_regenerate_v1:" + payload.job_id + ":" + payload.segment.segment_id;
 }
@@ -2398,7 +2416,11 @@ function shortRegenerationRequest(payload) {
     if (saved) {
         const work = Object.assign({}, saved);
         delete work.operation_id; delete work.accepted_credits;
-        if (JSON.stringify(shortRegenerationWork(work)) !== JSON.stringify(shortRegenerationWork(payload)))
+        // Mix choices (overlap / silent gap / offsets) do not change the paid take, so a changed
+        // checkbox must not block retrying an unresolved request; the saved request keeps its own.
+        const mixOnly = Object.assign({}, payload);
+        ["overlap_allowed", "dead_space_allowed", "offsets"].forEach(key => { delete work[key]; delete mixOnly[key]; });
+        if (JSON.stringify(shortRegenerationWork(work)) !== JSON.stringify(shortRegenerationWork(mixOnly)))
             throw new Error(subsText("A previous request for this line is unresolved. Restore its text and settings before retrying, or contact support.", "لم تُحسم نتيجة الطلب السابق لهذا السطر. أعد نصه وإعداداته السابقة قبل المحاولة، أو تواصل مع الدعم."));
         return saved;
     }
@@ -2461,7 +2483,8 @@ async function regenerateLine(i, btn) {
             job_id: currentJobId || "", segment: Object.assign({}, seg, { waqf: shortWaqfMode(seg.waqf) }),
             segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })),
             voice_id: voice_id, tempo_mode: seg.tempo_mode || "excellent",
-            duration_mode: document.getElementById("durationMode").value, total_duration: totalDuration
+            duration_mode: document.getElementById("durationMode").value, total_duration: totalDuration,
+            ...currentMixSettings()
         }));
         busyKey = shortRegenerationKey(payload);
         window._shortRegenerationBusy = window._shortRegenerationBusy || {};
@@ -2548,7 +2571,8 @@ async function restretchLine(seg) {
                 segments: segmentsData,
                 tempo_mode: seg.tempo_mode || "excellent",
                 duration_mode: document.getElementById("durationMode").value,
-                total_duration: totalDuration
+                total_duration: totalDuration,
+                ...currentMixSettings()
             })
         });
         let data = null;
@@ -2996,7 +3020,7 @@ async function autoAssignVoices() {
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
-        notifyLogForUser(data.name || data.email || "");
+        notifyLogForUser(data.uid || data.name || data.email || "", data.login_id);
         if (typeof placeNotifyHistoryUI === "function") placeNotifyHistoryUI();
         if (window.hideAppGate) window.hideAppGate();
     }).catch(function() { if (window.hideAppGate) window.hideAppGate(); });
@@ -3054,7 +3078,7 @@ function onVoiceConsentChanged(checkbox) {
             credEl.style.display = "inline-block";
         }
         window.LIPSYNC_ENABLED = !!data.lipsync_enabled;
-        notifyLogForUser(data.name || data.email || "");
+        notifyLogForUser(data.uid || data.name || data.email || "", data.login_id);
         if (typeof placeNotifyHistoryUI === "function") placeNotifyHistoryUI();
         if (window.hideAppGate) window.hideAppGate();
     }).catch(function() { if (window.hideAppGate) window.hideAppGate(); });
@@ -4348,15 +4372,28 @@ function openBuyModal() {
 
 function closeBuyModal() { document.getElementById("buyModal").style.display = "none"; }
 
+function settingsErrorMessage(reason) {
+    var fallback = subsText("This change could not be confirmed. Please try again.", "تعذّر تأكيد هذا التغيير. يُرجى المحاولة مرة أخرى.");
+    if (typeof reason !== "string" || !reason.trim() || /HTTP\s*\d{3}|Traceback|Exception|Unexpected token|JSON|undefined|null|stripe|supabase|gemini|inworld|elevenlabs|fal[ ._-]?ai|openai|anthropic|api[ _-]?key|\/api\/|Server error|fetch/i.test(reason)) return fallback;
+    return reason;
+}
+async function settingsResponse(response) {
+    var data;
+    try { data = await response.json(); } catch (e) { throw new Error(settingsErrorMessage()); }
+    if (!response.ok || !data || typeof data !== "object" || Array.isArray(data) || data.ok === false || data.error)
+        throw new Error(settingsErrorMessage(data && (data.error || data.detail)));
+    return data;
+}
+
 function buyPack(key, btn) {
     btn.disabled = true; btn.style.opacity = "0.6";
     fetch("/api/billing/checkout", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ pack: key })
-    }).then(function (r) { return r.json(); }).then(function (data) {
-        if (data.error) { notify("error", data.error); btn.disabled = false; btn.style.opacity = "1"; return; }
+    }).then(settingsResponse).then(function (data) {
+        if (typeof data.url !== "string" || !data.url) throw new Error(settingsErrorMessage());
         window.location.href = data.url;
-    }).catch(function (e) { notify("error", e.message); btn.disabled = false; btn.style.opacity = "1"; });
+    }).catch(function (e) { notify("error", settingsErrorMessage(e.message)); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
 // Long local date for the Buy box ("28 September 2026"); "" when unknown.
@@ -4404,11 +4441,11 @@ function changeSubscriptionPlan(plan, state, info, btn) {
         if (!ok) return;
         btn.disabled = true; btn.style.opacity = "0.6";
         fetch("/api/billing/change_plan?plan_key=" + encodeURIComponent(plan.key), { method: "POST" })
-            .then(function (r) { return r.json(); })
+            .then(settingsResponse)
             .then(function (d) {
-                if (d.error) {
+                if (d.ok !== true || !["upgraded", "scheduled", "reverted"].includes(d.mode)) {
                     btn.disabled = false; btn.style.opacity = "1";
-                    LisanDialog.alert(d.error, { type: "error" });
+                    LisanDialog.alert(settingsErrorMessage(d.error), { type: "error" });
                     return;
                 }
                 var done;
@@ -4435,16 +4472,16 @@ function changeSubscriptionPlan(plan, state, info, btn) {
 function subscribeMonthly(planKey, btn) {
     btn.disabled = true; btn.style.opacity = "0.6";
     fetch("/api/billing/subscribe?plan_key=" + encodeURIComponent(planKey), { method: "POST" })
-        .then(function (r) { return r.json(); }).then(function (data) {
-            if (data.error) { notify("error", data.error); btn.disabled = false; btn.style.opacity = "1"; return; }
+        .then(settingsResponse).then(function (data) {
+            if (typeof data.url !== "string" || !data.url) throw new Error(settingsErrorMessage());
             window.location.href = data.url;
-        }).catch(function (e) { notify("error", e.message); btn.disabled = false; btn.style.opacity = "1"; });
+        }).catch(function (e) { notify("error", settingsErrorMessage(e.message)); btn.disabled = false; btn.style.opacity = "1"; });
 }
 
 // Returning from Stripe success
 if (window.location.hash.indexOf("credits-purchased") > -1) {
     setTimeout(function () {
-        notify("success", "🎉 Payment complete! Your credits have been added.");
+        notify("info", subsText("Checking your payment status…", "جارٍ التحقق من حالة الدفع…"));
         refreshCredits();
         history.replaceState(null, "", "/app");
     }, 800);
@@ -4459,7 +4496,7 @@ if (window.location.hash.indexOf("credits-purchased") > -1) {
 // itself, hence the longer delay before refreshing the badge.
 if (window.location.hash.indexOf("subscription-active") > -1) {
     setTimeout(function () {
-        notify("success", "🎉 Subscription active! Your monthly credits will appear shortly.");
+        notify("info", subsText("Checking your subscription status…", "جارٍ التحقق من حالة الاشتراك…"));
         refreshCredits();
         history.replaceState(null, "", "/app");
     }, 2500);
@@ -4537,7 +4574,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
 // ===== ADD-ON: webhook-independent credit sync =====
 (function () {
     function syncCredits() {
-        fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
+        fetch("/api/billing/sync").then(settingsResponse).then(function (d) {
             if (d && d.added_sessions_credits) {
                 notify("success", "💰 " + d.added_sessions_credits + " credits from your purchase have been added.");
             }
@@ -4556,7 +4593,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
 // ===== ADD-ON: visible credit sync + manual trigger =====
 (function () {
     window.syncCreditsNow = function () {
-        fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
+        fetch("/api/billing/sync").then(settingsResponse).then(function (d) {
             console.log("[sync]", d);
             if (d && d.error) { notify("error", "We couldn't update your credits: " + d.error); return; }
             if (d && d.added_sessions_credits) {
@@ -4585,7 +4622,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ sid: s })
-        }).then(function (r) { return r.json(); }).then(function (d) {
+        }).then(settingsResponse).then(function (d) {
             console.log("[fulfill]", d);
             if (d && d.added) {
                 notify("success", "💰 " + d.added + " credits added from your purchase.");
@@ -4598,7 +4635,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
     if (sid) setTimeout(function () { fulfill(sid); }, 900);
 
     window.syncCreditsNow = function () {
-        fetch("/api/billing/sync").then(function (r) { return r.json(); }).then(function (d) {
+        fetch("/api/billing/sync").then(settingsResponse).then(function (d) {
             console.log("[sync]", d);
             if (d && d.error) { notify("error", "We couldn't update your credits: " + d.error); return; }
             if (d && d.added_sessions_credits) {
@@ -4942,7 +4979,7 @@ async function applyVolumes() {
         fetch("/api/remix_audio", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, offsets: offs, gains: gains, total_duration: totalDuration, duration_mode: document.getElementById("durationMode").value })
-        }).then(function (r) { return r.json(); }).then(function (data) {
+        }).then(settingsResponse).then(function (data) {
             if (!data || data.status !== "success") { notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "server error")); return; }
             Object.keys(gains).forEach(function (sid) { window._volumeGains[sid] = gains[sid]; });
             if (typeof buildVolumeTable === "function") buildVolumeTable(window._volumeLines || []);
@@ -5028,10 +5065,10 @@ async function applyVolumes() {
             form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
             st.textContent = "Uploading & creating voice...";
             fetch("/api/upload_custom_voice", { method: "POST", body: form })
-                .then(function (r) { return r.json(); })
+                .then(settingsResponse)
                 .then(function (d) {
                     st.textContent = "";
-                    if (d.error) { notify("error", d.error); return; }
+                    if (typeof d.voice_id !== "string" || !d.voice_id) throw new Error(settingsErrorMessage());
                     clonedBySpeaker[sp] = d.voice_id;
                     speakerChoices[sp] = "clone";
                     applyChoice(sp);
@@ -5215,7 +5252,7 @@ async function applyVolumes() {
         fetch("/api/remix_audio", {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ job_id: currentJobId, segments: segmentsData, offsets: offs, gains: gains, total_duration: totalDuration, duration_mode: document.getElementById("durationMode").value })
-        }).then(function (r) { return r.json(); }).then(function (data) {
+        }).then(settingsResponse).then(function (data) {
             if (!data || data.status !== "success") { notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "server error")); return; }
             var cuts = (data.duration_cuts || 0);
             notify("success", "Final MP3 rebuilt" + (cuts > 0 ? " — " + cuts + " line(s) still trimmed." : " — no lines were trimmed."));
@@ -5280,10 +5317,10 @@ window.uploadCustomVoice = function () {
             fetch(url, { method: "POST", body: form.clone ? form : form })
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
                 .then(function (out) {
-                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) {
+                    if (!out.ok || !out.d || out.d.ok === false || out.d.error || !out.d.voice_id) {
                         if (fallback) { tryUrl(fallback, null); return; }
                         if (st) st.textContent = "";
-                        notify("error", (out.d && (out.d.error || out.d.detail)) || "Something went wrong on our side. Please try again in a moment.");
+                        notify("error", settingsErrorMessage(out.d && (out.d.error || out.d.detail)));
                         return;
                     }
                     if (st) st.textContent = "";
@@ -5309,8 +5346,8 @@ window.cleanOldClones = function () {
         if (!ok) return;
         var keep = Object.values(clonedBySpeaker || {}).concat(window.clonedVoiceIds || []);
         fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: keep, job_id: currentJobId }) })
-            .then(function (r) { return r.json(); })
-            .then(function (d) { notify("success", "🧹 Removed " + (d.deleted || 0) + " old cloned voice(s)." + ((d.errors || []).length ? " (" + d.errors.length + " errors)" : "")); })
+            .then(settingsResponse)
+            .then(function (d) { if ((d.errors || []).length || !Number.isInteger(d.deleted)) throw new Error(settingsErrorMessage("Some voices could not be removed. Please try again later.")); notify("success", "🧹 Removed " + (d.deleted || 0) + " old cloned voice(s)." + ((d.errors || []).length ? " (" + d.errors.length + " errors)" : "")); })
             .catch(function (e) { notify("error", e.message); });
     });
 };
@@ -5908,7 +5945,7 @@ window.cleanOldClones = function () {
             fetch("/api/cleanup_voices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep: [], job_id: currentJobId, wipe_samples: true }) })
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, st: r.status, d: d }; }); })
                 .then(function (out) {
-                    if (!out.ok) { notify("error", "Voice cleanup isn't available right now. Please try again later."); return; }
+                    if (!out.ok || !out.d || out.d.ok === false || out.d.error || (out.d.errors || []).length || !Number.isInteger(out.d.deleted)) { notify("error", settingsErrorMessage(out.d && out.d.error) || "Voice cleanup could not be confirmed."); return; }
                     notify("success", "🧹 Removed " + (out.d.deleted || 0) + " cloned voice(s) from your account.");
                 })
                 .catch(function (e) { notify("error", e.message); });
@@ -6143,7 +6180,7 @@ window.cleanOldClones = function () {
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
                 .then(function (out) {
                     if (st) st.textContent = "";
-                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) { notify("error", (out.d && (out.d.error || out.d.detail)) || "Something went wrong on our side. Please try again in a moment."); return; }
+                    if (!out.ok || !out.d || out.d.ok === false || out.d.error || !out.d.voice_id) { notify("error", settingsErrorMessage(out.d && (out.d.error || out.d.detail))); return; }
                     window._customVoiceNames[sp] = "📤 Custom voice (" + sp + ")";
                     clonedBySpeaker[sp] = out.d.voice_id;
                     speakerChoices[sp] = "clone";
@@ -6316,7 +6353,7 @@ window.cleanOldClones = function () {
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
                 .then(function (out) {
                     if (st) st.textContent = "";
-                    if (!out.ok || !out.d || out.d.error || !out.d.voice_id) { notify("error", (out.d && (out.d.error || out.d.detail)) || "Something went wrong on our side. Please try again in a moment."); return; }
+                    if (!out.ok || !out.d || out.d.ok === false || out.d.error || !out.d.voice_id) { notify("error", settingsErrorMessage(out.d && (out.d.error || out.d.detail))); return; }
                     window.customBySpeaker[sp] = out.d.voice_id;
                     window.clonedVoiceIds = window.clonedVoiceIds || [];
                     window.clonedVoiceIds.push(out.d.voice_id);
@@ -7875,7 +7912,7 @@ window.cleanOldClones = function () {
                 overlap_allowed: window.overlapAllowed || {}, dead_space_allowed: window.deadSpaceAllowed || {},
                 room: (typeof window.getRoomSettings === "function") ? window.getRoomSettings() : {}
             })
-        }).then(function (r) { return r.json(); }).then(function (data) {
+        }).then(settingsResponse).then(function (data) {
             if (!data || data.status !== "success") { notify("error", "Rebuild failed: " + ((data && (data.error || data.detail)) || "server error")); return; }
             if (typeof window.onRoomApplied === "function") window.onRoomApplied(data.room);
             var cuts = (data.duration_cuts || 0);

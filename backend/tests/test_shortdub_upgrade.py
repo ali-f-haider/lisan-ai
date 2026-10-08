@@ -385,6 +385,22 @@ class AudioWorkerTests(unittest.TestCase):
         self.assertEqual(result['status'], 'success', result)
         self.assertEqual(other.read_bytes(), original)
 
+    def test_one_line_rebuild_keeps_the_silent_gap_and_offset_choices(self):
+        """Re-speaking or re-stretching ONE line rebuilds the whole mix; the user's earlier
+        silent-gap and timeline-offset choices must still shape that mix."""
+        first, second = segment(sid='seg_0', start=0., end=1.), segment(sid='seg_1', text='أهلا', start=2., end=3.)
+        self.n['generate_worker'](request(segment=first, segments=[first, second]))
+        self.assertEqual(self.progress[f'generate_{JOB_A}']['status'], 'done')
+        for name in ('regenerate_line', 'restretch_line'):
+            for flags, offsets, delay, allowed in (({}, {}, 0, 1.0), ({'seg_0': True}, {}, 0, 1.995), ({'seg_0': True}, {'seg_0': 0.5}, 500, 1.495)):
+                calls = []
+                self.n['_mix_filter_part'] = lambda index, allowed_, delay_ms, gdb, trim, calls=calls: calls.append((index, allowed_, delay_ms)) or 'mock_filter'
+                result = self.n[name](request(segment=first, segments=[first, second], dead_space_allowed=flags, offsets=offsets))
+                self.assertEqual(result['status'], 'success', result)
+                got_allowed, got_delay = calls[0][1], calls[0][2]
+                self.assertEqual(got_delay, delay, (name, flags, offsets))
+                self.assertAlmostEqual(got_allowed, allowed, places=2, msg=(name, flags, offsets))
+
     def test_inworld_generation_uses_scoped_audio_and_correct_counter(self):
         req = request(speaker_voice_engines={'Speaker 1': 'inworld'})
         self.n['generate_worker'](req)

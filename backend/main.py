@@ -287,6 +287,7 @@ class RegenerateLineRequest(_JobIdModel):
     duration_mode: str = "exact"
     overlap_allowed: dict = {}
     dead_space_allowed: dict = {}
+    offsets: Dict[str, float] = {}   # timeline offsets the user confirmed; kept when only one line is rebuilt
     total_duration: float = 0.0
 
 class RemixRequest(_JobIdModel):
@@ -807,6 +808,7 @@ def _rate_limited(request: Request, bucket: str, max_attempts: int, window_sec: 
 _user_info_cache = {}
 @app.get("/api/user/info")
 def user_info(request: Request):
+    import hashlib
     cookie = request.cookies.get("session", "")
     user_id = _current_uid(request)
     if not user_id:
@@ -855,7 +857,10 @@ def user_info(request: Request):
             subscription_status = sub_prof.get("subscription_status") or "none"
 
         result = {"name": display_name, "uid": user_id, "credits": credits, "is_guest": False, "lipsync_enabled": LIPSYNC_ENABLED,
-                  "subscription_status": subscription_status, "watermark": bool(_wm_needed(user_id))}
+                  "subscription_status": subscription_status, "watermark": bool(_wm_needed(user_id)),
+                  # Identifies THIS login (a new login always gets a new session cookie) without revealing the cookie;
+                  # the page uses it to start every new login with an empty notification list.
+                  "login_id": hashlib.sha256(("lisan-login:" + cookie).encode("utf-8")).hexdigest()[:16] if cookie else ""}
         if subscription_status == "active":
             # Which plan, when it renews/ends, and whether it's been cancelled
             # (still active until the paid period ends) -- for the Account
@@ -6932,6 +6937,7 @@ def _save_pricing_config(config):
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=10) as r:
             pass
+        failed_settings = []
         # The two Dub Long Video settings are written in their OWN request:
         # if their columns don't exist yet (SQL not run), only this small
         # write fails -- the main save above (everything else) is unaffected.
@@ -6945,6 +6951,7 @@ def _save_pricing_config(config):
                 pass
         except Exception as _ld_ex:
             print(f"[admin] long-dub settings not saved (has the long_dub_* SQL been run?): {_ld_ex}")
+            failed_settings.append("long-video limits and analysis price: " + _http_error_detail(_ld_ex))
         # The long-dub flat fee also gets its OWN request: its column
         # (long_dub_flat_credits) may not exist yet, and then only this write fails.
         try:
@@ -6956,6 +6963,7 @@ def _save_pricing_config(config):
                 pass
         except Exception as _ff_ex:
             print(f"[admin] long-dub flat fee not saved (has long_dub_flat_credits been added to pricing_config?): {_ff_ex}")
+            failed_settings.append("long-video processing price: " + _http_error_detail(_ff_ex))
         # The disk-alert switch also gets its OWN request: if its column hasn't been
         # added yet (see the ALTER TABLE in the release notes), only this write
         # fails and the main save above is unaffected.
@@ -6968,6 +6976,7 @@ def _save_pricing_config(config):
                 pass
         except Exception as _da_ex:
             print(f"[admin] disk-alert switch not saved (has disk_alerts_enabled been added to pricing_config?): {_da_ex}")
+            failed_settings.append("storage alerts: " + _http_error_detail(_da_ex))
         # The Gemini price factor in its own request too: if its column has not been added yet, only this write fails.
         try:
             _gc_body = json.dumps({
@@ -6978,6 +6987,7 @@ def _save_pricing_config(config):
                 pass
         except Exception as _gc_ex:
             print(f"[admin] Gemini price factor not saved (has gemini_credits_per_cent been added to pricing_config?): {_gc_ex}")
+            failed_settings.append("text price factor: " + _http_error_detail(_gc_ex))
         # The AI helper's settings in their own request too (one JSON column, see the SQL in the admin page).
         try:
             _as_body = json.dumps({
@@ -6988,6 +6998,7 @@ def _save_pricing_config(config):
                 pass
         except Exception as _as_ex:
             print(f"[admin] AI helper settings not saved (has the assistant column been added to pricing_config?): {_as_ex}")
+            failed_settings.append("helper settings: " + _http_error_detail(_as_ex))
         # Parallel-job settings in their own request too (one JSON column, see the SQL in the admin page).
         try:
             _cc_body = json.dumps({
@@ -6998,6 +7009,7 @@ def _save_pricing_config(config):
                 pass
         except Exception as _cc_ex:
             print(f"[admin] parallel-job settings not saved (has the concurrency column been added to pricing_config?): {_cc_ex}")
+            failed_settings.append("parallel-job settings: " + _http_error_detail(_cc_ex))
         # ...and the lip-sync length limit in its own request too (its column came later).
         try:
             _ll_body = json.dumps({
@@ -7008,6 +7020,9 @@ def _save_pricing_config(config):
                 pass
         except Exception as _ll_ex:
             print(f"[admin] long-dub lip-sync limit not saved (has the long_dub_lipsync_max_min SQL been run?): {_ll_ex}")
+            failed_settings.append("lip-sync length limit: " + _http_error_detail(_ll_ex))
+        if failed_settings:
+            return False, "Some settings were saved, but these could not be saved: " + "; ".join(failed_settings) + ". Review and save again."
         return True, None
     except Exception as ex:
         detail = _http_error_detail(ex)
@@ -7379,7 +7394,7 @@ async def admin_save_pricing(request: Request):
     try:
         body = await request.json()
     except Exception:
-        body = {}
+        return JSONResponse({"ok": False, "error": "Could not read the settings. Reload the page and save again."}, status_code=400)
     ok, err = _save_pricing_config(body)
     if ok:
         _apply_concurrency(body.get("concurrency"))
