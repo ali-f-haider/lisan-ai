@@ -9100,6 +9100,7 @@ _api_router, _api_owner_router, _api_limiter = api_v1.build(_api_deps)
 app.include_router(_api_router)
 app.include_router(_api_owner_router)
 app.add_exception_handler(api_v1.ApiError, api_v1.handle_api_error)
+assistant_service.api_enabled = lambda: bool(_get_api_settings().get("enabled"))      # the AI helper mentions the API only while it is open
 
 
 @app.get("/api/admin/api_settings")

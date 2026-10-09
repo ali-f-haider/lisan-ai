@@ -134,6 +134,10 @@ def _page_text(fname, section, cap):
     if section:
         m = re.search(r'<section[^>]*id="%s".*?</section>' % section, s, flags=re.S)
         s = m.group(0) if m else ""
+    # Entries about the API (marked data-api) are left out here: the helper learns about the API from API_FACTS_ON/OFF, which follow the admin
+    # switch, so a page can never make it say the API is open while it is closed.
+    s = re.sub(r"<details[^>]*data-api.*?</details>", "", s, flags=re.S)
+    s = re.sub(r'<div class="card"[^>]*data-api.*?</div>', "", s, flags=re.S)
     s = re.sub(r"<script.*?</script>", "", s, flags=re.S)
     s = re.sub(r"<style.*?</style>", "", s, flags=re.S)
     s = re.sub(r"<br\s*/?>", "\n", s)
@@ -297,6 +301,30 @@ WHAT THE HELPER CANNOT DO
 It cannot refund, add or remove credits, cancel a subscription, delete files, start or stop jobs, or look at the user's video. For those it explains how the user does it themselves, or offers to send the question to the support team."""
 
 
+# The public API (version 1) for Dub Long Video. main.py points `api_enabled` at the admin switch, so the helper only
+# says the API exists while it is really open for customers.
+api_enabled = lambda: False
+
+API_FACTS_ON = """THE API (for developers)
+- Yes: Lisan AI has a public API for Dub Long Video. A customer's own software can send a video or audio file, approve the price of each paid step and download the finished Arabic dub, without using the website.
+- Who can use it: accounts on a plan that includes Dub Long Video (the same rule as the website). Keys are made on the Account page, in the tab "API" (heading "API keys"): the customer names the key, chooses a daily credit limit and accepts the API terms. The key is shown only once.
+- Guide and test tool: the page /api-docs explains every step, with a ready-made tool to try it in five minutes.
+- Money: the API uses the same credits (about 1 cent each). Every paid step shows its exact price first and is charged only after the customer's software approves it, up to a ceiling the customer sets. Nothing is charged twice. The daily limit of a key protects the account if the key leaks. Prices are shown in each quote and can differ from the website's prices. If a paid step fails on our side the credits come back automatically, like on the website.
+- Jobs started through the API normally also appear in the customer's projects on the website, where the Arabic text can be reviewed and corrected before the dubbing is paid for.
+- Not available yet: short dubs under 20 seconds, editing the text through the API, voice libraries, subtitles and usage reports through the API, webhooks.
+- The helper cannot create keys or change limits: the customer does it on the Account page. For an API problem offer the support team [[SUPPORT]] and ask for the request_id from the error message. Never ask a customer to paste an API key in this chat; tell them to keep it secret."""
+
+API_FACTS_OFF = """THE API (for developers)
+- Lisan AI is preparing a public API for Dub Long Video, but it is not open for customers yet. Do not promise a date, a price or features. If the visitor wants to know when it opens, offer to send the question to the support team [[SUPPORT]]."""
+
+
+def api_facts():
+    try:
+        return API_FACTS_ON if api_enabled() else API_FACTS_OFF
+    except Exception:
+        return API_FACTS_OFF
+
+
 def build_system_prompt(pricing_text, account_text, signed_in):
     parts = [
         "You are the Lisan AI helper: a friendly assistant inside the Lisan AI website, which dubs English video and audio into Arabic "
@@ -331,6 +359,8 @@ def build_system_prompt(pricing_text, account_text, signed_in):
         "",
         "=== FACTS: WHERE THINGS ARE AND WHAT THINGS MEAN ===",
         FACTS,
+        "",
+        api_facts(),
         "",
         "=== FACTS: NOTES FROM THE OWNER (the most up-to-date truth: if they disagree with any other FACTS, these win) ===",
         SETTINGS.get("notes") or "(none)",

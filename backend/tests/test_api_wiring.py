@@ -162,3 +162,66 @@ class GuidePageTests(unittest.TestCase):
         low = self.PAGE.lower()
         for name in ("gemini", "elevenlabs", "inworld", "openai", "chatgpt", "claude", "anthropic", "fal.ai", "pyannote", "whisper"):
             self.assertNotIn(name, low)
+
+
+class HelperKnowsTheApiTests(unittest.TestCase):
+    def prompt(self, enabled):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        import assistant_service as a
+        old = a.api_enabled
+        a.api_enabled = lambda: enabled
+        try:
+            return a.build_system_prompt("prices", "", False)
+        finally:
+            a.api_enabled = old
+
+    def test_open_api_is_explained_and_points_to_the_guide(self):
+        p = self.prompt(True)
+        self.assertIn("/api-docs", p)
+        self.assertIn("API keys", p)
+        self.assertNotIn("not open for customers yet", p)
+
+    def test_closed_api_is_not_promised(self):
+        p = self.prompt(False)
+        self.assertIn("not open for customers yet", p)
+        self.assertNotIn("/api-docs", p)
+
+    def test_failure_to_read_the_switch_counts_as_closed(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        import assistant_service as a
+        old = a.api_enabled
+        a.api_enabled = lambda: 1 / 0
+        try:
+            self.assertEqual(a.api_facts(), a.API_FACTS_OFF)
+        finally:
+            a.api_enabled = old
+
+    def test_api_facts_name_no_vendor_and_main_connects_the_switch(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        import assistant_service as a
+        for text in (a.API_FACTS_ON, a.API_FACTS_OFF):
+            for name in ("gemini", "elevenlabs", "inworld", "openai", "whisper", "alibaba", "wan ", "qwen"):
+                self.assertNotIn(name, text.lower())
+        self.assertIn("assistant_service.api_enabled = lambda: bool(_get_api_settings().get(\"enabled\"))", MAIN)
+
+    def test_pages_mention_the_api_but_the_helper_reads_only_the_switch_aware_facts(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        import assistant_service as a
+        for name in ("help.html", "landing.html"):
+            self.assertIn("/api-docs", (ROOT / name).read_text(encoding="utf-8"), name)
+        self.assertEqual((ROOT / "help.html").read_text(encoding="utf-8").count('data-api="1"'), 2)
+        self.assertEqual((ROOT / "landing.html").read_text(encoding="utf-8").count('data-api="1"'), 1)
+        old_dir, old_kb = a.BASE_DIR, dict(a._kb)
+        a.BASE_DIR, a._kb["mtime"], a._kb["text"] = ROOT, None, ""
+        try:
+            text = a.help_text()
+        finally:
+            a.BASE_DIR = old_dir
+            a._kb.update(old_kb)
+        self.assertNotIn("/api-docs", text)
+        self.assertNotIn("Does Lisan AI have an API", text)
+        self.assertIn("What file formats are supported?", text)      # the rest of the page is still read
