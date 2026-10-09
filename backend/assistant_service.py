@@ -125,7 +125,7 @@ def _is_arabic_line(s):
     return ar / len(letters) > 0.3
 
 
-_SITE_PAGES = (("HELP PAGE", "help.html", None, 16000), ("FAQ ON THE HOME PAGE", "landing.html", "faq", 6000),
+_SITE_PAGES = (("HELP PAGE", "help.html", None, 21000), ("FAQ ON THE HOME PAGE", "landing.html", "faq", 6000),
                ("TERMS OF USE", "terms.html", None, 7000), ("PRIVACY POLICY", "privacy.html", None, 7000))
 
 

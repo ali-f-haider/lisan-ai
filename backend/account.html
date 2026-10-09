@@ -54,7 +54,10 @@
     padding: 10px 16px; cursor: pointer; font-size: 14px; font-weight: 600;
     color: #6b7280; border-bottom: 2px solid transparent; margin-bottom: -2px;
     white-space: nowrap; user-select: none;
+    background: none; border-top: 0; border-left: 0; border-right: 0; border-radius: 0; font-family: inherit; line-height: inherit;
   }
+  .acct-tab:focus-visible { outline: 2px solid #1a237e; outline-offset: -2px; border-radius: 4px; }
+  body.dark .acct-tab:focus-visible { outline-color: var(--primary-fg); }
   .acct-tab:hover { color: #1a237e; }
   .acct-tab.active { color: #1a237e; border-bottom-color: #1a237e; }
   .acct-panel { display: none; }
@@ -108,17 +111,17 @@
     <button id="logoutBtn" class="btn-logout" onclick="try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
   </div>
 </div>
-<div class="acct-tabbar" id="acctTabbar">
-  <div class="acct-tab active" data-tab="balance" id="tabBalance">💰 Balance</div>
-  <div class="acct-tab" data-tab="subscription" id="tabSubscription">🔁 Subscription</div>
-  <div class="acct-tab" data-tab="voices" id="tabVoices">🎙️ Voices</div>
-  <div class="acct-tab" data-tab="files" id="tabFiles">🎬 Files</div>
-  <div class="acct-tab" data-tab="purchases" id="tabPurchases">🛒 Purchases</div>
-  <div class="acct-tab" data-tab="usage" id="tabUsage">📉 Usage</div>
-  <div class="acct-tab" data-tab="api" id="tabApi" style="display:none;">🔑 API</div>
+<div class="acct-tabbar" id="acctTabbar" role="tablist" aria-label="Account sections">
+  <button type="button" role="tab" class="acct-tab active" data-tab="balance" id="tabBalance" aria-selected="true" aria-controls="panel-balance" tabindex="0">💰 Balance</button>
+  <button type="button" role="tab" class="acct-tab" data-tab="subscription" id="tabSubscription" aria-selected="false" aria-controls="panel-subscription" tabindex="-1">🔁 Subscription</button>
+  <button type="button" role="tab" class="acct-tab" data-tab="voices" id="tabVoices" aria-selected="false" aria-controls="panel-voices" tabindex="-1">🎙️ Voices</button>
+  <button type="button" role="tab" class="acct-tab" data-tab="files" id="tabFiles" aria-selected="false" aria-controls="panel-files" tabindex="-1">🎬 Files</button>
+  <button type="button" role="tab" class="acct-tab" data-tab="purchases" id="tabPurchases" aria-selected="false" aria-controls="panel-purchases" tabindex="-1">🛒 Purchases</button>
+  <button type="button" role="tab" class="acct-tab" data-tab="usage" id="tabUsage" aria-selected="false" aria-controls="panel-usage" tabindex="-1">📉 Usage</button>
+  <button type="button" role="tab" class="acct-tab" data-tab="api" id="tabApi" style="display:none;" aria-selected="false" aria-controls="panel-api" tabindex="-1">🔑 API</button>
 </div>
 
-<div class="acct-panel active" id="panel-balance">
+<div class="acct-panel active" id="panel-balance" role="tabpanel" aria-labelledby="tabBalance">
   <div class="card">
     <h3 id="balanceHeading">💰 Current balance</h3>
     <p id="balanceLine" style="font-size:24px;font-weight:800;color:#059669;margin:6px 0;">—</p>
@@ -131,7 +134,7 @@
   </div>
 </div>
 
-<div class="acct-panel" id="panel-subscription">
+<div class="acct-panel" id="panel-subscription" role="tabpanel" aria-labelledby="tabSubscription">
   <div class="card" id="subCard">
     <h3 id="subHeading">🔁 Subscription</h3>
     <p id="subStatusLine" class="note">—</p>
@@ -143,7 +146,7 @@
   </div>
 </div>
 
-<div class="acct-panel" id="panel-voices">
+<div class="acct-panel" id="panel-voices" role="tabpanel" aria-labelledby="tabVoices">
   <div class="card">
     <h3 id="voicesHeading">🎙️ Saved Voices</h3>
     <p id="voicesNote" class="note" data-tip-src>Cloned voices you save here are kept for reuse across projects — no need to re-clone the same speaker every time. Deleting one frees a slot.</p>
@@ -153,10 +156,10 @@
   </div>
 </div>
 
-<div class="acct-panel" id="panel-files">
+<div class="acct-panel" id="panel-files" role="tabpanel" aria-labelledby="tabFiles">
   <div class="card">
     <h3 id="filesHeading">🎬 Your Finished Files</h3>
-    <p id="filesNote" class="note" data-tip-src>Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.</p>
+    <p id="filesNote" class="note" data-tip-src>Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Dub Long Video projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.</p>
     <div class="stor" id="storageMeter" style="display:none;" role="group" aria-labelledby="storTitle">
       <div class="stor-head"><strong id="storTitle">Storage</strong><span class="stor-text" id="storText"></span></div>
       <div class="stor-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="storBar"><div class="stor-fill" id="storFill"></div></div>
@@ -166,21 +169,21 @@
   </div>
 </div>
 
-<div class="acct-panel" id="panel-purchases">
+<div class="acct-panel" id="panel-purchases" role="tabpanel" aria-labelledby="tabPurchases">
   <div class="card">
     <h3 id="purchasesHeading">🛒 Credit purchases</h3>
     <table id="purchasesTable"><thead><tr><th id="thPDate">Date</th><th id="thPType">Type</th><th id="thPCredits">Credits</th><th id="thPSession">Payment reference</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
-<div class="acct-panel" id="panel-usage">
+<div class="acct-panel" id="panel-usage" role="tabpanel" aria-labelledby="tabUsage">
   <div class="card">
     <h3 id="spendsHeading">📉 Credit consumption</h3>
     <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 
-<div class="acct-panel" id="panel-api">
+<div class="acct-panel" id="panel-api" role="tabpanel" aria-labelledby="tabApi">
   <div class="card">
     <h3 id="apiHeading">🔑 API keys</h3>
     <p class="note" id="apiIntro"></p>
@@ -297,8 +300,8 @@ var T = {
     saveVoiceFailed: "Couldn't save. Please try again.",
     voiceSaved: "Saved.",
     filesHeading: "🎬 Your Finished Files",
-    filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
-    filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files (uploads, drafts) are still cleared after about 6 hours — see our <a href="/privacy">Privacy Policy</a>.',
+    filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Dub Long Video projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.',
+    filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Dub Long Video projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.',
     loading: "Loading…",
     purchasesHeading: "🛒 Credit purchases & plan credits", thPDate: "Date", thPType: "Type", thPCredits: "Credits", thPSession: "Stripe reference",
     typePack: "Credit pack", typeSub: "Monthly plan credits",
@@ -371,8 +374,8 @@ var T = {
     saveVoiceFailed: "تعذّر الحفظ. حاول مرة أخرى.",
     voiceSaved: "تم الحفظ.",
     filesHeading: "🎬 ملفاتك الجاهزة",
-    filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
-    filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. الملفات قيد المعالجة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). ملفات العمل قيد المعالجة في الدبلجات القصيرة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا، ولمشاريع «دبلجة فيديو طويل» قواعدها الخاصة — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. ملفات العمل قيد المعالجة في الدبلجات القصيرة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا، ولمشاريع «دبلجة فيديو طويل» قواعدها الخاصة — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     loading: "جارٍ التحميل…",
     purchasesHeading: "🛒 مشتريات الائتمان وائتمان الاشتراك", thPDate: "التاريخ", thPType: "النوع", thPCredits: "الائتمانات", thPSession: "مرجع الدفع",
     typePack: "باقة رصيد", typeSub: "رصيد الاشتراك الشهري",
@@ -443,6 +446,7 @@ function accountResponse(response, expected) {
   document.getElementById("creditsWord").textContent = T.credits;
   document.getElementById("backBtn").firstChild.nodeValue = T.back;
   document.getElementById("logoutBtn").textContent = T.logout;
+  document.getElementById("acctTabbar").setAttribute("aria-label", LANG === "ar" ? "أقسام الحساب" : "Account sections");
   document.getElementById("tabBalance").textContent = T.tabBalance;
   document.getElementById("tabSubscription").textContent = T.tabSubscription;
   document.getElementById("tabVoices").textContent = T.tabVoices;
@@ -485,12 +489,32 @@ function accountResponse(response, expected) {
 // #hash deep link (e.g. /account#purchases) so a link elsewhere in the app
 // can open straight to one tab instead of always landing on Balance.
 (function setupTabs() {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".acct-tab"));
   function activate(name) {
-    document.querySelectorAll(".acct-tab").forEach(function (t) { t.classList.toggle("active", t.dataset.tab === name); });
+    tabs.forEach(function (t) {
+      var on = t.dataset.tab === name;
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;                                           // one tab stop; the arrow keys move between the tabs
+    });
     document.querySelectorAll(".acct-panel").forEach(function (p) { p.classList.toggle("active", p.id === "panel-" + name); });
   }
-  document.querySelectorAll(".acct-tab").forEach(function (tab) {
+  tabs.forEach(function (tab) {
     tab.onclick = function () { activate(tab.dataset.tab); history.replaceState(null, "", "#" + tab.dataset.tab); };
+    tab.onkeydown = function (e) {
+      var shown = tabs.filter(function (t) { return t.offsetParent !== null; });      // the API tab can be hidden
+      var i = shown.indexOf(tab), j = -1;
+      var rtl = getComputedStyle(document.documentElement).direction === "rtl";
+      var next = rtl ? "ArrowLeft" : "ArrowRight", prev = rtl ? "ArrowRight" : "ArrowLeft";
+      if (e.key === next) j = (i + 1) % shown.length;
+      else if (e.key === prev) j = (i - 1 + shown.length) % shown.length;
+      else if (e.key === "Home") j = 0;
+      else if (e.key === "End") j = shown.length - 1;
+      if (j < 0) return;
+      e.preventDefault();
+      shown[j].focus();
+      shown[j].click();                                                   // only switches the section: nothing is bought, deleted or created
+    };
   });
   var fromHash = (window.location.hash || "").replace("#", "");
   var valid = ["balance", "subscription", "voices", "files", "purchases", "usage", "api"];

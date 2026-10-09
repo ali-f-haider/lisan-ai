@@ -123,8 +123,8 @@ var T = {
   en: {
     title: "Lisan AI — Dub Long Video", credits: "credits", back: "← Back to App", logout: "Log Out",
     introHeading: "🎞️ Dub Long Video",
-    introText: function (maxMin) {
-      return "For videos longer than the normal 15-second limit — up to " + maxMin + " minutes. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you when your dubbed file is ready.";
+    introText: function (maxMin, shortSec, lipSec) {
+      return "For videos longer than the normal dub's " + shortSec + "-second limit (" + lipSec + " seconds with lip-sync) — up to " + maxMin + " minutes. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you when your dubbed file is ready.";
     },
     introSteps: [
       "Name your project, upload your video and tell us how many people speak. You pay a small fee to get a price and time estimate for the whole job — it counts toward the total.",
@@ -378,8 +378,8 @@ var T = {
   ar: {
     title: "لسان AI — دبلجة فيديو طويل", credits: "رصيد", back: "→ العودة إلى التطبيق", logout: "تسجيل الخروج",
     introHeading: "🎞️ دبلجة فيديو طويل",
-    introText: function (maxMin) {
-      return "للفيديوهات الأطول من حدّ الـ15 ثانية المعتاد — حتى " + maxMin + " دقائق. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عندما يجهز الملف المدبلج.";
+    introText: function (maxMin, shortSec, lipSec) {
+      return "للفيديوهات الأطول من حدّ الدبلجة العادية (" + shortSec + " ثانية، و" + lipSec + " ثانية مع مزامنة الشفاه) — حتى " + maxMin + " دقائق. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عندما يجهز الملف المدبلج.";
     },
     introSteps: [
       "سمِّ مشروعك، وارفع الفيديو وأخبرنا بعدد المتحدثين. تدفع رسماً صغيراً للحصول على تقدير السعر والوقت للعملية كاملة — ويُحتسب من الإجمالي.",
@@ -744,7 +744,8 @@ function applyStaticText() {
 
 function applyConfigText() {
   var maxMin = cfg ? cfg.max_min : 10;
-  $("introText").textContent = T.introText(maxMin);
+  var lim = (cfg && cfg.limits) || {};      // the limits the server enforces (short dub and long dub), so this text never disagrees with them
+  $("introText").textContent = T.introText(maxMin, lim.short_max_sec || 30, lim.short_lipsync_max_sec || 15);
   $("introSteps").innerHTML = T.introSteps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
   $("dropHint").textContent = T.dropHint(maxMin, cfg ? cfg.max_upload_mb : 2048);
   $("spkCount").max = cfg ? cfg.max_speakers : 8;

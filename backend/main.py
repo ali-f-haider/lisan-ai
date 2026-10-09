@@ -584,7 +584,7 @@ def _site_gate_ok(request: Request) -> bool:
 PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
-    "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
+    "/api/maintenance", "/api/limits", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete"
 , "/help.html", "/admin", "/api-docs"])
 
@@ -5569,6 +5569,23 @@ def dub_long_page():
     return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
 
 
+def _public_limits():
+    """The size and length limits the customer-facing pages quote. The same numbers the upload checks use, so a page can never say one
+    thing while the server enforces another: the short dub (normal and with lip-sync) and the long dub."""
+    return {
+        "short_min_sec": NO_LIPSYNC_MIN_SEC, "short_max_sec": NO_LIPSYNC_MAX_SEC, "short_lipsync_max_sec": LIPSYNC_MAX_SEC,
+        "short_max_mb": MAX_UPLOAD_MB, "short_trim_max_mb": MAX_TRIM_UPLOAD_MB,
+        "long_min_sec": int(longdub_service.MIN_SEC), "long_max_min": int(longdub_service.speaker_vote_live.ENGINE_MAX_MIN),
+        "long_max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
+    }
+
+
+@app.get("/api/limits")
+def public_limits():
+    """Public (no login): the pages read these numbers so FAQ, Help and the app quote the limits the server really enforces."""
+    return JSONResponse(_public_limits(), headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/longdub/config")
 def longdub_config(request: Request):
     uid = _current_uid(request)
@@ -5577,6 +5594,7 @@ def longdub_config(request: Request):
     p = _ld_pricing()
     return {
         "max_min": p["max_min"], "min_sec": longdub_service.MIN_SEC,
+        "limits": _public_limits(),
         "chunk_bytes": longdub_service.CHUNK_BYTES,
         "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"], "flat": p["flat"],

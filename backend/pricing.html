@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" dir="ltr" data-lang="en" data-title-en="Lisan AI — Pricing" data-title-ar="Lisan AI — الأسعار">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,136 +16,110 @@
 <meta name="twitter:title" content="Lisan AI — Pricing">
 <meta name="twitter:description" content="Monthly subscriptions with saved voice-cloning slots, or one-time credit packs.">
 <meta name="twitter:image" content="https://lisanai.org/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/site.css">
+<script src="/site.js"></script>
+<meta name="color-scheme" content="dark light">
 <style>
-:root{--indigo:#1a237e;--green:#059669;--purple:#7c3aed;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--bg:#f9fafb}
-*{box-sizing:border-box;margin:0;padding:0}
-.hidden{display:none!important}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:#fff;line-height:1.6}
-a{color:var(--indigo);text-decoration:none}
-a:hover{text-decoration:underline}
-.bar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:12px 22px;z-index:10}
-.bar img{height:32px}
-.bar .brand{font-weight:800;color:var(--indigo);font-size:18px}
-.bar nav{margin-left:auto;display:flex;gap:18px;font-size:14px;font-weight:600}
-.bar nav a{color:var(--ink)}
-.bar nav a.active{color:var(--indigo);text-decoration:underline}
-.wrap{max-width:1000px;margin:0 auto;padding:0 22px}
-.hero{text-align:center;padding:48px 22px 30px;background:linear-gradient(180deg,#eef2ff 0%,#fff 100%)}
-.hero h1{color:var(--indigo);font-size:34px;line-height:1.2;margin-bottom:12px}
-.hero p{max-width:620px;margin:0 auto 10px;color:var(--muted);font-size:16px}
-.hero .ar2{max-width:620px;margin:4px auto 0}
-section{padding:36px 0}
-h2{color:var(--indigo);font-size:24px;margin-bottom:6px;text-align:center}
-.section-note{text-align:center;color:var(--muted);max-width:640px;margin:0 auto 8px;font-size:14px}
+/* Pricing: the shared look of the site (colours, fonts, top bar and the light/dark choice come from /site.css and /site.js). */
+body.site .wrap{position:relative;z-index:1;max-width:1040px;margin:0 auto;padding:0 24px}
+.p-hero{position:relative;z-index:1;text-align:center;padding:112px 0 22px}
+body.site .p-hero h1{margin:0 0 14px}
+.p-hero p{max-width:660px;margin:0 auto 10px;color:var(--body);font-size:16px}
+.p-hero p.fine{font-size:14.5px}
+.p-sec{position:relative;z-index:1;padding:32px 0}
+.p-sec.alt{background:var(--bg2);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+body.site .p-sec h2{text-align:center;margin:0 0 8px;padding:0;border:0}
+.section-note{text-align:center;color:var(--body);max-width:680px;margin:0 auto 8px;font-size:14.5px}
+.section-note a{font-weight:700}
 .plan-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin:22px 0}
-.plan-card{position:relative;border:2px solid var(--line);border-radius:16px;padding:22px 20px;background:#fff;text-align:left;cursor:pointer;font-family:inherit;transition:border-color .15s,transform .15s,box-shadow .15s;display:block;width:100%}
-.plan-card:hover:not(:disabled){border-color:var(--indigo);transform:translateY(-3px);box-shadow:0 8px 20px rgba(26,35,126,.1)}
-.plan-card:disabled{cursor:not-allowed;opacity:.65}
+.plan-card{position:relative;border:1px solid var(--line2);border-radius:16px;padding:22px 20px;background:var(--card);text-align:start;cursor:pointer;font-family:inherit;color:var(--text);transition:border-color .15s,transform .15s,box-shadow .15s;display:block;width:100%}
+.plan-card:hover:not(:disabled){border-color:var(--gold);transform:translateY(-3px);box-shadow:var(--shadow)}
+.plan-card:disabled{cursor:not-allowed;opacity:.72}
 .plan-card.info{cursor:default}
-.plan-card.info:hover{border-color:var(--line);transform:none;box-shadow:none}
-.plan-card.sub{border-color:var(--purple)}
-.plan-card.sub:hover:not(:disabled){border-color:#5b21b6}
-.pbadge{position:absolute;top:-11px;right:16px;background:var(--purple);color:#fff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:10px;line-height:1.3}
-.pname{font-weight:800;color:var(--indigo);font-size:17px}
-.pprice{font-size:28px;font-weight:800;color:var(--green);margin:10px 0 8px}
+.plan-card.info:hover{border-color:var(--line2);transform:none;box-shadow:none}
+.plan-card.sub{border-color:var(--gold)}
+.pbadge{position:absolute;top:-11px;inset-inline-end:16px;background:linear-gradient(180deg,#f2cd7d,#dca443);color:#1a1205;font-size:11px;font-weight:700;padding:4px 12px;border-radius:10px;line-height:1.3}
+.pname{font-weight:800;color:var(--gold2);font-size:17px}
+.pprice{font-size:28px;font-weight:800;color:var(--ok);margin:10px 0 8px}
 .pprice .unit{font-size:13px;font-weight:600;color:var(--muted)}
-.pdetail{font-size:13px;color:#334155;margin:4px 0}
-.pcta{margin-top:14px;font-weight:700;color:var(--indigo);font-size:13px}
-.plan-card.sub .pcta{color:var(--purple)}
+.pdetail{font-size:13.5px;color:var(--body);margin:4px 0}
+.pcta{margin-top:14px;font-weight:700;color:var(--gold);font-size:13.5px}
 .loading-note{text-align:center;color:var(--muted);font-size:14px;padding:20px 0}
-.trust{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13px;color:var(--muted);padding:18px 0 8px}
-footer{border-top:1px solid var(--line);padding:30px 22px;background:#fff}
-.fwrap{max-width:1000px;margin:0 auto;display:flex;flex-wrap:wrap;gap:18px;align-items:center}
-footer img{height:28px}
-footer .brand{font-weight:800;color:var(--indigo)}
-footer nav{margin-left:auto;display:flex;gap:16px;font-size:13px;font-weight:600;flex-wrap:wrap}
-.legal{max-width:1000px;margin:14px auto 0;font-size:12px;color:var(--muted)}
+.trust{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;font-size:13.5px;color:var(--muted);padding:18px 0 8px}
+.p-foot{position:relative;z-index:1;border-top:1px solid var(--line);padding:30px 0}
+.fwrap{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.p-foot img{height:28px;width:28px;border-radius:7px}
+.p-foot .brand{font-weight:800;color:var(--text)}
+.p-foot nav{margin-inline-start:auto;display:flex;gap:16px;font-size:13.5px;font-weight:600;flex-wrap:wrap}
+.legal,.copy{margin:14px 0 0;font-size:12.5px;color:var(--muted)}
 .legal a{color:var(--muted);text-decoration:underline}
-.copy{max-width:1000px;margin:10px auto 0;font-size:12px;color:var(--muted)}
-@media(max-width:720px){.hero h1{font-size:28px}}
-/* Arabic translation lines stacked under the English text throughout the
-   page (no language toggle -- both languages are always visible), same
-   convention as landing.html. */
-.ar2{display:block;direction:rtl;unicode-bidi:isolate;font-weight:500;color:#5b6b85;margin-top:4px;line-height:1.5;font-size:.85em}
-.hero h1 .ar2{color:#3949ab;font-weight:800;font-size:1em;margin-top:10px}
-.hero p .ar2{color:#94a3b8;font-size:15px;font-weight:400}
-h2 .ar2{color:#475569;font-weight:700;font-size:16px;margin-top:6px}
-.section-note .ar2{color:#94a3b8}
-.pname .ar2,.pdetail .ar2,.pcta .ar2{font-size:.85em;margin-top:2px;color:inherit;font-weight:600}
-.pprice .ar2{font-size:14px;color:#6b7280;font-weight:600;margin-top:2px}
-.bar nav a .ar2, footer nav a .ar2{font-size:11px;margin-top:2px;font-weight:600}
-.trust span .ar2{font-size:11px;margin-top:3px}
-.legal a .ar2{font-size:11px}
+@media (max-width:600px){body.site .site-nav .links a.hide-s{display:none}.p-hero{padding-top:96px}}
 </style>
 </head>
-<body>
+<body class="site">
 
-<div class="bar">
-  <a href="/" style="display:flex;align-items:center;gap:10px;"><img src="/logo.png" alt="Lisan AI logo"><span class="brand">Lisan AI</span></a>
-  <nav>
-    <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
-    <a href="/pricing" class="active">Pricing<span class="ar2">الأسعار</span></a>
-    <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
-  </nav>
-</div>
+<nav class="site-nav"><div class="in"><a class="site-brand" href="/"><img src="/logo.png" alt="">Lisan AI</a><div class="links"><a class="hide-s" href="/help"><span class="en">Help &amp; FAQ</span><span class="ar">المساعدة والأسئلة الشائعة</span></a><a href="/pricing" class="active" aria-current="page"><span class="en">Pricing</span><span class="ar">الأسعار</span></a><a href="/login"><span class="en">Log in</span><span class="ar">تسجيل الدخول</span></a></div></div></nav>
 
-<section class="hero">
+<section class="p-hero">
   <div class="wrap">
-    <h1>Pricing<span class="ar2">الأسعار</span></h1>
-    <p>Subscribe monthly for recurring credits and your own saved voice-cloning slots, or buy a one-time credit pack whenever you want.<span class="ar2">اشترك شهريًا للحصول على رصيد متجدد وأماكن صوت مستنسخ خاصة بك، أو اشترِ باقة رصيد لمرة واحدة متى شئت.</span></p>
-    <p style="font-size:14px;opacity:.9;">New accounts start with free credits to try the service. Videos made with free credits only carry a small semi-transparent Lisan AI logo in the corner; audio is never marked. Once you have bought a credit pack or subscribed, the videos you make have no logo.<span class="ar2">تبدأ الحسابات الجديدة برصيد مجاني لتجربة الخدمة. الفيديوهات التي تُصنع بالرصيد المجاني فقط تحمل شعار Lisan AI صغيراً شبه شفاف في الزاوية، ولا يُوضع أي علامة على الصوت. وبعد أن تشتري باقة رصيد أو تشترك تكون الفيديوهات التي تصنعها بلا شعار.</span></p>
+    <h1><span class="en">Pricing</span><span class="ar">الأسعار</span></h1>
+    <p><span class="en">Subscribe monthly for recurring credits and your own saved voice-cloning slots, or buy a one-time credit pack whenever you want.</span><span class="ar">اشترك شهريًا للحصول على رصيد متجدد وأماكن صوت مستنسخ خاصة بك، أو اشترِ باقة رصيد لمرة واحدة متى شئت.</span></p>
+    <p class="fine"><span class="en">New accounts start with free credits to try the service. Videos made with free credits only carry a small semi-transparent Lisan AI logo in the corner; audio is never marked. Once you have bought a credit pack or subscribed, the videos you make have no logo.</span><span class="ar">تبدأ الحسابات الجديدة برصيد مجاني لتجربة الخدمة. الفيديوهات التي تُصنع بالرصيد المجاني فقط تحمل شعار Lisan AI صغيراً شبه شفاف في الزاوية، ولا يُوضع أي علامة على الصوت. وبعد أن تشتري باقة رصيد أو تشترك تكون الفيديوهات التي تصنعها بلا شعار.</span></p>
   </div>
 </section>
 
-<section>
+<section class="p-sec">
   <div class="wrap">
-    <h2>Monthly Subscriptions<span class="ar2">الاشتراكات الشهرية</span></h2>
-    <p class="section-note">Voice cloning is a subscription feature — each plan includes a number of saved, reusable voice slots on top of its monthly credits. If a plan also has a monthly cloning allowance, it is shown on that plan's card.<span class="ar2">استنساخ الصوت ميزة حصرية للمشتركين — تتضمن كل خطة عددًا من أماكن الأصوات المحفوظة والقابلة لإعادة الاستخدام فوق الرصيد الشهري. وإذا كانت الخطة تتضمن رصيد استنساخ شهريًا فسيظهر على بطاقتها.</span></p>
+    <h2><span class="en">Monthly Subscriptions</span><span class="ar">الاشتراكات الشهرية</span></h2>
+    <p class="section-note"><span class="en">Voice cloning is a subscription feature — each plan includes a number of saved, reusable voice slots on top of its monthly credits. If a plan also has a monthly cloning allowance, it is shown on that plan's card.</span><span class="ar">استنساخ الصوت ميزة حصرية للمشتركين — تتضمن كل خطة عددًا من أماكن الأصوات المحفوظة والقابلة لإعادة الاستخدام فوق الرصيد الشهري. وإذا كانت الخطة تتضمن رصيد استنساخ شهريًا فسيظهر على بطاقتها.</span></p>
     <div class="plan-grid" id="subCards"><p class="loading-note">Loading plans…</p></div>
   </div>
 </section>
 
-<section id="dubLong">
+<section class="p-sec" id="dubLong">
   <div class="wrap">
-    <h2>Dub Long Video<span class="ar2">دبلجة فيديو طويل</span></h2>
-    <p class="section-note">Dub videos of several minutes in one go. It is available to everyone, on every plan and with pay-as-you-go credits — there is no separate subscription; you pay for each job with your credits. Before anything is dubbed you see the exact price.<span class="ar2">دبلج فيديوهات تمتد لعدة دقائق دفعة واحدة. الميزة متاحة للجميع، في كل الباقات ومع الرصيد بالدفع حسب الاستخدام — بلا اشتراك منفصل؛ تدفع ثمن كل مهمة من رصيدك. وترى السعر الدقيق قبل بدء أي دبلجة.</span></p>
+    <h2><span class="en">Dub Long Video</span><span class="ar">دبلجة فيديو طويل</span></h2>
+    <p class="section-note"><span class="en">Dub videos of several minutes in one go. It is available to everyone, on every plan and with pay-as-you-go credits — there is no separate subscription; you pay for each job with your credits. Before anything is dubbed you see the exact price.</span><span class="ar">دبلج فيديوهات تمتد لعدة دقائق دفعة واحدة. الميزة متاحة للجميع، في كل الباقات ومع الرصيد بالدفع حسب الاستخدام — بلا اشتراك منفصل؛ تدفع ثمن كل مهمة من رصيدك. وترى السعر الدقيق قبل بدء أي دبلجة.</span></p>
     <div class="plan-grid">
-      <div class="plan-card info"><div class="pname">1. Estimate<span class="ar2">١. التقدير</span></div><div class="pdetail">A small fee gives you the price and time for the whole video. The fee counts toward the total.<span class="ar2">رسم صغير يمنحك السعر والمدة للفيديو كاملًا. ويُحتسب الرسم ضمن الإجمالي.</span></div><div class="pdetail">Then a charge per minute of video for analysis: transcription, speakers and Arabic translation, plus a small flat processing fee per video.<span class="ar2">ثم رسم لكل دقيقة من الفيديو للتحليل: التفريغ والمتحدثون والترجمة العربية، إضافةً إلى رسم معالجة ثابت صغير لكل فيديو.</span></div></div>
-      <div class="plan-card info"><div class="pname">2. Exact price<span class="ar2">٢. السعر الدقيق</span></div><div class="pdetail">After you have reviewed your text, you see the exact price: the Arabic voice (by amount of text), a charge for each copied speaker voice, and a small charge for the final merge.<span class="ar2">بعد مراجعة نصك ترى السعر الدقيق: الصوت العربي (بحسب كمية النص)، ورسم لكل صوت متحدث يُنسخ، ورسم صغير للدمج النهائي.</span></div></div>
-      <div class="plan-card info"><div class="pname">3. Fair by design<span class="ar2">٣. عادل بطبيعته</span></div><div class="pdetail">If a line or a voice cannot be generated, its credits are refunded automatically.<span class="ar2">إذا تعذّر توليد سطر أو صوت، يُعاد رصيده تلقائيًا.</span></div><div class="pdetail">You receive one file and we email you when it is ready. Copied voices are not saved.<span class="ar2">تستلم ملفًا واحدًا ونراسلك عندما يجهز. ولا تُحفظ الأصوات المنسوخة.</span></div></div>
+      <div class="plan-card info"><div class="pname"><span class="en">1. Estimate</span><span class="ar">١. التقدير</span></div><div class="pdetail"><span class="en">A small fee gives you the price and time for the whole video. The fee counts toward the total.</span><span class="ar">رسم صغير يمنحك السعر والمدة للفيديو كاملًا. ويُحتسب الرسم ضمن الإجمالي.</span></div><div class="pdetail"><span class="en">Then a charge per minute of video for analysis: transcription, speakers and Arabic translation, plus a small flat processing fee per video.</span><span class="ar">ثم رسم لكل دقيقة من الفيديو للتحليل: التفريغ والمتحدثون والترجمة العربية، إضافةً إلى رسم معالجة ثابت صغير لكل فيديو.</span></div></div>
+      <div class="plan-card info"><div class="pname"><span class="en">2. Exact price</span><span class="ar">٢. السعر الدقيق</span></div><div class="pdetail"><span class="en">After you have reviewed your text, you see the exact price: the Arabic voice (by amount of text), a charge for each copied speaker voice, and a small charge for the final merge.</span><span class="ar">بعد مراجعة نصك ترى السعر الدقيق: الصوت العربي (بحسب كمية النص)، ورسم لكل صوت متحدث يُنسخ، ورسم صغير للدمج النهائي.</span></div></div>
+      <div class="plan-card info"><div class="pname"><span class="en">3. Fair by design</span><span class="ar">٣. عادل بطبيعته</span></div><div class="pdetail"><span class="en">If a line or a voice cannot be generated, its credits are refunded automatically.</span><span class="ar">إذا تعذّر توليد سطر أو صوت، يُعاد رصيده تلقائيًا.</span></div><div class="pdetail"><span class="en">You receive one file and we email you when it is ready. Copied voices are temporary: they are deleted after your corrections or 7 days after you last use them (see the Privacy Policy).</span><span class="ar">تستلم ملفًا واحدًا ونراسلك عندما يجهز. والأصوات المنسوخة مؤقتة: تُحذف بعد انتهاء تصحيحاتك أو بعد 7 أيام من آخر استخدام لها (راجع سياسة الخصوصية).</span></div></div>
     </div>
-    <p class="section-note" style="margin-top:14px;text-align:center;"><a href="/dub-long" style="color:var(--indigo);font-weight:700;">🎞️ Open Dub Long Video<span class="ar2">🎞️ افتح دبلجة فيديو طويل</span></a></p>
+    <p class="section-note" style="margin-top:14px;"><a href="/dub-long"><span class="en">🎞️ Open Dub Long Video</span><span class="ar">🎞️ افتح دبلجة فيديو طويل</span></a></p>
   </div>
 </section>
 
-<section style="background:var(--bg);border-top:1px solid var(--line);border-bottom:1px solid var(--line);">
+<section class="p-sec alt">
   <div class="wrap">
-    <h2>One-time Credit Packs<span class="ar2">باقات الرصيد لمرة واحدة</span></h2>
-    <p class="section-note">Pay once, credits never expire. No voice cloning or saved voice slots — those require a subscription above.<span class="ar2">ادفع مرة واحدة، والرصيد لا تنتهي صلاحيته. لا يشمل استنساخ الصوت أو أماكن الأصوات المحفوظة — تتطلب تلك الميزات اشتراكًا أعلاه.</span></p>
+    <h2><span class="en">One-time Credit Packs</span><span class="ar">باقات الرصيد لمرة واحدة</span></h2>
+    <p class="section-note"><span class="en">Pay once, credits never expire. No voice cloning or saved voice slots — those require a subscription above.</span><span class="ar">ادفع مرة واحدة، والرصيد لا تنتهي صلاحيته. لا يشمل استنساخ الصوت أو أماكن الأصوات المحفوظة — تتطلب تلك الميزات اشتراكًا أعلاه.</span></p>
     <div class="plan-grid" id="packCards"><p class="loading-note">Loading packs…</p></div>
     <div class="trust">
-      <span>🔒 Login-protected purchases<span class="ar2">🔒 عمليات شراء محمية بتسجيل الدخول</span></span>
-      <span>⏳ One-time: 48h file storage (100 MB) · Monthly: 30 days, storage size by plan<span class="ar2">⏳ لمرة واحدة: تخزين 48 ساعة (100 ميغابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
-      <span>💳 Secure payments by Stripe<span class="ar2">💳 مدفوعات آمنة عبر Stripe</span></span>
+      <span><span class="en">🔒 Login-protected purchases</span><span class="ar">🔒 عمليات شراء محمية بتسجيل الدخول</span></span>
+      <span><span class="en">⏳ One-time: 48h file storage (100 MB) · Monthly: 30 days, storage size by plan</span><span class="ar">⏳ لمرة واحدة: تخزين 48 ساعة (100 ميغابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
+      <span><span class="en">💳 Secure payments by Stripe</span><span class="ar">💳 مدفوعات آمنة عبر Stripe</span></span>
     </div>
   </div>
 </section>
 
-<footer>
+<footer class="p-foot"><div class="wrap">
   <div class="fwrap">
     <img src="/logo.png" alt="">
     <span class="brand">Lisan AI</span>
     <nav>
-      <a href="/help">Help &amp; FAQ<span class="ar2">المساعدة والأسئلة الشائعة</span></a>
-      <a href="mailto:contact@lisanai.org">Contact<span class="ar2">تواصل</span></a>
-      <a href="/login">Log in<span class="ar2">تسجيل الدخول</span></a>
+      <a href="/help"><span class="en">Help &amp; FAQ</span><span class="ar">المساعدة والأسئلة الشائعة</span></a>
+      <a href="mailto:contact@lisanai.org"><span class="en">Contact</span><span class="ar">تواصل</span></a>
+      <a href="/login"><span class="en">Log in</span><span class="ar">تسجيل الدخول</span></a>
     </nav>
   </div>
   <div class="legal">
-    <a href="/terms">Terms of Service<span class="ar2" style="display:inline;font-size:11px;">· شروط الخدمة</span></a> · <a href="/privacy">Privacy Policy<span class="ar2" style="display:inline;font-size:11px;">· سياسة الخصوصية</span></a>
+    <a href="/terms"><span class="en">Terms of Service</span><span class="ar">شروط الخدمة</span></a> · <a href="/privacy"><span class="en">Privacy Policy</span><span class="ar">سياسة الخصوصية</span></a>
   </div>
-  <div class="copy">© 2026 Lisan AI — English to Arabic AI Dubbing · دبلجة آلية من الإنجليزية إلى العربية</div>
-</footer>
+  <div class="copy"><span class="en">© 2026 Lisan AI — English to Arabic AI Dubbing</span><span class="ar">© 2026 Lisan AI — دبلجة آلية من الإنجليزية إلى العربية</span></div>
+</div></footer>
 
 <script src="/dialogs.js"></script>
 <script>
@@ -186,7 +160,7 @@ function pageIsArabic() { try { return localStorage.getItem("lisan_lang") === "a
 function renderSubs(plans) {
   var box = document.getElementById("subCards");
   if (!plans || !plans.length) {
-    box.innerHTML = '<p class="loading-note">Subscription plans aren\'t available right now. Please check back soon.<span class="ar2">خطط الاشتراك غير متاحة حاليًا. يُرجى المراجعة لاحقًا.</span></p>';
+    box.innerHTML = '<p class="loading-note"><span class="en">Subscription plans aren\'t available right now. Please check back soon.</span><span class="ar">خطط الاشتراك غير متاحة حاليًا. يُرجى المراجعة لاحقًا.</span></p>';
     return;
   }
   var html = "";
@@ -236,18 +210,18 @@ function renderSubs(plans) {
     var clonesRaw = p.clones_per_month;
     var clones = (clonesRaw !== null && clonesRaw !== undefined && clonesRaw !== "") ? parseInt(clonesRaw, 10) : 0;
     var clonesLine = clones > 0
-      ? '<div class="pdetail">✂️ ' + clones + ' new voice clone' + (clones === 1 ? "" : "s") + '/month<span class="ar2">' + clones + ' استنساخ صوت جديد شهريًا</span></div>'
+      ? '<div class="pdetail"><span class="en">✂️ ' + clones + ' new voice clone' + (clones === 1 ? "" : "s") + '/month</span><span class="ar">' + clones + ' استنساخ صوت جديد شهريًا</span></div>'
       : '';
     html += '<button type="button" class="plan-card sub" ' + disabledAttr + ' onclick="chooseSub(\'' + p.key.replace(/'/g, "") + '\', this)">' +
-      (isPro ? '<span class="pbadge">Most popular<span class="ar2" style="position:static;display:inline;"> · الأكثر طلبًا</span></span>' : '') +
-      '<div class="pname">🔁 ' + p.name + '<span class="ar2">🔁 ' + arName + '</span></div>' +
-      '<div class="pprice">$' + price.toFixed(2) + ' <span class="unit">/mo</span><span class="ar2">' + price.toFixed(2) + '$ / شهريًا</span></div>' +
-      '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits every month<span class="ar2">' + credits.toLocaleString() + ' رصيد كل شهر</span></div>' +
-      '<div class="pdetail">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '<span class="ar2">' + slots + ' مكان صوت محفوظ</span></div>' +
+      (isPro ? '<span class="pbadge"><span class="en">Most popular</span><span class="ar">الأكثر طلبًا</span></span>' : '') +
+      '<div class="pname"><span class="en">🔁 ' + p.name + '</span><span class="ar">🔁 ' + arName + '</span></div>' +
+      '<div class="pprice"><span class="en">$' + price.toFixed(2) + ' <span class="unit">/mo</span></span><span class="ar">' + price.toFixed(2) + '$ <span class="unit">/ شهريًا</span></span></div>' +
+      '<div class="pdetail"><span class="en">💳 ' + credits.toLocaleString() + ' credits every month</span><span class="ar">' + credits.toLocaleString() + ' رصيد كل شهر</span></div>' +
+      '<div class="pdetail"><span class="en">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '</span><span class="ar">' + slots + ' مكان صوت محفوظ</span></div>' +
       clonesLine +
-      '<div class="pdetail">💾 ' + storageGb + ' GB file storage<span class="ar2">💾 ' + storageGb + ' جيجابايت لتخزين الملفات</span></div>' +
-      '<div class="pdetail">⏳ Files kept 30 days · cancel anytime<span class="ar2">الملفات محفوظة 30 يومًا · إلغاء في أي وقت</span></div>' +
-      '<div class="pcta">' + ctaEn + '<span class="ar2">' + ctaAr + '</span></div>' +
+      '<div class="pdetail"><span class="en">💾 ' + storageGb + ' GB file storage</span><span class="ar">💾 ' + storageGb + ' جيجابايت لتخزين الملفات</span></div>' +
+      '<div class="pdetail"><span class="en">⏳ Files kept 30 days · cancel anytime</span><span class="ar">الملفات محفوظة 30 يومًا · إلغاء في أي وقت</span></div>' +
+      '<div class="pcta"><span class="en">' + ctaEn + '</span><span class="ar">' + ctaAr + '</span></div>' +
       '</button>';
   });
   box.innerHTML = html;
@@ -257,7 +231,7 @@ function renderPacks(packs) {
   var box = document.getElementById("packCards");
   var keys = Object.keys(packs || {});
   if (!keys.length) {
-    box.innerHTML = '<p class="loading-note">Credit packs aren\'t available right now. Please check back soon.<span class="ar2">باقات الرصيد غير متاحة حاليًا. يُرجى المراجعة لاحقًا.</span></p>';
+    box.innerHTML = '<p class="loading-note"><span class="en">Credit packs aren\'t available right now. Please check back soon.</span><span class="ar">باقات الرصيد غير متاحة حاليًا. يُرجى المراجعة لاحقًا.</span></p>';
     return;
   }
   var html = "";
@@ -268,11 +242,11 @@ function renderPacks(packs) {
     var credits = parseInt(p.credits || 0, 10);
     var price = parseFloat(p.amount_usd || 0);
     html += '<button type="button" class="plan-card" onclick="choosePack(\'' + k.replace(/'/g, "") + '\', this)">' +
-      '<div class="pname">' + label + '<span class="ar2">' + (PACK_NAME_AR[k] || label) + '</span></div>' +
-      '<div class="pprice">$' + price.toFixed(2) + '<span class="ar2">' + price.toFixed(2) + '$</span></div>' +
-      '<div class="pdetail">💳 ' + credits.toLocaleString() + ' credits<span class="ar2">' + credits.toLocaleString() + ' رصيد</span></div>' +
-      '<div class="pdetail">⏳ One-time · 48h file storage (100 MB) · never expires<span class="ar2">لمرة واحدة · تخزين 48 ساعة (100 ميغابايت) · لا تنتهي صلاحيته</span></div>' +
-      '<div class="pcta">Buy now →<span class="ar2">اشترِ الآن ←</span></div>' +
+      '<div class="pname"><span class="en">' + label + '</span><span class="ar">' + (PACK_NAME_AR[k] || label) + '</span></div>' +
+      '<div class="pprice"><span class="en">$' + price.toFixed(2) + '</span><span class="ar">' + price.toFixed(2) + '$</span></div>' +
+      '<div class="pdetail"><span class="en">💳 ' + credits.toLocaleString() + ' credits</span><span class="ar">' + credits.toLocaleString() + ' رصيد</span></div>' +
+      '<div class="pdetail"><span class="en">⏳ One-time · 48h file storage (100 MB) · never expires</span><span class="ar">لمرة واحدة · تخزين 48 ساعة (100 ميغابايت) · لا تنتهي صلاحيته</span></div>' +
+      '<div class="pcta"><span class="en">Buy now →</span><span class="ar">اشترِ الآن ←</span></div>' +
       '</button>';
   });
   box.innerHTML = html;
@@ -364,8 +338,8 @@ Promise.all([
   renderSubs(data.subscriptionPlans || []);
   renderPacks(data.packs || {});
 }).catch(function () {
-  document.getElementById("subCards").innerHTML = '<p class="loading-note">Could not load plans right now.<span class="ar2">تعذّر تحميل الخطط الآن.</span></p>';
-  document.getElementById("packCards").innerHTML = '<p class="loading-note">Could not load packs right now.<span class="ar2">تعذّر تحميل الباقات الآن.</span></p>';
+  document.getElementById("subCards").innerHTML = '<p class="loading-note"><span class="en">Could not load plans right now.</span><span class="ar">تعذّر تحميل الخطط الآن.</span></p>';
+  document.getElementById("packCards").innerHTML = '<p class="loading-note"><span class="en">Could not load packs right now.</span><span class="ar">تعذّر تحميل الباقات الآن.</span></p>';
 });
 </script>
 <script src="/chat.js"></script>

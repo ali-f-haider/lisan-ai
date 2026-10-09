@@ -7135,16 +7135,18 @@ window.cleanOldClones = function () {
 (function () {
     if (document.getElementById("stepNavWidget")) return;
 
+    // Each step has its English and its Arabic name; the panel shows the one for the language chosen in the app (window.currentLang).
     var STEPS = [
-        { id: "step1Card", label: "1 · Upload" },
-        { id: "editorSection", label: "2 · Edit Segments" },
-        { id: "voicesSection", label: "3 · Voice Cloning" },
-        { id: "cloneAnalysisSection", label: "3.5 · Choose Speakers" },
-        { id: "speakerVoicesSection", label: "4 · Speaker Voices" },
-        { id: "generateSection", label: "5 · Generate Audio" },
-        { id: "resultSection", label: "6 · Final Result" },
-        { id: "lipsyncSection", label: "7 · Lip-Sync (Alpha)" }
+        { id: "step1Card", label: "1 · Upload", ar: "١ · رفع الملف" },
+        { id: "editorSection", label: "2 · Edit Segments", ar: "٢ · تحرير المقاطع" },
+        { id: "voicesSection", label: "3 · Voice Cloning", ar: "٣ · استنساخ الأصوات" },
+        { id: "cloneAnalysisSection", label: "3.5 · Choose Speakers", ar: "٣٫٥ · اختيار المتحدثين" },
+        { id: "speakerVoicesSection", label: "4 · Speaker Voices", ar: "٤ · أصوات المتحدثين" },
+        { id: "generateSection", label: "5 · Generate Audio", ar: "٥ · توليد الصوت" },
+        { id: "resultSection", label: "6 · Final Result", ar: "٦ · النتيجة النهائية" },
+        { id: "lipsyncSection", label: "7 · Lip-Sync (Alpha)", ar: "٧ · مزامنة الشفاه (ألفا)" }
     ];
+    function navAr() { return window.currentLang === "ar" || (window.currentLang === undefined && document.documentElement.lang === "ar"); }
 
     var widget = document.createElement("div");
     widget.id = "stepNavWidget";
@@ -7156,12 +7158,14 @@ window.cleanOldClones = function () {
     handle.id = "stepNavHandle";
     handle.textContent = "☰";
     handle.title = "Jump to a step";
+    function titleNow() { handle.title = navAr() ? "انتقل إلى خطوة" : "Jump to a step"; }
 
     widget.appendChild(panel);
     widget.appendChild(handle);
     document.body.appendChild(widget);
 
     function refreshPanel() {
+        titleNow();
         panel.innerHTML = "";
         var any = false;
         STEPS.forEach(function (s) {
@@ -7169,14 +7173,16 @@ window.cleanOldClones = function () {
             if (!el || el.classList.contains("hidden")) return;
             any = true;
             var a = document.createElement("a");
-            a.textContent = s.label;
+            a.textContent = navAr() ? s.ar : s.label;
+            a.dataset.i18n = "-1";                  // already in the right language: the page translator must leave it alone
             a.onclick = function () { el.scrollIntoView({ behavior: "smooth", block: "start" }); };
             panel.appendChild(a);
         });
         if (!any) {
             var p = document.createElement("span");
             p.style.cssText = "font-size:12px;color:#6b7280;padding:4px 6px;";
-            p.textContent = "No steps to show yet.";
+            p.textContent = navAr() ? "لا توجد خطوات لعرضها بعد." : "No steps to show yet.";
+            p.dataset.i18n = "-1";
             panel.appendChild(p);
         }
     }
