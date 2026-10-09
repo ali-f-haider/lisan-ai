@@ -141,6 +141,7 @@ def edit(parent, incoming):
     current = rows(parent)
     by_id = {r['segment_id']: r for r in current}
     speakers = {s['id'] for s in parent.get('speaker_list', [])}
+    names = {s['id']: s.get('name') for s in parent.get('speaker_list', [])}
     duration = ld._total_secs(parent)
     for change in incoming:
         sid = change.get('segment_id')
@@ -156,6 +157,7 @@ def edit(parent, incoming):
             if change['speaker_id'] not in speakers:
                 raise ValueError('Choose one of this project’s original speakers.')
             row['speaker_id'] = change['speaker_id']
+            row['speaker'] = names.get(change['speaker_id'], row.get('speaker'))
         if isinstance(change.get('waqf'), str):
             import arabic_waqf
             row['waqf'] = arabic_waqf.clean_mode(change['waqf'])      # how the voice ends this line: auto / stop / join
@@ -416,10 +418,13 @@ def run(job):
             os.replace(restored_effects, effects)
             ld._save(parent)
         ld._mark(job, 'mix', 88, 'Saving the correction tracks…'); ld._save(job)
+        # The reused effects layer was cleaned around the lines as they were first timed. Where a corrected line now reaches past its
+        # original place, an original word can still sit in what was a pause, so the layer is faded down there, under the new voice only.
+        quiet = quiet_filter(quiet_ranges(checkpoint.values(), {r['segment_id']: r for r in ld.read_segments(parent)}))
         final = ld.OUTPUT_DIR / f"{job['id']}_final_corrections.m4a"
         tmp = work / 'corrections.m4a'
         ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(voices), '-i', str(effects), '-filter_complex',
-                      '[0:a][1:a]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.97:level=disabled[out]',
+                      f'[1:a]{quiet}[bg];[0:a][bg]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.97:level=disabled[out]',
                       '-map', '[out]', '-t', str(total), '-c:a', 'aac', '-b:a', '192k', str(tmp)])
         pure = ld.OUTPUT_DIR / f"{job['id']}{ld.TRACK_KINDS['voices']}"
         ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(voices), '-t', str(total), '-c:a', 'aac', '-b:a', '192k', str(pure)])
@@ -437,6 +442,47 @@ def run(job):
         ld._fail(job, str(ex), 'dub')
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+QUIET_DB = -20.0      # how far the reused effects layer is lowered over the stretch a corrected line gained
+QUIET_FADE = 0.08     # seconds of fade in and out, so the change is not heard
+QUIET_MIN = 0.05      # a gain shorter than this is only rounding of the times
+
+
+def quiet_ranges(items, originals):
+    """Stretches (start, end) of the corrected lines that the line did not occupy in the first dubbing. A line that did not exist
+    then (an inserted one) is new throughout. Overlapping stretches are joined."""
+    found = []
+    for item in items:
+        a, b = float(item['start']), float(item['start']) + float(item['allowed'])
+        old = originals.get(item['seg'])
+        if not old:
+            found.append((a, b)); continue
+        oa, ob = float(old['start']), float(old['end'])
+        if min(b, oa) - a > QUIET_MIN:
+            found.append((a, min(b, oa)))
+        if b - max(a, ob) > QUIET_MIN:
+            found.append((max(a, ob), b))
+    found.sort()
+    joined = []
+    for a, b in found:
+        if joined and a <= joined[-1][1] + QUIET_FADE:
+            joined[-1] = (joined[-1][0], max(joined[-1][1], b))
+        else:
+            joined.append((a, b))
+    return joined
+
+
+def quiet_filter(ranges):
+    """ffmpeg filters that lower the audio over each stretch with a short fade in and out ('anull' when there is nothing to do)."""
+    if not ranges:
+        return 'anull'
+    low = 10 ** (QUIET_DB / 20)
+    parts = []
+    for a, b in ranges:
+        f = QUIET_FADE; a, b = max(0.0, a - f), b + f      # the fades sit just outside the stretch, so all of it is at full depth
+        parts.append(f"volume='if(between(t,{a:.3f},{b:.3f}),1-{1 - low:.4f}*min(1,min((t-{a:.3f})/{f:.3f},({b:.3f}-t)/{f:.3f})),1)':eval=frame")
+    return ','.join(parts)
 
 
 def _mix_correction_chunk(items, start, end, fit, output):

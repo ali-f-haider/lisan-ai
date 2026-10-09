@@ -146,6 +146,44 @@ class CorrectionTests(unittest.TestCase):
     def test_draft_cannot_change_original_transcript(self):
         edits.edit(self.parent,[dict(segment_id='one',arabic_text='جديد',start=2,end=4)])
         self.assertEqual(ld.read_segments(self.parent),self.rows);self.assertEqual(edits.rows(self.parent)[0]['arabic_text'],'جديد')
+    def test_changing_a_lines_speaker_keeps_its_name_in_step_with_its_voice(self):
+        self.parent['speaker_list']=[{'id':'s1','name':'Speaker 1'},{'id':'s2','name':'Judge'}];ld._save(self.parent)
+        edits.edit(self.parent,[dict(segment_id='one',speaker_id='s2')])
+        row=edits.rows(self.parent)[0];self.assertEqual((row['speaker_id'],row['speaker']),('s2','Judge'))
+    def test_effects_are_only_lowered_where_a_corrected_line_gained_time(self):
+        items=[dict(seg='a',start=10,allowed=4),dict(seg='b',start=30,allowed=2),dict(seg='new',start=50,allowed=3)]
+        original={'a':dict(start=11,end=14),'b':dict(start=30,end=32)}      # 'a' now starts a second earlier; 'b' is unchanged; 'new' did not exist
+        self.assertEqual(edits.quiet_ranges(items,original),[(10,11),(50,53)])
+        self.assertEqual(edits.quiet_filter([]),'anull')
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg/FFprobe required')
+    def test_quiet_filter_lowers_only_the_stretch_and_without_a_click(self):
+        import soundfile as sf
+        src,out=DATA/'quiet_src.wav',DATA/'quiet_out.wav'
+        ff.run_ffmpeg(['ffmpeg','-y','-f','lavfi','-i','sine=frequency=300:duration=6','-ar','16000','-ac','1',str(src)])
+        ff.run_ffmpeg(['ffmpeg','-y','-i',str(src),'-af',edits.quiet_filter([(2.0,3.0)]),str(out)])
+        x,sr=sf.read(str(out))
+        def level(a,b):return 20*np.log10(np.sqrt(np.mean(x[int(a*sr):int(b*sr)]**2))+1e-9)
+        self.assertAlmostEqual(level(0.2,1.5),level(4,5.5),delta=.2)         # outside: untouched
+        self.assertLess(level(2.1,2.9),level(0.2,1.5)-19)                    # inside: about 20 dB lower
+        self.assertLess(np.abs(np.diff(x)).max(),0.1)                         # no step: the change is faded
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg/FFprobe required')
+    def test_corrected_file_quiets_the_effects_under_the_time_a_line_gained(self):
+        import soundfile as sf
+        tone=DATA/'sample.mp3'
+        ff.run_ffmpeg(['ffmpeg','-y','-f','lavfi','-i','sine=frequency=440:duration=5','-c:a','libmp3lame',str(tone)])
+        ff.run_ffmpeg(['ffmpeg','-y','-f','lavfi','-i','sine=frequency=110:duration=96','-af','volume=0.3','-c:a','aac',str(self.effects)])
+        refs=ld.job_dir(self.parent['id'])/'editrefs';refs.mkdir(exist_ok=True);ff.run_ffmpeg(['ffmpeg','-y','-i',str(tone),str(refs/'s1.wav')])
+        edits.edit(self.parent,[dict(segment_id='one',start=0.2,end=3)])      # it was 1 to 3: the first 0.8 s are new
+        q=edits.quote(self.parent,['one'])
+        with patch.object(ld,'start_worker'):job=edits.start(self.parent,['one'],q['token'])
+        with patch.object(ld,'_tts_with_retry',return_value=(tone.read_bytes(),None)):edits.run(job)
+        self.assertEqual(job['status'],'done',job.get('error'))
+        wav=DATA/'quiet_mix.wav';ff.run_ffmpeg(['ffmpeg','-y','-i',str(ld.result_file(job)),'-ar','16000','-ac','1',str(wav)])
+        x,sr=sf.read(str(wav))
+        def hum(a,b):
+            s=x[int(a*sr):int(b*sr)]*np.hanning(int((b-a)*sr));f=np.abs(np.fft.rfft(s,16000*4));return f[int(105*4):int(115*4)].max()
+        self.assertLess(hum(.35,.85),hum(10,10.5)/5)       # the extra 0.2-1.0 s: the effects are about 20 dB down
+        self.assertGreater(hum(1.6,2.1)*1.0,hum(10,10.5)/3)       # the rest of the line keeps its effects (voice is at 440 Hz)
     def test_recovery_does_not_reuse_a_full_redo_project(self):
         ok,redo=ld.redo_project(self.parent,'user')
         self.assertTrue(ok)
