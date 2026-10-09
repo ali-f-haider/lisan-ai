@@ -2134,9 +2134,18 @@ def _seg_path(job):
 
 def _write_segments(job, rows):
     p = _seg_path(job)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, p)
+    # Every write uses its OWN temporary file. With one shared name, two saves at the same moment (a speaker
+    # rename and a line edit, a double click) fought over it: the first rename moved the file away and the second
+    # one failed with "No such file or directory", which the person saw as a server error.
+    tmp = p.with_name(f"segments.{uuid.uuid4().hex[:10]}.tmp")
+    try:
+        tmp.write_text(json.dumps(rows, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, p)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass            # already renamed into place (the normal case)
 
 
 def read_segments(job):
@@ -3013,16 +3022,19 @@ def set_speakers(job, speakers):
         used_ids.add(sid)
         new.append({"id": sid, "name": name})
     kept = {sp["id"]: sp["name"] for sp in new}
-    rows = read_segments(job)
-    for r in rows:
-        if r.get("speaker_id") not in kept:
-            return False, "A speaker that still has lines can't be removed. Move its lines to another speaker first."
-    for r in rows:
-        r["speaker"] = kept[r["speaker_id"]]
-    _write_segments(job, rows)
-    job["speaker_list"] = new
-    job["speakers"] = [sp["name"] for sp in new]
-    _save(job)
+    # Same project lock the other line edits take: reading the lines, renaming and writing them back is one step, so
+    # a line edit made at the same moment cannot be lost or collide with it.
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        for r in rows:
+            if r.get("speaker_id") not in kept:
+                return False, "A speaker that still has lines can't be removed. Move its lines to another speaker first."
+        for r in rows:
+            r["speaker"] = kept[r["speaker_id"]]
+        _write_segments(job, rows)
+        job["speaker_list"] = new
+        job["speakers"] = [sp["name"] for sp in new]
+        _save(job)
     _ev(job, "speakers_updated", "ok", "speakers: " + ", ".join(sp["name"] for sp in new))
     return True, ""
 
