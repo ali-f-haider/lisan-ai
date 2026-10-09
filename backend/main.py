@@ -48,6 +48,7 @@ import resource_meter
 import assistant_service
 import service_usage_monitor
 import site_gate
+import pricing_cache
 import dub_review
 import dub_audio
 import dub_background
@@ -6707,6 +6708,10 @@ def _admin_check(request):
         return False
     return True
 
+# The settings last read successfully (also on disk): used when the database cannot be read for a moment, so a timeout never
+# swaps the admin's prices and switches for the built-in defaults. See pricing_cache.py.
+_pricing_last_good = pricing_cache.LastGood(DATA_DIR / "pricing_last_good.json")
+
 def _get_pricing_config():
     """Returns pricing config from DB, with defaults if not set."""
     # Uses Supabase service key to read from a `pricing_config` table
@@ -6856,7 +6861,7 @@ def _get_pricing_config():
             rows = json.load(r)
         if rows and isinstance(rows, list) and len(rows) > 0:
             row = rows[0]
-            return {
+            cfg = {
                 "freeCredits": configured_amount(row.get("free_credits", defaults["freeCredits"])),
                 "minReserve": row.get("min_reserve", defaults["minReserve"]),
                 "maxVideoMin": row.get("max_video_min", defaults["maxVideoMin"]),
@@ -6903,8 +6908,18 @@ def _get_pricing_config():
                 "concurrency": _conc_cfg(row.get("concurrency")),
                 "assistant": _assistant_cfg(row.get("assistant")),
             }
+            _pricing_last_good.remember(cfg)
+            return cfg
     except Exception as ex:
         print(f"[admin] pricing_config load error: {ex}")
+        # The database could not be read (a timeout, a short outage): go on with the settings last read successfully, not
+        # with the built-in defaults. Keys added since then fall back to their defaults.
+        kept, age = _pricing_last_good.recall()
+        if kept is not None:
+            print(f"[admin] pricing_config: using the settings read {int(age)} s ago")
+            merged = dict(defaults)
+            merged.update(kept)
+            return merged
     return defaults
 
 def _conc_cfg(v):

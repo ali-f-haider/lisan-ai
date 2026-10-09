@@ -31,6 +31,14 @@
     <ol id="introSteps" style="margin:10px 22px;line-height:1.7;font-size:14px;"></ol>
   </div>
 
+  <!-- Video tutorial: /static/Lisan-Ai-Long-Dub-Tutorial-Ar.mp4 (Arabic page) or -En.mp4 (English page). The card stays hidden until
+       the file for the page language really exists on the server, so a missing video never shows an empty box. -->
+  <div class="card hidden" id="tutorialCard">
+    <h3 id="tutHeading"></h3>
+    <p id="tutNote" class="note"></p>
+    <div class="ld-tutframe" id="tutFrame"></div>
+  </div>
+
   <div class="card hidden" id="upsellCard">
     <h3 id="upsellHeading">Studio plan</h3>
     <div class="ld-upsell">
@@ -336,6 +344,9 @@ var T = {
     retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "We couldn't translate this just now. Please try again.",
     tashkeel: "Tashkeel", tashkeelWorking: "Adding…", tashkeelFail: "We couldn't add the diacritics just now. Please try again.",
     tashkeelHint: "Adds the vowel marks (tashkeel) to the words of this line that have none.",
+    waqfLabel: "Line ending", waqfAuto: "Auto", waqfStop: "Stop", waqfJoin: "Join",
+    waqfHint: "How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line. The text itself is never changed.",
+    tutHeading: "🎬 Video tutorial: how to dub a long video", tutNote: "A step-by-step video guide to the whole process.",
     emoHint: function (n) { return "Pick up to 3 styles (" + n + " of 3)"; }, emoMax: "You can pick up to 3 styles. Untick one first.",
     chars: function (n) { return n + " characters"; },
     spkHeading: "Speakers",
@@ -591,6 +602,9 @@ var T = {
     retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "تعذّرت الترجمة الآن. حاول مرة أخرى.",
     tashkeel: "تشكيل", tashkeelWorking: "جارٍ التشكيل…", tashkeelFail: "تعذّر إضافة التشكيل الآن. حاول مرة أخرى.",
     tashkeelHint: "يضيف التشكيل إلى كلمات هذا السطر التي لا تحمل تشكيلاً.",
+    waqfLabel: "نهاية السطر", waqfAuto: "تلقائي", waqfStop: "وقف", waqfJoin: "وصل",
+    waqfHint: "كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي. النص نفسه لا يتغيّر.",
+    tutHeading: "🎬 شرح بالفيديو: كيف تدبلج فيديو طويلاً", tutNote: "شرح خطوة بخطوة لكل مراحل العملية.",
     emoHint: function (n) { return "اختر حتى 3 أساليب (" + n + " من 3)"; }, emoMax: "يمكنك اختيار 3 أساليب كحدٍّ أقصى. ألغِ أحدها أولاً.",
     chars: function (n) { return n + " حرفاً"; },
     spkHeading: "المتحدثون",
@@ -639,7 +653,7 @@ var cur = null;          // job currently on screen
 var reviewPage = 0, reviewedBatches = {}, manualNoticeId = "";
 var segs = [];           // transcript rows while editing
 var spk = [];            // speaker list while editing [{id, name}]
-var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?, speaker_id?} waiting to be saved
+var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?, speaker_id?, emotion?, waqf?} waiting to be saved
 var saveTimer = null, saving = false, spkTimer = null;
 var pollTimer = null;
 var uploading = false, uploadAbort = false;
@@ -1913,7 +1927,7 @@ function applyAndClose(st) {
 function applyRows(rows, focusId) {
   segs = (rows || []).map(function (r) {
     var d = dirty[r.segment_id];      // text typed but not yet saved stays as typed
-    if (d) ["text", "arabic_text", "speaker_id"].forEach(function (f) { if (f in d) r[f] = d[f]; });
+    if (d) ["text", "arabic_text", "speaker_id", "waqf"].forEach(function (f) { if (f in d) r[f] = d[f]; });
     return r;
   });
   Object.keys(dirty).forEach(function (id) { if (!segs.some(function (x) { return x.segment_id === id; })) delete dirty[id]; });
@@ -2043,6 +2057,21 @@ function speakerBadge(s) {
   return b;
 }
 
+// How the voice ends an Arabic line (the same choice as on the corrections page). Changes only how the voice speaks the last word;
+// the written text and the price do not change.
+function makeWaqfPicker(s) {
+  var wrap = document.createElement("label"); wrap.className = "ld-waqf"; wrap.title = T.waqfHint;
+  var title = document.createElement("span"); title.textContent = T.waqfLabel;
+  var sel = document.createElement("select"); sel.setAttribute("aria-label", T.waqfLabel);
+  [["auto", T.waqfAuto], ["stop", T.waqfStop], ["join", T.waqfJoin]].forEach(function (o) {
+    var opt = document.createElement("option"); opt.value = o[0]; opt.textContent = o[1]; sel.appendChild(opt);
+  });
+  sel.value = s.waqf || "auto";
+  sel.onchange = function () { s.waqf = sel.value; queueSave(s.segment_id, "waqf", sel.value); };
+  wrap.appendChild(title); wrap.appendChild(sel);
+  return wrap;
+}
+
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   if ((s.overlaps || []).length) row.classList.add("ld-overlap");
@@ -2087,7 +2116,7 @@ function buildRow(s) {
       ask.then(function(yes) { if (yes) { s.emotion = v; queueSave(s.segment_id, "emotion", v); renderEditor(); } });
     }).finally(function() { styleCheck.disabled = false; });
   };
-  footR.appendChild(emoPick.el); footR.appendChild(styleCheck); footR.appendChild(btnTash); footR.appendChild(btn);
+  footR.appendChild(makeWaqfPicker(s)); footR.appendChild(emoPick.el); footR.appendChild(styleCheck); footR.appendChild(btnTash); footR.appendChild(btn);
   foot.appendChild(cnt); foot.appendChild(footR);
   wrap.appendChild(ar); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
@@ -2224,8 +2253,8 @@ function flushSave(opts) {
     if (!r.ok) { setSaved(false, T.saveFailed); saveTimer = setTimeout(flushSave, 3000); return; }
     batch.forEach(function (b) {
       var d = dirty[b.segment_id]; if (!d) return;
-      ["text", "arabic_text", "speaker_id", "emotion"].forEach(function (f) { if (f in b && d[f] === b[f]) delete d[f]; });
-      if (!("text" in d) && !("arabic_text" in d) && !("speaker_id" in d) && !("emotion" in d)) delete dirty[b.segment_id];
+      ["text", "arabic_text", "speaker_id", "emotion", "waqf"].forEach(function (f) { if (f in b && d[f] === b[f]) delete d[f]; });
+      if (!("text" in d) && !("arabic_text" in d) && !("speaker_id" in d) && !("emotion" in d) && !("waqf" in d)) delete dirty[b.segment_id];
     });
     if (Object.keys(dirty).length) { saveTimer = setTimeout(flushSave, 400); setSaved(false); } else setSaved(true);
   }).catch(function () { saving = false; setSaved(false, T.saveFailed); saveTimer = setTimeout(flushSave, 3000); });
@@ -2349,8 +2378,28 @@ function doConfirm() {
 
 // ------------------------------------------------------------------ init
 
+// The tutorial video of the page language. Shown only when that file exists on the server (the other language may not be ready yet).
+function mountTutorial() {
+  var card = $("tutorialCard"), frame = $("tutFrame"); if (!card || !frame) return;
+  $("tutHeading").textContent = T.tutHeading; $("tutNote").textContent = T.tutNote;
+  var src = "/static/Lisan-Ai-Long-Dub-Tutorial-" + (LANG === "ar" ? "Ar" : "En") + ".mp4";
+  fetch(src, { method: "HEAD", cache: "no-store" }).then(function (r) {
+    var ct = (r.headers.get("content-type") || "").toLowerCase();
+    if (!r.ok || ct.indexOf("video") !== 0) return;
+    var v = document.createElement("video");
+    v.controls = true; v.setAttribute("playsinline", ""); v.preload = "none";      // nothing is downloaded until Play
+    var poster = "/static/posters/" + src.split("/").pop().replace(/\.[a-z0-9]+$/i, "") + ".jpg";
+    v.poster = poster; v.src = src;
+    var im = new Image();           // no cover picture on the server: show the video's own first frame instead
+    im.onerror = function () { v.removeAttribute("poster"); v.preload = "metadata"; v.src = src + "#t=0.1"; };
+    im.src = poster;
+    frame.appendChild(v); card.classList.remove("hidden");
+  }).catch(function () {});
+}
+
 (function init() {
   applyStaticText();
+  mountTutorial();
   hiddenHelp("introText", "introHeading");
   hiddenHelp("introSteps", "introHeading");
   hiddenHelp("spkAskNote", "spkAskLabel");

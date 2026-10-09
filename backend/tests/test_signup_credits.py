@@ -53,7 +53,8 @@ class SignupCreditTests(unittest.TestCase):
     def test_public_and_admin_pricing_show_the_same_bounded_signup_allowance_as_the_trigger(self):
         env=source_functions('main.py',['_get_pricing_config'],dict(SUPABASE_URL='https://example.test',
             SUPABASE_SERVICE_KEY='synthetic',DEFAULT_PACKS=[],DEFAULT_SUBSCRIPTION_PLANS=[],json=json,
-            _assistant_cfg=lambda value:value,_conc_cfg=lambda value:value,_gemini_cpc=lambda value:value))
+            _assistant_cfg=lambda value:value,_conc_cfg=lambda value:value,_gemini_cpc=lambda value:value,
+            _pricing_last_good=type('NoCopy',(),{'remember':lambda self,config:None,'recall':lambda self:(None,None)})()))
         for stored,expected in [(250,250),(None,100),(0,100),(1001,100)]:
             with patch('urllib.request.urlopen',return_value=io.BytesIO(json.dumps([{'free_credits':stored}]).encode())):
                 self.assertEqual(env['_get_pricing_config']()['freeCredits'],expected)
