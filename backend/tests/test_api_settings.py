@@ -75,9 +75,10 @@ class ValidateTests(unittest.TestCase):
             self.assertIsNone(clean)
             self.assertIn(name.replace("_", " "), err)
 
-    def test_eligibility_must_be_known(self):
+    def test_eligibility_has_one_rule(self):
         self.assertIsNotNone(S.validate(good(eligibility="free"))[1])
-        self.assertIsNone(S.validate(good(eligibility="everyone"))[1])
+        self.assertIsNotNone(S.validate(good(eligibility="everyone"))[1])
+        self.assertIsNone(S.validate(good(eligibility="website_plans"))[1])
 
     def test_default_cap_cannot_exceed_max(self):
         self.assertIsNotNone(S.validate(good(default_daily_credit_cap=500, max_daily_credit_cap=100))[1])
@@ -96,23 +97,49 @@ class ValidateTests(unittest.TestCase):
 
 
 class PriceTests(unittest.TestCase):
-    def test_100_is_the_website_price(self):
-        for c in (0, 1, 7, 1234):
-            self.assertEqual(S.apply_price(c, {"price_percent": 100}), c)
+    CFG = {"fee": 3, "flat": 10, "clone_credits": 5, "merge_credits": 1, "speaker_check_flat": 4, "music_fill_credits": 10,
+           "analysis_per_min": 2.0, "speaker_check_per_min": 0.5, "lipsync_per_sec": 40.0, "chars_per_credit": 60,
+           "max_min": 60, "lipsync_max_min": 3.0, "something_else": "x"}
 
-    def test_rounds_up_never_below_one(self):
-        self.assertEqual(S.apply_price(7, {"price_percent": 150}), 11)      # 10.5 -> 11
-        self.assertEqual(S.apply_price(1, {"price_percent": 50}), 1)
-        self.assertEqual(S.apply_price(3, {"price_percent": 50}), 2)
-        self.assertEqual(S.apply_price(0, {"price_percent": 300}), 0)
+    def test_100_is_the_website_price_list_unchanged(self):
+        out = S.scale_pricing(self.CFG, 100)
+        self.assertEqual(out, self.CFG)
+        self.assertIsNot(out, self.CFG)
 
-    def test_bad_amounts_refused(self):
-        for bad in (-1, "x", None):
+    def test_scaling_up_and_down(self):
+        up = S.scale_pricing(self.CFG, 150)
+        self.assertEqual((up["fee"], up["flat"], up["clone_credits"], up["merge_credits"]), (5, 15, 8, 2))     # 4.5 -> 5, 7.5 -> 8, 1.5 -> 2
+        self.assertAlmostEqual(up["analysis_per_min"], 3.0)
+        self.assertAlmostEqual(up["lipsync_per_sec"], 60.0)
+        self.assertEqual(up["chars_per_credit"], 40)                    # fewer characters per credit = dearer
+        down = S.scale_pricing(self.CFG, 50)
+        self.assertEqual((down["fee"], down["flat"], down["merge_credits"]), (2, 5, 1))                       # a paid item never becomes free
+        self.assertEqual(down["chars_per_credit"], 120)
+
+    def test_limits_and_unknown_keys_untouched(self):
+        for p in (50, 150, 300):
+            out = S.scale_pricing(self.CFG, p)
+            self.assertEqual(out["max_min"], 60)
+            self.assertEqual(out["lipsync_max_min"], 3.0)
+            self.assertEqual(out["something_else"], "x")
+
+    def test_free_items_stay_free_and_input_not_mutated(self):
+        cfg = dict(self.CFG, fee=0, flat=0)
+        before = dict(cfg)
+        out = S.scale_pricing(cfg, 300)
+        self.assertEqual((out["fee"], out["flat"]), (0, 0))
+        self.assertEqual(cfg, before)
+
+    def test_percent_out_of_range_refused(self):
+        for bad in (49, 301, 0, -100, "x", None, True, 1.5):
             with self.assertRaises(ValueError):
-                S.apply_price(bad, {})
+                S.scale_pricing(self.CFG, bad)
 
-    def test_exact_integer_arithmetic(self):
-        self.assertEqual(S.apply_price(10 ** 9, {"price_percent": 300}), 3 * 10 ** 9)
+    def test_never_cheaper_than_the_percent_asks(self):
+        for p in (101, 133, 250, 300):
+            up = S.scale_pricing(self.CFG, p)
+            for k in ("fee", "flat", "clone_credits", "merge_credits", "speaker_check_flat", "music_fill_credits"):
+                self.assertGreaterEqual(up[k], self.CFG[k] * p / 100.0 - 1e-9, (p, k))
 
 
 class LimiterAndCapTests(unittest.TestCase):

@@ -202,6 +202,7 @@
       <label style="display:block;"><span id="apiNameLabel" class="note"></span><br><input id="apiName" maxlength="60" style="min-width:220px;padding:8px;"></label>
       <label style="display:block;"><span id="apiCapLabel" class="note"></span><br><input id="apiCap" type="number" min="1" step="1" style="width:140px;padding:8px;"></label>
     </div>
+    <label style="display:block;margin:8px 0;"><input type="checkbox" id="apiCanDub" checked> <span id="apiCanDubText"></span></label>
     <p class="note" id="apiCapHelp"></p>
     <div id="apiTermsBox" style="margin:8px 0;">
       <label style="display:block;margin-bottom:6px;"><input type="checkbox" id="apiAccept"> <span id="apiAcceptText"></span></label>
@@ -856,6 +857,7 @@ loadMyVoices();
       none: "You have no keys yet.", name: "Name", prefix: "Key starts with", cap: "Daily credit cap", created: "Created", used: "Last used", state: "Status",
       active: "Active", revoked: "Revoked", never: "Never", revoke: "Revoke", revoking: "Revoke this key? Software using it stops working immediately.",
       createHeading: "Create a key", nameLabel: "Name (for example, My app)", capLabel: "Daily credit cap",
+      canDub: "This key may start paid dubbing (untick for a key that can only read job status and your balance).", access: "Access", accessDub: "Dubbing", accessRead: "Read only",
       capHelp: function (l) { return "The most credits this key can spend in a day, up to " + l.max_daily_credit_cap + ". 100 credits = $1.00. If the key leaks, this is the most it can cost you."; },
       accept: "I accept the Lisan AI API terms and I am responsible for how my keys are used.",
       rights: "I confirm I have the right to send the files I dub.",
@@ -870,6 +872,7 @@ loadMyVoices();
       none: "لا توجد مفاتيح بعد.", name: "الاسم", prefix: "يبدأ المفتاح بـ", cap: "الحد اليومي للرصيد", created: "تاريخ الإنشاء", used: "آخر استخدام", state: "الحالة",
       active: "فعّال", revoked: "معطّل", never: "أبدًا", revoke: "تعطيل", revoking: "تعطيل هذا المفتاح؟ سيتوقف أي برنامج يستخدمه فورًا.",
       createHeading: "إنشاء مفتاح", nameLabel: "الاسم (مثل: تطبيقي)", capLabel: "الحد اليومي للرصيد",
+      canDub: "يمكن لهذا المفتاح بدء دبلجة مدفوعة (ألغِ التحديد لمفتاح يقرأ حالة المهام والرصيد فقط).", access: "الصلاحية", accessDub: "دبلجة", accessRead: "قراءة فقط",
       capHelp: function (l) { return "أقصى رصيد يمكن لهذا المفتاح صرفه في اليوم، حتى " + l.max_daily_credit_cap + ". 100 ائتمان = 1.00 دولار. إذا تسرّب المفتاح فهذا أقصى ما قد يكلّفك."; },
       accept: "أوافق على شروط واجهة Lisan AI وأتحمّل مسؤولية استخدام مفاتيحي.",
       rights: "أؤكد أن لدي الحق في إرسال الملفات التي أدبلجها.",
@@ -886,7 +889,7 @@ loadMyVoices();
 
   function staticText() {
     text("tabApi", X.tab); text("apiHeading", X.heading); text("apiLoading", X.loading); text("apiIntro", X.intro);
-    text("apiCreateHeading", X.createHeading); text("apiNameLabel", X.nameLabel); text("apiCapLabel", X.capLabel);
+    text("apiCreateHeading", X.createHeading); text("apiNameLabel", X.nameLabel); text("apiCapLabel", X.capLabel); text("apiCanDubText", X.canDub);
     text("apiAcceptText", X.accept); text("apiRightsText", X.rights); text("apiCreateBtn", X.create);
     text("apiNewKeyTitle", X.newTitle); text("apiNewKeyNote", X.newNote); text("apiCopyBtn", X.copy);
   }
@@ -903,13 +906,14 @@ loadMyVoices();
     var box = $("apiKeysList"); box.textContent = "";
     if (!s.keys.length) { box.appendChild(el("p", X.none, "color:#6b7280;")); return; }
     var table = el("table"), head = el("tr");
-    [X.name, X.prefix, X.cap, X.created, X.used, X.state, ""].forEach(function (h) { head.appendChild(el("th", h)); });
+    [X.name, X.prefix, X.access, X.cap, X.created, X.used, X.state, ""].forEach(function (h) { head.appendChild(el("th", h)); });
     var thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
     var tb = el("tbody");
     s.keys.forEach(function (k) {
       var tr = el("tr");
       tr.appendChild(el("td", k.name));
       tr.appendChild(el("td", "lsn_live_" + k.prefix + "…", "direction:ltr;font-family:monospace;"));
+      tr.appendChild(el("td", (k.scopes || []).indexOf("dub") >= 0 ? X.accessDub : X.accessRead));
       tr.appendChild(el("td", String(k.daily_credit_cap)));
       tr.appendChild(el("td", day(k.created_at)));
       tr.appendChild(el("td", k.last_used_at ? day(k.last_used_at) : X.never));
@@ -946,7 +950,7 @@ loadMyVoices();
     if (needTerms && !($("apiAccept").checked && $("apiRights").checked)) { msg.textContent = X.errTerms; return; }
     $("apiCreateBtn").disabled = true;
     fetch("/api/api-keys", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name, daily_credit_cap: cap, accept_terms: needTerms ? true : undefined, confirm_rights: needTerms ? true : undefined }) })
+      body: JSON.stringify({ name: name, daily_credit_cap: cap, can_dub: $("apiCanDub").checked, accept_terms: needTerms ? true : undefined, confirm_rights: needTerms ? true : undefined }) })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (res) {
         $("apiCreateBtn").disabled = false;

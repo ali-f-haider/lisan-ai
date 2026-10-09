@@ -208,7 +208,7 @@ def quote(parent, selected):
     if background(parent) is None and source is None:
         raise ValueError('Attach the original file to recover this older project’s editing assets.')
     import inworld_service
-    pricing = ld.Hooks.pricing()
+    pricing = ld._job_pricing(parent)
     cpc = max(1, int(pricing.get('chars_per_credit', 60)))
     chars = sum(len(inworld_service.instruction_tag(r.get('emotion'))) + len(r['arabic_text'].strip()) for r in subset)
     speaker_ids = sorted({r['speaker_id'] for r in subset})
@@ -380,7 +380,7 @@ def run(job):
             if source is None:
                 raise ValueError('The original background is unavailable. Attach the original file.')
             sw = ld._wd(source); all_rows = ld.read_segments(source)
-            fee = int(ld.Hooks.pricing().get('music_fill_credits', 10))
+            fee = int(ld._job_pricing(job).get('music_fill_credits', 10))
             def allow():
                 bal = ld.Hooks.get_credits(job['uid'])
                 return bal is not None and bal >= fee and job['paid'].get('music_fill', 0) + fee <= plan['music']['max_credits']

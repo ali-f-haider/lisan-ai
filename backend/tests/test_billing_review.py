@@ -299,11 +299,11 @@ class BillingReviewTests(unittest.TestCase):
             for configured in (1, 3, 0):
                 cfg={'chars_per_credit':60,'clone_credits':5,'merge_credits':configured}
                 env={'Hooks':NS(pricing=lambda cfg=cfg:cfg),'read_segments':lambda _:rows,'math':math,
-                     'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1}
+                     'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1,'_job_pricing':lambda _job,cfg=cfg:cfg}
                 long=extract('longdub_service.py',['dub_price'],env)
                 corrections=extract('longdub_edits.py',['quote'], {'rows':lambda _:rows,'active':lambda _:False,
                           'restore_source':lambda _:None,'background':lambda _:Path('retained.wav'), 'math':math,
-                          'ld':NS(Hooks=NS(pricing=lambda cfg=cfg:cfg)), 'hashlib':__import__('hashlib'),'json':json})
+                          'ld':NS(Hooks=NS(pricing=lambda cfg=cfg:cfg),_job_pricing=lambda _job,cfg=cfg:cfg), 'hashlib':__import__('hashlib'),'json':json})
                 expected = max(1, configured)
                 for kind,price in [('long',long['dub_price'](parent)),('correction',corrections['quote'](parent,['line']))]:
                     with self.subTest(kind=kind, configured=configured):

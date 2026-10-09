@@ -1,4 +1,4 @@
-"""Lisan AI public API, version 1 -- phase 1: keys, limits, settings, balance.
+"""Lisan AI public API, version 1 -- keys, limits, balance (here) and the paid long-dub endpoints (api_dub.py).
 
 Everything that touches the outside world (database, balance, plan gate, browser login) is passed in through
 `Deps`, so this module is tested with plain fakes and main.py stays the only place that knows about Supabase.
@@ -20,23 +20,21 @@ import time
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
+import api_core
 import api_errors
 import api_keys
 import api_limits
 import api_settings
 
 TERMS_VERSION = "2026-10-1"
-OWNER_SCOPES = ("read", "account")          # phase 1 keys: reading settings and the balance; "dub" arrives with the paid endpoints
+OWNER_SCOPES = ("read", "dub", "account")   # a new key may read, start paid dubbing and read the balance; the owner can make it read-only
 _UUID = re.compile(r"[0-9a-fA-F-]{8,64}")
 _LAST_USED_EVERY = 60.0
 _PUBLIC_KEY_FIELDS = ("id", "name", "prefix", "scopes", "state", "daily_credit_cap", "created_at", "last_used_at", "revoked_at")
 
 
-class ApiError(Exception):
-    def __init__(self, code, headers=None):
-        super().__init__(code)
-        self.code = code if code in api_errors.ERRORS else "internal_error"
-        self.headers = headers or {}
+ApiError = api_core.ApiError
+Conflict = api_core.Conflict
 
 
 class Deps:
@@ -46,8 +44,9 @@ class Deps:
     balance(uid) -> {"credits","subscription_credits","permanent_credits"} | None                                   eligible(uid) -> bool
     owner_uid(request) -> uid | None                             pepper() -> (version:int, secret:bytes) | None
     now() -> unix seconds (float)"""
-    def __init__(self, select, insert, update, settings, balance, eligible, owner_uid, pepper, now=time.time):
-        self.select, self.insert, self.update = select, insert, update
+    def __init__(self, select, insert, update, settings, balance, eligible, owner_uid, pepper, now=time.time, delete=None, ld=None):
+        self.select, self.insert, self.update, self.delete, self.ld = select, insert, update, delete, ld
+        self.terms_version = TERMS_VERSION
         self.settings, self.balance, self.eligible = settings, balance, eligible
         self.owner_uid, self.pepper, self.now = owner_uid, pepper, now
 
@@ -161,7 +160,7 @@ def build(deps):
         if now - last_used.get(key_id, 0) > _LAST_USED_EVERY:
             last_used[key_id] = now
             _safe(lambda: deps.update("api_keys", "id=eq.%s" % key_id, {"last_used_at": _utc(now)}), None)
-        if s["eligibility"] != "everyone" and not _safe(lambda: deps.eligible(uid), False):
+        if not _safe(lambda: deps.eligible(uid), False):
             raise ApiError("plan_required")
         request.state.api_principal = {"uid": uid, "key_id": key_id, "scopes": list(rec["scopes"]),
                                        "daily_credit_cap": row.get("daily_credit_cap")}
@@ -177,6 +176,10 @@ def build(deps):
     # ---- /v1: what a key can do in phase 1 ---------------------------------------------------------
     def _ok(request, body, status=200):
         return JSONResponse(body, status_code=status, headers={"X-Request-Id": request.state.api_request_id, "Cache-Control": "no-store"})
+
+    if deps.ld is not None:
+        import api_dub
+        api_dub.register(api, deps, principal, _ok)
 
     # Phase 1 serves exactly one contract operation: GET /v1/account/balance (docs/api/openapi.yaml, schema Balance).
     # /v1/settings needs the price list and media limits, so it arrives with the paid endpoints.
@@ -209,7 +212,7 @@ def build(deps):
             acc = deps.select("api_owner_acceptances", "uid=eq.%s&terms_version=eq.%s&select=accepted_at&limit=1" % (uid, TERMS_VERSION))
         except Exception:
             return _json_err("We couldn't load your API keys just now. Please try again in a moment.", 503)
-        allowed = s["eligibility"] == "everyone" or bool(_safe(lambda: deps.eligible(uid), False))
+        allowed = bool(_safe(lambda: deps.eligible(uid), False))
         return JSONResponse({"enabled": s["enabled"], "allowed": allowed, "terms_version": TERMS_VERSION,
                              "terms_accepted": bool(acc), "limits": api_settings.public_view(s),
                              "keys": [{k: r.get(k) for k in _PUBLIC_KEY_FIELDS} for r in rows]}, headers={"Cache-Control": "no-store"})
@@ -228,7 +231,7 @@ def build(deps):
         s = api_settings.normalize(_safe(deps.settings, {}))
         if not s["enabled"]:
             return _json_err("The API is not open yet.", 403)
-        if s["eligibility"] != "everyone" and not _safe(lambda: deps.eligible(uid), False):
+        if not _safe(lambda: deps.eligible(uid), False):
             return _json_err("The API is available with the same plans as long dubbing. Choose a plan to create a key.", 403)
         pep = deps.pepper()
         if pep is None:
@@ -236,6 +239,9 @@ def build(deps):
         name = body.get("name")
         if not isinstance(name, str) or not 1 <= len(name.strip()) <= 60:
             return _json_err("Give the key a name of up to 60 characters.", 400)
+        can_dub = body.get("can_dub", True)
+        if not isinstance(can_dub, bool):
+            return _json_err("Choose whether this key may start paid dubbing.", 400)
         cap, cap_err = api_settings.daily_cap_for(body.get("daily_credit_cap"), s)
         if cap_err:
             return _json_err(cap_err, 400)
@@ -256,7 +262,7 @@ def build(deps):
         version, secret = pep
         key = api_keys.generate_key()
         row = {"uid": uid, "name": name.strip(), "prefix": api_keys.dashboard_prefix(key), "pepper_version": version,
-               "key_hash": api_keys.storage_hash(key, secret), "scopes": list(OWNER_SCOPES), "state": "active",
+               "key_hash": api_keys.storage_hash(key, secret), "scopes": [x for x in OWNER_SCOPES if can_dub or x != "dub"], "state": "active",
                "daily_credit_cap": cap}
         try:
             saved = deps.insert("api_keys", row)

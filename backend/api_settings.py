@@ -7,7 +7,7 @@ constant in a route. The stored shape is one JSON object; `normalize` always ret
 """
 import math
 
-ELIGIBILITY = ("website_plans", "everyone")
+ELIGIBILITY = ("website_plans",)       # one rule: the plans the website lets dub long videos (the long-dub gate is applied by the same code)
 
 # name: (default, minimum, maximum, label)
 NUMBERS = {
@@ -94,7 +94,7 @@ def validate(body):
             return None, "The setting '%s' must be on or off." % name.replace("_", " ")
         clean[name] = v
     if body.get("eligibility") not in ELIGIBILITY:
-        return None, "Choose who may use the API: the same plans as the website, or everyone with an account."
+        return None, "Who may use the API must be: the same plans as the website."
     clean["eligibility"] = body["eligibility"]
     for name, (_d, lo, hi, label) in NUMBERS.items():
         n = _int(body.get(name))
@@ -115,22 +115,35 @@ def limiter_config(settings):
     return {"capacity": s["burst"], "refill_per_second": s["requests_per_minute"] / 60.0}
 
 
-def apply_price(credits, settings):
-    """The credits an API customer is quoted for work the website would charge `credits` for.
-    The ONE place the price setting is applied: round up to a whole credit, never below 1 for paid work,
-    and 100 % returns the website price unchanged."""
-    s = normalize(settings)
-    try:
-        c = int(credits)
-    except (TypeError, ValueError):
-        raise ValueError("The credit amount is not a number.")
-    if c < 0:
-        raise ValueError("The credit amount cannot be negative.")
-    if c == 0:
-        return 0
-    if s["price_percent"] == 100:
-        return c
-    return max(1, -(-c * s["price_percent"] // 100))
+_INT_CREDIT_KEYS = ("fee", "flat", "clone_credits", "merge_credits", "speaker_check_flat", "music_fill_credits")
+_FLOAT_CREDIT_KEYS = ("analysis_per_min", "speaker_check_per_min", "lipsync_per_sec")
+
+
+def scale_pricing(cfg, percent):
+    """The website's long-dub price list scaled to `percent` % for one API job.
+
+    The price setting is applied HERE and nowhere else: the job keeps using the website's own estimate and
+    price calculators, fed with this scaled list, so the estimate, the charge, the exact price and every
+    refund stay consistent with each other. 100 returns the list unchanged. Whole-credit amounts round up
+    (never below the website amount when the percent is 100 or more, never to 0 for a paid item); per-minute and
+    per-second rates scale exactly; characters-per-credit scales the other way (fewer characters per credit =
+    dearer). Limits (longest video etc.) are not prices and are untouched."""
+    out = dict(cfg or {})
+    p = _int(percent)
+    if p is None or not 50 <= p <= 300:
+        raise ValueError("The price percentage is outside 50-300.")
+    if p == 100:
+        return out
+    for k in _INT_CREDIT_KEYS:
+        if k in out and out[k] is not None:
+            v = int(out[k])
+            out[k] = 0 if v <= 0 else max(1, -(-v * p // 100))
+    for k in _FLOAT_CREDIT_KEYS:
+        if k in out and out[k] is not None:
+            out[k] = float(out[k]) * p / 100.0
+    if "chars_per_credit" in out and out["chars_per_credit"] is not None:
+        out["chars_per_credit"] = max(1, int(int(out["chars_per_credit"]) * 100 // p))
+    return out
 
 
 def daily_cap_for(requested, settings):

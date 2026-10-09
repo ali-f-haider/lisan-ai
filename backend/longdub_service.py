@@ -137,6 +137,20 @@ _worker_slots = threading.Semaphore(MAX_CONCURRENT_WORKERS)
 _slot_state = threading.local()      # .held -- does this worker thread hold one of the slots?
 
 
+def _job_pricing(job):
+    """The price list this job is priced with: the website's own, or -- for a job made through the public API with a
+    price percentage other than 100 -- that same list scaled by the percentage the job was created with
+    (api_settings.scale_pricing). The estimate, the charge, the exact price, the music repair and every refund all
+    read it through here, so they cannot disagree."""
+    cfg = Hooks.pricing()
+    api = job.get("api") if isinstance(job, dict) else None
+    pct = api.get("price_percent") if isinstance(api, dict) else None
+    if pct is None or pct == 100:
+        return cfg
+    import api_settings
+    return api_settings.scale_pricing(cfg, pct)
+
+
 class Hooks:
     """Set once by main.py -- see configure(). Defaults do nothing so the
     module can also be imported by tests."""
@@ -706,7 +720,7 @@ def finish_upload(job, uid):
         return False, ("The uploaded file is damaged or incomplete. Please upload it again.", 400)
     src = d / f"src{job['ext']}"
     os.replace(part, src)
-    cfg = Hooks.pricing()
+    cfg = _job_pricing(job)
     try:
         info = _ffprobe_json(src, "format=duration:stream=codec_type")
         streams = [s.get("codec_type") for s in info.get("streams", [])]
@@ -3658,7 +3672,7 @@ def _refund_all_lipsync(job, why):
 
 def dub_price(job, cfg=None):
     """Exact price of the dubbing stage, from the text as it stands now."""
-    cfg = cfg or Hooks.pricing()
+    cfg = cfg or _job_pricing(job)
     import inworld_service
     rows = read_segments(job)
     names = {sp["id"]: sp["name"] for sp in job.get("speaker_list", [])}
@@ -3717,7 +3731,7 @@ def set_lipsync_resolution(job, uid, res):
         job["lipsync"]["resolution"] = res
         if job.get("status") == "estimated" and job.get("estimate"):
             try:
-                job["estimate"] = compute_estimate(job.get("duration") or 0, Hooks.pricing(), job.get("stated_speakers", 2), True, res)
+                job["estimate"] = compute_estimate(job.get("duration") or 0, _job_pricing(job), job.get("stated_speakers", 2), True, res)
             except Exception as ex:
                 print(f"[longdub] could not refresh the estimate after a resolution change: {ex}")
     _save(job)
@@ -3730,7 +3744,7 @@ def music_quote(job):
     bg = wd / "background.wav"
     if not bg.exists():
         return {"repairs": 0, "max_credits": 0}
-    fee = max(0, int(Hooks.pricing().get("music_fill_credits", 10)))
+    fee = max(0, int(_job_pricing(job).get("music_fill_credits", 10)))
     try:
         spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job))
         muted = wd / "price_music_muted.wav"
@@ -3772,7 +3786,7 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
         if not lipsync_available():
             _ev(job, "dub_confirmed", "failed", "lip-sync engine is not available")
             return False, ("Lip-sync is not available right now. Nothing was charged. Please try again later.", 503)
-        cfg = Hooks.pricing()
+        cfg = _job_pricing(job)
         lp = lipsync_price(job, [r for r in read_segments(job) if (r.get("arabic_text") or "").strip()], cfg)
         if lp["credits"] != (price.get("lipsync") or {}).get("credits"):
             return False, ("The price changed. Please check the new price and confirm again.", 409)
@@ -4954,7 +4968,7 @@ def _run_dubbing(job):
         bed_level_ = None
         if bg.exists():
             spans_ = dub_background.speech_spans(wd / "speech_spans.json", rows_all)
-            fee_ = max(0, int((Hooks.pricing() or {}).get("music_fill_credits", 10)))
+            fee_ = max(0, int((_job_pricing(job) or {}).get("music_fill_credits", 10)))
             limit_ = int(job.get("music_budget") or 0)
             def allow_fill():
                 balance = Hooks.get_credits(uid)

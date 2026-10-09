@@ -59,6 +59,55 @@ class KeyCheckSourceTests(unittest.TestCase):
         self.assertNotIn("print(", V1)
 
 
+class DubWiringTests(unittest.TestCase):
+    """The paid endpoints reach money only through the website's own route functions."""
+    def adapter(self):
+        return MAIN.split("class _ApiLongDub", 1)[1].split("_api_deps = api_v1.Deps(", 1)[0]
+
+    def test_adapter_calls_the_website_routes(self):
+        a = self.adapter()
+        for fn in ("longdub_init", "longdub_chunk", "longdub_finish", "longdub_accept", "longdub_preview", "longdub_confirm", "longdub_delete"):
+            self.assertIn(fn, a)
+        self.assertIn("LongDubAccept(agree=True)", a)
+        self.assertIn("longdub_service._job_pricing(job)", a)
+
+    def test_every_method_the_api_uses_exists(self):
+        a = self.adapter()
+        api_dub = (ROOT / "api_dub.py").read_text(encoding="utf-8")
+        used = set(re.findall(r"\bld\.(\w+)\(", api_dub))
+        self.assertTrue(used)
+        for name in used:
+            self.assertRegex(a, r"def %s\(" % name)
+
+    def test_api_module_never_moves_money_itself(self):
+        api_dub = (ROOT / "api_dub.py").read_text(encoding="utf-8")
+        for bad in ("Hooks", "_charge", "charge(", "refund(", "credit_billing", "rpc"):
+            self.assertNotIn(bad, api_dub)
+
+    def test_deps_get_delete_and_the_adapter(self):
+        block = MAIN.split("_api_deps = api_v1.Deps(", 1)[1][:900]
+        self.assertIn("delete=", block)
+        self.assertIn("ld=_ApiLongDub()", block)
+
+    def test_current_uid_trusts_only_the_principal_set_by_api_v1(self):
+        head = MAIN.split("def _current_uid(request: Request):", 1)[1][:700]
+        self.assertIn('getattr(request.state, "api_principal", None)', head)
+        self.assertLess(head.index("api_principal"), head.index('request.cookies.get("session"'))
+        setters = [m.start() for m in re.finditer(r"api_principal\s*=", MAIN)]
+        self.assertEqual(setters, [])                      # main.py never sets it; only api_v1.authenticate does
+        self.assertEqual(len(re.findall(r"request\.state\.api_principal\s*=", V1)), 1)
+
+    def test_unique_key_conflict_is_reported_as_conflict(self):
+        ins = MAIN.split("def _api_insert", 1)[1][:500]
+        self.assertIn("ex.code == 409", ins)
+        self.assertIn("api_core.Conflict()", ins)
+
+    def test_blocking_work_does_not_run_on_the_event_loop(self):
+        a = self.adapter()
+        for fn in ("longdub_init", "longdub_finish", "longdub_accept", "longdub_preview", "longdub_confirm", "longdub_delete"):
+            self.assertIn("run_in_threadpool(%s" % fn, a)
+
+
 class PagesTests(unittest.TestCase):
     def test_admin_has_price_and_request_controls(self):
         for el in ("apiPrice", "apiRpm", "apiBurst", "apiConc", "apiCapDefault", "apiCapMax", "apiEnabled"):

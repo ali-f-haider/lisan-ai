@@ -299,3 +299,16 @@ website project visibility and polling/webhook capability. Version 1 requires
 `webhooks_enabled: false`; enabling a setting alone cannot introduce a callback
 endpoint without a future contract and security implementation. Do not accept
 callback URLs in this version. Defaults are recommendations, not production approvals.
+
+## Implementation notes for version 1.82.37 (long dubbing)
+
+These notes describe what the server does today. Where they are stricter or simpler than the sections above, these notes win.
+
+* **What is live.** `POST /v1/jobs`, upload chunks, `GET .../estimate`, quotes for the steps `estimate`, `analysis` and `dub`, approval (`POST .../upload/finish` for the estimate step, `POST .../accept` for the others), job status, listing, results, downloads and delete. Short dubs, segment and speaker editing, voices, subtitles, usage and `GET /v1/settings` come in a later release; asking for the steps `clone` or `merge` returns `invalid_request`.
+* **Same rules as the website.** The plan check, the billing pause, storage and disk checks, the one-payment-per-step record, refunds and the price calculators are the website's own code. The API adds only the quote ceiling, the daily cap and the retry safety described here.
+* **Price.** The owner's price percentage is stored on each job when it is created and applied to the whole long-dub price list for that job. It never changes the limits (length, size, speakers).
+* **Daily cap.** When a step is approved, its whole maximum (for the dub: the price plus the music-repair maximum) counts against the key's cap for that UTC day, even if less is finally charged. A refund does not give the allowance back. A step that is refused before any charge gives its reservation back immediately.
+* **One approval per step.** A step of a job can be approved once for a given text revision and choices. A second quote, another key or a retry can only continue the same approval and can never charge again.
+* **Quote lifetime.** 600 seconds (an estimated product default, not measured).
+* **Uncertain payments.** If a payment answer is lost, the call returns `service_unavailable`, the approval stays recorded, and a retry with a new `Idempotency-Key` and the same quote continues it; the website's payment record makes a second debit impossible.
+* **Active jobs.** The per-key limit counts jobs that are being analysed or dubbed (not jobs waiting for upload, estimate or your review of the text); it is checked when the analysis or the dub is approved.

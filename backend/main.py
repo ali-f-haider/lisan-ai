@@ -1262,6 +1262,11 @@ _abandoned_jobs = set()
 _job_started = {}     # job_id -> timestamp
 
 def _current_uid(request: Request):
+    # A request that api_v1 already authenticated with an API key acts as that key's account; the same website
+    # route code (plan gate, balance, storage, charging) then runs unchanged. Only api_v1 sets this value.
+    _ap = getattr(request.state, "api_principal", None)
+    if isinstance(_ap, dict) and _ap.get("uid"):
+        return _ap["uid"]
     cookie = request.cookies.get("session", "")
     if not cookie:
         return None
@@ -5589,7 +5594,10 @@ def longdub_list(request: Request):
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
-    return {"jobs": [customer_payload(longdub_service.public_view(j)) for j in longdub_service.list_jobs_for_uid(uid)],
+    jobs = longdub_service.list_jobs_for_uid(uid)
+    if not _get_api_settings().get("jobs_visible", True):
+        jobs = [j for j in jobs if not isinstance(j.get("api"), dict)]      # the owner chose to keep API jobs out of the website's list
+    return {"jobs": [customer_payload(longdub_service.public_view(j)) for j in jobs],
             "credits": get_credits(uid)}
 
 
@@ -8900,13 +8908,18 @@ async def long_emotion_review(job_id: str, request: Request):
     return _emotion_audio_review(job_id, source, row["start"], row["end"], row.get("emotion"))
 
 
-# ===== Public API (v1), phase 1: keys, limits, settings, balance ======================================
+# ===== Public API (v1): keys, limits, settings, balance, and paid long-dub endpoints =================
 # All of the logic lives in api_v1.py / api_settings.py (tested with fakes); this block only connects them to
 # the database, the balance, the plan gate and the browser login the website already uses. The API stays OFF
-# until the owner switches it on in Admin > API. Paid endpoints (dubbing) are added in a later phase.
+# until the owner switches it on in Admin > API. The dubbing endpoints (api_dub.py) reach the website's own long-dub
+# route code through _ApiLongDub below, so every plan, balance, storage and payment rule is the website's.
 import api_settings
 import api_v1
 import api_errors
+import api_core
+import api_jobs
+import urllib.error
+from starlette.concurrency import run_in_threadpool
 
 
 def _api_rest(method, path, body=None, prefer=None):
@@ -8962,7 +8975,12 @@ def _api_eligible(uid):
 
 
 def _api_insert(table, row):
-    out = _api_rest("POST", table, row, prefer="return=representation")
+    try:
+        out = _api_rest("POST", table, row, prefer="return=representation")
+    except urllib.error.HTTPError as ex:
+        if ex.code == 409:            # PostgREST answers 409 when a unique key already exists
+            raise api_core.Conflict()
+        raise
     return out[0] if isinstance(out, list) and out else (out or {})
 
 
@@ -8978,6 +8996,88 @@ def _api_balance(uid):
     return {"credits": perm + sub, "subscription_credits": sub, "permanent_credits": perm}
 
 
+def _ld_out(resp):
+    """(status, dict) of what a website route returned (a plain dict, or a JSONResponse)."""
+    if hasattr(resp, "body") and hasattr(resp, "status_code"):
+        try:
+            data = json.loads(resp.body)
+        except Exception:
+            data = {}
+        return resp.status_code, (data if isinstance(data, dict) else {})
+    return 200, (resp if isinstance(resp, dict) else {})
+
+
+class _ApiLongDub:
+    """How the public API reaches the website's long-dub code. Every paid or state-changing call goes through the
+    website's own route functions with the same Request (whose account is the API key's account), so the plan gate, the
+    billing pause, storage and disk checks, the one-payment-per-step record and the refunds are exactly the website's."""
+
+    def load(self, job_id):
+        return longdub_service.load_job(job_id)
+
+    def jobs_for(self, uid):
+        return longdub_service.list_jobs_for_uid(uid)
+
+    def pricing(self, job):
+        return longdub_service._job_pricing(job)
+
+    def result_files(self, job):
+        out = {}
+        p = longdub_service.result_file(job)
+        if p is not None:
+            out["mixed"] = (p.stat().st_size, p.suffix)
+        for kind, which in (("dialogue", "voices"), ("background", "effects")):
+            t = longdub_service.track_file(job, which)
+            if t is not None:
+                out[kind] = (t.stat().st_size, t.suffix)
+        return out
+
+    def file_response(self, job, kind):
+        which = api_jobs.RESULT_KINDS.get(kind)
+        p = longdub_service.result_file(job) if kind == "mixed" else longdub_service.track_file(job, which)
+        if p is None:
+            return None
+        base = Path(job.get("filename") or "video").stem[:80] or "video"
+        label = {"mixed": "dubbed", "dialogue": "dubbed_voices", "background": "music_and_effects"}[kind]
+        return FileResponse(p, media_type=api_jobs.media_type(p.suffix), filename=f"{base}_{label}{p.suffix}")
+
+    def tag(self, job_id, patch):
+        job = longdub_service.load_job(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        with longdub_service._lock_for(job_id):
+            api = job.get("api") if isinstance(job.get("api"), dict) else {}
+            api.update(patch)
+            job["api"] = api
+            longdub_service._save(job)
+
+    async def create(self, request, params):
+        body = LongDubInit(filename=params["filename"], size=params["size"], speakers=params["speakers"],
+                           name=params["name"], description=params["description"])
+        return _ld_out(await run_in_threadpool(longdub_init, body, request))
+
+    async def chunk(self, request, job_id, index):
+        return _ld_out(await longdub_chunk(job_id, index, request))
+
+    async def finish(self, request, job_id):
+        return _ld_out(await run_in_threadpool(longdub_finish, job_id, request))
+
+    async def accept(self, request, job_id):
+        # the caller has approved a quote under the API terms; the website's own consent step is satisfied by that approval
+        return _ld_out(await run_in_threadpool(longdub_accept, job_id, LongDubAccept(agree=True), request))
+
+    async def preview(self, request, job_id):
+        return _ld_out(await run_in_threadpool(longdub_preview, job_id, request))
+
+    async def confirm(self, request, job_id, expected_due, tracks, keep_music, music_budget):
+        body = LongDubConfirm(expected_due=int(expected_due), room="", tracks=bool(tracks), keep_music=bool(keep_music),
+                              music_budget=int(music_budget))
+        return _ld_out(await run_in_threadpool(longdub_confirm, job_id, body, request))
+
+    async def delete(self, request, job_id):
+        return _ld_out(await run_in_threadpool(longdub_delete, job_id, request))
+
+
 _api_deps = api_v1.Deps(
     select=lambda table, query: _api_rest("GET", f"{table}?{query}") or [],
     insert=_api_insert,
@@ -8987,6 +9087,8 @@ _api_deps = api_v1.Deps(
     eligible=_api_eligible,
     owner_uid=_current_uid,
     pepper=api_v1.pepper_from_env,
+    delete=lambda table, query: _api_rest("DELETE", f"{table}?{query}", prefer="return=minimal"),
+    ld=_ApiLongDub(),
 )
 _api_router, _api_owner_router, _api_limiter = api_v1.build(_api_deps)
 app.include_router(_api_router)

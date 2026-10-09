@@ -12,77 +12,7 @@ import api_keys
 import api_settings
 import api_v1
 
-PEPPER = b"p" * 40
-OWNER = "11111111-1111-1111-1111-111111111111"
-OTHER = "22222222-2222-2222-2222-222222222222"
-
-
-class FakeDB:
-    def __init__(self):
-        self.t = {"api_keys": [], "api_owner_acceptances": []}
-        self.fail = False
-
-    def _match(self, row, query):
-        for part in query.split("&"):
-            if "=eq." in part:
-                col, val = part.split("=eq.", 1)
-                if str(row.get(col)) != val:
-                    return False
-        return True
-
-    def select(self, table, query):
-        if self.fail:
-            raise RuntimeError("db down")
-        return [dict(r) for r in self.t[table] if self._match(r, query)]
-
-    def insert(self, table, row):
-        if self.fail:
-            raise RuntimeError("db down")
-        r = dict(row)
-        r.setdefault("id", str(uuid.uuid4()))
-        r.setdefault("created_at", "2026-10-01T00:00:00+00:00")
-        self.t[table].append(r)
-        return dict(r)
-
-    def update(self, table, query, patch):
-        if self.fail:
-            raise RuntimeError("db down")
-        for r in self.t[table]:
-            if self._match(r, query):
-                r.update(patch)
-
-
-class Harness:
-    def __init__(self, **over):
-        self.db = FakeDB()
-        self.settings = api_settings.normalize({"enabled": True, "requests_per_minute": 60, "burst": 3})
-        self.settings.update(over)
-        self.clock = [1_800_000_000.0]
-        self.balance = {"credits": 1234, "subscription_credits": 234, "permanent_credits": 1000}
-        self.eligible = True
-        self.owner = OWNER
-        self.pepper = (1, PEPPER)
-        d = api_v1.Deps(select=self.db.select, insert=self.db.insert, update=self.db.update,
-                        settings=lambda: self.settings, balance=lambda uid: self.balance,
-                        eligible=lambda uid: self.eligible, owner_uid=lambda req: self.owner,
-                        pepper=lambda: self.pepper, now=lambda: self.clock[0])
-        self.api, self.ownr, self.limiter = api_v1.build(d)
-        app = FastAPI()
-        app.include_router(self.api)
-        app.include_router(self.ownr)
-        app.add_exception_handler(api_v1.ApiError, api_v1.handle_api_error)
-        self.c = TestClient(app, raise_server_exceptions=False)
-
-    def make_key(self, uid=OWNER, scopes=("read", "account"), state="active", expires=None, cap=500):
-        key = api_keys.generate_key()
-        self.db.insert("api_keys", {"uid": uid, "name": "t", "prefix": api_keys.dashboard_prefix(key), "pepper_version": 1,
-                                    "key_hash": api_keys.storage_hash(key, PEPPER), "scopes": list(scopes), "state": state,
-                                    "expires_at": expires, "daily_credit_cap": cap})
-        return key
-
-    @staticmethod
-    def bearer(key):
-        return {"Authorization": "Bearer " + key}
+from api_testkit import PEPPER, OWNER, OTHER, FakeDB, Harness
 
 
 class KeyCheckTests(unittest.TestCase):
@@ -162,7 +92,7 @@ class KeyCheckTests(unittest.TestCase):
         h.eligible = False
         r = h.c.get("/v1/account/balance", headers=h.bearer(k))
         self.assertEqual((r.status_code, r.json()["error"]["code"]), (403, "plan_required"))
-        h.settings["eligibility"] = "everyone"
+        h.eligible = True
         self.assertEqual(h.c.get("/v1/account/balance", headers=h.bearer(k)).status_code, 200)
 
     def test_unreadable_balance_is_503_never_zero(self):
@@ -251,6 +181,14 @@ class OwnerKeyTests(unittest.TestCase):
         self.assertNotIn(key, listing.text)
         self.assertNotIn("key_hash", listing.text)
         self.assertEqual(h.c.get("/v1/account/balance", headers=h.bearer(key)).status_code, 200)
+
+    def test_key_scopes_follow_the_owner_choice(self):
+        h = Harness()
+        self.assertEqual(sorted(self.create(h).json()["scopes"]), ["account", "dub", "read"])       # default: may start paid dubbing
+        self.assertEqual(sorted(self.create(h, can_dub=False).json()["scopes"]), ["account", "read"])
+        self.assertEqual(self.create(h, can_dub="yes").status_code, 400)
+        self.assertEqual(self.create(h, can_dub=None).status_code, 400)
+        self.assertEqual(len(h.db.t["api_keys"]), 2)
 
     def test_daily_cap_is_required_and_bounded(self):
         h = Harness(max_daily_credit_cap=1000)
