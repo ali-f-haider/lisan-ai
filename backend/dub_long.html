@@ -34,9 +34,11 @@
   <!-- Video tutorial: /static/Lisan-Ai-Long-Dub-Tutorial-Ar.mp4 (Arabic page) or -En.mp4 (English page). The card stays hidden until
        the file for the page language really exists on the server, so a missing video never shows an empty box. -->
   <div class="card hidden" id="tutorialCard">
-    <h3 id="tutHeading"></h3>
-    <p id="tutNote" class="note"></p>
-    <div class="ld-tutframe" id="tutFrame"></div>
+    <details class="ld-tutdetails" id="tutDetails">
+      <summary><strong id="tutHeading"></strong></summary>
+      <p id="tutNote" class="note"></p>
+      <div class="ld-tutframe" id="tutFrame"></div>
+    </details>
   </div>
 
   <div class="card hidden" id="upsellCard">
@@ -2382,6 +2384,8 @@ function doConfirm() {
 function mountTutorial() {
   var card = $("tutorialCard"), frame = $("tutFrame"); if (!card || !frame) return;
   $("tutHeading").textContent = T.tutHeading; $("tutNote").textContent = T.tutNote;
+  // collapsed until opened; closing it again stops the video
+  $("tutDetails").addEventListener("toggle", function () { if (!this.open) { var pv = frame.querySelector("video"); if (pv) pv.pause(); } });
   var src = "/static/Lisan-Ai-Long-Dub-Tutorial-" + (LANG === "ar" ? "Ar" : "En") + ".mp4";
   fetch(src, { method: "HEAD", cache: "no-store" }).then(function (r) {
     var ct = (r.headers.get("content-type") || "").toLowerCase();

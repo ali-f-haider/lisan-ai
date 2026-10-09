@@ -50,6 +50,12 @@ class Tutorial(unittest.TestCase):
         self.assertLess(body.index("indexOf(\"video\") !== 0"), body.index('card.classList.remove("hidden")'))
         self.assertIn('preload = "none"', body)              # nothing is downloaded until Play
 
+    def test_the_card_is_collapsible_and_collapsed_by_default(self):
+        self.assertRegex(PAGE, r'<details class="ld-tutdetails" id="tutDetails">\s*<summary>')      # no "open" attribute
+        self.assertNotIn('id="tutDetails" open', PAGE)
+        self.assertNotRegex(PAGE, r'tutDetails["\)]*\.(open|setAttribute\("open")\s*=?')            # nothing opens it by itself
+        self.assertIn('$("tutDetails").addEventListener("toggle"', PAGE)                               # closing it stops the video
+
     def test_it_starts_with_the_page(self):
         self.assertIn("applyStaticText();\n  mountTutorial();", PAGE.replace("\r\n", "\n"))
 
