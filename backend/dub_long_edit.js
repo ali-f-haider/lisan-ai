@@ -309,6 +309,17 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     else if (listen && listen.projectId !== id) { URL.revokeObjectURL(listen.url); listen = null; }
     open(id).catch(error);
   };
+  /* The link in the "corrections are ready" email (?project=<id>) opens that project and shows its downloads. */
+  function autoOpen() {
+    var want = new URLSearchParams(location.search).get('project');
+    if (!want) return;
+    if (!meta[want]) { openNote(tr('That project is not available here. Choose it from the list.', 'هذا المشروع غير متاح هنا. اختره من القائمة.')); return; }
+    $('projects').value = want;
+    open(want).then(function() {
+      var card = $('exports');
+      if (!card.classList.contains('hidden')) card.scrollIntoView({behavior: 'smooth', block: 'start'});
+    }).catch(error);
+  }
   $('projects').onchange=function(){openNote('');var f=$('listenFile').files[0],i=meta[this.value]||{};if(f&&i.size&&f.size!==Number(i.size))$('listenFile').value='';showPicked();};
   $('language').onclick=function(){localStorage.setItem('lisan_lang',lang==='en'?'ar':'en');location.reload();};
   $('back').onclick=function(){location.href='/dub-long';};$('appLink').onclick=function(){location.href='/app';};
@@ -317,5 +328,5 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   dark(localStorage.getItem('lisan_dark_mode')!=='0');$('darkModeBtn').onclick=function(){dark(!document.body.classList.contains('dark'));};
   window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
   staticText();
-  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;meta[job.id]={size:job.size,has_video:!!job.has_video};$('projects').appendChild(option);});}).catch(error);
+  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;meta[job.id]={size:job.size,has_video:!!job.has_video};$('projects').appendChild(option);});autoOpen();}).catch(error);
 })();

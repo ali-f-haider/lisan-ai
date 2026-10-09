@@ -13,6 +13,22 @@ import dub_review
 from shortdub_billing import debit_confirmed
 
 
+EDIT_PAGE_URL = 'https://lisanai.org/dub-long-edit'
+
+
+def ready_link(parent_id):
+    """The link in the 'corrections are ready' email: opens the finished project on the correction page, at its downloads.
+    A project id that does not look like one falls back to the plain page."""
+    pid = str(parent_id or '')
+    if not 1 <= len(pid) <= 64 or not all(c.isalnum() or c in '-_' for c in pid):
+        return EDIT_PAGE_URL
+    return EDIT_PAGE_URL + '?project=' + pid
+
+
+def ready_email_text(parent_id):
+    return 'Your correction tracks are ready. Open the project and download them here: ' + ready_link(parent_id)
+
+
 def active(parent):
     return any(j.get('edit_of') == parent['id'] and j.get('status') in ('payment_pending', 'confirmed', 'dubbing')
                for j in ld.list_jobs_for_uid(parent['uid']))
@@ -414,7 +430,7 @@ def run(job):
         parent['edit_voice_last_used'] = time.time(); ld._save(parent)
         job['status'] = 'done'; ld._mark(job, 'done', 100, 'Your correction tracks are ready.'); ld._save(job)
         try:
-            ld.Hooks.send_email(job['uid'], 'Your Lisan AI corrections are ready', 'Download the correction tracks at https://lisanai.org/dub-long-edit')
+            ld.Hooks.send_email(job['uid'], 'Your Lisan AI corrections are ready', ready_email_text(job.get('edit_of')))
         except Exception:
             pass  # a mail outage must not refund and mark a finished export as failed
     except Exception as ex:
