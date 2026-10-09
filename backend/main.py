@@ -586,7 +586,7 @@ PUBLIC_PATHS = frozenset([
     "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
     "/api/maintenance", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete"
-, "/help.html", "/admin"])
+, "/help.html", "/admin", "/api-docs"])
 
 # Security review (2026-09-30): upload endpoints used to accept a body of ANY
 # size -- FastAPI spools the whole multipart body to disk before the route
@@ -6530,6 +6530,12 @@ def public_privacy_page():
     from fastapi.responses import FileResponse
     import os
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html"))
+
+@app.get("/api-docs")
+def public_api_docs_page():
+    """The customer guide to the public API (static page; the test tool is embedded in it)."""
+    return FileResponse(Path(__file__).resolve().parent / "api_docs.html", media_type="text/html")
+
 
 @app.get("/terms")
 @app.get("/terms.html")

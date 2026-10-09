@@ -122,3 +122,43 @@ class PagesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GuidePageTests(unittest.TestCase):
+    """The public API guide (api_docs.html) matches the code it describes."""
+    PAGE = (ROOT / "api_docs.html").read_text(encoding="utf-8")
+
+    def test_page_is_served_publicly(self):
+        self.assertIn('"/api-docs"', MAIN.split("PUBLIC_PATHS = frozenset([", 1)[1][:1200])
+        self.assertIn('@app.get("/api-docs")', MAIN)
+        self.assertIn('href="/api-docs"', ACCOUNT)
+
+    def test_every_live_call_is_listed(self):
+        import html
+        src = (ROOT / "api_dub.py").read_text(encoding="utf-8") + V1
+        calls = re.findall(r'@(?:api|owner)\.(get|post|put|delete)\("(/[^"]*)"', (ROOT / "api_dub.py").read_text(encoding="utf-8"))
+        calls.append(("get", "/account/balance"))
+        self.assertGreaterEqual(len(calls), 12)
+        for method, path in calls:
+            path = re.sub(r"\{(job_id)\}", "{id}", path)
+            self.assertIn("%s /v1%s" % (method.upper(), path), self.PAGE, (method, path))
+
+    def test_every_error_code_is_listed(self):
+        import sys
+        sys.path.insert(0, str(ROOT))
+        import api_errors
+        for code, (status, retry, message) in api_errors.ERRORS.items():
+            self.assertIn("<code>%s</code>" % code, self.PAGE)
+            self.assertIn("<td>%d</td><td>%s</td>" % (status, "yes" if retry else "no"), self.PAGE)
+
+    def test_the_embedded_tool_is_the_file_and_the_terms_version_is_current(self):
+        import html
+        tool = (ROOT / "api_try.py").read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertIn(html.escape(tool), self.PAGE)
+        self.assertIn('TERMS = "%s"' % re.search(r'TERMS_VERSION = "([^"]+)"', V1).group(1), tool)
+        self.assertIn('"terms_version": "%s"' % re.search(r'TERMS_VERSION = "([^"]+)"', V1).group(1), self.PAGE)
+
+    def test_no_vendor_names_in_the_guide(self):
+        low = self.PAGE.lower()
+        for name in ("gemini", "elevenlabs", "inworld", "openai", "chatgpt", "claude", "anthropic", "fal.ai", "pyannote", "whisper"):
+            self.assertNotIn(name, low)

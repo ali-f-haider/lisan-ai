@@ -185,6 +185,7 @@
     <h3 id="apiHeading">🔑 API keys</h3>
     <p class="note" id="apiIntro"></p>
     <p class="note" id="apiLimitsLine"></p>
+    <p class="note"><a id="apiGuideLink" href="/api-docs" target="_blank" rel="noopener"></a></p>
     <p class="note" id="apiBlocked" style="display:none;color:#b45309;"></p>
     <div id="apiNewKey" style="display:none;margin:10px 0;padding:12px;border:1px solid #059669;border-radius:8px;background:#ecfdf5;color:#064e3b;">
       <strong id="apiNewKeyTitle"></strong>
@@ -856,6 +857,7 @@ loadMyVoices();
       blocked: "The API is available with the same plans as Dub Long Video. Choose a plan from the Buy menu to create a key.",
       none: "You have no keys yet.", name: "Name", prefix: "Key starts with", cap: "Daily credit cap", created: "Created", used: "Last used", state: "Status",
       active: "Active", revoked: "Revoked", never: "Never", revoke: "Revoke", revoking: "Revoke this key? Software using it stops working immediately.",
+      guide: "How to use the API: step-by-step guide and test tool →",
       createHeading: "Create a key", nameLabel: "Name (for example, My app)", capLabel: "Daily credit cap",
       canDub: "This key may start paid dubbing (untick for a key that can only read job status and your balance).", access: "Access", accessDub: "Dubbing", accessRead: "Read only",
       capHelp: function (l) { return "The most credits this key can spend in a day, up to " + l.max_daily_credit_cap + ". 100 credits = $1.00. If the key leaks, this is the most it can cost you."; },
@@ -871,6 +873,7 @@ loadMyVoices();
       blocked: "الواجهة متاحة مع الباقات نفسها التي تتيح دبلجة الفيديو الطويل. اختر باقة من قائمة الشراء لإنشاء مفتاح.",
       none: "لا توجد مفاتيح بعد.", name: "الاسم", prefix: "يبدأ المفتاح بـ", cap: "الحد اليومي للرصيد", created: "تاريخ الإنشاء", used: "آخر استخدام", state: "الحالة",
       active: "فعّال", revoked: "معطّل", never: "أبدًا", revoke: "تعطيل", revoking: "تعطيل هذا المفتاح؟ سيتوقف أي برنامج يستخدمه فورًا.",
+      guide: "كيفية استخدام الواجهة: الدليل خطوة بخطوة وأداة تجربة ←",
       createHeading: "إنشاء مفتاح", nameLabel: "الاسم (مثل: تطبيقي)", capLabel: "الحد اليومي للرصيد",
       canDub: "يمكن لهذا المفتاح بدء دبلجة مدفوعة (ألغِ التحديد لمفتاح يقرأ حالة المهام والرصيد فقط).", access: "الصلاحية", accessDub: "دبلجة", accessRead: "قراءة فقط",
       capHelp: function (l) { return "أقصى رصيد يمكن لهذا المفتاح صرفه في اليوم، حتى " + l.max_daily_credit_cap + ". 100 ائتمان = 1.00 دولار. إذا تسرّب المفتاح فهذا أقصى ما قد يكلّفك."; },
@@ -896,7 +899,7 @@ loadMyVoices();
 
   function render() {
     var s = state, l = s.limits;
-    text("apiLimitsLine", X.limits(l));
+    text("apiLimitsLine", X.limits(l)); text("apiGuideLink", X.guide);
     text("apiCapHelp", X.capHelp(l));
     if (!$("apiCap").value) $("apiCap").value = Math.min(l.suggested_daily_credit_cap, l.max_daily_credit_cap);
     $("apiBlocked").style.display = s.allowed ? "none" : "block";

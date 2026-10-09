@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>API guide: dub long videos from your own software — Lisan AI</title>
+<meta name="description" content="How to use the Lisan AI API: create a key, upload a video, approve the price and download the Arabic dub from your own software.">
+<link rel="canonical" href="https://lisanai.org/api-docs">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/site.css">
+<script src="/site.js"></script>
+<meta name="color-scheme" content="dark light">
+<style>
+body.site pre{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;overflow:auto;font-size:13.5px;line-height:1.5;color:var(--body);direction:ltr;text-align:left}
+body.site pre code{background:none;padding:0;font-size:inherit}
+body.site p code,body.site li code,body.site td code{overflow-wrap:anywhere}
+body.site table.t{width:100%;border-collapse:collapse;margin:8px 0 18px;font-size:14.5px}
+body.site table.t th,body.site table.t td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top;color:var(--body)}
+body.site table.t th{color:var(--text);font-weight:600}
+body.site .tablewrap{overflow-x:auto}
+body.site .note{border-inline-start:3px solid var(--gold);padding:8px 14px;background:var(--fill);border-radius:8px;margin:14px 0}
+body.site button.copy{border:1px solid var(--line2);background:var(--fill2);color:var(--text);border-radius:8px;padding:7px 14px;font:inherit;font-size:14px;cursor:pointer;margin:0 8px 8px 0}
+</style>
+</head>
+<body class="site">
+<nav class="site-nav"><div class="in"><a class="site-brand" href="/"><img src="/logo.png" alt="">Lisan AI</a><a class="back" id="siteBack" href="/" data-app="&#8592; Back to App">&#8592; Back to Home</a></div></nav>
+<main class="page doc">
+<h1>API guide</h1>
+<p class="updated">Dub long videos from your own software. Version 1, October 2026.</p>
+
+<p>The API lets your software send a video or audio file to Lisan AI, approve the price, and download the Arabic dub, without using the website. It does the same work, with the same voices, quality and credits, as <em>Dub Long Video</em> on the website. Jobs you start through the API normally also appear in your projects on the website, where you can review and correct the Arabic text before the dubbing is paid for.</p>
+
+<div class="note"><strong>Before you start:</strong> you need an account on a plan that includes Dub Long Video, some credits (1 credit = $0.01), and Python 3 on your computer for the tool below. A 30-second test clip costs roughly 50 credits (about $0.50) from start to finish. This number is an estimate for a short clip with two speakers; your own quote shows the exact price before anything is charged.</div>
+
+<h2>1. Create a key</h2>
+<ol>
+<li>Log in, open <strong>Account</strong> and choose the <strong>API keys</strong> tab. (The tab appears when the API is switched on for your account's plan.)</li>
+<li>Give the key a name, choose a <strong>daily credit cap</strong>, and tick the boxes accepting the API terms and confirming you have the right to dub the files you send.</li>
+<li>Leave <em>This key may start paid dubbing</em> ticked, then press <strong>Create key</strong>.</li>
+<li>Copy the key at once. It starts with <code>lsn_live_</code> and is shown <strong>only once</strong>. We keep no copy, so a lost key cannot be recovered: revoke it and create a new one.</li>
+</ol>
+<p>The daily cap is your safety net. If a key leaks, it can never spend more than this number of credits in a day. When you approve a step, the whole most that step can cost counts against the cap, even if less is finally charged. A key without the dubbing permission can only read job status and your balance.</p>
+<p><strong>Keep the key secret.</strong> Use it only from your own server or computer, never in a web page, a mobile app or a public repository. Anyone who has it can spend up to its daily cap.</p>
+
+<h2>2. Try it in five minutes</h2>
+<p>Copy the tool at the bottom of this page (or press <em>Download</em> there) and save it as <code>api_try.py</code>. In a Windows Command Prompt:</p>
+<pre><code>set LISAN_URL=https://lisanai.org
+set LISAN_KEY=lsn_live_your_key_here
+python api_try.py balance
+python api_try.py start "C:\path\to\clip.mp4"</code></pre>
+<p>On macOS or Linux use <code>export LISAN_URL=...</code> and <code>export LISAN_KEY=...</code> instead of <code>set</code>.</p>
+<p><code>balance</code> costs nothing and proves that the address, the key and your plan work. <code>start</code> uploads the file (at least 20 seconds long) and shows the price of each paid step. <strong>Nothing is charged until you type <code>yes</code>.</strong> After the analysis is approved, check progress with <code>python api_try.py status JOB_ID</code>. When it says <code>editing</code>, open the project on the website, review the Arabic text, then run <code>python api_try.py dub JOB_ID</code> and later <code>python api_try.py get JOB_ID</code> to download the files.</p>
+
+<h2>3. How a long dub works</h2>
+<div class="tablewrap"><table class="t">
+<tr><th>Step</th><th>What you do</th><th>What it costs</th></tr>
+<tr><td>Upload</td><td>Create the job, then send the file in parts.</td><td>Free</td></tr>
+<tr><td><code>estimate</code></td><td>Ask for a quote and approve it. You then see the estimate for the whole job.</td><td>A small fixed fee, which counts toward the total</td></tr>
+<tr><td><code>analysis</code></td><td>Ask for a quote and approve it. We listen, find the speakers and translate. The job ends in the state <code>editing</code>.</td><td>Analysis and processing fees, quoted in advance</td></tr>
+<tr><td>Review</td><td>On the website, read and correct the Arabic text and the speakers. (Editing through the API comes later.)</td><td>Free</td></tr>
+<tr><td><code>dub</code></td><td>Ask for a quote and approve it. The exact price is fixed by the reviewed text.</td><td>Voices, voice clones and assembly, plus an optional music repair, charged only for repairs that really happen</td></tr>
+<tr><td>Download</td><td>When the job is <code>done</code>, download the finished file and, if you asked for them, the separate voice and music tracks.</td><td>Free</td></tr>
+</table></div>
+
+<h2>4. Prices and your money</h2>
+<ul>
+<li><strong>A quote is a promise, not a charge.</strong> Asking for a quote never costs credits. It lists the exact amount and what it is made of.</li>
+<li><strong>You set a ceiling.</strong> To approve, you send the quote's number and a <code>max_credits</code> you accept. If the live price is higher than your ceiling, the answer is <code>max_credits_exceeded</code>; if the price changed in any other way (for example the text was edited), the answer is <code>quote_changed</code>. In both cases <strong>nothing is charged</strong>. Ask for a new quote and decide again.</li>
+<li><strong>Each step is paid once.</strong> Approving the same step again, with the same key or another, never charges twice. A quote lasts 10 minutes.</li>
+<li><strong>Estimate versus exact price.</strong> The estimate of the whole job is a forecast. The price of the <code>dub</code> step is exact, because it is calculated from the text you reviewed.</li>
+<li><strong>Refunds follow the website.</strong> If a paid step fails on our side, the credits are returned in the same way as on the website. The job shows credits taken and returned.</li>
+<li>API prices are shown in each quote and can differ from the website's prices. The quote is always the price you pay.</li>
+</ul>
+
+<h2>5. Limits and safe retries</h2>
+<ul>
+<li>Your account page shows the limits for your keys: requests per minute, how many dubs one key may run at once, and the daily cap. When you go over, the answer is <code>rate_limited</code> or <code>concurrency_limited</code>; wait and try again.</li>
+<li>Every request that changes something must carry an <code>Idempotency-Key</code> header: 16 to 128 letters, digits, <code>_</code> or <code>-</code>. If a request fails with no clear answer (for example your connection drops), send the <strong>same request with the same key</strong>. You get the original answer back instead of a second action.</li>
+<li>If a payment answer is lost, the call returns <code>service_unavailable</code>. Ask for the job's status first, and retry the approval: the system makes sure the step is charged only once.</li>
+</ul>
+
+<h2>6. Calling the API directly</h2>
+<p>Base address: <code>https://lisanai.org/v1</code>. Every call needs the header <code>Authorization: Bearer YOUR_KEY</code>. Bodies are JSON, answers are JSON. Example: start a job.</p>
+<pre><code>curl -X POST https://lisanai.org/v1/jobs \
+  -H "Authorization: Bearer $LISAN_KEY" \
+  -H "Idempotency-Key: my-first-try-0001" \
+  -H "Content-Type: application/json" \
+  -d @job.json</code></pre>
+<p>where <code>job.json</code> contains:</p>
+<pre><code>{"kind": "long", "filename": "clip.mp4", "size_bytes": 1234567, "rights_confirmed": true, "terms_version": "2026-10-1"}</code></pre>
+<p>(On Windows Command Prompt use <code>curl.exe</code>, <code>%LISAN_KEY%</code> and write the command on one line.) The reply is the new job, including its <code>id</code>. The full list of calls available today:</p>
+<div class="tablewrap"><table class="t">
+<tr><th>Call</th><th>Purpose</th><th>Needs</th></tr>
+<tr><td><code>GET /v1/account/balance</code></td><td>Your credits</td><td>account</td></tr>
+<tr><td><code>POST /v1/jobs</code></td><td>Create a long-dub job</td><td>dub</td></tr>
+<tr><td><code>GET /v1/jobs</code></td><td>List your API jobs (<code>limit</code>, <code>cursor</code>)</td><td>read</td></tr>
+<tr><td><code>GET /v1/jobs/{id}</code></td><td>Status, progress, last payment, errors</td><td>read</td></tr>
+<tr><td><code>DELETE /v1/jobs/{id}</code></td><td>Delete a job and its files (not while it is processing)</td><td>dub</td></tr>
+<tr><td><code>GET /v1/jobs/{id}/upload</code></td><td>Part size and which parts arrived</td><td>read</td></tr>
+<tr><td><code>PUT /v1/jobs/{id}/upload/chunks/{index}</code></td><td>Send one part of the file (raw bytes, parts numbered from 0)</td><td>dub</td></tr>
+<tr><td><code>POST /v1/jobs/{id}/quotes</code></td><td>Get a quote for <code>estimate</code>, <code>analysis</code> or <code>dub</code></td><td>dub</td></tr>
+<tr><td><code>POST /v1/jobs/{id}/upload/finish</code></td><td>Approve the <code>estimate</code> quote</td><td>dub</td></tr>
+<tr><td><code>GET /v1/jobs/{id}/estimate</code></td><td>The estimate of the whole job</td><td>read</td></tr>
+<tr><td><code>POST /v1/jobs/{id}/accept</code></td><td>Approve an <code>analysis</code> or <code>dub</code> quote</td><td>dub</td></tr>
+<tr><td><code>GET /v1/jobs/{id}/results</code></td><td>Which result files exist</td><td>read</td></tr>
+<tr><td><code>GET /v1/jobs/{id}/results/{kind}</code></td><td>Download <code>mixed</code> (the finished dub), <code>dialogue</code> or <code>background</code></td><td>read</td></tr>
+</table></div>
+
+<h2>7. Errors</h2>
+<p>A failed call returns an HTTP status and a body like <code>{"error":{"code":"quote_changed","message":"...","request_id":"req_..."}}</code>. Use the <code>code</code> in your software and quote the <code>request_id</code> if you contact support. "Retry" means: send the same request again with the same <code>Idempotency-Key</code>.</p>
+<div class="tablewrap"><table class="t">
+<tr><th>Code</th><th>HTTP</th><th>Retry</th><th>Meaning</th></tr>
+<tr><td><code>invalid_request</code></td><td>400</td><td>no</td><td>Check the request fields and try again.</td></tr>
+<tr><td><code>invalid_key</code></td><td>401</td><td>no</td><td>Use an active API key in the Authorization header.</td></tr>
+<tr><td><code>scope_required</code></td><td>403</td><td>no</td><td>This key does not have permission for this action.</td></tr>
+<tr><td><code>plan_required</code></td><td>403</td><td>no</td><td>Your account plan does not include this action.</td></tr>
+<tr><td><code>consent_required</code></td><td>403</td><td>no</td><td>Accept the current terms and confirm your rights in your account.</td></tr>
+<tr><td><code>not_found</code></td><td>404</td><td>no</td><td>This resource could not be found.</td></tr>
+<tr><td><code>insufficient_credits</code></td><td>402</td><td>no</td><td>Your credit balance is too low for this action.</td></tr>
+<tr><td><code>idempotency_conflict</code></td><td>409</td><td>no</td><td>This request key was already used for different content.</td></tr>
+<tr><td><code>job_not_ready</code></td><td>409</td><td>no</td><td>This job is not ready for this action. Check its status.</td></tr>
+<tr><td><code>revision_conflict</code></td><td>409</td><td>no</td><td>This project changed. Reload it before editing.</td></tr>
+<tr><td><code>quote_changed</code></td><td>409</td><td>no</td><td>The price changed. Request a new quote before accepting.</td></tr>
+<tr><td><code>max_credits_exceeded</code></td><td>409</td><td>no</td><td>The price exceeds your credit limit. Nothing was charged.</td></tr>
+<tr><td><code>upload_incomplete</code></td><td>409</td><td>yes</td><td>Upload the missing chunks before finishing.</td></tr>
+<tr><td><code>result_expired</code></td><td>410</td><td>no</td><td>This result is no longer stored. Start a new job.</td></tr>
+<tr><td><code>upload_too_large</code></td><td>413</td><td>no</td><td>This file exceeds the upload limit. Use a smaller file.</td></tr>
+<tr><td><code>unsupported_media</code></td><td>415</td><td>no</td><td>This file could not be read. Use a supported audio or video file.</td></tr>
+<tr><td><code>rate_limited</code></td><td>429</td><td>yes</td><td>Too many requests. Wait before trying again.</td></tr>
+<tr><td><code>concurrency_limited</code></td><td>429</td><td>yes</td><td>Wait for an active job to finish before starting another.</td></tr>
+<tr><td><code>daily_cap_exceeded</code></td><td>429</td><td>yes</td><td>This key reached its daily credit limit. Check your account settings.</td></tr>
+<tr><td><code>storage_full</code></td><td>409</td><td>no</td><td>Your storage is full. Remove an old result before continuing.</td></tr>
+<tr><td><code>service_unavailable</code></td><td>503</td><td>yes</td><td>This action is temporarily unavailable. Retry with the same request key.</td></tr>
+<tr><td><code>internal_error</code></td><td>500</td><td>yes</td><td>This action could not be completed. Check the job before retrying.</td></tr>
+</table></div>
+
+<h2>8. Not available yet</h2>
+<p>Short dubs (under 20 seconds), editing the text and speakers through the API, voice libraries, subtitles, usage reports and webhooks. Today: use the website for the review step, and ask for progress by reading the job status.</p>
+
+<h2>9. The test tool</h2>
+<p>This is the whole <code>api_try.py</code>. It uses only Python's standard library and sends your key only to the address you set in <code>LISAN_URL</code>. Read it before you run it; it is a good starting point for your own software.</p>
+<button class="copy" type="button" id="copyBtn">Copy</button><button class="copy" type="button" id="dlBtn">Download api_try.py</button>
+<pre><code id="tool">&quot;&quot;&quot;Try the Lisan AI public API by hand, step by step (long dubbing). Needs only Python 3, nothing to install.
+
+Setup (Windows Command Prompt), once per window:
+    set LISAN_URL=https://YOUR-SITE-ADDRESS
+    set LISAN_KEY=lsn_live_...your key...
+
+Commands:
+    python api_try.py balance
+    python api_try.py start  &quot;C:\\path\\to\\clip.mp4&quot;     upload, get the estimate, ask before each charge
+    python api_try.py status JOB_ID
+    python api_try.py dub    JOB_ID                      after you reviewed the text on the website
+    python api_try.py get    JOB_ID                      download the finished files into this folder
+    python api_try.py list
+
+Every step that costs credits shows you the price and waits for you to type yes. Nothing is charged before that.
+&quot;&quot;&quot;
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+import uuid
+
+TERMS = &quot;2026-10-1&quot;          # version of the API terms the server expects (shown in Account &gt; API keys)
+BASE = os.environ.get(&quot;LISAN_URL&quot;, &quot;&quot;).rstrip(&quot;/&quot;)
+KEY = os.environ.get(&quot;LISAN_KEY&quot;, &quot;&quot;)
+
+
+def die(msg):
+    print(msg)
+    sys.exit(1)
+
+
+def call(method, path, body=None, raw=None, headers=None, expect_json=True):
+    h = {&quot;Authorization&quot;: &quot;Bearer &quot; + KEY, &quot;Accept&quot;: &quot;application/json&quot;, &quot;User-Agent&quot;: &quot;lisan-api-try/1&quot;}
+    data = None
+    if method in (&quot;POST&quot;, &quot;PUT&quot;, &quot;DELETE&quot;):
+        h[&quot;Idempotency-Key&quot;] = &quot;try-&quot; + uuid.uuid4().hex
+    if body is not None:
+        data = json.dumps(body).encode(&quot;utf-8&quot;)
+        h[&quot;Content-Type&quot;] = &quot;application/json&quot;
+    if raw is not None:
+        data = raw
+        h[&quot;Content-Type&quot;] = &quot;application/octet-stream&quot;
+    h.update(headers or {})
+    req = urllib.request.Request(BASE + &quot;/v1&quot; + path, data=data, headers=h, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            payload = r.read()
+            return r.status, (json.loads(payload) if expect_json and payload else payload)
+    except urllib.error.HTTPError as ex:
+        payload = ex.read()
+        try:
+            return ex.code, json.loads(payload)
+        except Exception:
+            return ex.code, {&quot;error&quot;: {&quot;code&quot;: &quot;unreadable&quot;, &quot;message&quot;: payload[:200].decode(&quot;utf-8&quot;, &quot;replace&quot;)}}
+    except Exception as ex:
+        die(&quot;Could not reach the server (%s). Check LISAN_URL and your internet.&quot; % type(ex).__name__)
+
+
+def need(status, data, what):
+    if 200 &lt;= status &lt; 300:
+        return data
+    err = (data or {}).get(&quot;error&quot;, {}) if isinstance(data, dict) else {}
+    die(&quot;%s failed (%s): %s - %s&quot; % (what, status, err.get(&quot;code&quot;, &quot;?&quot;), err.get(&quot;message&quot;, &quot;&quot;)))
+
+
+def yes(question):
+    return input(question + &quot; Type yes to continue: &quot;).strip().lower() in (&quot;yes&quot;, &quot;y&quot;)
+
+
+def pay(job_id, step, extra=None):
+    &quot;&quot;&quot;Quote a step, show the price, ask, then approve with the price as the ceiling.&quot;&quot;&quot;
+    q = need(*call(&quot;POST&quot;, &quot;/jobs/%s/quotes&quot; % job_id, dict({&quot;step&quot;: step}, **(extra or {}))), &quot;Quote for &quot; + step)
+    print(&quot;\n--- %s ---&quot; % step.upper())
+    print(q[&quot;notice&quot;])
+    for item in q[&quot;breakdown&quot;]:
+        print(&quot;   %-18s %5d credits&quot; % (item[&quot;code&quot;], item[&quot;credits&quot;]))
+    print(&quot;   You will be charged: %d credits (%.2f USD). Of that, up to %d is the optional music repair, charged only if it happens.&quot; % (
+        q[&quot;quoted_credits&quot;], q[&quot;quoted_credits&quot;] / 100.0, q[&quot;additional_max_credits&quot;]))
+    print(&quot;   This quote is valid until&quot;, q[&quot;expires_at&quot;])
+    if q[&quot;quoted_credits&quot;] == 0:
+        print(&quot;   Nothing to pay for this step.&quot;)
+    if not yes(&quot;Approve this step?&quot;):
+        die(&quot;Stopped. Nothing was charged for this step.&quot;)
+    body = {&quot;quote_id&quot;: q[&quot;id&quot;], &quot;quoted_credits&quot;: q[&quot;quoted_credits&quot;], &quot;max_credits&quot;: q[&quot;quoted_credits&quot;], &quot;terms_version&quot;: q[&quot;terms_version&quot;]}
+    path = &quot;/jobs/%s/upload/finish&quot; % job_id if step == &quot;estimate&quot; else &quot;/jobs/%s/accept&quot; % job_id
+    job = need(*call(&quot;POST&quot;, path, body), &quot;Approval of &quot; + step)
+    op = job.get(&quot;current_operation&quot;) or {}
+    print(&quot;   Approved. Status: %s / %s. Credits taken so far for this step: %s&quot; % (job[&quot;status&quot;], job[&quot;stage&quot;], op.get(&quot;credits_debited&quot;)))
+    return job
+
+
+def show_job(j):
+    print(&quot;Job %s: %s (%s), %s%%, revision %s&quot; % (j[&quot;id&quot;], j[&quot;status&quot;], j[&quot;stage&quot;], j[&quot;percent&quot;], j[&quot;revision&quot;]))
+    if j.get(&quot;duration_seconds&quot;):
+        print(&quot;   length: %.0f seconds&quot; % j[&quot;duration_seconds&quot;])
+    op = j.get(&quot;current_operation&quot;)
+    if op:
+        print(&quot;   last paid step: %s, %s, taken %s, returned %s credits&quot; % (op[&quot;step&quot;], op[&quot;state&quot;], op[&quot;credits_debited&quot;], op[&quot;credits_refunded&quot;]))
+    if j.get(&quot;error&quot;):
+        print(&quot;   error:&quot;, j[&quot;error&quot;].get(&quot;code&quot;), &quot;-&quot;, j[&quot;error&quot;].get(&quot;message&quot;))
+    print(&quot;   result ready:&quot;, j[&quot;result_available&quot;])
+
+
+def cmd_balance():
+    print(need(*call(&quot;GET&quot;, &quot;/account/balance&quot;), &quot;Balance&quot;))
+
+
+def cmd_list():
+    for j in need(*call(&quot;GET&quot;, &quot;/jobs?limit=20&quot;), &quot;List&quot;)[&quot;jobs&quot;]:
+        show_job(j)
+
+
+def cmd_status(job_id):
+    show_job(need(*call(&quot;GET&quot;, &quot;/jobs/&quot; + job_id), &quot;Status&quot;))
+
+
+def cmd_start(path):
+    if not os.path.isfile(path):
+        die(&quot;File not found: &quot; + path)
+    size = os.path.getsize(path)
+    print(&quot;File: %s (%.1f MB). It must be at least 20 seconds long.&quot; % (os.path.basename(path), size / 1048576.0))
+    if not yes(&quot;Do you confirm you have the right to dub this file, and accept the API terms shown in your account?&quot;):
+        die(&quot;Stopped.&quot;)
+    job = need(*call(&quot;POST&quot;, &quot;/jobs&quot;, {&quot;kind&quot;: &quot;long&quot;, &quot;filename&quot;: os.path.basename(path), &quot;size_bytes&quot;: size,
+                                        &quot;rights_confirmed&quot;: True, &quot;terms_version&quot;: TERMS}), &quot;Create job&quot;)
+    jid = job[&quot;id&quot;]
+    print(&quot;Job created:&quot;, jid, &quot;(nothing charged yet)&quot;)
+    up = need(*call(&quot;GET&quot;, &quot;/jobs/%s/upload&quot; % jid), &quot;Upload info&quot;)
+    with open(path, &quot;rb&quot;) as f:
+        for i in range(up[&quot;total_chunks&quot;]):
+            chunk = f.read(up[&quot;chunk_bytes&quot;])
+            need(*call(&quot;PUT&quot;, &quot;/jobs/%s/upload/chunks/%d&quot; % (jid, i), raw=chunk), &quot;Upload part %d&quot; % i)
+            print(&quot;   uploaded part %d of %d&quot; % (i + 1, up[&quot;total_chunks&quot;]))
+    pay(jid, &quot;estimate&quot;)
+    est = need(*call(&quot;GET&quot;, &quot;/jobs/%s/estimate&quot; % jid), &quot;Estimate&quot;)
+    print(&quot;\nEstimate for the WHOLE job: about %d credits (%.2f USD); already paid %d. %s&quot; % (
+        est[&quot;estimated_total_credits&quot;], est[&quot;estimated_total_credits&quot;] / 100.0, est[&quot;already_paid_credits&quot;], est[&quot;notice&quot;]))
+    pay(jid, &quot;analysis&quot;)
+    print(&quot;\nThe server now analyses the file (listening, speakers, translation). Check progress with:&quot;)
+    print(&quot;    python api_try.py status &quot; + jid)
+    print(&quot;When the status says &#x27;editing&#x27;, open the project on the website, review and correct the text, then run:&quot;)
+    print(&quot;    python api_try.py dub &quot; + jid)
+
+
+def cmd_dub(job_id):
+    j = need(*call(&quot;GET&quot;, &quot;/jobs/&quot; + job_id), &quot;Status&quot;)
+    if j[&quot;status&quot;] != &quot;editing&quot;:
+        die(&quot;The job is &#x27;%s&#x27;, not &#x27;editing&#x27;. Wait until the analysis is finished (python api_try.py status %s).&quot; % (j[&quot;status&quot;], job_id))
+    keep = yes(&quot;Keep the original music under the speech (a repair fee may apply, shown next)?&quot;)
+    tracks = yes(&quot;Also keep the dubbed voices and the music as separate files?&quot;)
+    pay(job_id, &quot;dub&quot;, {&quot;keep_music&quot;: keep, &quot;tracks&quot;: tracks})
+    print(&quot;\nDubbing started. Check with: python api_try.py status &quot; + job_id)
+
+
+def cmd_get(job_id):
+    res = need(*call(&quot;GET&quot;, &quot;/jobs/%s/results&quot; % job_id), &quot;Results&quot;)[&quot;results&quot;]
+    if not res:
+        die(&quot;No result yet.&quot;)
+    for r in res:
+        status, data = call(&quot;GET&quot;, &quot;/jobs/%s/results/%s&quot; % (job_id, r[&quot;kind&quot;]), expect_json=False)
+        if status != 200:
+            print(&quot;Could not download&quot;, r[&quot;kind&quot;], status)
+            continue
+        name = &quot;%s_%s%s&quot; % (job_id[:8], r[&quot;kind&quot;], &quot;.mp4&quot; if r[&quot;media_type&quot;] == &quot;video/mp4&quot; else &quot;.m4a&quot; if r[&quot;media_type&quot;] == &quot;audio/mp4&quot; else &quot;.mp3&quot;)
+        with open(name, &quot;wb&quot;) as f:
+            f.write(data)
+        print(&quot;Saved&quot;, name, &quot;(%d bytes)&quot; % len(data))
+
+
+def main():
+    if not BASE.startswith(&quot;http&quot;) or not KEY.startswith(&quot;lsn_live_&quot;):
+        die(&quot;Set LISAN_URL and LISAN_KEY first (see the top of this file).&quot;)
+    a = sys.argv[1:]
+    if not a:
+        die(__doc__)
+    cmd = a[0]
+    if cmd == &quot;balance&quot;:
+        cmd_balance()
+    elif cmd == &quot;list&quot;:
+        cmd_list()
+    elif cmd in (&quot;status&quot;, &quot;dub&quot;, &quot;get&quot;, &quot;start&quot;) and len(a) == 2:
+        {&quot;status&quot;: cmd_status, &quot;dub&quot;: cmd_dub, &quot;get&quot;: cmd_get, &quot;start&quot;: cmd_start}[cmd](a[1])
+    else:
+        die(__doc__)
+
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre>
+</main>
+<script>
+(function () {
+  var code = document.getElementById("tool");
+  document.getElementById("copyBtn").onclick = function () {
+    var b = this; (navigator.clipboard ? navigator.clipboard.writeText(code.textContent) : Promise.reject()).then(function () { b.textContent = "Copied"; }, function () { b.textContent = "Select the text and copy it"; });
+  };
+  document.getElementById("dlBtn").onclick = function () {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([code.textContent], { type: "text/x-python" }));
+    a.download = "api_try.py"; document.body.appendChild(a); a.click(); a.remove();
+  };
+})();
+</script>
+</body>
+</html>

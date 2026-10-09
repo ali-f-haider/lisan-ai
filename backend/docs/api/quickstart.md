@@ -1,8 +1,12 @@
-# Lisan AI API quickstart (contract preview)
+# Lisan AI API quickstart
 
-**These /v1 routes are not live yet.** They must be integrated and tested
-before these examples can connect. Examples below are complete clients for
-the proposed contract; tests check their syntax without contacting any server.
+**Status (version 1.82.37):** the long-dub routes are live: create a job, upload,
+estimate, quotes, approvals, status, results, delete, and `GET /v1/account/balance`.
+For a step-by-step guide and a ready-made test tool read `/api-docs` on the website.
+**Not live yet:** short dubs, `GET /v1/settings`, segment and speaker editing,
+voices, subtitles and usage. Examples below that use those routes, and the
+clients' `short` mode, will not work yet. Where the text below says a route
+"must be integrated", it describes the planned contract.
 
 Create an account key with `read`, `dub` and `account` scopes after the owner
 accepts the current terms/rights statement. Put the key in the server environment
