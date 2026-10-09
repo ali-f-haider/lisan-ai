@@ -47,6 +47,7 @@ import railway_monitor
 import resource_meter
 import assistant_service
 import service_usage_monitor
+import site_gate
 import dub_review
 import dub_audio
 import dub_background
@@ -502,25 +503,37 @@ GATE_EXEMPT_PATHS = frozenset(["/gate", "/api/site-gate", "/api/stripe/webhook"]
 # ahead of every page, asset and API call) -- 20 seconds is fast enough
 # that flipping the admin switch takes effect almost immediately, without
 # adding a DB round-trip to the site's hot path.
-_site_gate_cache = {"enabled": True, "checked_at": 0.0}
 SITE_GATE_CACHE_TTL_SEC = 20
+
+def _read_site_gate_flag():
+    """The saved gate switch: True/False, or None when nothing is saved yet. RAISES when the database cannot be read
+    (unlike _get_pricing_config, which answers with built-in defaults, and those defaults say "gate on")."""
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=site_gate_enabled&order=updated_at.desc&limit=1"
+    req = urllib.request.Request(url, headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        rows = json.load(r)
+    if isinstance(rows, list) and rows:
+        v = rows[0].get("site_gate_enabled")
+        return None if v is None else bool(v)
+    return None
+
+# Keeps the last value it read (also on disk, so a restart or a database hiccup never re-closes a gate that was
+# switched off). See site_gate.py.
+_gate_switch = site_gate.GateSwitch(_read_site_gate_flag, DATA_DIR / "site_gate_state.json",
+                                    ttl=SITE_GATE_CACHE_TTL_SEC)
 
 def _site_gate_active() -> bool:
     """Whether the gate should block requests right now. Requires BOTH the
     Railway env var (the actual password) to be set AND the admin panel's
     toggle to be on -- defaults to on (True) so setting the env var alone
     reproduces the original always-on behavior until someone visits the
-    admin panel and changes it."""
+    admin panel and changes it. A failed read of the toggle keeps the last
+    known value (never the default)."""
     if not SITE_GATE_PASSWORD:
         return False
-    now = time.time()
-    if now - _site_gate_cache["checked_at"] > SITE_GATE_CACHE_TTL_SEC:
-        try:
-            _site_gate_cache["enabled"] = bool(_get_pricing_config().get("siteGateEnabled", True))
-        except Exception:
-            pass  # Supabase hiccup -- keep the last known value rather than fail open or crash
-        _site_gate_cache["checked_at"] = now
-    return _site_gate_cache["enabled"]
+    return _gate_switch.enabled()
 
 # --- Independent on/off switches for the automatic usage-alert emails
 # (Sept 2026) ---
@@ -7498,6 +7511,7 @@ async def admin_save_pricing(request: Request):
     if ok:
         _apply_concurrency(body.get("concurrency"))
         _apply_assistant(body.get("assistant"))
+        _gate_switch.apply(bool(body.get("siteGateEnabled", True)))      # the gate switch takes effect now, not at the next refresh
     # Surface the real reason to the admin panel instead of a bare "ok:
     # false" -- previously a failed save just showed "unknown error" since
     # nothing but the server logs ever saw the actual exception.
