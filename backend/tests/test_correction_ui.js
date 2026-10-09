@@ -38,8 +38,12 @@ function harness() {
     let timerId = 0;
     const get = id => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
     const control = element('textarea');
+    const lisanPlayer = { isOpen() { return false; }, open(options) { c.shared.push(options); } };
     const c = vm.createContext({
-        lang: 'en', project: { id: 'parent' }, state: { busy: false, history: [], segments: [], duration: 60 },
+        lang: 'en', project: { id: 'parent' }, state: { busy: false, history: [], segments: [], duration: 60, speaker_list: [{ id: 's1', name: 'Sam' }] },
+        meta: { parent: { size: 1000, has_video: true } }, listen: null, shared: [],
+        LisanPlayer: lisanPlayer, window: { LisanPlayer: lisanPlayer },
+        error: ex => { c.lastError = ex; }, lastError: null,
         selected: new Set(['line-1']), notified: new Set(), working: false, pollTimer: null, dirty: false,
         $: get, tr: (en, ar) => c.lang === 'ar' ? ar : en,
         document: {
@@ -72,7 +76,7 @@ function harness() {
     vm.runInContext(excerpt('  function statusText(', '  function renderHistory('), c);
     vm.runInContext(excerpt('  function progress(', "  $('finish').onclick="), c);
     vm.runInContext(excerpt('  function button(', '  function refreshOverlaps('), c);
-    vm.runInContext(excerpt('  async function openPlayer(', "  $('projects').onchange="), c);
+    vm.runInContext(excerpt('  function openPlayer(', "  $('projects').onchange="), c);
     return {
         c, elements, get, control, created, calls, timers, messages, confirmations,
         async runTimer() {
@@ -140,16 +144,73 @@ test('a failed correction replaces stale generating progress and unlocks editing
     assert.equal(h.messages.length, 0, 'Failure must not announce a successful export');
 });
 
-test('audio-only manual timing can pause and resume through its explicit playback button', async () => {
+test('Enter man. opens the one shared time dialog with this line and this project', async () => {
     const h = harness();
-    await h.c.openPlayer({ segment_id: 'line-1', start: 3, end: 8 });
-    const media = h.created.find(node => node.tagName === 'video');
-    const play = h.created.find(node => node.tagName === 'button' && node.textContent === 'Play');
-    const playRange = h.created.find(node => node.tagName === 'button' && node.textContent === 'Play this range');
-    assert.ok(media.classList.contains('audio'), 'This exercises the hidden native audio controls');
-    assert.ok(play, 'An explicit playback control remains available');
-    playRange.click();
-    assert.equal(media.currentTime, 3); assert.equal(media.paused, false); assert.equal(play.textContent, 'Pause');
-    play.click(); assert.equal(media.paused, true); assert.equal(play.textContent, 'Play');
-    play.click(); assert.equal(media.paused, false); assert.equal(play.textContent, 'Pause');
+    h.c.state.segments = [{ segment_id: 'a' }, { segment_id: 'line-1', start: 3, end: 8, text: 'Hi', arabic_text: 'مرحبا', speaker_id: 's1' }];
+    h.c.openPlayer(h.c.state.segments[1]);
+    assert.equal(h.c.shared.length, 1);
+    const o = h.c.shared[0];
+    assert.equal(o.index, 2); assert.equal(o.speaker, 'Sam'); assert.equal(o.start, 3); assert.equal(o.end, 8);
+    assert.equal(o.size, 1000); assert.equal(o.kind, 'video'); assert.equal(o.duration, 60);
+    assert.equal(o.local, null, 'No file chosen yet, so the server copy is used');
+    const src = await o.fetchSource();
+    assert.deepEqual(JSON.parse(JSON.stringify(src)), { url: '/api/longdub/parent/media', kind: 'audio' });
+    h.c.respond = async () => { throw new Error('nothing to play'); };
+    assert.equal(await o.fetchSource(), null, 'No server copy: the dialog asks for the person\'s file');
+});
+
+test('a file chosen inside the dialog is remembered for this project only', () => {
+    const h = harness();
+    h.get('listenFile').files = [];
+    h.c.state.segments = [{ segment_id: 'line-1', start: 3, end: 8 }];
+    h.c.openPlayer(h.c.state.segments[0]);
+    h.c.shared[0].onLocal({ name: 'film.mp4' }, 'blob:mine');
+    assert.deepEqual(JSON.parse(JSON.stringify(h.c.listen)), { projectId: 'parent', url: 'blob:mine', name: 'film.mp4' });
+    h.c.openPlayer(h.c.state.segments[0]);
+    assert.deepEqual(JSON.parse(JSON.stringify(h.c.shared[1].local)), { url: 'blob:mine', kind: 'video' });
+    h.c.project = { id: 'other' };
+    h.c.openPlayer(h.c.state.segments[0]);
+    assert.equal(h.c.shared[2].local, null, 'Another project never reuses it');
+});
+
+test('new times are checked, applied to the line and saved', async () => {
+    const h = harness(), row = { segment_id: 'line-1', start: 3, end: 8 };
+    let saved = 0, drawn = 0;
+    h.c.state.segments = [row]; h.c.save = async () => { saved++; }; h.c.renderLines = () => { drawn++; };
+    h.c.change = (r, f, v) => { r[f] = v; };
+    h.c.openPlayer(row);
+    const apply = h.c.shared[0].onApply;
+    await assert.rejects(() => apply(9, 9), /valid times/);
+    await assert.rejects(() => apply(1, 61), /valid times/);
+    assert.equal(saved, 0); assert.equal(row.start, 3);
+    assert.equal(await apply(4.5, 9.25), true);
+    assert.equal(row.start, 4.5); assert.equal(row.end, 9.25); assert.equal(row.manual_time, true);
+    assert.equal(saved, 1); assert.equal(drawn, 1);
+});
+
+test('Open needs a film, refuses a file of another size and then opens the project', async () => {
+    const h = harness(), opened = () => h.calls.filter(call => call.url === '/api/longdub/parent/corrections').length;
+    const select = h.get('projects'), input = h.get('listenFile'), press = async () => { h.get('openProject').onclick(); await new Promise(setImmediate); };
+    select.value = ''; input.files = [];
+    await press();
+    assert.match(h.get('openNote').textContent, /Choose a project first/);
+    assert.equal(opened(), 0);
+    select.value = 'parent'; input.files = [{ name: 'other.mp4', size: 999 }];
+    await press();
+    assert.match(h.get('openNote').textContent, /isn’t the same file/);
+    assert.equal(opened(), 0);
+    input.files = [{ name: 'film.mp4', size: 1000 }];
+    await press();
+    assert.equal(h.get('openNote').textContent, '');
+    assert.equal(opened(), 1);
+    assert.equal(h.c.listen.url, 'blob:local-test'); assert.equal(h.c.listen.name, 'film.mp4');
+});
+
+test('Open works without a file when our servers still have a copy, and drops another project\'s file', async () => {
+    const h = harness(), opened = () => h.calls.filter(call => call.url === '/api/longdub/parent/corrections').length;
+    h.get('projects').value = 'parent'; h.get('listenFile').files = [];
+    h.c.listen = { projectId: 'someone-else', url: 'blob:old', name: 'old.mp4' };
+    h.get('openProject').onclick(); await new Promise(setImmediate);
+    assert.equal(opened(), 1);
+    assert.equal(h.c.listen, null);
 });

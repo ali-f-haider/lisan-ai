@@ -5348,6 +5348,12 @@ def _delete_project_assets(project):
                 "_voices_tmp.m4a", "_effects_tmp.m4a") + tuple(TRACK_KINDS.values())
     for suffix in suffixes:
         (OUTPUT_DIR / (jid + suffix)).unlink(missing_ok=True)
+    try:        # the off-site backup copies of this project's files go too (nothing to do when R2 is not set up)
+        import r2_backup
+        for suffix in suffixes:
+            r2_backup.delete_final_output(jid + suffix)
+    except Exception as ex:
+        print(f"[longdub] backup copies of {jid} could not be removed now (the age limit removes them later): {ex}")
     for path in list(directory.iterdir()):
         if path.name == "job.json":
             continue

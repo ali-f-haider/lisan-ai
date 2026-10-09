@@ -3538,6 +3538,9 @@ def _idle_memory_trim():
     return True
 
 
+_last_r2_purge = [0.0]       # when the old-backup-copy sweep last ran (see _cleanup_worker)
+
+
 def _cleanup_worker():
     global _last_expiry_check
     # First database backup about 2 minutes after start-up (then once a day, checked every sweep).
@@ -3588,6 +3591,9 @@ def _cleanup_worker():
                         if p.stat().st_mtime < cutoff:
                             p.unlink()
                             removed += 1
+                            if _is_final_output(p):
+                                # the off-site backup copy goes with the file, so R2 follows the same 30-day / 48-hour rule
+                                r2_backup.delete_final_output(p.name)
                     except Exception:
                         pass
             try:
@@ -3625,6 +3631,14 @@ def _cleanup_worker():
                 print(f"[cleanup] removed {removed} old file(s)")
         except Exception as e:
             print("[cleanup] error:", e)
+
+        try:
+            # safety net behind the per-file deletion above: any backup copy older than 31 days goes, checked every 6 hours
+            if _time.time() - _last_r2_purge[0] >= 6 * 3600:
+                _last_r2_purge[0] = _time.time()
+                r2_backup.purge_old_final_outputs()
+        except Exception as e:
+            print("[r2-backup] old-copy sweep error:", e)
 
         try:
             _idle_memory_trim()
@@ -8672,6 +8686,12 @@ def longdub_editor_css():
 @app.get("/longdub_editor.js")
 def longdub_editor_js():
     return FileResponse(BASE_DIR / "longdub_editor.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/longdub_player.js")
+def longdub_player_js():
+    """The time dialog shared by the long-dub page and the correction page."""
+    return FileResponse(BASE_DIR / "longdub_player.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
 @app.post("/api/longdub/{job_id}/review")

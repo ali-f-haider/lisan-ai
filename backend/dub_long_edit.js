@@ -5,7 +5,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   'use strict';
   var lang = localStorage.getItem('lisan_lang') === 'ar' ? 'ar' : 'en', project = null, state = null;
   var selected = new Set(), page = 0, dirty = false, working = false, saveTimer = null, saveFlight = null;
-  var manualNoticeId = '', notified = new Set(), pollTimer = null;
+  var manualNoticeId = '', notified = new Set(), pollTimer = null; var meta = {}, listen = null;
   var $ = function(id) { return document.getElementById(id); };
   var tr = function(en, ar) { return lang === 'ar' ? ar : en; };
   async function api(path, method, body) {
@@ -39,6 +39,8 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     $('recoveryTitle').textContent = tr('Attach the original for editing', 'إرفاق الأصل للتحرير');
     $('recoveryText').textContent = tr('Attach the same original file if voice references or the background are missing, or to listen to the original audio. It is verified without retranscribing. Any required re-cloning or background repair is included in the generation price.', 'أرفق الملف الأصلي نفسه عند غياب عينات الصوت أو الخلفية، أو للاستماع إلى الصوت الأصلي. يتم التحقق منه دون إعادة التفريغ. تُحتسب إعادة الاستنساخ وإصلاح الخلفية عند الحاجة ضمن سعر التوليد.');
     $('restore').textContent = tr('Attach original file', 'إرفاق الملف الأصلي');
+    $('pickFile').textContent = tr('Choose original file', 'اختيار الملف الأصلي'); $('openProject').textContent = tr('Open', 'فتح');
+    $('pickHint').textContent = tr('Choose the film, then your original file, then press Open. The file is only played in your browser, nothing is uploaded and nothing costs credits.', 'اختر الفيلم، ثم ملفك الأصلي، ثم اضغط فتح. يُشغَّل الملف في متصفحك فقط، ولا يُرفع شيء ولا يكلّف أي رصيد.');
     $('exportsTitle').textContent = tr('Correction exports', 'ملفات التصحيحات');
     $('timeHeading').textContent = tr('Timing and speaker', 'التوقيت والمتحدث');
     $('originalHeading').textContent = tr('Original text', 'النص الأصلي'); $('arabicHeading').textContent = tr('Arabic text', 'النص العربي');
@@ -46,7 +48,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   function setBusy(value) {
     working = value;
     document.querySelectorAll('#lines input,#lines textarea,#lines select,#lines button,#pages button,#pages input,#pagesBottom button,#pagesBottom input').forEach(function(c) { c.disabled = value; });
-    ['dub','finish','projects','restore'].forEach(function(id) { $(id).disabled = value; });
+    ['dub','finish','projects','restore','pickFile','openProject'].forEach(function(id) { $(id).disabled = value; });
   }
   function count() { $('selectedCount').textContent = tr(selected.size + ' selected lines', selected.size + ' أسطر محددة'); }
   function invalidate(row) {
@@ -259,36 +261,55 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       var watch=async function(){var job=await api('/api/longdub/'+restored.id);progress(job,tr('Preparing original audio…','جارٍ تحضير الصوت الأصلي…'));if(job.status==='failed')throw new Error(job.error);if(job.status==='editing'){$('restoreStatus').textContent=tr('Original audio recovered.','تمت استعادة الصوت الأصلي.');setBusy(false);state=await api('/api/longdub/'+project.id+'/corrections');renderLines();}else pollTimer=setTimeout(function(){watch().catch(function(ex){error(ex);setBusy(false);});},3000);};await watch();
     }catch(ex){error(ex);setBusy(false);}
   };
-  async function openPlayer(row) {
-    if(working)return;
-    var overlay=document.createElement('div');overlay.className='ld-pl-overlay';var panel=document.createElement('div');panel.className='ld-pl ld-edit-player';overlay.appendChild(panel);
-    var title=document.createElement('h4');title.textContent=tr('Set this line’s times by ear','تحديد توقيت السطر بالاستماع');panel.appendChild(title);
-    var media=document.createElement('video');media.controls=true;media.preload='metadata';panel.appendChild(media);
-    var clock=document.createElement('div');clock.className='ld-pl-time';clock.textContent='0.000';panel.appendChild(clock);
-    var seek=document.createElement('input');seek.type='range';seek.min=0;seek.max=state.duration;seek.step='.001';seek.value=row.start;seek.setAttribute('aria-label',tr('Playback position','موضع التشغيل'));panel.appendChild(seek);seek.oninput=function(){media.currentTime=Number(seek.value);};media.ontimeupdate=function(){clock.textContent=media.currentTime.toFixed(3);seek.value=media.currentTime;};
-    var controls=document.createElement('div');controls.className='ld-pl-row';panel.appendChild(controls);
-    var play=button(controls,'Play','تشغيل',function(){range=false;if(media.paused)media.play().catch(function(){});else media.pause();});
-    media.addEventListener('play',function(){play.textContent=tr('Pause','إيقاف مؤقت');});
-    media.addEventListener('pause',function(){play.textContent=tr('Play','تشغيل');});
-    [-1,-.1,-.01,.01,.1,1].forEach(function(step){button(controls,(step>0?'+':'')+step+' s',(step>0?'+':'')+step+' ث',function(){media.currentTime=Math.max(0,Math.min(state.duration,media.currentTime+step));});});
-    var speed=document.createElement('select');[.5,.75,1,1.25,1.5].forEach(function(v){var o=document.createElement('option');o.value=v;o.textContent=v+'×';speed.appendChild(o);});speed.value='1';speed.setAttribute('aria-label',tr('Playback speed','سرعة التشغيل'));speed.onchange=function(){media.playbackRate=Number(speed.value);};controls.appendChild(speed);
-    var marks=document.createElement('div');marks.className='ld-pl-marks';panel.appendChild(marks);
-    function mark(value,en,ar){var box=document.createElement('div');box.className='ld-pl-mark';var label=document.createElement('b');label.textContent=tr(en,ar);var input=document.createElement('input');input.type='number';input.step='.001';input.min=0;input.max=state.duration;input.value=value;input.setAttribute('aria-label',tr(en,ar));box.append(label,input);var buttons=document.createElement('div');buttons.className='btns';button(buttons,'Set to current time','التعيين للوقت الحالي',function(){input.value=media.currentTime.toFixed(3);});button(buttons,'Go to time','الانتقال للوقت',function(){media.currentTime=Number(input.value);});box.appendChild(buttons);marks.appendChild(box);return input;}
-    var start=mark(row.start,'Start','البداية'),end=mark(row.end,'End','النهاية'),range=false;
-    button(controls,'Play this range','تشغيل هذا النطاق',function(){range=true;media.currentTime=Number(start.value);media.play().catch(function(){});});media.addEventListener('timeupdate',function(){if(range&&media.currentTime>=Number(end.value)){media.pause();range=false;}});
-    var file=document.createElement('input');file.type='file';file.accept='video/*,audio/*,.mp4,.mkv,.mov,.webm,.mp3,.wav,.m4a';file.className='hidden';panel.appendChild(file);var localUrl=null;
-    button(controls,'Choose original file','اختيار الملف الأصلي',function(){file.click();});file.onchange=function(){if(file.files[0]){if(localUrl)URL.revokeObjectURL(localUrl);localUrl=URL.createObjectURL(file.files[0]);media.src=localUrl;}};
-    var note=document.createElement('p');note.className='ld-pl-err';panel.appendChild(note);
-    var foot=document.createElement('div');foot.className='ld-pl-foot';panel.appendChild(foot);
-    function close(){media.pause();overlay.remove();if(localUrl)URL.revokeObjectURL(localUrl);document.removeEventListener('keydown',keys);}
-    function keys(event){if(event.key==='Escape')close();}document.addEventListener('keydown',keys);
-    button(foot,'Discard','إلغاء',close);
-    var accept=button(foot,'Save & close','حفظ وإغلاق',async function(){var a=Number(start.value),b=Number(end.value);if(!Number.isFinite(a+b)||a<0||b<=a||b>state.duration){note.textContent=tr('Set valid times inside the original duration.','أدخل وقتين صالحين ضمن مدة الأصل.');return;}accept.disabled=true;try{change(row,'start',a);change(row,'end',b);change(row,'manual_time',true);await save();close();state.segments.sort(function(a,b){return a.start-b.start;});renderLines();}catch(ex){note.textContent=ex.message;accept.disabled=false;}});accept.className='green';
-    document.body.appendChild(overlay);
-    try{var source=await api('/api/longdub/'+project.id+'/corrections/player','POST',{});if(overlay.isConnected){media.src=source.url;if(source.kind==='audio')media.classList.add('audio');media.onloadedmetadata=function(){media.currentTime=row.start;};}}
-    catch(ex){note.textContent=tr('Choose the original file above to listen and set the times.','اختر الملف الأصلي أعلاه للاستماع وتحديد التوقيت.');}
+  /* Enter man.: the same dialog as the long-dub page (longdub_player.js). This part only says where the sound comes from
+     and what happens with the new times. */
+  function openPlayer(row) {
+    if (working || !project || !window.LisanPlayer || LisanPlayer.isOpen()) return;
+    var id = project.id, info = meta[id] || {}, kind = info.has_video ? 'video' : 'audio';
+    var who = (state.speaker_list || []).find(function(s) { return s.id === row.speaker_id; });
+    LisanPlayer.open({
+      lang: lang, index: state.segments.indexOf(row) + 1, speaker: (who && who.name) || row.speaker || '',
+      text: row.text || '', arabic: row.arabic_text || '', start: Number(row.start), end: Number(row.end), duration: state.duration,
+      size: info.size, kind: kind,
+      local: listen && listen.projectId === id ? {url: listen.url, kind: kind} : null,
+      fetchSource: function() {
+        return api('/api/longdub/' + id + '/corrections/player', 'POST', {}).then(function(source) { return {url: source.url, kind: source.kind}; }, function() { return null; });
+      },
+      onLocal: function(file, url) { keepFile(id, file, url); },
+      onApply: async function(a, b) {
+        if (!Number.isFinite(a + b) || a < 0 || b <= a || b > state.duration) throw new Error(tr('Set valid times inside the original duration.', 'أدخل وقتين صالحين ضمن مدة الأصل.'));
+        change(row, 'start', a); change(row, 'end', b); change(row, 'manual_time', true);
+        await save();
+        state.segments.sort(function(x, y) { return x.start - y.start; });
+        renderLines();
+        return true;
+      }
+    });
   }
-  $('projects').onchange=function(){if(this.value)open(this.value).catch(error);};
+  /* The person's own copy of the film is only played in their browser: nothing is uploaded and nothing costs credits. */
+  function keepFile(id, file, url) {
+    if (listen && listen.url !== url) URL.revokeObjectURL(listen.url);
+    listen = {projectId: id, url: url, name: file.name};
+    showPicked();
+  }
+  function showPicked() {
+    var file = $('listenFile').files[0];
+    $('pickedFile').textContent = file ? file.name : (listen && listen.projectId === $('projects').value ? listen.name : '');
+  }
+  function openNote(text) { $('openNote').textContent = text || ''; }
+  $('pickFile').onclick = function() { $('listenFile').click(); };
+  $('listenFile').onchange = function() { openNote(''); showPicked(); };
+  $('openProject').onclick = function() {
+    var id = $('projects').value, file = $('listenFile').files[0];
+    openNote('');
+    if (!id) { openNote(tr('Choose a project first.', 'اختر مشروعاً أولاً.')); return; }
+    var info = meta[id] || {};
+    if (file && info.size && file.size !== Number(info.size)) { openNote(tr('That isn’t the same file this project was made from.', 'هذا ليس الملف نفسه الذي أُنشئ منه المشروع.')); return; }
+    if (file) { if (listen && listen.url) URL.revokeObjectURL(listen.url); listen = {projectId: id, url: URL.createObjectURL(file), name: file.name}; }
+    else if (listen && listen.projectId !== id) { URL.revokeObjectURL(listen.url); listen = null; }
+    open(id).catch(error);
+  };
+  $('projects').onchange=function(){openNote('');var f=$('listenFile').files[0],i=meta[this.value]||{};if(f&&i.size&&f.size!==Number(i.size))$('listenFile').value='';showPicked();};
   $('language').onclick=function(){localStorage.setItem('lisan_lang',lang==='en'?'ar':'en');location.reload();};
   $('back').onclick=function(){location.href='/dub-long';};$('appLink').onclick=function(){location.href='/app';};
   $('logout').onclick=function(){try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login';});};
@@ -296,5 +317,5 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   dark(localStorage.getItem('lisan_dark_mode')!=='0');$('darkModeBtn').onclick=function(){dark(!document.body.classList.contains('dark'));};
   window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
   staticText();
-  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;$('projects').appendChild(option);});}).catch(error);
+  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;meta[job.id]={size:job.size,has_video:!!job.has_video};$('projects').appendChild(option);});}).catch(error);
 })();

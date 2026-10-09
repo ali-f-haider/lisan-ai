@@ -133,6 +133,94 @@ def upload_temp_and_get_url(local_path, key, expires_in=3600):
         return None
 
 
+# ---------------------------------------------------------------------------
+# How long the finished-file copies stay in R2.
+# The server deletes its own finished files after 30 days (subscribers) or 48 hours (everyone else); the copy here
+# follows the file (see delete_final_output, called by the cleanup sweep and by project/account deletion). This age
+# limit is the safety net behind that: a copy older than the longest local retention (30 days) plus one day is removed
+# whatever happened to the file on the server, so a failed delete can never leave a copy behind for long.
+# It looks at the copy's own age only, never at whether the server still has the file, so a lost server disk cannot
+# make it delete the backups that exist for exactly that case.
+
+# The same list as main.py's _FINAL_OUTPUT_SUFFIXES (a test keeps the two equal).
+FINAL_OUTPUT_SUFFIXES = ("_final_dubbed.mp3", "_final_dubbed_video.mp4", "_final_lipsync.mp4",
+                         "_final_voices.m4a", "_final_effects.m4a", "_final_corrections.m4a")
+FINAL_COPY_MAX_AGE_DAYS = 31
+
+
+def is_final_output_name(key):
+    """True for the bare file name of a finished output (a name with a folder in it never is)."""
+    return bool(key) and "/" not in key and str(key).endswith(FINAL_OUTPUT_SUFFIXES)
+
+
+def delete_final_output(key):
+    """Remove the backup copy of one finished file (its bare file name, no folder). Best effort, never raises.
+    True when R2 accepted the request (a copy that was never there counts), False when nothing could be done."""
+    if not is_final_output_name(key) or not _enabled():
+        return False
+    client = _get_client()
+    if client is None:
+        return False
+    try:
+        client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+        return True
+    except Exception as e:
+        print(f"[r2-backup] could not remove the copy of {key}: {e}")
+        return False
+
+
+def purge_old_final_outputs(max_age_days=FINAL_COPY_MAX_AGE_DAYS, dry_run=False, max_deletes=500, now=None):
+    """Delete finished-file copies older than max_age_days. Only top-level objects whose name ends like a finished
+    output are looked at: database snapshots, register copies and every other folder are never touched.
+    dry_run=True deletes nothing and only reports. At most max_deletes per call (the rest next time).
+    Returns {"found", "deleted", "failed", "kept", "bytes", "oldest", "newest", "names"} or {"error": ...}."""
+    if not _enabled():
+        return {"error": "R2 not configured"}
+    try:
+        days = float(max_age_days)
+    except (TypeError, ValueError):
+        return {"error": "bad age"}
+    if days < 0:
+        return {"error": "bad age"}
+    client = _get_client()
+    if client is None:
+        return {"error": "could not create R2 client"}
+    import datetime as _dt
+    cutoff = (now or _dt.datetime.now(_dt.timezone.utc)) - _dt.timedelta(days=days)
+    out = {"found": 0, "deleted": 0, "failed": 0, "kept": 0, "bytes": 0, "oldest": None, "newest": None, "names": []}
+    try:
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=R2_BUCKET_NAME):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key") or ""
+                if not is_final_output_name(key):
+                    continue
+                when = obj.get("LastModified")
+                if when is None or when >= cutoff:
+                    out["kept"] += 1
+                    continue
+                out["found"] += 1
+                out["bytes"] += int(obj.get("Size") or 0)
+                stamp = when.isoformat()
+                out["oldest"] = stamp if out["oldest"] is None or stamp < out["oldest"] else out["oldest"]
+                out["newest"] = stamp if out["newest"] is None or stamp > out["newest"] else out["newest"]
+                if len(out["names"]) < 10:
+                    out["names"].append(key)
+                if dry_run or out["deleted"] >= max_deletes:
+                    continue
+                try:
+                    client.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+                    out["deleted"] += 1
+                except Exception as e:
+                    out["failed"] += 1
+                    print(f"[r2-backup] could not remove the old copy {key}: {e}")
+    except Exception as e:
+        out["error"] = str(e)
+        print(f"[r2-backup] old-copy sweep stopped: {e}")
+    if out["deleted"]:
+        print(f"[r2-backup] removed {out['deleted']} finished-file copies older than {days:g} days ({out['bytes'] / 1e9:.2f} GB found)")
+    return out
+
+
 def delete_temp_object(key):
     """Best-effort cleanup of an object uploaded via upload_temp_and_get_url.
     Never raises: a leftover temp object costs a little R2 storage, not

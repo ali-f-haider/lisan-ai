@@ -6,7 +6,9 @@
 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button type="button" id="language" class="btn-logout"></button><button type="button" id="darkModeBtn" class="btn-logout">🌙</button>
 <span class="credits-badge">💰 <span id="balance">…</span> <span id="creditsWord"></span></span><button type="button" id="back" class="btn-logout"></button><button type="button" id="appLink" class="btn-logout"></button><button type="button" id="logout" class="btn-logout"></button></div></div>
 <div id="notifyPanel" aria-live="polite"></div>
-<main class="ld-wrap"><section class="card"><h3 id="chooseLabel"></h3><select id="projects" class="ld-edit-select"><option>…</option></select>
+<main class="ld-wrap"><section class="card"><h3 id="chooseLabel"></h3>
+<div class="ld-open-row"><select id="projects" class="ld-edit-select"><option>…</option></select><button type="button" id="pickFile" class="btn-plain"></button><span id="pickedFile" class="ld-picked"></span><input type="file" id="listenFile" class="hidden" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg"><button type="button" id="openProject"></button></div>
+<p id="pickHint" class="ld-plain-note"></p><p id="openNote" class="ld-err" role="alert"></p>
 <span id="intro" data-tip-src data-tip-host="chooseLabel"></span></section>
 <section class="card hidden" id="recovery"><h3 id="recoveryTitle"></h3><p id="recoveryText" class="ld-plain-note" data-tip-src data-tip-host="recoveryTitle"></p><input type="file" id="original" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg"><button type="button" id="restore" class="btn-plain"></button><p id="restoreStatus" role="status"></p></section>
 <section class="card hidden" id="editor"><div class="ld-edhead"><span id="selectedCount"></span><span id="saveState" class="ld-saved"></span></div>
@@ -15,4 +17,4 @@
 <div id="genProgress" class="ld-edit-progress hidden"><div class="progress-bar" id="progressBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressFill" class="progress-fill" style="width:0%"></div></div><p id="progress" role="status"></p></div>
 <span id="trackHelp" data-tip-src data-tip-host="trackHelpHost"></span></section><p class="ld-err" id="error" role="alert"></p>
 <section class="card hidden" id="exports"><h3 id="exportsTitle"></h3><div id="history"></div></section></main>
-<script src="/dialogs.js"></script><script src="/longdub_editor.js"></script><script src="/dub_long_edit.js"></script></body></html>
+<script src="/dialogs.js"></script><script src="/longdub_editor.js"></script><script src="/longdub_player.js"></script><script src="/dub_long_edit.js"></script></body></html>
