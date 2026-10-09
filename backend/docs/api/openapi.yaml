@@ -1,0 +1,2616 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Lisan AI API",
+    "version": "1.0.0-draft",
+    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. English-to-Arabic dubbing using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
+  },
+  "servers": [
+    {
+      "url": "https://lisanai.org",
+      "description": "Intended production origin after integration"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyBearer": []
+    }
+  ],
+  "paths": {
+    "/v1/settings": {
+      "get": {
+        "operationId": "settings",
+        "summary": "Read current pricing and effective account limits",
+        "description": "Rates and limits come from the website settings, account plan and API key caps. No separate API price list. No charge.",
+        "x-required-scope": "read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Settings"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/account/balance": {
+      "get": {
+        "operationId": "balance",
+        "summary": "Read the account credit balance",
+        "description": "",
+        "x-required-scope": "account",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Balance"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "operationId": "usage",
+        "summary": "Read this key's paid operation usage",
+        "description": "Inclusive UTC date range, at most 366 days. calls counts distinct charged debit operations, not HTTP requests. Refunds are positive amounts on their receipt day. No filenames or dialogue.",
+        "x-required-scope": "account",
+        "parameters": [
+          {
+            "name": "start_day",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "end_day",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Usage"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/voices": {
+      "get": {
+        "operationId": "voices",
+        "summary": "List library and account-owned saved voices",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceList"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs": {
+      "post": {
+        "operationId": "createJob",
+        "summary": "Create a short or long upload without charging credits",
+        "description": "The source language is English and the target is Arabic. No lip-sync in this release. Validate current owner terms, per-file rights, plan, storage and effective file limits before allocation. stated_speakers is a hint.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJob"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listJobs",
+        "summary": "List this account's API jobs",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobList"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}": {
+      "get": {
+        "operationId": "getJob",
+        "summary": "Poll progress and durable status",
+        "description": "percent is 0..100 within the current operation and can reset between operations. Short jobs adapt engine status processing/done/error to these workflow states. Poll at most once per five seconds unless Retry-After says longer.",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteJob",
+        "summary": "Delete an idle job and its stored files",
+        "description": "Return the final job snapshot before removal. Reject active or uncertain paid work with job_not_ready. No credit refund is implied by deletion.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/upload": {
+      "get": {
+        "operationId": "getUpload",
+        "summary": "Read chunk receipt indices to resume",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Upload"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/upload/chunks/{index}": {
+      "put": {
+        "operationId": "putChunk",
+        "summary": "Store one exact-size raw chunk",
+        "description": "Zero-based index. Every chunk has chunk_bytes bytes except the last. Require exact length, bounded streaming and a digest per index. Same index and bytes is a replay; different bytes is idempotency_conflict. No charge.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Upload"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary",
+                "maxLength": 8388608
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/upload/finish": {
+      "post": {
+        "operationId": "finishUpload",
+        "summary": "Accept an estimate quote and finish the upload",
+        "description": "Requires a fresh estimate-step quote. Charges only the website estimate/transcription fee, bounded by max_credits. In short dub it starts transcription; in long dub it probes media and produces the estimate. Poll until estimated. No automatic analysis/dub approval.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptQuote"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/estimate": {
+      "get": {
+        "operationId": "getEstimate",
+        "summary": "Read the estimate after the estimate fee",
+        "description": "No charge. The full dub estimate can change after speaker review and text edits; analysis_due_credits is the next step, not authority to charge.",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Estimate"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/quotes": {
+      "post": {
+        "operationId": "quote",
+        "summary": "Request a snapshot of one step's maximum charge",
+        "description": "No new customer debit; no generation. Quote snapshots revision, terms, voice ownership, pricing and options. quoted_credits = fixed_credits + additional_max_credits, including music repair. Long dub clone and merge are included in dub; separate clone/merge steps are short-only. Estimate step precedes upload/finish. Analysis for short dub defers the website analysis charge until dub.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Quote"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/accept": {
+      "post": {
+        "operationId": "accept",
+        "summary": "Explicitly approve one analysis, clone, dub or merge quote",
+        "description": "quoted_credits must exactly equal the saved maximum; max_credits must cover it. Revalidate live price and all rules atomically before work. If live cost exceeds max_credits return max_credits_exceeded, no charge; otherwise any quote/revision change returns quote_changed, no charge. All optional charges share this cap; no automatic next step. Estimate quotes are accepted only by upload/finish.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptQuote"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/segments": {
+      "get": {
+        "operationId": "getSegments",
+        "summary": "Read editable transcript and Arabic lines",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Segments"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      },
+      "put": {
+        "operationId": "editSegments",
+        "summary": "Save reviewed lines with a revision check",
+        "description": "Local save is free. end must exceed start, identifiers must be unique, times must fit the actual media, speaker ids must exist, and text/line bounds apply. Preserve stored Arabic text; waqf only affects the spoken copy. Overlap is allowed and flagged by the existing editor. Reject stale revision.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Segments"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditSegments"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/speakers": {
+      "get": {
+        "operationId": "getSpeakers",
+        "summary": "Read speaker assignments",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Speakers"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      },
+      "put": {
+        "operationId": "editSpeakers",
+        "summary": "Save speaker names and voice choices",
+        "description": "Free local save; no cloning. id must be unique and present in job; library/saved requires voice_id, saved voices must belong to the account. For short original voices approve a clone quote before dub; long dub cloning is included in its dub quote.",
+        "x-required-scope": "dub",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Speakers"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditSpeakers"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/results": {
+      "get": {
+        "operationId": "results",
+        "summary": "List available output tracks and expiry",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultList"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/results/{kind}": {
+      "get": {
+        "operationId": "download",
+        "summary": "Download an authorized result stream",
+        "description": "Stream bytes; never return storage paths or redirect to a URL containing a key. Account storage retention and watermark rules are unchanged. Missing kind returns not_found; expired known result returns result_expired.",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "mixed",
+                "dialogue",
+                "background"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    },
+    "/v1/jobs/{job_id}/subtitles": {
+      "get": {
+        "operationId": "subtitles",
+        "summary": "Download subtitles without charging credits",
+        "description": "",
+        "x-required-scope": "read",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ar",
+                "en"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "srt",
+                "vtt"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "lsn_live_ plus 32 URL-safe characters. Scope requirements are listed per operation in x-required-scope. Create/revoke keys in your signed-in account; key creation is not a public API endpoint."
+      }
+    },
+    "schemas": {
+      "CreateJob": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "filename",
+          "size_bytes",
+          "rights_confirmed",
+          "terms_version"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "short",
+              "long"
+            ]
+          },
+          "filename": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483648
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "stated_speakers": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8,
+            "default": 2
+          },
+          "rights_confirmed": {
+            "type": "boolean",
+            "const": true
+          },
+          "terms_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          }
+        }
+      },
+      "QuoteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "step"
+        ],
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "estimate",
+              "analysis",
+              "clone",
+              "dub",
+              "merge"
+            ]
+          },
+          "keep_music": {
+            "type": "boolean",
+            "default": true
+          },
+          "tracks": {
+            "type": "boolean",
+            "default": true
+          },
+          "speaker_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        }
+      },
+      "AcceptQuote": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quote_id",
+          "quoted_credits",
+          "max_credits",
+          "terms_version"
+        ],
+        "properties": {
+          "quote_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "quoted_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "max_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "terms_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          }
+        }
+      },
+      "EditSegments": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "segments"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "segments": {
+            "type": "array",
+            "maxItems": 6000,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "segment_id",
+                "start",
+                "end",
+                "speaker",
+                "text",
+                "arabic_text"
+              ],
+              "properties": {
+                "segment_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_-]+$"
+                },
+                "start": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 3601
+                },
+                "end": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 3601
+                },
+                "speaker": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 15000
+                },
+                "arabic_text": {
+                  "type": "string",
+                  "maxLength": 15000
+                },
+                "emotion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "waqf": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "stop",
+                    "join"
+                  ],
+                  "default": "auto"
+                }
+              }
+            }
+          }
+        }
+      },
+      "EditSpeakers": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "speakers"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "speakers": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "name",
+                "voice_mode"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "voice_mode": {
+                  "type": "string",
+                  "enum": [
+                    "original",
+                    "library",
+                    "saved"
+                  ]
+                },
+                "voice_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_-]+$"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid_request",
+                  "invalid_key",
+                  "scope_required",
+                  "plan_required",
+                  "consent_required",
+                  "not_found",
+                  "insufficient_credits",
+                  "idempotency_conflict",
+                  "job_not_ready",
+                  "revision_conflict",
+                  "quote_changed",
+                  "max_credits_exceeded",
+                  "upload_incomplete",
+                  "result_expired",
+                  "upload_too_large",
+                  "unsupported_media",
+                  "rate_limited",
+                  "concurrency_limited",
+                  "daily_cap_exceeded",
+                  "storage_full",
+                  "service_unavailable",
+                  "internal_error"
+                ]
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "Job": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "short",
+              "long"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "uploading",
+              "estimated",
+              "accepted",
+              "analyzing",
+              "editing",
+              "confirmed",
+              "dubbing",
+              "payment_pending",
+              "done",
+              "failed"
+            ]
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "estimate",
+              "queued",
+              "extract",
+              "plan",
+              "separate",
+              "speakers",
+              "transcribe",
+              "build",
+              "translate",
+              "review",
+              "clone",
+              "speak",
+              "mix",
+              "finish",
+              "done",
+              "failed"
+            ]
+          },
+          "percent": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "media_present": {
+            "type": "boolean"
+          },
+          "result_available": {
+            "type": "boolean"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Error/properties/error"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_operation": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "quote_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "step": {
+                    "type": "string",
+                    "enum": [
+                      "estimate",
+                      "analysis",
+                      "clone",
+                      "dub",
+                      "merge"
+                    ]
+                  },
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "accepted",
+                      "running",
+                      "reconciling",
+                      "succeeded",
+                      "failed"
+                    ]
+                  },
+                  "maximum_credits": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "credits_debited": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "credits_refunded": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "required": [
+                  "id",
+                  "quote_id",
+                  "step",
+                  "state",
+                  "maximum_credits",
+                  "credits_debited",
+                  "credits_refunded"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "stage",
+          "percent",
+          "revision",
+          "name",
+          "duration_seconds",
+          "media_present",
+          "result_available",
+          "error",
+          "created_at",
+          "updated_at",
+          "current_operation"
+        ]
+      },
+      "JobList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Job"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "jobs",
+          "next_cursor"
+        ]
+      },
+      "Upload": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "chunk_bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "total_chunks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "received": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "received_count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "job_id",
+          "size_bytes",
+          "chunk_bytes",
+          "total_chunks",
+          "received",
+          "received_count"
+        ]
+      },
+      "Quote": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "step": {
+            "type": "string",
+            "enum": [
+              "estimate",
+              "analysis",
+              "clone",
+              "dub",
+              "merge"
+            ]
+          },
+          "quoted_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "fixed_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "additional_max_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "required_balance": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "already_paid_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "price_version": {
+            "type": "string"
+          },
+          "keep_music": {
+            "type": "boolean"
+          },
+          "tracks": {
+            "type": "boolean"
+          },
+          "speaker_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "breakdown": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "credits": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              },
+              "required": [
+                "code",
+                "credits"
+              ]
+            }
+          },
+          "notice": {
+            "type": "string"
+          },
+          "terms_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "id",
+          "job_id",
+          "step",
+          "quoted_credits",
+          "fixed_credits",
+          "additional_max_credits",
+          "required_balance",
+          "already_paid_credits",
+          "revision",
+          "expires_at",
+          "price_version",
+          "keep_music",
+          "tracks",
+          "speaker_ids",
+          "breakdown",
+          "notice",
+          "terms_version"
+        ]
+      },
+      "Estimate": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "estimated_total_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "already_paid_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "analysis_due_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "exact_dub_price_ready": {
+            "type": "boolean"
+          },
+          "notice": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "estimated_total_credits",
+          "already_paid_credits",
+          "analysis_due_credits",
+          "exact_dub_price_ready",
+          "notice"
+        ]
+      },
+      "Segments": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "segment_id",
+                "start",
+                "end",
+                "speaker",
+                "text",
+                "arabic_text"
+              ],
+              "properties": {
+                "segment_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_-]+$"
+                },
+                "start": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 3601
+                },
+                "end": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 3601
+                },
+                "speaker": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "text": {
+                  "type": "string",
+                  "maxLength": 15000
+                },
+                "arabic_text": {
+                  "type": "string",
+                  "maxLength": 15000
+                },
+                "emotion": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "waqf": {
+                  "type": "string",
+                  "enum": [
+                    "auto",
+                    "stop",
+                    "join"
+                  ],
+                  "default": "auto"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "segments"
+        ]
+      },
+      "Speakers": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "speakers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "name",
+                "voice_mode"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "voice_mode": {
+                  "type": "string",
+                  "enum": [
+                    "original",
+                    "library",
+                    "saved"
+                  ]
+                },
+                "voice_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "pattern": "^[A-Za-z0-9_-]+$"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "speakers"
+        ]
+      },
+      "VoiceList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "voices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "library",
+                    "saved"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind"
+              ]
+            }
+          }
+        },
+        "required": [
+          "voices"
+        ]
+      },
+      "Balance": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "subscription_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "permanent_credits": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        },
+        "required": [
+          "credits",
+          "subscription_credits",
+          "permanent_credits"
+        ]
+      },
+      "Usage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "calls_meaning": {
+            "type": "string",
+            "const": "paid_operations"
+          },
+          "credits_spent": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "credits_refunded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "net_credits": {
+            "type": "integer"
+          },
+          "start_day": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_day": {
+            "type": "string",
+            "format": "date"
+          },
+          "by_day": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "day": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "calls": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "credits_spent": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "credits_refunded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "net_credits": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "day",
+                "calls",
+                "credits_spent",
+                "credits_refunded",
+                "net_credits"
+              ]
+            }
+          }
+        },
+        "required": [
+          "calls",
+          "calls_meaning",
+          "credits_spent",
+          "credits_refunded",
+          "net_credits",
+          "start_day",
+          "end_day",
+          "by_day"
+        ]
+      },
+      "ResultList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "mixed",
+                    "dialogue",
+                    "background"
+                  ]
+                },
+                "size_bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "expires_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "kind",
+                "size_bytes",
+                "media_type",
+                "expires_at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "results"
+        ]
+      },
+      "MediaLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "max_upload_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "min_duration_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max_duration_seconds": {
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "max_upload_bytes",
+          "min_duration_seconds",
+          "max_duration_seconds"
+        ]
+      },
+      "Settings": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "terms_version": {
+            "type": "string"
+          },
+          "api_enabled": {
+            "type": "boolean"
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "jobs_visible_on_website": {
+            "type": "boolean"
+          },
+          "webhooks_enabled": {
+            "type": "boolean",
+            "const": false
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "chunk_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8388608
+              },
+              "short": {
+                "$ref": "#/components/schemas/MediaLimits"
+              },
+              "long": {
+                "$ref": "#/components/schemas/MediaLimits"
+              },
+              "requests_per_minute": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "concurrent_jobs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "daily_credit_cap": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "retention_days": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            },
+            "required": [
+              "chunk_bytes",
+              "short",
+              "long",
+              "requests_per_minute",
+              "concurrent_jobs",
+              "daily_credit_cap",
+              "retention_days"
+            ]
+          },
+          "pricing": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "source": {
+                "type": "string",
+                "const": "website"
+              },
+              "currency": {
+                "type": "string",
+                "const": "credits"
+              },
+              "credit_value_usd": {
+                "type": "number",
+                "minimum": 0
+              },
+              "rates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "credits": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "per": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "title",
+                    "credits",
+                    "per"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "source",
+              "currency",
+              "credit_value_usd",
+              "rates"
+            ]
+          }
+        },
+        "required": [
+          "terms_version",
+          "api_enabled",
+          "eligible",
+          "jobs_visible_on_website",
+          "webhooks_enabled",
+          "limits",
+          "pricing"
+        ]
+      }
+    },
+    "responses": {
+      "PublicError": {
+        "description": "Uniform public error. See README for the closed code/status/retry table. Retry-After applies to temporary capacity errors. Authenticate again on every replay.",
+        "headers": {
+          "X-Request-ID": {
+            "schema": {
+              "type": "string"
+            }
+          },
+          "Retry-After": {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "Idempotency-Replayed": {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}
