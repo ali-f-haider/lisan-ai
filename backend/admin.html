@@ -178,6 +178,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
     <div class="tab active" data-tab="overview">📊 Business</div>
     <div class="tab" data-tab="users">👥 Users</div>
     <div class="tab" data-tab="pricing">💰 Pricing</div>
+    <div class="tab" data-tab="api">🔑 API</div>
     <div class="tab" data-tab="voice">🎙️ Voice (Inworld / ElevenLabs)</div>
     <div class="tab" data-tab="lipsync">🎬 Lip-Sync (Alibaba)</div>
     <div class="tab" data-tab="services">🔌 Other Services</div>
@@ -601,6 +602,62 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
       </div>
     </div>
 
+    <!-- ===================== API ===================== -->
+    <div class="panel" id="panel-api">
+      <div class="card">
+        <h3>🔑 Public API — price and limits</h3>
+        <p class="muted" style="margin-bottom:12px;">Lets other people's software use Lisan AI with an API key. These settings have their own Save button and are separate from the prices above. The API is <b>off</b> until you switch it on here, and it needs the secret <code>API_KEY_PEPPER</code> (at least 32 random characters) set once in Railway. Needs the three tables from <code>api_phase1.sql</code>: run that file in Supabase once, otherwise Save says it cannot save.</p>
+        <p class="muted" id="apiPepperNote" style="margin-bottom:12px;"></p>
+        <div class="form-group">
+          <label>API switch</label>
+          <select id="apiEnabled" style="width:260px;"><option value="false">Off (nobody can use the API)</option><option value="true">On</option></select>
+          <span class="muted">Switching it off stops every key at once; keys and settings are kept.</span>
+        </div>
+        <div class="form-group">
+          <label>Who may use the API</label>
+          <select id="apiEligibility" style="width:360px;"><option value="website_plans">The same plans that may dub long videos on the website</option><option value="everyone">Everyone with an account</option></select>
+          <span class="muted">Checked on every request, so a cancelled plan stops working keys.</span>
+        </div>
+        <div class="form-group">
+          <label>Price (% of the website price)</label>
+          <input type="number" id="apiPrice" style="width:120px;" step="1" min="50" max="300">
+          <span class="muted">100 = exactly the credits the website charges for the same work; 120 = 20 % more; 80 = 20 % less (rounded up to whole credits). <b>Not active yet:</b> the paid API endpoints (dubbing through the API) come in the next step, and this number is what they will use. It never changes website prices.</span>
+        </div>
+        <div class="form-group">
+          <label>Requests per minute (per key)</label>
+          <input type="number" id="apiRpm" style="width:120px;" step="1" min="1" max="6000">
+          <span class="muted">Current default: 60. The steady rate one key may call the API; over it the key gets a "wait and retry" answer. Active now.</span>
+        </div>
+        <div class="form-group">
+          <label>Burst (requests at once, per key)</label>
+          <input type="number" id="apiBurst" style="width:120px;" step="1" min="1" max="1000">
+          <span class="muted">Current default: 10. How many calls a key may make in a quick run before the per-minute rate applies. Active now.</span>
+        </div>
+        <div class="form-group">
+          <label>Active jobs per key</label>
+          <input type="number" id="apiConc" style="width:120px;" step="1" min="1" max="20">
+          <span class="muted">Current default: 1. How many dubs one key may have running at the same time. Starts to apply with the paid endpoints.</span>
+        </div>
+        <div class="form-group">
+          <label>Daily credit cap: suggested / highest allowed</label>
+          <input type="number" id="apiCapDefault" style="width:120px;" step="1" min="1" max="1000000"> <input type="number" id="apiCapMax" style="width:120px;" step="1" min="1" max="1000000">
+          <span class="muted">Each key must have a daily credit cap chosen by its owner (a safety net if a key leaks): the first number is suggested to them, the second is the highest they may choose. 1 credit = $0.01. Defaults: 1000 and 20000.</span>
+        </div>
+        <div class="form-group">
+          <label>Keys per account</label>
+          <input type="number" id="apiKeysMax" style="width:120px;" step="1" min="1" max="50">
+          <span class="muted">Current default: 5 active keys.</span>
+        </div>
+        <div class="form-group">
+          <label>API jobs on the website</label>
+          <select id="apiVisible" style="width:260px;"><option value="true">Show in the customer's projects</option><option value="false">Do not show</option></select>
+          <span class="muted">Applies when the dubbing endpoints arrive.</span>
+        </div>
+        <p class="muted">Webhooks are not part of version 1: customers check progress by asking for the job status.</p>
+        <button class="btn" onclick="saveApiSettings()">💾 Save API settings</button>
+      </div>
+    </div>
+
     <!-- ===================== OTHER SERVICES ===================== -->
     <div class="panel" id="panel-services">
       <div class="card">
@@ -870,10 +927,45 @@ function doLogin() {
     }).catch(e => toast(e.message || 'Sign-in could not be confirmed. Please try again.', true));
 }
 
+async function loadApiSettings() {
+  const r = await api('/api/admin/api_settings');
+  if (!r.ok) { document.getElementById('apiPepperNote').textContent = 'The API settings could not be loaded: ' + (r.data.error || 'try again.'); return; }
+  const s = r.data.settings;
+  document.getElementById('apiEnabled').value = String(!!s.enabled);
+  document.getElementById('apiEligibility').value = s.eligibility;
+  document.getElementById('apiPrice').value = s.price_percent;
+  document.getElementById('apiRpm').value = s.requests_per_minute;
+  document.getElementById('apiBurst').value = s.burst;
+  document.getElementById('apiConc').value = s.concurrency_per_key;
+  document.getElementById('apiCapDefault').value = s.default_daily_credit_cap;
+  document.getElementById('apiCapMax').value = s.max_daily_credit_cap;
+  document.getElementById('apiKeysMax').value = s.keys_per_account;
+  document.getElementById('apiVisible').value = String(!!s.jobs_visible);
+  document.getElementById('apiPepperNote').textContent = r.data.pepper_set
+    ? 'Server secret: set. Keys can be created once the API is switched on.'
+    : 'Server secret: NOT set. Add API_KEY_PEPPER (32+ random characters) in Railway before switching the API on.';
+}
+
+async function saveApiSettings() {
+  const num = id => Number(document.getElementById(id).value);
+  const body = {
+    enabled: document.getElementById('apiEnabled').value === 'true',
+    eligibility: document.getElementById('apiEligibility').value,
+    jobs_visible: document.getElementById('apiVisible').value === 'true',
+    price_percent: num('apiPrice'), requests_per_minute: num('apiRpm'), burst: num('apiBurst'),
+    concurrency_per_key: num('apiConc'), default_daily_credit_cap: num('apiCapDefault'),
+    max_daily_credit_cap: num('apiCapMax'), keys_per_account: num('apiKeysMax')
+  };
+  const r = await api('/api/admin/api_settings', { method: 'POST', body: JSON.stringify(body) });
+  if (!r.ok) { toast(r.data.error || 'The API settings could not be saved.', true); return; }
+  toast('API settings saved. They apply within about 20 seconds.');
+  loadApiSettings();
+}
+
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
-  loadBusiness(); loadUsers(); loadPricing(); loadMaintenance(); loadAudit(); loadBillingHealth(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
+  loadBusiness(); loadUsers(); loadPricing(); loadApiSettings(); loadMaintenance(); loadAudit(); loadBillingHealth(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {

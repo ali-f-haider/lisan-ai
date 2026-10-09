@@ -115,6 +115,7 @@
   <div class="acct-tab" data-tab="files" id="tabFiles">🎬 Files</div>
   <div class="acct-tab" data-tab="purchases" id="tabPurchases">🛒 Purchases</div>
   <div class="acct-tab" data-tab="usage" id="tabUsage">📉 Usage</div>
+  <div class="acct-tab" data-tab="api" id="tabApi" style="display:none;">🔑 API</div>
 </div>
 
 <div class="acct-panel active" id="panel-balance">
@@ -176,6 +177,38 @@
   <div class="card">
     <h3 id="spendsHeading">📉 Credit consumption</h3>
     <table id="spendsTable"><thead><tr><th id="thSDate">Date</th><th id="thSAction">Action</th><th id="thSJob">Job</th><th id="thSCredits">Credits</th></tr></thead><tbody></tbody></table>
+  </div>
+</div>
+
+<div class="acct-panel" id="panel-api">
+  <div class="card">
+    <h3 id="apiHeading">🔑 API keys</h3>
+    <p class="note" id="apiIntro"></p>
+    <p class="note" id="apiLimitsLine"></p>
+    <p class="note" id="apiBlocked" style="display:none;color:#b45309;"></p>
+    <div id="apiNewKey" style="display:none;margin:10px 0;padding:12px;border:1px solid #059669;border-radius:8px;background:#ecfdf5;color:#064e3b;">
+      <strong id="apiNewKeyTitle"></strong>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <code id="apiNewKeyValue" style="direction:ltr;word-break:break-all;background:#fff;padding:6px 8px;border-radius:6px;"></code>
+        <button class="btn-logout" id="apiCopyBtn" type="button"></button>
+      </div>
+      <p class="note" id="apiNewKeyNote" style="margin-top:8px;"></p>
+    </div>
+    <div id="apiKeysList"><p style="color:#6b7280;" id="apiLoading"></p></div>
+  </div>
+  <div class="card" id="apiCreateCard">
+    <h3 id="apiCreateHeading"></h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+      <label style="display:block;"><span id="apiNameLabel" class="note"></span><br><input id="apiName" maxlength="60" style="min-width:220px;padding:8px;"></label>
+      <label style="display:block;"><span id="apiCapLabel" class="note"></span><br><input id="apiCap" type="number" min="1" step="1" style="width:140px;padding:8px;"></label>
+    </div>
+    <p class="note" id="apiCapHelp"></p>
+    <div id="apiTermsBox" style="margin:8px 0;">
+      <label style="display:block;margin-bottom:6px;"><input type="checkbox" id="apiAccept"> <span id="apiAcceptText"></span></label>
+      <label style="display:block;"><input type="checkbox" id="apiRights"> <span id="apiRightsText"></span></label>
+    </div>
+    <button class="btn-logout" id="apiCreateBtn" type="button"></button>
+    <p class="note" id="apiMsg" style="margin-top:8px;"></p>
   </div>
 </div>
 
@@ -458,7 +491,7 @@ function accountResponse(response, expected) {
     tab.onclick = function () { activate(tab.dataset.tab); history.replaceState(null, "", "#" + tab.dataset.tab); };
   });
   var fromHash = (window.location.hash || "").replace("#", "");
-  var valid = ["balance", "subscription", "voices", "files", "purchases", "usage"];
+  var valid = ["balance", "subscription", "voices", "files", "purchases", "usage", "api"];
   if (valid.indexOf(fromHash) > -1) activate(fromHash);
 })();
 
@@ -809,6 +842,130 @@ function deleteVoice(id) {
 
 loadMyJobs();
 loadMyVoices();
+</script>
+<script>
+// API keys tab. The tab only appears when the owner has switched the API on. The key itself is shown once,
+// straight after it is created, and is never stored by this page.
+(function () {
+  var AT = {
+    en: {
+      tab: "🔑 API", heading: "🔑 API keys", loading: "Loading…",
+      intro: "An API key lets your own software send videos to Lisan AI and fetch the Arabic dub. Keep keys secret: anyone who has one can spend your credits, up to the daily cap you set for it.",
+      limits: function (l) { return "Limits for each key: " + l.requests_per_minute + " requests per minute (bursts of up to " + l.burst + "), " + l.concurrent_jobs_per_key + " active job" + (l.concurrent_jobs_per_key === 1 ? "" : "s") + " at a time."; },
+      blocked: "The API is available with the same plans as Dub Long Video. Choose a plan from the Buy menu to create a key.",
+      none: "You have no keys yet.", name: "Name", prefix: "Key starts with", cap: "Daily credit cap", created: "Created", used: "Last used", state: "Status",
+      active: "Active", revoked: "Revoked", never: "Never", revoke: "Revoke", revoking: "Revoke this key? Software using it stops working immediately.",
+      createHeading: "Create a key", nameLabel: "Name (for example, My app)", capLabel: "Daily credit cap",
+      capHelp: function (l) { return "The most credits this key can spend in a day, up to " + l.max_daily_credit_cap + ". 100 credits = $1.00. If the key leaks, this is the most it can cost you."; },
+      accept: "I accept the Lisan AI API terms and I am responsible for how my keys are used.",
+      rights: "I confirm I have the right to send the files I dub.",
+      create: "Create key", newTitle: "Your new key", newNote: "Copy it now. For your security it is shown only once and cannot be shown again.", copy: "Copy", copied: "Copied",
+      errGeneric: "Something went wrong. Please try again.", errName: "Give the key a name.", errCap: "Choose a daily credit cap.", errTerms: "Accept the terms and confirm your rights first."
+    },
+    ar: {
+      tab: "🔑 واجهة البرمجة", heading: "🔑 مفاتيح واجهة البرمجة", loading: "جارٍ التحميل…",
+      intro: "يتيح لك مفتاح الواجهة إرسال الفيديوهات من برنامجك إلى Lisan AI واستلام الدبلجة العربية. احتفظ بالمفاتيح سرية: أي شخص يملك المفتاح يستطيع صرف رصيدك حتى الحد اليومي الذي تحدده له.",
+      limits: function (l) { return "حدود كل مفتاح: " + l.requests_per_minute + " طلبًا في الدقيقة (دفعات حتى " + l.burst + ")، و" + l.concurrent_jobs_per_key + " مهمة نشطة في الوقت نفسه."; },
+      blocked: "الواجهة متاحة مع الباقات نفسها التي تتيح دبلجة الفيديو الطويل. اختر باقة من قائمة الشراء لإنشاء مفتاح.",
+      none: "لا توجد مفاتيح بعد.", name: "الاسم", prefix: "يبدأ المفتاح بـ", cap: "الحد اليومي للرصيد", created: "تاريخ الإنشاء", used: "آخر استخدام", state: "الحالة",
+      active: "فعّال", revoked: "معطّل", never: "أبدًا", revoke: "تعطيل", revoking: "تعطيل هذا المفتاح؟ سيتوقف أي برنامج يستخدمه فورًا.",
+      createHeading: "إنشاء مفتاح", nameLabel: "الاسم (مثل: تطبيقي)", capLabel: "الحد اليومي للرصيد",
+      capHelp: function (l) { return "أقصى رصيد يمكن لهذا المفتاح صرفه في اليوم، حتى " + l.max_daily_credit_cap + ". 100 ائتمان = 1.00 دولار. إذا تسرّب المفتاح فهذا أقصى ما قد يكلّفك."; },
+      accept: "أوافق على شروط واجهة Lisan AI وأتحمّل مسؤولية استخدام مفاتيحي.",
+      rights: "أؤكد أن لدي الحق في إرسال الملفات التي أدبلجها.",
+      create: "إنشاء المفتاح", newTitle: "مفتاحك الجديد", newNote: "انسخه الآن. حفاظًا على أمانك يظهر مرة واحدة فقط ولا يمكن عرضه مرة أخرى.", copy: "نسخ", copied: "تم النسخ",
+      errGeneric: "حدث خطأ. حاول مرة أخرى.", errName: "اكتب اسمًا للمفتاح.", errCap: "اختر حدًا يوميًا للرصيد.", errTerms: "وافق على الشروط وأكّد حقوقك أولًا."
+    }
+  };
+  var X = AT[(typeof LANG !== "undefined" && LANG === "ar") ? "ar" : "en"];
+  var state = null;
+  function $(id) { return document.getElementById(id); }
+  function text(id, v) { var e = $(id); if (e) e.textContent = v; }
+  function el(tag, txt, style) { var e = document.createElement(tag); if (txt != null) e.textContent = txt; if (style) e.style.cssText = style; return e; }
+  function day(v) { try { return v ? new Date(v).toLocaleDateString(LANG === "ar" ? "ar" : undefined) : ""; } catch (e) { return ""; } }
+
+  function staticText() {
+    text("tabApi", X.tab); text("apiHeading", X.heading); text("apiLoading", X.loading); text("apiIntro", X.intro);
+    text("apiCreateHeading", X.createHeading); text("apiNameLabel", X.nameLabel); text("apiCapLabel", X.capLabel);
+    text("apiAcceptText", X.accept); text("apiRightsText", X.rights); text("apiCreateBtn", X.create);
+    text("apiNewKeyTitle", X.newTitle); text("apiNewKeyNote", X.newNote); text("apiCopyBtn", X.copy);
+  }
+
+  function render() {
+    var s = state, l = s.limits;
+    text("apiLimitsLine", X.limits(l));
+    text("apiCapHelp", X.capHelp(l));
+    if (!$("apiCap").value) $("apiCap").value = Math.min(l.suggested_daily_credit_cap, l.max_daily_credit_cap);
+    $("apiBlocked").style.display = s.allowed ? "none" : "block";
+    text("apiBlocked", X.blocked);
+    $("apiCreateCard").style.display = s.allowed ? "block" : "none";
+    $("apiTermsBox").style.display = s.terms_accepted ? "none" : "block";
+    var box = $("apiKeysList"); box.textContent = "";
+    if (!s.keys.length) { box.appendChild(el("p", X.none, "color:#6b7280;")); return; }
+    var table = el("table"), head = el("tr");
+    [X.name, X.prefix, X.cap, X.created, X.used, X.state, ""].forEach(function (h) { head.appendChild(el("th", h)); });
+    var thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
+    var tb = el("tbody");
+    s.keys.forEach(function (k) {
+      var tr = el("tr");
+      tr.appendChild(el("td", k.name));
+      tr.appendChild(el("td", "lsn_live_" + k.prefix + "…", "direction:ltr;font-family:monospace;"));
+      tr.appendChild(el("td", String(k.daily_credit_cap)));
+      tr.appendChild(el("td", day(k.created_at)));
+      tr.appendChild(el("td", k.last_used_at ? day(k.last_used_at) : X.never));
+      tr.appendChild(el("td", k.state === "active" ? X.active : X.revoked));
+      var td = el("td");
+      if (k.state === "active") {
+        var b = el("button", X.revoke); b.className = "btn-danger"; b.type = "button";
+        b.onclick = function () { LisanDialog.confirm(X.revoking, { okText: X.revoke, danger: true }).then(function (ok) { if (ok) revoke(k.id); }); };
+        td.appendChild(b);
+      }
+      tr.appendChild(td); tb.appendChild(tr);
+    });
+    table.appendChild(tb); box.appendChild(table);
+  }
+
+  function load() {
+    return fetch("/api/api-keys", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d || !d.enabled) { $("tabApi").style.display = "none"; if ((window.location.hash || "") === "#api") { $("tabBalance").click(); } return; }
+      state = d; $("tabApi").style.display = ""; render();
+      if ((window.location.hash || "") === "#api") { $("tabApi").click(); }
+    }).catch(function () {});
+  }
+
+  function revoke(id) {
+    fetch("/api/api-keys/" + encodeURIComponent(id) + "/revoke", { method: "POST", credentials: "same-origin" }).then(load);
+  }
+
+  function create() {
+    var msg = $("apiMsg"); msg.textContent = "";
+    var name = $("apiName").value.trim(), cap = parseInt($("apiCap").value, 10);
+    if (!name) { msg.textContent = X.errName; return; }
+    if (!cap || cap < 1) { msg.textContent = X.errCap; return; }
+    var needTerms = !state.terms_accepted;
+    if (needTerms && !($("apiAccept").checked && $("apiRights").checked)) { msg.textContent = X.errTerms; return; }
+    $("apiCreateBtn").disabled = true;
+    fetch("/api/api-keys", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, daily_credit_cap: cap, accept_terms: needTerms ? true : undefined, confirm_rights: needTerms ? true : undefined }) })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        $("apiCreateBtn").disabled = false;
+        if (!res.ok) { msg.textContent = (res.d && res.d.error) || X.errGeneric; return; }
+        text("apiNewKeyValue", res.d.key); $("apiNewKey").style.display = "block"; $("apiName").value = "";
+        load();
+      }).catch(function () { $("apiCreateBtn").disabled = false; msg.textContent = X.errGeneric; });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    staticText();
+    $("apiCreateBtn").onclick = create;
+    $("apiCopyBtn").onclick = function () {
+      var v = $("apiNewKeyValue").textContent;
+      if (navigator.clipboard) navigator.clipboard.writeText(v).then(function () { text("apiCopyBtn", X.copied); });
+    };
+    load();
+  });
+})();
 </script>
 <script src="/chat.js"></script>
 </body>

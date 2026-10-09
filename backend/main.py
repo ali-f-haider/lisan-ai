@@ -127,6 +127,9 @@ async def _unhandled_error(request, exc):
     (instead of a bare "Internal Server Error" page that the app cannot read)."""
     import traceback as _tb
     print(f"[error] unhandled in {request.method} {request.url.path}: {type(exc).__name__}: {exc}\n{_tb.format_exc()}")
+    if request.url.path.startswith("/v1/"):
+        import api_errors as _ae
+        return JSONResponse(_ae.error_body("internal_error", "unavailable"), status_code=500)
     return JSONResponse({"error": "Something went wrong on our side. Please try again in a moment."}, status_code=500)
 
 
@@ -673,6 +676,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # would otherwise let straight through -- that's the whole point
         # while the gate is active (see _site_gate_active above).
         if not _site_gate_ok(request):
+            if path.startswith("/v1/"):
+                return JSONResponse(api_errors.error_body("service_unavailable", "unavailable"), status_code=503)
             if path.startswith("/api/"):
                 return JSONResponse({"error": "Lisan AI isn't open to the public yet. Please enter your access code."}, status_code=401)
             import urllib.parse
@@ -680,6 +685,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
         if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
             return await call_next(request)
+        if path.startswith("/v1/"):
+            return await call_next(request)          # public API: api_v1 checks the key itself, never the browser login
         if not path.startswith("/api/") and path.endswith((".css", ".js", ".svg", ".woff2", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".mp4", ".webm")):
             return await call_next(request)
         if not _is_logged_in(request):
@@ -8891,3 +8898,130 @@ async def long_emotion_review(job_id: str, request: Request):
     if row["end"] - row["start"] > 30:
         return JSONResponse({"error": "Split this line before checking its style."}, status_code=400)
     return _emotion_audio_review(job_id, source, row["start"], row["end"], row.get("emotion"))
+
+
+# ===== Public API (v1), phase 1: keys, limits, settings, balance ======================================
+# All of the logic lives in api_v1.py / api_settings.py (tested with fakes); this block only connects them to
+# the database, the balance, the plan gate and the browser login the website already uses. The API stays OFF
+# until the owner switches it on in Admin > API. Paid endpoints (dubbing) are added in a later phase.
+import api_settings
+import api_v1
+import api_errors
+
+
+def _api_rest(method, path, body=None, prefer=None):
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise RuntimeError("database unavailable")
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        hdrs["Content-Type"] = "application/json"
+    if prefer:
+        hdrs["Prefer"] = prefer
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", data=data, headers=hdrs, method=method)
+    with urllib.request.urlopen(req, timeout=10) as r:
+        raw = r.read()
+    return json.loads(raw) if raw else None
+
+
+_api_settings_cache = {"at": 0.0, "value": None}
+
+
+def _get_api_settings(force=False):
+    """Current API settings (cached 20 s). If the database cannot be read the last known settings stay in
+    force; with none known the defaults apply, and the default is OFF."""
+    now = time.time()
+    if not force and _api_settings_cache["value"] is not None and now - _api_settings_cache["at"] < 20:
+        return _api_settings_cache["value"]
+    try:
+        rows = _api_rest("GET", "api_settings?id=eq.1&select=settings&limit=1")
+        value = api_settings.normalize(rows[0].get("settings") if rows else {})
+    except Exception:
+        value = _api_settings_cache["value"] or api_settings.normalize({})
+    _api_settings_cache["value"] = value
+    _api_settings_cache["at"] = now
+    return value
+
+
+_api_eligible_cache = {}
+
+
+def _api_eligible(uid):
+    """May this account use the API? The same Studio-plan gate the website applies to long dubbing
+    (cached 60 s so a busy key does not query the plan on every request)."""
+    hit = _api_eligible_cache.get(uid)
+    now = time.time()
+    if hit and hit[1] > now:
+        return hit[0]
+    ok = bool(_ld_allowed(uid)[0])
+    if len(_api_eligible_cache) > 5000:
+        _api_eligible_cache.clear()
+    _api_eligible_cache[uid] = (ok, now + 60)
+    return ok
+
+
+def _api_insert(table, row):
+    out = _api_rest("POST", table, row, prefer="return=representation")
+    return out[0] if isinstance(out, list) and out else (out or {})
+
+
+def _api_balance(uid):
+    """The two credit buckets exactly as get_credits() adds them up, kept apart for the API's Balance object."""
+    import urllib.parse as _up
+    try:
+        rows = _api_rest("GET", f"profiles?id=eq.{_up.quote(str(uid), safe='')}&select=credits,subscription_credits")
+        row = rows[0]
+        perm, sub = int(row.get("credits") or 0), int(row.get("subscription_credits") or 0)
+    except Exception:
+        return None
+    return {"credits": perm + sub, "subscription_credits": sub, "permanent_credits": perm}
+
+
+_api_deps = api_v1.Deps(
+    select=lambda table, query: _api_rest("GET", f"{table}?{query}") or [],
+    insert=_api_insert,
+    update=lambda table, query, patch: _api_rest("PATCH", f"{table}?{query}", patch, prefer="return=minimal"),
+    settings=_get_api_settings,
+    balance=_api_balance,
+    eligible=_api_eligible,
+    owner_uid=_current_uid,
+    pepper=api_v1.pepper_from_env,
+)
+_api_router, _api_owner_router, _api_limiter = api_v1.build(_api_deps)
+app.include_router(_api_router)
+app.include_router(_api_owner_router)
+app.add_exception_handler(api_v1.ApiError, api_v1.handle_api_error)
+
+
+@app.get("/api/admin/api_settings")
+def admin_get_api_settings(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"settings": _get_api_settings(force=True), "pepper_set": api_v1.pepper_from_env() is not None,
+            "limits": {name: {"min": lo, "max": hi, "default": d, "label": label}
+                       for name, (d, lo, hi, label) in api_settings.NUMBERS.items()}}
+
+
+@app.post("/api/admin/api_settings")
+async def admin_save_api_settings(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    clean, err = api_settings.validate(body)
+    if err:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    if clean["enabled"] and api_v1.pepper_from_env() is None:
+        return JSONResponse({"ok": False, "error": "The API cannot be switched on yet: the server secret API_KEY_PEPPER (at least 32 characters) is not set in Railway."}, status_code=400)
+    try:
+        _api_rest("POST", "api_settings?on_conflict=id", {"id": 1, "settings": clean, "updated_at": datetime.now(timezone.utc).isoformat()},
+                  prefer="resolution=merge-duplicates,return=minimal")
+    except Exception as ex:
+        print(f"[api_settings] save failed: {type(ex).__name__}")
+        return JSONResponse({"ok": False, "error": "The settings could not be saved. Run api_phase1.sql in Supabase once, then try again."}, status_code=503)
+    _api_settings_cache["value"] = clean
+    _api_settings_cache["at"] = time.time()
+    return {"ok": True, "settings": clean}
