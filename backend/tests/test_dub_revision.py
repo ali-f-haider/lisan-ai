@@ -219,6 +219,8 @@ class CorrectionTests(unittest.TestCase):
         with patch.object(ld,'start_worker'):job=edits.start(self.parent,['one','crossing'],q['token'])
         with patch.object(ld,'_tts_with_retry',return_value=(tone.read_bytes(),None)) as speak:edits.run(job)
         self.assertEqual(job['status'],'done',job.get('error'));self.assertEqual(speak.call_count,2)
+        # the finished correction must stay on record: the page lists it and offers its downloads from this file
+        self.assertTrue((ld.job_dir(job['id'])/'job.json').exists(),'the finished correction job record was deleted with its scratch files')
         self.assertTrue(all(c.args[0]=='same-provider-voice' for c in speak.call_args_list))
         pure=ld.OUTPUT_DIR/f"{job['id']}_final_voices.m4a"
         self.assertAlmostEqual(ff.get_media_duration(pure),96,places=2)

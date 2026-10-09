@@ -287,8 +287,10 @@ def run(job):
     import ffmpeg_utils as ff
     import dub_background
     parent = ld.load_job(job['edit_of'])
-    work = ld._wd(job)
-    fit = work / 'fit'; fit.mkdir(exist_ok=True)
+    # Scratch files live in their own sub-folder: the folder is deleted when the run ends, and the job's own record
+    # (job.json: status, price paid, download names) sits next to it and must outlive the run.
+    work = ld._wd(job) / 'scratch'
+    fit = work / 'fit'; fit.mkdir(parents=True, exist_ok=True)
     try:
         if not parent or parent['uid'] != job['uid']:
             raise ValueError('The original project is no longer available.')
@@ -361,6 +363,7 @@ def run(job):
             meta.update(seg=sid, start=row['start'], allowed=allowed, trim=meta['dur'] > allowed + 0.02)
             checkpoint[sid] = meta; ld._save(job)
             raw.unlink(missing_ok=True)
+        ld._mark(job, 'mix', 72, 'Placing the corrected lines on the timeline…'); ld._save(job)
         pieces = []
         # Silence is the base of every chunk; only selected voice clips are placed on it.
         for i, start in enumerate(range(0, math.ceil(total), 45)):
@@ -396,6 +399,7 @@ def run(job):
             ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(rebuilt['path']), '-t', str(total), '-c:a', 'aac', '-b:a', '192k', str(restored_effects)])
             os.replace(restored_effects, effects)
             ld._save(parent)
+        ld._mark(job, 'mix', 88, 'Saving the correction tracks…'); ld._save(job)
         final = ld.OUTPUT_DIR / f"{job['id']}_final_corrections.m4a"
         tmp = work / 'corrections.m4a'
         ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(voices), '-i', str(effects), '-filter_complex',
