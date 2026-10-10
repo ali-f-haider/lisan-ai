@@ -52,6 +52,8 @@ import dub_review
 from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
 import subs_align
+import line_tidy
+import line_planner
 import speaker_vote_live
 import dub_timing
 
@@ -1961,6 +1963,17 @@ def _run_analysis(job):
         if vote.get("rename"):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
         _init_speakers(job, rows)
+        try:      # free clean-up at the edges between speakers (line_tidy.py): a split phrase is joined, a stray sentence beginning moves to its speaker
+            rows, _tidy = line_tidy.tidy_lines(rows, vocals_all if vocals_all.exists() else None)
+            _ev(job, "lines_tidied", "ok", ", ".join(f"{k}={v}" for k, v in _tidy.items()))
+        except Exception as ex:
+            print(f"[longdub] line clean-up skipped: {ex}")
+        if line_planner.ENABLED and GEMINI_API_KEY:      # TRIAL, off unless LD_LINE_PLANNER=1: the AI suggests where lines should be cut; every change is checked by rules first
+            try:
+                rows, _plan = line_planner.plan_lines(job["id"], rows, GEMINI_API_KEY, vocals_all if vocals_all.exists() else None)
+                _ev(job, "lines_planned", "ok", ", ".join(f"{k}={v}" for k, v in _plan.items() if k != "refusals"))
+            except Exception as ex:
+                print(f"[longdub] line planner skipped: {ex}")
         _review_speakers(job, rows, turns, label_map, vote=vote)
         _write_segments(job, rows)
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "

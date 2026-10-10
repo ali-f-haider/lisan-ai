@@ -41,6 +41,14 @@ _DASHES = "-‐‑‒–—―"
 _TIME = r"(?:(\d+):)?(\d{1,2}):(\d{1,2})[.,](\d{1,3})"
 _TIME_RE = re.compile(_TIME)
 _SENTENCE_END = re.compile(r"[.!?…؟][\"'”’)\]]*$")
+_HARD_END = re.compile(r"(?<![.…])[.!?؟][\"'”’)\]]*$")          # a real end of sentence: a trailing "..." or "I-If..." is a trailing-off, not an end
+
+_ABBREVIATIONS = {"mr.", "mrs.", "ms.", "dr.", "st.", "jr.", "sr.", "vs.", "no.", "mt.", "prof.", "gen.", "col.", "sgt.", "lt.", "capt."}
+
+
+def _ends_sentence(token):
+    """A word that closes a sentence (not an abbreviation such as Mr., and not a trailing-off such as \"I-If...\")."""
+    return bool(_HARD_END.search(token)) and str(token).strip().lower() not in _ABBREVIATIONS
 
 
 REASONS = {
@@ -398,6 +406,18 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
     for i, j in pairs:
         b_owner[j] = a_row[i]
     first_j, last_j = pairs[0][1], pairs[-1][1]
+    # A word the aligner could only force into a line (not the same word) at the END of that line, right after a finished sentence and
+    # in front of another speaker's line, starts that speaker's sentence: the stutter "I-If..." in front of "If there's an agreement".
+    similar_j = {j for i, j in pairs if _similar(A[i], B[j])}
+    last_sure = {}
+    for j in similar_j:
+        last_sure[b_owner[j]] = max(last_sure.get(b_owner[j], -1), j)
+    owned = sorted(b_owner)
+    for pos, j in enumerate(owned[:-1]):
+        r, r2 = b_owner[j], b_owner[owned[pos + 1]]
+        if (j not in similar_j and r in last_sure and j > last_sure[r] and r != r2 and rows[r].get("speaker") != rows[r2].get("speaker")
+                and j > 0 and _ends_sentence(stream["surf"][j - 1])):
+            b_owner[j] = r2
 
     # quality of every row: how many of its words are really found in the subtitle
     good = [0] * len(rows)
@@ -429,13 +449,19 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
         r_next = b_owner[j]
         if pending:
             r_prev = b_owner[prev_j]
+            cut = None       # between two speakers: words that finish a sentence go back, words that start a new one go forward
+            if r_prev != r_next and rows[r_prev].get("speaker") != rows[r_next].get("speaker"):
+                ends = [x for x, pj in enumerate(pending) if _ends_sentence(stream["surf"][pj])]
+                cut = max(ends) if ends else (-1 if _ends_sentence(stream["surf"][prev_j]) else None)
             for pos, pj in enumerate(pending):
                 if r_prev == r_next:
                     owner[pj] = r_prev
                     continue
                 with_prev = cue[pj] == cue[prev_j]
                 with_next = cue[pj] == cue[j]
-                if with_prev and with_next:
+                if cut is not None and with_prev:
+                    owner[pj] = r_prev if pos <= cut else r_next
+                elif with_prev and with_next:
                     owner[pj] = r_prev if pos < len(pending) / 2.0 else r_next
                 elif with_prev:
                     owner[pj] = r_prev

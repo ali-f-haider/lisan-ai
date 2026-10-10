@@ -33,12 +33,23 @@ function element(tag = 'div') {
     };
 }
 
+// The real time formatting/reading of the shared dialog (longdub_player.js), so the page and the dialog cannot drift apart.
+const realPlayer = (() => {
+    const sandbox = vm.createContext({ window: {}, document: { addEventListener() {}, createElement() { return element(); }, body: element('body') } });
+    vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'longdub_player.js'), 'utf8'), sandbox);
+    return sandbox.window.LisanPlayer;
+})();
+
 function harness() {
     const elements = new Map(), created = [], calls = [], timers = new Map(), messages = [], confirmations = [];
     let timerId = 0;
     const get = id => { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); };
     const control = element('textarea');
-    const lisanPlayer = { isOpen() { return false; }, open(options) { c.shared.push(options); } };
+    const lisanPlayer = {
+        fmt: s => realPlayer.fmt(s), parse: s => realPlayer.parse(s),
+        isOpen() { return false; }, open(options) { c.shared.push(options); },
+        async checkFile(file, want) { return file.size === want.size ? { ok: true } : { ok: false, message: 'That isn’t the same file this project was made from. (check)' }; }
+    };
     const c = vm.createContext({
         lang: 'en', project: { id: 'parent' }, state: { busy: false, history: [], segments: [], duration: 60, speaker_list: [{ id: 's1', name: 'Sam' }] },
         meta: { parent: { size: 1000, has_video: true } }, listen: null, shared: [],
@@ -54,6 +65,7 @@ function harness() {
         URL: { createObjectURL() { return 'blob:local-test'; }, revokeObjectURL() {} },
         setTimeout(callback, delay) { timers.set(++timerId, { callback, delay }); return timerId; },
         clearTimeout(id) { timers.delete(id); },
+        changes: [], change(row, field, value) { c.changes.push({ field, value }); row[field] = value; },
         async save() {}, renderLines() {}, renderHistory() {},
         notify(type, message) { messages.push({ type, message }); },
         LisanDialog: { async confirm(message) { confirmations.push(message); return true; } },
@@ -76,6 +88,7 @@ function harness() {
     vm.runInContext(excerpt('  function statusText(', '  function renderHistory('), c);
     vm.runInContext(excerpt('  function progress(', "  $('finish').onclick="), c);
     vm.runInContext(excerpt('  function button(', '  function refreshOverlaps('), c);
+    vm.runInContext(excerpt('  function clockText(', '  function stylePicker('), c);
     vm.runInContext(excerpt('  function openPlayer(', "  $('projects').onchange="), c);
     return {
         c, elements, get, control, created, calls, timers, messages, confirmations,
@@ -213,4 +226,27 @@ test('Open works without a file when our servers still have a copy, and drops an
     h.get('openProject').onclick(); await new Promise(setImmediate);
     assert.equal(opened(), 1);
     assert.equal(h.c.listen, null);
+});
+
+test('times on the correction page are written minutes:seconds.milliseconds and read back the same way', () => {
+    const h = harness();
+    h.c.state.duration = 300;
+    const row = { start: 124.051, end: 125 }, parent = element();
+    h.c.timeInput(parent, row, 'start', 'From', 'من'); h.c.timeInput(parent, row, 'end', 'To', 'إلى');
+    const [start, end] = parent.children.map(label => label.children[1]);
+    assert.equal(start.value, '2:04.051'); assert.equal(end.value, '2:05.000');
+    assert.equal(start.type, 'text', 'a plain text box, like the long-dub page');
+    start.value = '2:03.620'; start.onchange();
+    assert.deepEqual(h.c.changes.map(c => [c.field, c.value]), [['start', 123.62]]); assert.equal(start.value, '2:03.620');
+    end.value = '59'; end.onchange();                            // seconds alone are accepted and shown in the same format
+    assert.equal(end.value, '0:59.000'); assert.equal(row.end, 59);
+    end.value = '٠:٥٨٫٥'; end.onchange();                       // Arabic digits and separators
+    assert.equal(row.end, 58.5);
+    const count = h.c.changes.length;
+    end.value = 'abc'; end.onchange();                           // not a time: the old value comes back and the person is told
+    assert.equal(end.value, '0:58.500'); assert.equal(h.c.changes.length, count); assert.equal(h.messages.at(-1).type, 'error');
+    end.value = '99:00'; end.onchange();                         // beyond the length of the file (300 s in this test)
+    assert.equal(end.value, '0:58.500'); assert.equal(h.c.changes.length, count);
+    end.value = '0:58.5'; end.onchange();                        // unchanged: nothing is saved
+    assert.equal(h.c.changes.length, count);
 });

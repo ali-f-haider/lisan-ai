@@ -65,6 +65,35 @@ class OneDialogTests(unittest.TestCase):
         out = subprocess.check_output([node, "-e", script, str(ROOT / "longdub_player.js")])
         self.assertEqual(json.loads(out), ["1:23.500", "0:00.000", 83.5, 83.5, 83, None, False])
 
+    def test_a_resaved_copy_is_accepted_by_length_and_a_wrong_file_is_told_what_differs(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is not installed")
+        script = r"""
+const vm=require('vm'),fs=require('fs');
+let probeLength=0;
+const doc={createElement(){const p={removeAttribute(){},load(){},set src(v){setTimeout(()=>p.onloadedmetadata&&p.onloadedmetadata(),0);},duration:0};Object.defineProperty(p,'duration',{get(){return probeLength;}});return p;}};
+const c=vm.createContext({window:{},document:doc,URL:{createObjectURL(){return 'blob:x';},revokeObjectURL(){}},setTimeout,clearTimeout});
+vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),c);
+const P=c.window.LisanPlayer, want={size:1000,duration:5720};
+(async()=>{
+  const out=[];
+  out.push((await P.checkFile({size:1000},want,'en')).ok);
+  probeLength=5720.4; out.push((await P.checkFile({size:900*1048576/1000},want,'en')).ok);
+  probeLength=5100; const bad=await P.checkFile({size:5*1048576},{size:700*1048576,duration:5720},'en'); out.push(bad.ok,bad.message);
+  const noDur=await P.checkFile({size:5},{size:7},'en'); out.push(noDur.ok);
+  const ar=await P.checkFile({size:5*1048576},{size:700*1048576,duration:5720},'ar'); out.push(ar.message);
+  console.log(JSON.stringify(out));
+})();
+"""
+        out = json.loads(subprocess.check_output([node, "-e", script, str(ROOT / "longdub_player.js")]))
+        self.assertEqual(out[0], True, "same size")
+        self.assertEqual(out[1], True, "another size but the same length (within a second)")
+        self.assertEqual(out[2], False)
+        self.assertIn("That isn", out[3]); self.assertIn("5 MB", out[3]); self.assertIn("700 MB", out[3]); self.assertIn("85:00", out[3]); self.assertIn("95:20", out[3])
+        self.assertEqual(out[4], False, "without a recorded length only the size can be compared")
+        self.assertIn("ملفك", out[5])
+
 
 def _tone(path, seconds=12):
     with wave.open(str(path), "wb") as w:

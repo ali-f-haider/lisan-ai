@@ -124,11 +124,23 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       element.classList.toggle('ld-overlap', overlaps); var warning = element.querySelector('.ld-overlap-warning'); if(warning) warning.classList.toggle('hidden', !overlaps);
     });
   }
+  // Times are written the way the long-dub page writes them: minutes:seconds.milliseconds (2:03.620).
+  function clockText(seconds) { return window.LisanPlayer.fmt(seconds); }
   function timeInput(parent, row, field, en, ar) {
     var wrap = document.createElement('label'); wrap.className = 'ld-tf'; var title = document.createElement('span'); title.textContent = tr(en, ar);
-    var input = document.createElement('input'); input.type = 'number'; input.step = '.001'; input.min = 0; input.max = state.duration; input.value = row[field];
-    input.setAttribute('aria-label', tr(en, ar)); input.onchange = function() { change(row,field,Number(input.value)); };
-    wrap.append(title,input); parent.appendChild(wrap);
+    var input = document.createElement('input'); input.type = 'text'; input.className = 'ld-t'; input.dir = 'ltr'; input.maxLength = 14; input.autocomplete = 'off';
+    input.setAttribute('inputmode', 'decimal'); input.value = clockText(row[field]); input.setAttribute('aria-label', tr(en, ar));
+    input.onchange = function() {
+      var value = window.LisanPlayer.parse(input.value);
+      if (value === null || value < 0 || value > state.duration + 0.001) {
+        input.value = clockText(row[field]);
+        notify('error', tr('Write the time like 1:23.500 or 83.5 (minutes:seconds), inside the length of the file.', 'اكتب الوقت بهذا الشكل: 1:23.500 أو 83.5 (دقائق:ثوانٍ)، ضمن مدة الملف.'));
+        return;
+      }
+      value = Math.round(value * 1000) / 1000; input.value = clockText(value);
+      if (value !== Number(row[field])) change(row, field, value);
+    };
+    wrap.append(title, input); parent.appendChild(wrap);
   }
   function stylePicker(parent,row) {
     var shell = document.createElement('details'); shell.className = 'ld-edit-style';
@@ -190,7 +202,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       var tools=document.createElement('div'); tools.className='ld-time';
       var label=document.createElement('label'); label.className='ld-select-line'; var box=document.createElement('input'); box.type='checkbox'; box.checked=selected.has(row.segment_id);
       box.onchange=function(){if(box.checked)selected.add(row.segment_id);else selected.delete(row.segment_id);count();}; label.append(box,document.createTextNode(tr('Correct line ','تصحيح السطر ')+(page*10+index+1))); tools.appendChild(label);
-      timeInput(tools,row,'start','Start','البداية'); timeInput(tools,row,'end','End','النهاية');
+      timeInput(tools,row,'start','From','من'); timeInput(tools,row,'end','To','إلى');
       var speaker=document.createElement('select'); state.speaker_list.forEach(function(s){var opt=document.createElement('option');opt.value=s.id;opt.textContent=s.name;speaker.appendChild(opt);}); speaker.value=row.speaker_id;speaker.setAttribute('aria-label',tr('Speaker','المتحدث'));speaker.onchange=function(){change(row,'speaker_id',speaker.value);if(badge){badge.remove();badge=null;}};tools.appendChild(speaker);var badge=speakerBadge(row);if(badge)tools.appendChild(badge);
       var warning=document.createElement('p');warning.className='ld-time-notice ld-overlap-warning hidden';warning.textContent=tr('⚠ Overlaps another line. Check both timings.','⚠ يتداخل مع سطر آخر. راجع توقيت السطرين.');tools.appendChild(warning);
       if(manualNoticeId===row.segment_id){var notice=document.createElement('p');notice.className='ld-time-notice';notice.setAttribute('role','status');notice.textContent=tr('Set both times manually for precise placement.','أدخل الوقتين يدوياً لتحديد الموضع بدقة.');tools.appendChild(notice);}
@@ -299,13 +311,17 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   function openNote(text) { $('openNote').textContent = text || ''; }
   $('pickFile').onclick = function() { $('listenFile').click(); };
   $('listenFile').onchange = function() { openNote(''); showPicked(); };
-  $('openProject').onclick = function() {
+  $('openProject').onclick = async function() {
     var id = $('projects').value, file = $('listenFile').files[0];
     openNote('');
     if (!id) { openNote(tr('Choose a project first.', 'اختر مشروعاً أولاً.')); return; }
     var info = meta[id] || {};
-    if (file && info.size && file.size !== Number(info.size)) { openNote(tr('That isn’t the same file this project was made from.', 'هذا ليس الملف نفسه الذي أُنشئ منه المشروع.')); return; }
-    if (file) { if (listen && listen.url) URL.revokeObjectURL(listen.url); listen = {projectId: id, url: URL.createObjectURL(file), name: file.name}; }
+    if (file) {
+      var verdict = await LisanPlayer.checkFile(file, {size: info.size, duration: info.duration}, lang);
+      if (!verdict.ok) { openNote(verdict.message); return; }
+      if (listen && listen.url) URL.revokeObjectURL(listen.url);
+      listen = {projectId: id, url: URL.createObjectURL(file), name: file.name};
+    }
     else if (listen && listen.projectId !== id) { URL.revokeObjectURL(listen.url); listen = null; }
     open(id).catch(error);
   };
@@ -320,7 +336,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       if (!card.classList.contains('hidden')) card.scrollIntoView({behavior: 'smooth', block: 'start'});
     }).catch(error);
   }
-  $('projects').onchange=function(){openNote('');var f=$('listenFile').files[0],i=meta[this.value]||{};if(f&&i.size&&f.size!==Number(i.size))$('listenFile').value='';showPicked();};
+  $('projects').onchange=function(){openNote('');showPicked();};
   $('language').onclick=function(){localStorage.setItem('lisan_lang',lang==='en'?'ar':'en');location.reload();};
   $('back').onclick=function(){location.href='/dub-long';};$('appLink').onclick=function(){location.href='/app';};
   $('logout').onclick=function(){try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login';});};
@@ -328,5 +344,5 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   dark(localStorage.getItem('lisan_dark_mode')!=='0');$('darkModeBtn').onclick=function(){dark(!document.body.classList.contains('dark'));};
   window.addEventListener('beforeunload',function(e){if(dirty){e.preventDefault();e.returnValue='';}});
   staticText();
-  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;meta[job.id]={size:job.size,has_video:!!job.has_video};$('projects').appendChild(option);});autoOpen();}).catch(error);
+  api('/api/longdub').then(function(data){$('balance').textContent=data.credits==null?'…':data.credits;$('projects').replaceChildren();var initial=document.createElement('option');initial.value='';initial.textContent=tr('Choose a project…','اختر مشروعاً…');$('projects').appendChild(initial);data.jobs.filter(function(j){return j.status==='done'&&!j.edit_of;}).forEach(function(job){var option=document.createElement('option');option.value=job.id;option.textContent=job.name;meta[job.id]={size:job.size,duration:job.duration,has_video:!!job.has_video};$('projects').appendChild(option);});autoOpen();}).catch(error);
 })();

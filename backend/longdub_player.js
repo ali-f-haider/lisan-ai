@@ -10,6 +10,7 @@
       title: function (n, who) { return 'Enter man. - line ' + n + (who ? ' (' + who + ')' : ''); },
       prep: 'Preparing the player... the first time this can take up to a minute.',
       needFile: 'Your video is not on our servers right now (this project is saved). Choose the same file from your computer to use it in this player. It is only played in your browser - nothing is uploaded and nothing costs credits.',
+      yours: 'Your file: ', theirs: 'This project: ',
       choose: 'Choose the file', wrongFile: 'That isn’t the same file this project was made from.',
       cantPlay: 'Your browser can’t play this file. Attach the file to the project instead ("Attach the same file") and we will make a playable copy.',
       start: 'Start', end: 'End', setStart: 'Set start here', setEnd: 'Set end here', goTo: 'Go to',
@@ -25,6 +26,7 @@
       title: function (n, who) { return 'إدخال يدوي - السطر ' + n + (who ? ' (' + who + ')' : ''); },
       prep: 'جارٍ تجهيز المشغّل... قد يستغرق هذا حتى دقيقة في المرة الأولى.',
       needFile: 'الفيديو ليس على خوادمنا حالياً (هذا المشروع محفوظ). اختر الملف نفسه من جهازك لاستخدامه في هذا المشغّل. يُشغَّل في متصفحك فقط - لا يُرفع شيء ولا يكلّف أي رصيد.',
+      yours: 'ملفك: ', theirs: 'هذا المشروع: ',
       choose: 'اختر الملف', wrongFile: 'هذا ليس الملف نفسه الذي أُنشئ منه المشروع.',
       cantPlay: 'لا يستطيع متصفحك تشغيل هذا الملف. أرفق الملف بالمشروع بدلاً من ذلك («إرفاق الملف نفسه») وسنصنع نسخة قابلة للتشغيل.',
       start: 'البداية', end: 'النهاية', setStart: 'اجعل البداية هنا', setEnd: 'اجعل النهاية هنا', goTo: 'انتقل إلى',
@@ -55,6 +57,38 @@
     var m = t.match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/);
     if (!m) return null;
     return (m[1] ? parseInt(m[1], 10) * 60 : 0) + parseFloat(m[2]);
+  }
+
+  function mb(n) { return (Math.round(n / 104857.6) / 10) + ' MB'; }
+  function clock(s) { s = Math.round(s); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  // Is this the film the project was made from? Same size = yes. A copy that was re-saved has another size, so it is also
+  // accepted when its length matches the project's to within a second (it is only played here, nothing is uploaded).
+  // want = {size, duration}. Resolves {ok:true} or {ok:false, message} that says what was compared.
+  function checkFile(file, want, lang) {
+    var T = S[lang === 'ar' ? 'ar' : 'en'];
+    want = want || {};
+    return new Promise(function (resolve) {
+      if (!want.size || file.size === +want.size) { resolve({ ok: true }); return; }
+      var dur = +want.duration || 0, probe = null, url = null, done = false, timer = null;
+      function refuse(len) {
+        var yours = mb(file.size) + (len ? ', ' + clock(len) : ''), theirs = mb(+want.size) + (dur ? ', ' + clock(dur) : '');
+        resolve({ ok: false, message: T.wrongFile + ' (' + T.yours + yours + ' · ' + T.theirs + theirs + ')' });
+      }
+      function finish(len) {
+        if (done) return; done = true; clearTimeout(timer);
+        try { if (probe) { probe.removeAttribute('src'); probe.load(); } } catch (e) { /* only a probe */ }
+        if (url) URL.revokeObjectURL(url);
+        if (len && isFinite(len) && dur && Math.abs(len - dur) <= 1) resolve({ ok: true, resaved: true }); else refuse(len);
+      }
+      if (!dur) { refuse(0); return; }
+      try {
+        url = URL.createObjectURL(file); probe = document.createElement('video'); probe.preload = 'metadata';
+        probe.onloadedmetadata = function () { finish(probe.duration); };
+        probe.onerror = function () { finish(0); };
+        timer = setTimeout(function () { finish(0); }, 8000);
+        probe.src = url;
+      } catch (e) { finish(0); }
+    });
   }
 
   function open(opts) {
@@ -151,12 +185,15 @@
       need.querySelector('#plPick').onclick = function () { fi.click(); };
       fi.onchange = function () {
         var f = fi.files && fi.files[0]; if (!f) return;
-        if (o.size && f.size !== +o.size) { st.err(T.wrongFile); return; }
-        st.err('');
-        var url = URL.createObjectURL(f);
-        if (o.onLocal) { try { o.onLocal(f, url); } catch (e) { /* the caller's note-keeping must not stop playback */ } }
-        need.classList.add('hidden');
-        resolve({ url: url, kind: o.kind || 'video' });
+        checkFile(f, { size: o.size, duration: o.duration }, o.lang).then(function (r) {
+          if (current !== st) return;
+          if (!r.ok) { st.err(r.message); return; }
+          st.err('');
+          var url = URL.createObjectURL(f);
+          if (o.onLocal) { try { o.onLocal(f, url); } catch (e) { /* the caller's note-keeping must not stop playback */ } }
+          need.classList.add('hidden');
+          resolve({ url: url, kind: o.kind || 'video' });
+        });
       };
     }).then(function (src) { if (current === st) q('plPrep').classList.remove('hidden'); return src; });
   }
@@ -321,5 +358,5 @@
     });
   }
 
-  window.LisanPlayer = { open: open, isOpen: function () { return !!current; }, fmt: fmt, parse: parse, _state: function () { return current; } };
+  window.LisanPlayer = { open: open, checkFile: checkFile, isOpen: function () { return !!current; }, fmt: fmt, parse: parse, _state: function () { return current; } };
 })();
