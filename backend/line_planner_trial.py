@@ -11,6 +11,7 @@ Needs GEMINI_API_KEY in the environment (use a test key). --dry shows the first 
 What it prints: how many of your line cuts the engine already had, how many the planner added or broke, the tokens used,
 the cost for this clip, and the cost per minute of video (use --minutes if the last line ends before the clip does).
 A "cut" is the place in the word stream where one line stops and the next begins, so only the splitting is judged.
+It also prints the number that matters most for customers: wrong cuts that are NOT marked "check the cut" (must be 0).
 """
 import argparse
 import difflib
@@ -53,8 +54,26 @@ def cuts(rows):
     return out
 
 
+def marked_cuts(rows):
+    """Word-stream positions of the cuts a person is asked to check (the line before has its end marked, or the line after its start)."""
+    pos, out, prev = 0, set(), None
+    for r in rows:
+        n = len(words_of([r]))
+        if pos and n and ((prev or {}).get("cut_check") in ("end", "both") or r.get("cut_check") in ("start", "both")):
+            out.add(pos)
+        pos += n
+        prev = r
+    return out
+
+
 def compare(truth_rows, rows):
-    """(cuts of the truth the rows have, cuts of the truth in total, extra cuts the rows have that the truth does not).
+    """(cuts of the truth the rows have, cuts of the truth in total, extra cuts the rows have that the truth does not)."""
+    hit, total, extras = detail(truth_rows, rows)
+    return hit, total, len(extras)
+
+
+def detail(truth_rows, rows):
+    """Like compare, but the third value is the set of the wrong cuts (positions in the rows' word stream).
     The two word streams are aligned first, so a few corrected words do not shift every position."""
     a, b = words_of(truth_rows), words_of(rows)
     to_b = {}
@@ -65,7 +84,7 @@ def compare(truth_rows, rows):
     truth = {to_b[c] for c in cuts(truth_rows) if c in to_b}
     mine = cuts(rows)
     seen = set(to_b.values())
-    return len(truth & mine), len(truth), len({c for c in mine if c in seen} - truth)
+    return len(truth & mine), len(truth), {c for c in mine if c in seen} - truth
 
 
 def main():
@@ -97,8 +116,15 @@ def main():
     for name, rows in (("engine as it was", engine), ("after the free clean-up", tidy_rows), ("after the AI planner", planned)):
         hit, total, extra = compare(truth, rows)
         print(f"  {name:26s} {hit}/{total} of your cuts ({100 * hit / max(1, total):.0f}%), {extra} extra, {len(rows)} lines")
+    _, _, wrong = detail(truth, planned)
+    marked = marked_cuts(planned)
+    print(f"\nWrong cuts left in the result: {len(wrong)}; of them marked for a person to check: {len(wrong & marked)}; "
+          f"wrong and NOT marked: {len(wrong - marked)}  (this last number is the one that must be 0)")
+    print(f"Marks on cuts that were actually right (needless work for a person): {len(marked - wrong)} of {len(marked)} marks")
+    hit, total, _ = compare(truth, planned)
+    print(f"Cuts of yours that are missing from the result: {total - hit} of {total} (a missing cut cannot be marked; a person has to split the line)")
     print(f"\nFree clean-up: {tidy_rep}")
-    print(f"Planner: windows={rep['windows']} asked={rep['asked']} applied={rep['applied']} refused={rep['refused']} "
+    print(f"Planner: windows={rep['windows']} asked={rep['asked']} applied={rep['applied']} (marked {rep['flagged']}, confirmed fine {rep['cleared']}) refused={rep['refused']} "
           f"reverted_windows={rep['reverted_windows']} seconds={rep['seconds']}" + (f" stopped={rep['stopped']}" if rep.get("stopped") else "")
           + (f" ERROR={rep['error']}" if rep.get("error") else ""))
     if rep["refusals"]:

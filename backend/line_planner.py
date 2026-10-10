@@ -2,11 +2,13 @@
 
 The speech recogniser and the subtitle give the words; they do not know who says which words when two people share one
 subtitle cue or one breath. A language model can read the dialogue and see "this sentence belongs to the next voice".
-It is only allowed to do two things, and both are checked here by plain rules before they are applied:
+It is only allowed to do these things, and each is checked here by plain rules before it is applied:
 
 * {"op": "move_words", "from": id, "to": id, "n": 1..6, "side": "end"|"start"}  - the last (or first) n words of one line
   move to the line right after (or right before) it;
-* {"op": "merge", "a": id, "b": id}  - two neighbouring lines of the SAME speaker become one line.
+* {"op": "merge", "a": id, "b": id}  - two neighbouring lines of the SAME speaker become one line;
+* {"op": "flag", "a": id, "b": id}  - "this cut looks wrong and I am not sure how to fix it": a person is asked to check it;
+* {"op": "ok", "a": id, "b": id}  - "this cut is right": the program's own doubt about it is dropped.
 
 It never writes or changes a word: the words before and after must be identical or the whole window is thrown away.
 Any failure (no key, no answer, a bad answer, too slow) leaves the lines exactly as they were.
@@ -25,7 +27,7 @@ ENABLED = os.environ.get("LD_LINE_PLANNER", "0").strip().lower() in ("1", "true"
 WINDOW = 24                 # lines judged per request
 CONTEXT = 3                 # lines before and after a window that are shown for reading only
 MAX_WORDS_MOVED = 6         # a move bigger than this is not a "stray beginning"
-MAX_OPS_PER_WINDOW = 8
+MAX_OPS_PER_WINDOW = 24
 MERGE_MAX_GAP = 1.0         # seconds between two lines of one speaker that may still be one line
 MAX_LINE_SEC = line_tidy.MAX_LINE_SEC
 MAX_WINDOWS = 40
@@ -44,6 +46,9 @@ You may only use these operations (lines are listed in time order; both lines mu
 - {"op":"move_words","from":"<id>","to":"<id>","n":<1-6>,"side":"end"}   the LAST n words of line "from" move to the START of the next line "to"
 - {"op":"move_words","from":"<id>","to":"<id>","n":<1-6>,"side":"start"} the FIRST n words of line "from" move to the END of the previous line "to"
 - {"op":"merge","a":"<id>","b":"<id>"}   two neighbouring lines of the SAME speaker are really one line
+- {"op":"flag","a":"<id>","b":"<id>"}   the cut between these two neighbours looks wrong but you are NOT sure how to fix it: a person will check it
+- {"op":"ok","a":"<id>","b":"<id>"}   the cut between these two neighbours is correct (use it for a cut marked <<suspect cut>> that is in fact fine, e.g. an interruption)
+Lines followed by <<suspect cut>> are ones the program already doubts: judge them first, with "move_words", "merge", "ok" or "flag".
 Never reword, add or delete words. Lines marked (context) may be read but never changed.
 Return ONLY JSON: {"ops":[ ... ]}   (an empty list when nothing needs to change)
 
@@ -64,7 +69,7 @@ def build_prompt(window, before, after):
     for tag, group in (("(context)", before), ("", window), ("(context)", after)):
         for r in group:
             lines.append(f'{r["segment_id"]} | {_label(r)} | {float(r["start"]):.2f}-{float(r["end"]):.2f} | '
-                         f'{str(r.get("text") or "").strip()} {tag}'.rstrip())
+                         f'{str(r.get("text") or "").strip()} {tag}'.rstrip() + (" <<suspect cut>>" if r.get("cut_check") in ("end", "both") else ""))
     return PROMPT + "\n".join(lines)
 
 
@@ -107,6 +112,11 @@ def _check(op, rows, allowed):
     """None when the operation is allowed, else the reason it is refused. `allowed` = ids that may change."""
     idx = _index(rows)
     kind = op.get("op")
+    if kind in ("flag", "ok"):
+        a, b = op.get("a"), op.get("b")
+        if a not in allowed or b not in allowed or a not in idx or b not in idx:
+            return "line not in the window"
+        return None if idx[b] == idx[a] + 1 else "not neighbours"
     if kind == "merge":
         a, b = op.get("a"), op.get("b")
         if a not in allowed or b not in allowed or a not in idx or b not in idx:
@@ -150,10 +160,26 @@ def _check(op, rows, allowed):
 
 def _apply(op, rows, vocals):
     idx = _index(rows)
+    if op["op"] in ("flag", "ok"):
+        a, b = rows[idx[op["a"]]], rows[idx[op["b"]]]
+        if op["op"] == "flag":
+            line_tidy.flag_cut(a, b, "ai_unsure")
+        else:
+            for row in (a, b):
+                for k in line_tidy.CUT_FIELDS:
+                    row.pop(k, None)
+        return
     if op["op"] == "merge":
         i = idx[op["a"]]
         a, b = rows[i], rows[i + 1]
         a["end"] = b["end"]
+        keeps = {"start" if a.get("cut_check") in ("start", "both") else None, "end" if b.get("cut_check") in ("end", "both") else None} - {None}
+        if keeps:
+            a["cut_check"] = "both" if len(keeps) == 2 else keeps.pop()
+            a["cut_reasons"] = list(dict.fromkeys(list(a.get("cut_reasons") or []) + list(b.get("cut_reasons") or [])))
+        else:
+            for k in line_tidy.CUT_FIELDS:
+                a.pop(k, None)
         a["text"] = line_tidy._join_text(a.get("text"), b.get("text"))
         if "words" in a or "words" in b:
             a["words"] = list(a.get("words") or []) + list(b.get("words") or [])
@@ -171,7 +197,7 @@ def _apply(op, rows, vocals):
 def plan_lines(job_id, rows, api_key, vocals=None, ask=None, budget_sec=None, window=None):
     """Returns (rows, report). `ask(prompt) -> (parsed, usage)` can be injected (tests, the trial); the default asks Gemini."""
     window = window or WINDOW
-    report = {"windows": 0, "asked": 0, "applied": 0, "refused": 0, "reverted_windows": 0, "tokens_in": 0, "tokens_out": 0,
+    report = {"windows": 0, "asked": 0, "applied": 0, "flagged": 0, "cleared": 0, "refused": 0, "reverted_windows": 0, "tokens_in": 0, "tokens_out": 0,
               "tokens_thoughts": 0, "seconds": 0.0, "refusals": []}
     started = time.monotonic()
     budget = BUDGET_SEC if budget_sec is None else budget_sec
@@ -211,6 +237,10 @@ def plan_lines(job_id, rows, api_key, vocals=None, ask=None, budget_sec=None, wi
                     continue
                 _apply(op, work, vocals)
                 applied += 1
+                if op["op"] == "flag":
+                    report["flagged"] += 1
+                elif op["op"] == "ok":
+                    report["cleared"] += 1
             if applied and _norm_words(work) != words_before:     # the words must come out exactly as they went in
                 work = snapshot
                 report["reverted_windows"] += 1

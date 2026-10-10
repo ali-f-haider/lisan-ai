@@ -112,5 +112,62 @@ class SubtitleHandoverTests(unittest.TestCase):
         self.assertTrue(subs_align._ends_sentence('Sima?')); self.assertTrue(subs_align._ends_sentence('over.'))
 
 
+class DoubtfulCutTests(unittest.TestCase):
+    def flags(self, rows):
+        out, report = line_tidy.tidy_lines(rows)
+        return out, report, [r.get('cut_check') for r in out]
+
+    def test_a_cut_between_speakers_in_the_middle_of_a_sentence_is_marked_on_both_lines(self):
+        long_tail = 'because of everything that happened to us at the old house on the hill last winter'
+        rows = [row(0, 0, 5, 'We never talked about it ' + long_tail, 'a'), row(1, 5, 8, 'and then it was gone.', 'b')]
+        out, report, flags = self.flags(rows)
+        self.assertEqual((report['flagged'], flags), (1, ['end', 'start']))
+        self.assertEqual(out[0]['cut_reasons'], ['open_end'])
+
+    def test_finished_sentences_dashes_and_one_speaker_are_not_marked(self):
+        for rows in ([row(0, 0, 2, 'Do you accept?', 'a'), row(1, 2, 4, 'Yes.', 'b')],
+                     [row(0, 0, 2, 'I just wanted-', 'a'), row(1, 2, 4, 'Dont.', 'b')],
+                     [row(0, 0, 2, 'So we', 'a'), row(1, 3, 4, 'start.', 'a')]):
+            self.assertEqual(self.flags(rows)[1]['flagged'], 0)
+
+    def test_a_fixed_cut_is_not_marked_and_old_marks_are_replaced(self):
+        rows = [row(0, 0, 4, 'Do you accept the deal? Because I', 'a', cut_check='both', cut_reasons=['old']), row(1, 4, 7, 'think you should.', 'b')]
+        out, report, flags = self.flags(rows)
+        self.assertEqual((out[0]['text'], report['flagged'], flags), ('Do you accept the deal?', 0, [None, None]))
+        self.assertNotIn('cut_reasons', out[0])
+
+    def test_a_line_between_two_doubtful_cuts_says_both(self):
+        a, b, c = row(0, 0, 2, 'we went to', 'a'), row(1, 2, 4, 'the old', 'b'), row(2, 4, 6, 'house.', 'c')
+        out, report, flags = self.flags([a, b, c])
+        self.assertEqual((report['flagged'], flags), (2, ['end', 'both', 'start']))
+
+
+class MarkIsKeptAndClearedTests(unittest.TestCase):
+    def job_edit(self, edit, **extra):
+        import longdub_service as ld
+        from unittest import mock
+        rows = [dict(segment_id='seg_1', start=0, end=3, speaker='A', speaker_id='sp1', text='we went to', cut_check='end', cut_reasons=['open_end'], **extra)]
+        job = {'id': 'j', 'status': 'editing', 'speaker_list': [{'id': 'sp1', 'name': 'A'}, {'id': 'sp2', 'name': 'B'}]}
+        with mock.patch.object(ld, 'read_segments', return_value=rows), mock.patch.object(ld, '_write_segments'), \
+                mock.patch.object(ld, '_save'), mock.patch.object(ld, '_ev'):
+            ld.update_segments(job, [dict(segment_id='seg_1', **edit)])
+        return rows[0]
+
+    def test_editing_the_words_or_confirming_clears_it_and_other_edits_keep_it(self):
+        self.assertNotIn('cut_check', self.job_edit(dict(text='we went to the house')))
+        self.assertNotIn('cut_check', self.job_edit(dict(cut_ok=True)))
+        self.assertNotIn('cut_check', self.job_edit(dict(speaker_id='sp2')))
+        self.assertEqual(self.job_edit(dict(text='we went to'))['cut_check'], 'end')       # same words saved again
+        self.assertEqual(self.job_edit(dict(emotion='calm'))['cut_check'], 'end')
+
+    def test_the_page_gets_the_mark_and_shows_a_button_that_confirms(self):
+        main = (ROOT / 'main.py').read_text(encoding='utf-8')
+        self.assertIn('d["cut_check"] = r.get("cut_check")', main)
+        html = (ROOT / 'dub_long.html').read_text(encoding='utf-8')
+        for needle in ('function cutBadge', 'cut_ok = true', 'Check the cut', 'راجع القطع', 'var cutMark = cutBadge(s)'):
+            self.assertIn(needle, html)
+        self.assertIn('ld-cut-check', (ROOT / 'longdub_editor.css').read_text(encoding='utf-8'))
+
+
 if __name__ == '__main__':
     unittest.main()

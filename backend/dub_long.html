@@ -1862,6 +1862,25 @@ function makeWaqfPicker(s) {
   return wrap;
 }
 
+// A cut between two speakers that the engine (or the AI planner) is not sure about: the person looks at it once and confirms or fixes it.
+function cutBadge(s) {
+  if (!s.cut_check) return null;
+  var ar = LANG === "ar";
+  var side = s.cut_check === "end" ? (ar ? "نهاية السطر" : "End of line") : s.cut_check === "start" ? (ar ? "بداية السطر" : "Start of line") : (ar ? "بداية السطر ونهايته" : "Start and end of line");
+  var b = document.createElement("button"); b.type = "button"; b.className = "ld-spk-check ld-cut-check";
+  b.textContent = (ar ? "راجع القطع: " : "Check the cut: ") + side;
+  b.title = ar ? "قد تكون الجملة مقسومة بين متحدثين في مكان خاطئ. عدّل النص إن لزم، ثم اضغط للتأكيد أن القطع صحيح."
+               : "A sentence may be split between two speakers in the wrong place. Fix the text if needed, then click to confirm that the cut is right.";
+  b.onclick = function () {
+    s.cut_check = null; if (b.parentNode) b.parentNode.removeChild(b);
+    var d = dirty[s.segment_id] || (dirty[s.segment_id] = { segment_id: s.segment_id });
+    d.cut_ok = true; setSaved(false);
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 900);
+  };
+  return b;
+}
+
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   if ((s.overlaps || []).length) row.classList.add("ld-overlap");
@@ -1875,6 +1894,7 @@ function buildRow(s) {
   var sel = document.createElement("select"); sel.className = "ld-spksel"; fillSelect(sel, s.speaker_id);
   time.appendChild(sel);
   var spkBadge = speakerBadge(s); if (spkBadge) time.appendChild(spkBadge);
+  var cutMark = cutBadge(s); if (cutMark) time.appendChild(cutMark);
   var lb = document.createElement("div"); lb.className = "ld-lbtns";
   var bIns = document.createElement("button"); bIns.className = "btn-plain"; bIns.textContent = T.insertLine;
   var bSplit = document.createElement("button"); bSplit.className = "btn-plain"; bSplit.textContent = T.splitLine; bSplit.title = T.splitHint;

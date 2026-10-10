@@ -5913,6 +5913,7 @@ def _ld_public_rows(rows, job=None):
         d["emotion_review"] = dub_review.emotion_review(r)
         d["heard"] = r.get("segment_id") not in unheard
         d["manual_time"] = bool(r.get("manual_time"))
+        d["cut_check"] = r.get("cut_check")          # "start" / "end" / "both": a cut next to this line may be wrong, a person is asked to look
         d.update(_ld_speaker_review(r))
         out.append(d)
     return out

@@ -1533,7 +1533,7 @@ VOTE_FIELDS = ("speaker_vote",)
 def _clear_speaker_review(row):
     """The user changed this line's speaker or timing: the saved evidence no longer describes it, so it is dropped
     (a stale "check speaker" badge must never override the user's own correction)."""
-    for k in SPEAKER_REVIEW_FIELDS + VOTE_FIELDS:
+    for k in SPEAKER_REVIEW_FIELDS + VOTE_FIELDS + line_tidy.CUT_FIELDS:      # (the "check where this line is cut" mark goes with them)
         row.pop(k, None)
 
 
@@ -2651,7 +2651,14 @@ def update_segments(job, edits):
                 _clear_speaker_review(r)
                 changed += 1
             if isinstance(e.get("text"), str):
+                if e["text"][:MAX_TEXT_LEN] != r.get("text"):
+                    for k in line_tidy.CUT_FIELDS:      # the person edited the words: the "check the cut" mark is done
+                        r.pop(k, None)
                 r["text"] = e["text"][:MAX_TEXT_LEN]
+                changed += 1
+            if e.get("cut_ok") is True and r.get("cut_check"):       # "this cut is right" (pressed on the mark)
+                for k in line_tidy.CUT_FIELDS:
+                    r.pop(k, None)
                 changed += 1
             if isinstance(e.get("arabic_text"), str):
                 new_ar = e["arabic_text"][:MAX_TEXT_LEN]

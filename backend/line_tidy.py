@@ -184,15 +184,55 @@ def move_unfinished_beginnings(rows, vocals=None):
     return moved
 
 
+CUT_FIELDS = ("cut_check", "cut_reasons")     # cut_check = "start", "end" or "both": which edge of this line is next to a cut that may be wrong; dropped when the person edits or confirms
+
+
+def clear_flags(rows):
+    for r in rows:
+        for k in CUT_FIELDS:
+            r.pop(k, None)
+
+
+def flag_cut(a, b, reason):
+    """Marks the cut between line a and the next line b as one a person should look at (a: its end, b: its start)."""
+    for row, side in ((a, "end"), (b, "start")):
+        row["cut_check"] = side if row.get("cut_check") in (None, side) else "both"     # a line between two doubtful cuts: both
+        reasons = list(row.get("cut_reasons") or [])
+        if reason not in reasons:
+            reasons.append(reason)
+        row["cut_reasons"] = reasons
+
+
+def flag_doubtful_cuts(rows):
+    """After the fixes above: a cut between two speakers that still falls in the middle of a sentence (the line before ends
+    without a full stop and without a dash, or the line after begins with a small letter) is shown to the person."""
+    flagged = 0
+    for k in range(len(rows) - 1):
+        a, b = rows[k], rows[k + 1]
+        if _same_voice(a, b):
+            continue
+        ta, tb = str(a.get("text") or "").strip(), str(b.get("text") or "").strip()
+        if not ta or not tb:
+            continue
+        open_end = not _ends_sentence(ta) and not INTERRUPTED.search(ta)
+        small_start = tb[0].isalpha() and tb[0].islower() and not _ends_sentence(ta)
+        if open_end or small_start:
+            flag_cut(a, b, "open_end" if open_end else "small_start")
+            flagged += 1
+    return flagged
+
+
 def tidy_lines(rows, vocals=None):
-    """Returns (rows, {"joined": n, "moved": n}). The rows are changed in place and renumbered."""
-    report = {"joined": 0, "moved": 0}
+    """Returns (rows, {"joined": n, "moved": n, "flagged": n}). The rows are changed in place and renumbered."""
+    report = {"joined": 0, "moved": 0, "flagged": 0}
     try:
         ordered = sorted(rows, key=lambda r: (float(r["start"]), float(r["end"])))
         merged, report["joined"] = merge_split_phrases([dict(r) for r in ordered])
         report["moved"] = move_unfinished_beginnings(merged, vocals)
+        clear_flags(merged)
+        report["flagged"] = flag_doubtful_cuts(merged)
         for i, r in enumerate(merged):
             r["segment_id"] = f"seg_{i}"
         return merged, report
     except Exception:
-        return rows, {"joined": 0, "moved": 0, "error": True}
+        return rows, {"joined": 0, "moved": 0, "flagged": 0, "error": True}

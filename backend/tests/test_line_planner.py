@@ -125,6 +125,33 @@ class PlannerTests(unittest.TestCase):
         self.assertIn('seg_0 | a | 0.00-4.00 | Do you accept the deal? Because I', p)
         self.assertIn('seg_2 | a | 7.00-8.00 | Fine. (context)', p)
 
+    def test_flag_marks_both_lines_and_ok_drops_the_programs_doubt(self):
+        rows = dialog()
+        out, rep = lp.plan_lines('j', rows, 'k', ask=fake({'ops': [{'op': 'flag', 'a': 'seg_0', 'b': 'seg_1'}]}))
+        self.assertEqual([r.get('cut_check') for r in out], ['end', 'start', None])
+        self.assertEqual((out[0]['cut_reasons'], rep['flagged'], [r['text'] for r in out]), (['ai_unsure'], 1, [r['text'] for r in dialog()]))
+        doubtful = dialog(); doubtful[0].update(cut_check='end', cut_reasons=['open_end']); doubtful[1].update(cut_check='start', cut_reasons=['open_end'])
+        out, rep = lp.plan_lines('j', doubtful, 'k', ask=fake({'ops': [{'op': 'ok', 'a': 'seg_0', 'b': 'seg_1'}]}))
+        self.assertEqual(([r.get('cut_check') for r in out], rep['cleared']), ([None, None, None], 1))
+        self.assertEqual(doubtful[0]['cut_check'], 'end', 'the caller\'s rows are not touched')
+
+    def test_flag_and_ok_only_for_neighbours_inside_the_window(self):
+        out, rep = lp.plan_lines('j', dialog(), 'k', ask=fake({'ops': [{'op': 'flag', 'a': 'seg_0', 'b': 'seg_2'}, {'op': 'ok', 'a': 'seg_0', 'b': 'seg_9'}]}))
+        self.assertEqual((rep['applied'], rep['refused']), (0, 2))
+
+    def test_a_merge_keeps_only_the_marks_that_are_still_at_its_edges(self):
+        rows = [row(0, 0, 1, 'Good', 'a', cut_check='start', cut_reasons=['open_end']), row(1, 1.2, 3, 'Lord.', 'a', cut_check='end', cut_reasons=['small_start']),
+                row(2, 3, 4, 'Hm.', 'b', cut_check='start', cut_reasons=['small_start'])]
+        out, rep = lp.plan_lines('j', rows, 'k', ask=fake({'ops': [{'op': 'merge', 'a': 'seg_0', 'b': 'seg_1'}]}))
+        self.assertEqual(([r['text'] for r in out], out[0]['cut_check']), (['Good Lord.', 'Hm.'], 'both'))
+        rows[0].pop('cut_check'); rows[1].pop('cut_check')
+        out, rep = lp.plan_lines('j', rows, 'k', ask=fake({'ops': [{'op': 'merge', 'a': 'seg_0', 'b': 'seg_1'}]}))
+        self.assertNotIn('cut_check', out[0])
+
+    def test_suspect_cuts_are_shown_to_the_model(self):
+        rows = dialog(); rows[0]['cut_check'] = 'end'
+        self.assertIn('Because I <<suspect cut>>', lp.build_prompt(rows[:2], [], []))
+
 
 if __name__ == '__main__':
     unittest.main()
