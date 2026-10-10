@@ -1465,6 +1465,29 @@ async function confirmCloning() {
     } catch (e) { notify("error", e.message); }
 }
 
+// Arabic shows gender in verbs and pronouns. The translator is told each speaker's gender (the one the person chose counts as certain)
+// and sees all the lines around each line, so it can tell who is spoken to.
+function translateBody(lines, geminiKey) {
+    var chosen = {}, heard = {};
+    Object.keys(speakerGenderByName || {}).forEach(function (n) {
+        if (explicitGender(n)) chosen[n] = speakerGenderByName[n];
+        else if (speakerGenderAuto[n] && speakerGenderByName[n]) heard[n] = { gender: speakerGenderByName[n] };
+    });
+    var body = { job_id: currentJobId || "", segments: lines, speaker_genders: chosen, heard_genders: heard,
+                 context: segmentsData.map(function (s) { return { segment_id: s.segment_id, start: s.start, end: s.end, speaker: s.speaker || "Speaker 1", text: s.text || "" }; }) };
+    if (geminiKey) body.gemini_api_key = geminiKey;
+    return body;
+}
+// What the server heard for the speakers whose gender the person did not choose (kept apart from the person's own choice).
+function adoptHeardGenders(data) {
+    var g = data && data.speaker_genders; if (!g) return;
+    Object.keys(g).forEach(function (n) {
+        var x = g[n]; if (!x || !x.gender || explicitGender(n)) return;
+        speakerGenderByName[n] = x.gender; speakerGenderAuto[n] = true;
+        (segmentsData || []).forEach(function (s) { if ((s.speaker || "Speaker 1") === n) s.gender = x.gender; });
+    });
+}
+
 async function autoTranslate() {
     const geminiKey = document.getElementById("geminiApiKey").value.trim();
     if (!geminiKey) { notify("error", "Translation is temporarily unavailable. Please try again later."); return; }
@@ -1472,13 +1495,14 @@ async function autoTranslate() {
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
     try {
-        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId || "", segments: unlocked, gemini_api_key: geminiKey }) });
+        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(translateBody(unlocked, geminiKey)) });
         const data = await res.json();
         if (data.error) { notify("error", data.error); return; }
+        adoptHeardGenders(data);
         let matched = 0;
         (data.translated_segments || []).forEach(item => {
             const seg = segmentsData.find(s => s.segment_id === item.segment_id);
-            if (seg) { seg.arabic_text = item.arabic_text || ""; if (item.emotion && EMOTIONS.includes(item.emotion)) seg.emotion = item.emotion; matched++; }
+            if (seg) { seg.arabic_text = item.arabic_text || ""; seg.gender_check = item.gender_check === true; if (item.emotion && EMOTIONS.includes(item.emotion)) seg.emotion = item.emotion; matched++; }
         });
         renderTable();
         notify("success", "Translation complete. " + matched + " segments translated. Locked lines untouched.");
@@ -2080,14 +2104,15 @@ async function autoTranslate() {
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
     try {
-        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId || "", segments: unlocked, gemini_api_key: geminiKey }) });
+        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(translateBody(unlocked, geminiKey)) });
         const data = await res.json();
         if (data.error) { notify("error", data.error); return; }
+        adoptHeardGenders(data);
         let matched = 0;
         (data.translated_segments || []).forEach(item => {
             const seg = segmentsData.find(s => s.segment_id === item.segment_id);
             if (seg) {
-                seg.arabic_text = item.arabic_text || "";
+                seg.arabic_text = item.arabic_text || ""; seg.gender_check = item.gender_check === true;
                 if (item.emotion && typeof item.emotion === "string" && item.emotion.trim().length >= 2) seg.emotion = item.emotion.trim().slice(0, 60);
                 matched++;
             }
@@ -2139,14 +2164,15 @@ async function autoTranslate() {
     if (!unlocked.length) { notify("error", "All lines are locked — nothing to translate."); return; }
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
     try {
-        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId || "", segments: unlocked, gemini_api_key: geminiKey }) });
+        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(translateBody(unlocked, geminiKey)) });
         const data = await res.json();
         if (data.error) { notify("error", data.error); return; }
+        adoptHeardGenders(data);
         let matched = 0;
         (data.translated_segments || []).forEach(item => {
             const seg = segmentsData.find(s => s.segment_id === item.segment_id);
             if (seg) {
-                seg.arabic_text = item.arabic_text || "";
+                seg.arabic_text = item.arabic_text || ""; seg.gender_check = item.gender_check === true;
                 const clean = sanitizeStyle(item.emotion);
                 if (clean) seg.emotion = clean;
                 matched++;
@@ -2268,13 +2294,14 @@ async function autoTranslate() {
     notify("info", "Translating " + unlocked.length + " unlocked line(s) to Arabic (locked lines skipped)...");
     showBusy("Translating to Arabic… this takes a few seconds.", "جارٍ الترجمة إلى العربية… يستغرق ذلك بضع ثوانٍ.");
     try {
-        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId || "", segments: unlocked }) });
+        const res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(translateBody(unlocked)) });
         const data = await res.json();
         if (data.error) { notify("error", data.error); return; }
+        adoptHeardGenders(data);
         let matched = 0;
         (data.translated_segments || []).forEach(item => {
             const seg = segmentsData.find(s => s.segment_id === item.segment_id);
-            if (seg) { seg.arabic_text = item.arabic_text || ""; const clean = sanitizeStyle(item.emotion); if (clean) seg.emotion = clean; matched++; }
+            if (seg) { seg.arabic_text = item.arabic_text || ""; seg.gender_check = item.gender_check === true; const clean = sanitizeStyle(item.emotion); if (clean) seg.emotion = clean; matched++; }
         });
         renderTable();
         notify("success", "Translation complete. " + matched + " segments translated. Locked lines untouched.");
@@ -3205,8 +3232,18 @@ function createRow(seg, i) {
     var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function() { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
     var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function() {
         segmentsData[i].arabic_text = arT.value; updateBadges();
+        if (segmentsData[i].gender_check) { segmentsData[i].gender_check = false; var gb0 = arCell.querySelector(".gender-check"); if (gb0) gb0.remove(); }
         if (typeof buildVolumeTable === "function") buildVolumeTable(window._volumeLines || []);
-    }; arCell.appendChild(arT); shortWaqfPicker(arCell, seg); row.appendChild(arCell);
+    }; arCell.appendChild(arT);
+    if (seg.gender_check) {     // the Arabic had to guess a gender: look at it once, fix it or confirm it
+        var gb = mk("button"); gb.type = "button"; gb.className = "action-btn gender-check";
+        gb.textContent = subsText("Check gender", "راجع الجنس");
+        gb.title = subsText("The Arabic here had to guess a gender (who speaks or who is addressed was unclear). Fix the Arabic or the speaker's gender, then click to confirm.",
+                            "اضطررنا إلى تخمين الجنس في هذه الترجمة (المتحدث أو المخاطَب غير واضح). صحّح الترجمة أو جنس المتحدث ثم اضغط للتأكيد.");
+        gb.onclick = function () { segmentsData[i].gender_check = false; gb.remove(); };
+        arCell.appendChild(gb);
+    }
+    shortWaqfPicker(arCell, seg); row.appendChild(arCell);
     var aCell = mk("td");
     var pb = mk("button"); pb.className = "action-btn green"; pb.textContent = "▶"; pb.title = "Play original audio"; pb.onclick = function() { previewRow(i, pb); };
     var rb = mk("button"); rb.className = "action-btn orange"; rb.textContent = "🔄"; rb.title = "Re-speak this line only"; rb.onclick = function() { regenerateLine(i, rb); };

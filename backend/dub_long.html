@@ -1493,7 +1493,7 @@ function loadSegments() {
     segs = r.data.segments || [];
     reviewPage = 0; reviewedBatches = {};
     (r.data.batches || []).forEach(function(b) { if (b.reviewed) reviewedBatches[String(b.page)] = b.hash; });
-    spk = (r.data.speaker_list || []).map(function (s) { return { id: s.id, name: s.name }; });
+    spk = (r.data.speaker_list || []).map(speakerFromServer);
     cur.warnings = r.data.warnings || [];
     cur.stated_speakers = r.data.stated_speakers; cur.detected_speakers = r.data.detected_speakers;
     renderEditor();
@@ -1578,6 +1578,47 @@ function hiddenHelp(id, labelId) {
   LisanTip.attach(label, content, { label: LANG === "ar" ? "مساعدة" : "Help" });
 }
 // ---- speakers panel
+// Gender of a speaker (optional): what the person chose ("" = Auto) and what the engine heard. Arabic marks gender, so the translation uses it.
+function speakerFromServer(s) {
+  var chosen = s.gender_source === "chosen";
+  return { id: s.id, name: s.name, gender: chosen ? (s.gender || "") : "", heard: chosen ? "" : (s.gender || ""), unsure: !!s.gender_uncertain };
+}
+function genderWord(g) { var ar = LANG === "ar"; return g === "female" ? (ar ? "أنثى" : "Female") : g === "male" ? (ar ? "ذكر" : "Male") : ""; }
+function genderSelectHtml(s, i) {
+  var ar = LANG === "ar";
+  var auto = (ar ? "تلقائي" : "Auto") + (s.heard ? " (" + genderWord(s.heard) + (s.unsure ? (ar ? "، غير متأكد" : ", not sure") : "") + ")" : "");
+  return '<select data-gen="' + i + '" aria-label="' + esc(ar ? "جنس المتحدث (اختياري)" : "Speaker gender (optional)") + '" title="' + esc(ar ? "اختياري. العربية تُظهر الجنس في الأفعال والضمائر، فكلما كان صحيحًا كانت الترجمة أدق." : "Optional. Arabic shows gender in verbs and pronouns, so the translation is more accurate when this is right.") + '">' +
+    '<option value=""' + (s.gender ? "" : " selected") + ">" + esc(auto) + "</option>" +
+    '<option value="male"' + (s.gender === "male" ? " selected" : "") + ">" + esc(genderWord("male")) + "</option>" +
+    '<option value="female"' + (s.gender === "female" ? " selected" : "") + ">" + esc(genderWord("female")) + "</option></select>";
+}
+function onGenderChanged(i) {
+  var s = spk[i]; if (!s || !s.id) return;
+  var ar = LANG === "ar";
+  saveSpeakers(false).then(function () {
+    if (!linesOf(s.id)) return;
+    var msg = ar ? "تغيّر جنس هذا المتحدث. هل تريد ترجمة أسطره (والأسطر المجاورة) من جديد ليتطابق الجنس في العربية؟ الأسطر التي كتبتَ ترجمتها بنفسك لن تتغير."
+                 : "This speaker's gender changed. Translate their lines (and the lines next to them) again so the Arabic matches? Lines whose Arabic you typed yourself stay as they are.";
+    var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { okText: ar ? "ترجم من جديد" : "Translate again" }) : Promise.resolve(window.confirm(msg));
+    return ask.then(function (yes) { if (yes) return redoForGender(s.id); });
+  });
+}
+function redoForGender(spId) {
+  var err = $("spkErr"), ar = LANG === "ar", total = 0;
+  function say(t) { if (err) { err.textContent = t; err.classList.remove("hidden"); } }
+  function step() {
+    return api("POST", "/api/longdub/" + cur.id + "/speakers/" + encodeURIComponent(spId) + "/retranslate").then(function (r) {
+      if (!r.ok) { say(safeErr(r.data.error, T.genericErr)); return; }
+      total += r.data.done || 0;
+      if (r.data.remaining > 0 && r.data.done > 0) { say((ar ? "تُرجم " : "Translated ") + total + (ar ? " سطرًا… " : " lines… ") + r.data.remaining + (ar ? " متبقية" : " left")); return step(); }
+      if (err) err.classList.add("hidden");
+      return loadSegments();
+    });
+  }
+  say(ar ? "جارٍ إعادة الترجمة…" : "Translating again…");
+  return step().catch(function () { say(T.netErr); });
+}
+
 function renderSpeakers() {
   var p = $("spkPanel"); if (!p) return;
   var max = cfg ? cfg.max_speakers : 8;
@@ -1585,6 +1626,7 @@ function renderSpeakers() {
   spk.forEach(function (s, i) {
     var n = linesOf(s.id);
     h += '<div class="ld-spkrow"><input type="text" data-spk="' + i + '" maxlength="40" value="' + esc(s.name) + '" placeholder="' + esc(T.spkNamePh) + '">' +
+         genderSelectHtml(s, i) +
          '<span class="cnt">' + esc(T.spkLines(n)) + '</span>' +
          '<button class="btn-plain" data-rm="' + i + '" ' + (n > 0 || spk.length <= 1 ? 'disabled title="' + esc(T.spkRemoveBlocked) + '"' : "") + ">" + esc(T.spkRemove) + "</button></div>";
   });
@@ -1593,6 +1635,9 @@ function renderSpeakers() {
   p.innerHTML = h;
   Array.prototype.forEach.call(p.querySelectorAll("[data-spk]"), function (inp) {
     inp.oninput = function () { spk[+inp.dataset.spk].name = inp.value; refreshSelects(); queueSpeakerSave(); };
+  });
+  Array.prototype.forEach.call(p.querySelectorAll("[data-gen]"), function (sel) {
+    sel.onchange = function () { var i = +sel.dataset.gen; spk[i].gender = sel.value; if (sel.value) spk[i].heard = ""; onGenderChanged(i); };
   });
   Array.prototype.forEach.call(p.querySelectorAll("[data-rm]"), function (btn) {
     btn.onclick = function () { spk.splice(+btn.dataset.rm, 1); saveSpeakers(true); };
@@ -1620,7 +1665,7 @@ function queueSpeakerSave() {
 
 function saveSpeakers(rerender) {
   if (spkTimer) { clearTimeout(spkTimer); spkTimer = null; }
-  var sent = spk.map(function (s) { return { id: s.id, name: s.name }; });
+  var sent = spk.map(function (s) { return { id: s.id, name: s.name, gender: s.gender || "" }; });
   var err = $("spkErr");
   return api("PUT", "/api/longdub/" + cur.id + "/speakers", { speakers: sent }).then(function (r) {
     if (!r.ok) {
@@ -1630,7 +1675,7 @@ function saveSpeakers(rerender) {
       return;
     }
     if (err) err.classList.add("hidden");
-    (r.data.speaker_list || []).forEach(function (s, i) { if (spk[i]) spk[i].id = s.id; });
+    (r.data.speaker_list || []).forEach(function (s, i) { if (spk[i]) { var f = speakerFromServer(s); spk[i].id = f.id; spk[i].heard = f.heard; spk[i].unsure = f.unsure; } });
     // rows already point at the right ids; refresh dropdowns and the panel
     refreshSelects(); pricePreview = null;
     if (rerender) { renderSpeakers(); renderConfirm(); }
@@ -1880,6 +1925,24 @@ function cutBadge(s) {
   return b;
 }
 
+// The Arabic of this line had to guess a gender (who speaks or who is addressed was unclear): the person looks at it once.
+function genderBadge(s) {
+  if (!s.gender_check) return null;
+  var ar = LANG === "ar";
+  var b = document.createElement("button"); b.type = "button"; b.className = "ld-spk-check ld-cut-check";
+  b.textContent = ar ? "راجع الجنس" : "Check gender";
+  b.title = ar ? "اضطررنا إلى تخمين الجنس في هذه الترجمة (المتحدث أو المخاطَب غير واضح). صحّح الترجمة أو جنس المتحدث، ثم اضغط للتأكيد أنها صحيحة."
+               : "The Arabic here had to guess a gender (who speaks or who is addressed was unclear). Fix the Arabic or the speaker's gender, then click to confirm that it is right.";
+  b.onclick = function () {
+    s.gender_check = false; if (b.parentNode) b.parentNode.removeChild(b);
+    var d = dirty[s.segment_id] || (dirty[s.segment_id] = { segment_id: s.segment_id });
+    d.gender_ok = true; setSaved(false);
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 900);
+  };
+  return b;
+}
+
 function buildRow(s) {
   var row = document.createElement("div"); row.className = "ld-seg"; row.dataset.id = s.segment_id;
   if ((s.overlaps || []).length) row.classList.add("ld-overlap");
@@ -1894,6 +1957,7 @@ function buildRow(s) {
   time.appendChild(sel);
   var spkBadge = speakerBadge(s); if (spkBadge) time.appendChild(spkBadge);
   var cutMark = cutBadge(s); if (cutMark) time.appendChild(cutMark);
+  var genMark = genderBadge(s); if (genMark) time.appendChild(genMark);
   var lb = document.createElement("div"); lb.className = "ld-lbtns";
   var bIns = document.createElement("button"); bIns.className = "btn-plain"; bIns.textContent = T.insertLine;
   var bSplit = document.createElement("button"); bSplit.className = "btn-plain"; bSplit.textContent = T.splitLine; bSplit.title = T.splitHint;

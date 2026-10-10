@@ -54,6 +54,7 @@ import lang_check
 import subs_align
 import line_tidy
 import line_planner
+import gender_context
 import speaker_vote_live
 import dub_timing
 
@@ -1533,7 +1534,7 @@ VOTE_FIELDS = ("speaker_vote",)
 def _clear_speaker_review(row):
     """The user changed this line's speaker or timing: the saved evidence no longer describes it, so it is dropped
     (a stale "check speaker" badge must never override the user's own correction)."""
-    for k in SPEAKER_REVIEW_FIELDS + VOTE_FIELDS + line_tidy.CUT_FIELDS:      # (the "check where this line is cut" mark goes with them)
+    for k in SPEAKER_REVIEW_FIELDS + VOTE_FIELDS + line_tidy.CUT_FIELDS + ("gender_check",):      # (the "check where this line is cut" and "check gender" marks go with them)
         row.pop(k, None)
 
 
@@ -1999,6 +2000,7 @@ def _run_analysis(job):
             print(f"[longdub] language check skipped: {ex}")
 
         # 7. translate in small batches ------------------------------------
+        _detect_speaker_genders(job, rows, vocals_all if vocals_all.exists() else None)
         _translate_all(job, rows)
         # 7b. the AI listens to each line's isolated voice for its delivery (emotion); falls back to the text guess without speed tags
         _mark(job, "translate", 98, "Listening to how each line is spoken...")
@@ -2270,9 +2272,10 @@ def glossary_apply(job):
     by_id = {r["segment_id"]: r for r in rows}
     todo = [by_id[i] for i in todo_ids]
     before = {r["segment_id"]: r.get("arabic_text") or "" for r in todo}
-    results = {}
+    results, all_flags = {}, {}
     for i in range(0, len(todo), TRANSLATE_BATCH):
-        results.update(_translate_batch(job["id"], todo[i:i + TRANSLATE_BATCH], job.get("glossary")))
+        part = todo[i:i + TRANSLATE_BATCH]
+        results.update(_translate_batch(job["id"], part, job.get("glossary"), gender=_gender_args(job, rows, part), flags=all_flags))
     with _lock_for(job["id"]):
         cur = read_segments(job)          # the user may have kept typing while the AI worked: only untouched lines are replaced
         cur_by = {r["segment_id"]: r for r in cur}
@@ -2281,6 +2284,7 @@ def glossary_apply(job):
             if r is None or not ar or (r.get("arabic_text") or "") != before.get(sid) or r.get("ar_set"):
                 continue
             r["arabic_text"] = ar          # only the wording changes: the delivery (listened to) stays
+            _apply_gender_flags([r], all_flags)
         _write_segments(job, cur)
     still, mine2 = glossary_check(job)
     fixed = max(0, len(missing) - len(still))
@@ -2288,9 +2292,110 @@ def glossary_apply(job):
     return True, {"fixed": fixed, "still": len(still), "mine": len(mine2), "remaining": max(0, len(missing) - len(todo))}
 
 
-def _translate_batch(job_id, batch, glossary=None, paces=None):
+GENDER_REDO_MAX = 40      # lines translated again by one press (the page presses again until none are left)
+
+
+def retranslate_for_gender(job, speaker_id):
+    """The person changed a speaker's gender: translate again the lines of that speaker and the lines next to them (which may
+    be said to that speaker). Lines whose Arabic the person typed are left alone. A line is done once; the page repeats the call
+    until `remaining` is 0. Returns (True, {done, remaining, skipped_by_hand}) or (False, (msg, status))."""
+    if job.get("status") != "editing":
+        return False, ("This job is not open for editing.", 409)
+    sp = next((s for s in job.get("speaker_list", []) if s.get("id") == speaker_id), None)
+    if not sp:
+        return False, ("Speaker not found.", 404)
+    token = f"{sp.get('gender') or '?'}:{sp.get('gender_source') or ''}"
+    rows = read_segments(job)
+    order = sorted(rows, key=lambda r: float(r.get("start") or 0))
+    near = set()
+    for i, r in enumerate(order):
+        if r.get("speaker_id") == speaker_id:
+            for j in range(max(0, i - gender_context.CONTEXT_LINES), min(len(order), i + gender_context.CONTEXT_LINES + 1)):
+                near.add(order[j]["segment_id"])
+    affected = [r for r in order if r["segment_id"] in near and (r.get("text") or "").strip()]
+    by_hand = sum(1 for r in affected if r.get("ar_set"))
+    todo = [r for r in affected if not r.get("ar_set") and r.get("gender_redo") != token]
+    part = todo[:GENDER_REDO_MAX]
+    results, flags = {}, {}
+    for i in range(0, len(part), TRANSLATE_BATCH):
+        results.update(_translate_batch(job["id"], part[i:i + TRANSLATE_BATCH], job.get("glossary"),
+                                        gender=_gender_args(job, rows, part[i:i + TRANSLATE_BATCH]), flags=flags))
+    with _lock_for(job["id"]):
+        cur = read_segments(job)       # the person may have kept typing meanwhile: only untouched lines are replaced
+        cur_by = {r["segment_id"]: r for r in cur}
+        before = {r["segment_id"]: r.get("arabic_text") or "" for r in part}
+        for r0 in part:
+            r = cur_by.get(r0["segment_id"])
+            if r is None or r.get("ar_set") or (r.get("arabic_text") or "") != before[r0["segment_id"]]:
+                continue
+            got = results.get(r0["segment_id"])
+            if got and got[0]:
+                r["arabic_text"] = got[0]          # only the wording changes: the delivery (listened to) stays
+                r["gender_redo"] = token
+                _apply_gender_flags([r], flags)
+        _write_segments(job, cur)
+    done = len(part)
+    _ev(job, "gender_retranslated", "ok", f"{sp.get('name')} is now {sp.get('gender') or 'unknown'} ({sp.get('gender_source') or 'none'}): {done} lines translated again, {by_hand} typed by hand left alone")
+    return True, {"done": done, "remaining": max(0, len(todo) - done), "skipped_by_hand": by_hand}
+
+
+def _speaker_genders(job):
+    """{speaker name: {gender, source, uncertain}} from the speaker list (what the person chose, what was heard, or unknown)."""
+    return {sp["name"]: {"gender": gender_context.clean(sp.get("gender")), "source": sp.get("gender_source") or "",
+                         "uncertain": bool(sp.get("gender_uncertain", True))}
+            for sp in (job.get("speaker_list") or []) if sp.get("name")}
+
+
+def _gender_args(job, rows_all, batch):
+    """What the translator needs to get the Arabic gender and number right for these lines (see gender_context.py)."""
+    try:
+        genders = _speaker_genders(job)
+        ids = [r["segment_id"] for r in batch]
+        return {"speakers": gender_context.speaker_table(genders),
+                "lines": gender_context.build_context(rows_all, ids, genders)}
+    except Exception as ex:
+        print(f"[longdub] gender context skipped: {ex}")
+        return None
+
+
+def _apply_gender_flags(batch, flags):
+    """The translator's answer about who each line is said to, and the "check gender" mark on a line that had to guess."""
+    for r in batch:
+        got = (flags or {}).get(r.get("segment_id"))
+        if not got:
+            continue
+        addressee, check = got
+        if addressee:
+            r["addressee"] = addressee
+        if check:
+            r["gender_check"] = True
+        else:
+            r.pop("gender_check", None)
+
+
+def _detect_speaker_genders(job, rows, src):
+    """Before the translation: the gender of each speaker. The person's own choice (set on the speaker panel) is kept;
+    the others are heard in the separated voice, then judged by pitch. Never raises."""
+    lst = job.get("speaker_list") or []
+    try:
+        chosen = {sp["name"]: sp["gender"] for sp in lst if sp.get("gender_source") == "chosen" and sp.get("gender")}
+        segs = [{"speaker": r["speaker"], "start": r["start"], "end": r["end"]} for r in rows]
+        found = gender_context.detect_genders(job["id"], src if src and Path(src).exists() else None, segs, chosen,
+                                              work=_wd(job) / "gender_tmp", key=GEMINI_API_KEY)
+        for sp in lst:
+            info = found.get(sp.get("name"))
+            if info:
+                sp["gender"], sp["gender_source"], sp["gender_uncertain"] = info["gender"], info["source"], info["uncertain"]
+        _ev(job, "speaker_genders", "ok", ", ".join(f"{sp.get('name')}={sp.get('gender') or '?'}({sp.get('gender_source') or 'none'}"
+                                                     f"{', unsure' if sp.get('gender_uncertain') else ''})" for sp in lst))
+    except Exception as ex:
+        print(f"[longdub] speaker gender skipped: {ex}")
+
+
+def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flags=None):
     """Returns {segment_id: (arabic, emotion)} for the batch, {} on failure. glossary = the project's term list:
-    only the terms that really occur in this batch's English are sent to the translator."""
+    only the terms that really occur in this batch's English are sent to the translator. gender = what _gender_args built;
+    flags (a dict, filled in) gets {segment_id: (addressee, gender_check)}."""
     import gemini_service
     from models import Segment
     segs = [Segment(segment_id=r["segment_id"], start=r["start"], end=r["end"], speaker=r["speaker"],
@@ -2302,7 +2407,8 @@ def _translate_batch(job_id, batch, glossary=None, paces=None):
     for attempt in range(2):
         try:
             res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY, glossary=hits or None,
-                                                      paces={k: v for k, v in (paces or {}).items() if k in {x["segment_id"] for x in batch}} or None)
+                                                      paces={k: v for k, v in (paces or {}).items() if k in {x["segment_id"] for x in batch}} or None,
+                                                      gender=gender)
             if isinstance(res, dict) and res.get("status") == "success":
                 out = {}
                 for it in res.get("translated_segments", []):
@@ -2310,6 +2416,8 @@ def _translate_batch(job_id, batch, glossary=None, paces=None):
                         # the text alone never decides a speed: pacing words are dropped here, only listening may add one
                         out[str(it["segment_id"])] = (str(it.get("arabic_text") or "").strip(),
                                                       emotion_listen.merge(str(it.get("emotion") or "neutral"), None, "unknown"))
+                        if flags is not None and gender:
+                            flags[str(it["segment_id"])] = gender_context.read_flags(it)
                 return out
         except Exception as ex:
             print(f"[longdub] translate batch failed (attempt {attempt + 1}): {ex}")
@@ -2410,7 +2518,9 @@ def _translate_all(job, rows):
     for i in range(0, total, TRANSLATE_BATCH):
         batch = rows[i:i + TRANSLATE_BATCH]
         _mark(job, "translate", 88 + int(10 * i / max(1, total)), f"Translating to Arabic ({min(i + TRANSLATE_BATCH, total)} of {total} lines)...")
-        got = _translate_batch(job["id"], batch, job.get("glossary"), paces=paces)
+        flags = {}
+        got = _translate_batch(job["id"], batch, job.get("glossary"), paces=paces, gender=_gender_args(job, rows, batch), flags=flags)
+        _apply_gender_flags(batch, flags)
         for r in batch:
             if r["segment_id"] in got and got[r["segment_id"]][0]:
                 r["arabic_text"], r["emotion"] = got[r["segment_id"]]
@@ -2656,6 +2766,9 @@ def update_segments(job, edits):
                         r.pop(k, None)
                 r["text"] = e["text"][:MAX_TEXT_LEN]
                 changed += 1
+            if e.get("gender_ok") is True and r.get("gender_check"):       # "the gender in this Arabic line is right" (pressed on the mark)
+                r.pop("gender_check", None)
+                changed += 1
             if e.get("cut_ok") is True and r.get("cut_check"):       # "this cut is right" (pressed on the mark)
                 for k in line_tidy.CUT_FIELDS:
                     r.pop(k, None)
@@ -2664,6 +2777,7 @@ def update_segments(job, edits):
                 new_ar = e["arabic_text"][:MAX_TEXT_LEN]
                 if new_ar != (r.get("arabic_text") or ""):
                     r["ar_set"] = True          # typed by the user: the glossary check leaves this line alone
+                    r.pop("gender_check", None)     # the person wrote the Arabic: the "check gender" mark is done
                 r["arabic_text"] = new_ar
                 changed += 1
             if isinstance(e.get("waqf"), str):
@@ -2924,7 +3038,9 @@ def split_line(job, segment_id, position):
             return False, "The line changed while it was being split. Please try again.", None, None
         new_id = _new_segment_id(job, rows)
     second["segment_id"] = new_id
-    got = _translate_batch(job["id"], [first, second])
+    flags = {}
+    got = _translate_batch(job["id"], [first, second], gender=_gender_args(job, [x for x in rows if x["segment_id"] != segment_id] + [first, second], [first, second]), flags=flags)
+    _apply_gender_flags([first, second], flags)
     if not all(got.get(x["segment_id"], ("",))[0] for x in (first, second)):
         return False, "The translation service didn't answer, so nothing was changed. Please try again.", None, None
     for x in (first, second):
@@ -2969,7 +3085,9 @@ def retranslate_line(job, segment_id):
         return False, "Line not found.", None
     if not (r.get("text") or "").strip():
         return False, "There is no English text to translate.", None
-    got = _translate_batch(job["id"], [r], job.get("glossary"))
+    flags = {}
+    got = _translate_batch(job["id"], [r], job.get("glossary"), gender=_gender_args(job, rows, [r]), flags=flags)
+    _apply_gender_flags([r], flags)
     if segment_id not in got or not got[segment_id][0]:
         return False, "The translation service didn't answer. Please try again.", None
     new_ar, new_emo = got[segment_id]
@@ -3040,7 +3158,22 @@ def set_speakers(job, speakers):
             sid = f"sp{next_num}"
             next_num += 1
         used_ids.add(sid)
-        new.append({"id": sid, "name": name})
+        entry = {"id": sid, "name": name}
+        old = next((sp for sp in job.get("speaker_list", []) if sp.get("id") == sid), {})
+        keep = {k: old[k] for k in ("gender", "gender_source", "gender_uncertain") if k in old}
+        if "gender" not in (item or {}):
+            entry.update(keep)                                  # the panel said nothing about gender: unchanged
+        else:
+            g = gender_context.clean(item.get("gender"))
+            if g and not (old.get("gender") == g and old.get("gender_source") == "chosen"):
+                entry.update(gender=g, gender_source="chosen", gender_uncertain=False)      # the person's own choice: certain
+            elif g:
+                entry.update(keep)
+            elif old.get("gender_source") == "chosen":
+                entry.update(gender="", gender_source="", gender_uncertain=True)       # back to "Auto": heard again at the next translation
+            else:
+                entry.update(keep)
+        new.append(entry)
     kept = {sp["id"]: sp["name"] for sp in new}
     # Same project lock the other line edits take: reading the lines, renaming and writing them back is one step, so
     # a line edit made at the same moment cannot be lost or collide with it.

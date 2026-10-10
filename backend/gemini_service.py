@@ -188,7 +188,20 @@ def _glossary_block(glossary):
             + json.dumps(rows, ensure_ascii=False) + "\n")
 
 
-def translate_segments(job_id: str, segments: list, api_key: str, glossary=None, paces=None) -> dict:
+GENDER_RULES = """GENDER AND NUMBER (Arabic marks them in verbs, adjectives, pronouns and "you"; English does not). Get them right:
+Speakers and what is known about their gender: {speakers}
+Each segment may carry "speaker_gender" and the neighbouring lines "before" / "after" (with who says them and their gender).
+- First person (I, me, my, we): agree with the SPEAKER's gender. A woman says "أنا مُتْعَبَةٌ", a man "أنا مُتْعَبٌ".
+- Second person (you, your): decide WHO IS BEING SPOKEN TO from the neighbouring lines: usually the speaker of the line just before or after, or the person named or addressed (a name, sir, ma'am, darling, Mr., Mrs.). One man: أنتَ / ـكَ. One woman: أنتِ / ـكِ. Two people: use the dual or the plural as natural. A group of men or a mixed group: أنتم / ـكم. A group of women only: أنتنّ / ـكنّ. Commands and verbs agree the same way.
+- Third person (he, she, they, him, her): by who is meant, not by who speaks.
+- Use the stated gender of a speaker as a fact; "unknown" means you must decide from the text (names, titles, he/she said, mr/mrs) and if there is no clue use the masculine form.
+- If you had to choose a gender-marked word WITHOUT real evidence (the speaker or the addressee is unknown and the text gives no clue), set "gender_check": true. Otherwise false.
+- "addressee": who the line is said to: "male", "female", "group" (more than one person), "none" (said to nobody, a general statement) or "unknown".
+These rules change only the gender and number forms, never the meaning, the length limits or the timing rules above.
+"""
+
+
+def translate_segments(job_id: str, segments: list, api_key: str, glossary=None, paces=None, gender=None) -> dict:
     """Translate all segments to Arabic (MSA + Tashkeel) and detect emotions. glossary = [{en, ar}]: the customer's own
     terms, which the translation must use. paces = {segment_id: "slow" | "normal" | "fast"}: how fast the speaker really speaks in each
     line (measured from the recording): the speed tags must agree with it."""
@@ -198,6 +211,8 @@ def translate_segments(job_id: str, segments: list, api_key: str, glossary=None,
         return {"error": "There are no lines to translate yet."}
 
     paces = {str(k): v for k, v in (paces or {}).items() if v in ("slow", "normal", "fast")}
+    gender = gender or {}
+    gender_lines = gender.get("lines") or {}
     segments_for_prompt = []
     for seg in segments:
         item = {
@@ -210,7 +225,17 @@ def translate_segments(job_id: str, segments: list, api_key: str, glossary=None,
         }
         if str(seg.segment_id) in paces:
             item["measured_pace"] = paces[str(seg.segment_id)]
+        g = gender_lines.get(str(seg.segment_id))
+        if g:
+            item["speaker_gender"] = g.get("speaker_gender", "unknown")
+            if g.get("before"):
+                item["before"] = g["before"]
+            if g.get("after"):
+                item["after"] = g["after"]
         segments_for_prompt.append(item)
+    gender_block = GENDER_RULES.replace("{speakers}", json.dumps(gender.get("speakers") or {}, ensure_ascii=False)) if gender else ""
+    return_shape = ('{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral", "addressee": "unknown", "gender_check": false}'
+                    if gender else '{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral"}')
 
     prompt = f"""You are a professional Arabic translator and voice dubbing specialist.
 Translate the following English audio segments into Modern Standard Arabic (MSA).
@@ -228,10 +253,10 @@ Detect the primary emotion of each line. Return ONE primary emotion tag, with at
 Example: a sad line may be "sad"; when quiet delivery is clearly supported it may be "sad, softly". An urgent, angry line may be "angry". Do not return speed instructions: slowly, drawn out, rushed, very fast, hesitant or stammering. Audio listening and independent timing evidence decide speed separately.
 Some segments carry "measured_pace" for timing and fitting context only. It is not an emotion label or a confidence score, and must not override the meaning or force a delivery tag. Pauses or short subtitle lines do not prove slow speech.
 Preserve the core meaning, but prioritize fitting the time limit.
-{_glossary_block(glossary)}Return ONLY valid JSON. No explanations.
+{gender_block}{_glossary_block(glossary)}Return ONLY valid JSON. No explanations.
 Return JSON array:
 [
-{{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral"}}
+{return_shape}
 ]
 Segments:
 {json.dumps(segments_for_prompt, ensure_ascii=False)}"""

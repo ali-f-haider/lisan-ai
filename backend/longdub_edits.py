@@ -84,7 +84,10 @@ def line_operation(parent, operation, segment_id, position=-1):
             first.update(text=plan['left'], words=plan['w_left'], end=plan['t1'], arabic_text='', manual_time=True)
             second.update(segment_id=new_id, text=plan['right'], words=plan['w_right'], start=plan['t2'],
                           arabic_text='', added=True, manual_time=True)
-            translated = ld._translate_batch(parent['id'], [first, second], parent.get('glossary'))
+            flags = {}
+            translated = ld._translate_batch(parent['id'], [first, second], parent.get('glossary'),
+                                             gender=ld._gender_args(parent, [r for r in current if r['segment_id'] != segment_id] + [first, second], [first, second]), flags=flags)
+            ld._apply_gender_flags([first, second], flags)
             if not all(translated.get(r['segment_id'], ('',))[0] for r in (first, second)):
                 raise ValueError('Translation did not finish. The original line was kept.')
             for part in (first, second):
@@ -95,7 +98,9 @@ def line_operation(parent, operation, segment_id, position=-1):
         elif operation == 'retranslate':
             if not row.get('text', '').strip():
                 raise ValueError('Enter the original text first.')
-            translated = ld._translate_batch(parent['id'], [row], parent.get('glossary'))
+            flags = {}
+            translated = ld._translate_batch(parent['id'], [row], parent.get('glossary'), gender=ld._gender_args(parent, current, [row]), flags=flags)
+            ld._apply_gender_flags([row], flags)
             if not translated.get(segment_id, ('',))[0]:
                 raise ValueError('Translation did not finish. Your text was kept.')
             row['arabic_text'], emotion = translated[segment_id]

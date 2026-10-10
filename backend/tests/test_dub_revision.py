@@ -379,7 +379,7 @@ class EditorActionTests(unittest.TestCase):
     def test_split_uses_translation_and_preserves_original_and_confirmed_style(self):
         self.rows[0].update(text='hello everyone',emotion='happy',emotion_set=True)
         ld._write_segments(self.parent,self.rows)
-        translated=lambda jid,rows,glossary:{r['segment_id']:('مرحبا','sad') for r in rows}
+        translated=lambda jid,rows,glossary=None,**kw:{r['segment_id']:('مرحبا','sad') for r in rows}
         with patch.object(ld,'_translate_batch',side_effect=translated):new=edits.line_operation(self.parent,'split','one',6)
         split=edits.rows(self.parent)[:2]
         self.assertEqual([r['text'] for r in split],['hello','everyone']);self.assertTrue(all(r['emotion']=='happy' for r in split))

@@ -241,6 +241,9 @@ class VoiceLibraryAddRequest(BaseModel):
 class TranslateRequest(_JobIdModel):
     job_id: str = ""
     segments: List[Segment]
+    speaker_genders: Dict[str, str] = {}     # only what the person chose for a speaker (certain)
+    heard_genders: Dict[str, dict] = {}      # what an earlier translation already heard (not listened to again)
+    context: List[dict] = []                 # every line of the project: segment_id, start, end, speaker, text (so "you" can be understood)
 
 class EmotionRequest(_JobIdModel):
     job_id: str
@@ -4512,7 +4515,48 @@ def translate(req: TranslateRequest, request: Request):
     _g = _job_guard(request, req.job_id)
     if _g:
         return _g
-    return gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY)
+    gender, genders = None, None
+    try:
+        gender, genders = _short_gender_context(req)
+    except Exception as ex:
+        print(f"[translate] gender context skipped: {type(ex).__name__}: {ex}")
+    result = gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY, gender=gender)
+    if gender and isinstance(result, dict) and result.get("status") == "success":
+        result["speaker_genders"] = genders          # the page keeps what was heard for the speakers the person did not choose
+    return result
+
+
+def _short_gender_context(req):
+    """(what the translator needs about gender, {speaker: {gender, source, uncertain}}). The person's choice first, then what an
+    earlier call heard, then a listening check of the video's audio for the others (see gender_context.py)."""
+    import tempfile
+    import gender_context
+    rows = []
+    for c in (req.context or [])[:3000]:
+        try:
+            rows.append({"segment_id": str(c["segment_id"]), "start": float(c.get("start") or 0), "end": float(c.get("end") or 0),
+                         "speaker": str(c.get("speaker") or "Speaker 1"), "text": str(c.get("text") or "")[:600]})
+        except Exception:
+            continue
+    if not rows:
+        rows = [{"segment_id": s.segment_id, "start": s.start, "end": s.end, "speaker": s.speaker, "text": s.text} for s in req.segments]
+    genders = {}
+    for name, g in (req.speaker_genders or {}).items():
+        if gender_context.clean(g):
+            genders[str(name)] = {"gender": gender_context.clean(g), "source": "chosen", "uncertain": False}
+    for name, x in (req.heard_genders or {}).items():
+        if str(name) not in genders and isinstance(x, dict) and gender_context.clean(x.get("gender")):
+            genders[str(name)] = {"gender": gender_context.clean(x["gender"]), "source": "heard", "uncertain": bool(x.get("uncertain"))}
+    missing = {r["speaker"] for r in rows} - set(genders)
+    if missing and GEMINI_API_KEY:
+        src = resolve_job_audio(req.job_id) if req.job_id else None
+        with tempfile.TemporaryDirectory() as work:
+            found = gender_context.detect_genders(req.job_id, src, [r for r in rows if r["speaker"] in missing], {}, work=work, key=GEMINI_API_KEY)
+        genders.update(found)
+    for r in rows:
+        genders.setdefault(r["speaker"], {"gender": "", "source": "", "uncertain": True})
+    ids = [s.segment_id for s in req.segments]
+    return ({"speakers": gender_context.speaker_table(genders), "lines": gender_context.build_context(rows, ids, genders)}, genders)
 
 @app.post("/api/detect_emotions")
 def detect_emotions(req: EmotionRequest, request: Request):
@@ -5913,6 +5957,7 @@ def _ld_public_rows(rows, job=None):
         d["emotion_review"] = dub_review.emotion_review(r)
         d["heard"] = r.get("segment_id") not in unheard
         d["manual_time"] = bool(r.get("manual_time"))
+        d["gender_check"] = bool(r.get("gender_check"))      # the Arabic of this line had to guess a gender: a person is asked to look
         d["cut_check"] = r.get("cut_check")          # "start" / "end" / "both": a cut next to this line may be wrong, a person is asked to look
         d.update(_ld_speaker_review(r))
         out.append(d)
@@ -6185,6 +6230,20 @@ def longdub_glossary_apply(job_id: str, request: Request):
     if err:
         return err
     ok, res = longdub_service.glossary_apply(job)
+    if not ok:
+        return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
+    return res
+
+
+@app.post("/api/longdub/{job_id}/speakers/{speaker_id}/retranslate")
+def longdub_speaker_retranslate(job_id: str, speaker_id: str, request: Request):
+    """The person changed a speaker's gender: translate that speaker's lines (and the lines next to them) again."""
+    if _rate_limited(request, "gender_retranslate", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, res = longdub_service.retranslate_for_gender(job, speaker_id)
     if not ok:
         return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
     return res
