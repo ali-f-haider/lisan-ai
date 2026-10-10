@@ -526,8 +526,7 @@ async function importSubs(evt) {
     let text = "";
     try { text = await LisanDialog.readSubtitle(f); }
     catch (e) { notify("error", subsText("We couldn't read that file.", "تعذّرت قراءة هذا الملف.")); return; }
-    const choice = await LisanDialog.subtitle(f, { showAdd: true });
-    if (!choice) return;
+    const choice = { mode: "auto", add_missed: true };     // always the "Smart" way, no question asked (the choice box is still in dialogs.js)
     notify("info", subsText("Matching the subtitle with your transcript...", "جارٍ مطابقة الترجمة مع النص..."));
     let res, data;
     try {
@@ -553,7 +552,7 @@ async function importSubs(evt) {
     let msgEn = "Subtitle used: " + en.join(", ") + ".", msgAr = "تم استخدام الترجمة: " + ar.join("، ") + ".";
     if (r.unmatched) { msgEn += " " + r.unmatched + " line(s) found no match and were left as they were."; msgAr += " " + r.unmatched + " سطرًا لم يجد مطابقة فبقي كما هو."; }
     if (r.locked_skipped) { msgEn += " " + r.locked_skipped + " locked line(s) were not touched."; msgAr += " لم تُمَسّ " + r.locked_skipped + " أسطر مقفلة."; }
-    if (r.missed && !r.added) { msgEn += " " + r.missed + " subtitle line(s) inside your video had no speech in the transcript (tick \"add\" next time to bring them in)."; msgAr += " " + r.missed + " سطرًا من الترجمة داخل الفيديو ليس له كلام في النص (فعّل خيار الإضافة المرة القادمة)."; }
+    if (r.missed && !r.added) { msgEn += " " + r.missed + " subtitle line(s) inside your video had no speech in the transcript and could not be added."; msgAr += " " + r.missed + " سطرًا من الترجمة داخل الفيديو ليس له كلام في النص وتعذّرت إضافته."; }
     if (r.ignored_cues > 0) { msgEn += " " + r.ignored_cues + " subtitle line(s) outside your video were ignored."; msgAr += " تم تجاهل " + r.ignored_cues + " سطرًا من الترجمة خارج الفيديو."; }
     if (r.arabic_stale) { msgEn += " " + r.arabic_stale + " of the corrected line(s) already had an Arabic translation: press Auto Translate to update them."; msgAr += " " + r.arabic_stale + " من الأسطر المصحّحة لها ترجمة عربية سابقة: اضغط الترجمة التلقائية لتحديثها."; }
     notify("success", subsText(msgEn, msgAr));

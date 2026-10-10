@@ -1158,8 +1158,7 @@ function onSubPicked(file) {
     if (!looksLikeSub(text)) { alertMsg(T.subNotSub); return; }
     var ar = (text.match(/[\u0600-\u06FF]/g) || []).length, la = (text.match(/[A-Za-z]/g) || []).length;
     if (ar > la) { alertMsg(T.subArabic); return; }
-    return LisanDialog.subtitle(file, { showAdd: true }).then(function (choice) {
-      if (!choice) return;
+    return Promise.resolve({ mode: "auto", add_missed: true }).then(function (choice) {      // always the "Smart" way, no question asked (the choice box is still in dialogs.js)
       var payload = { text: text, filename: file.name, mode: choice.mode, add_missed: choice.add_missed };
       if (forJob && cur) {
         var id = cur.id;
