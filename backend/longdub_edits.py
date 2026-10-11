@@ -1,4 +1,5 @@
 """Repeatable, selected-line corrections. Originals are immutable; each export is a new owned job."""
+import languages
 import copy
 import hashlib
 import json
@@ -270,7 +271,7 @@ def start(parent, selected, token):
             if earlier.get('status') != 'failed' and earlier.get('uid') == parent['uid']:
                 return earlier
             jid = str(uuid.uuid4())
-        job = {'id': jid, 'uid': parent['uid'], 'edit_of': parent['id'], 'status': 'payment_pending',
+        job = {'id': jid, 'uid': parent['uid'], 'edit_of': parent['id'], 'source_language': languages.get(parent.get('source_language')).code, 'status': 'payment_pending',
                'stage': 'queued', 'percent': 0, 'message': 'Waiting to generate the selected lines…',
                'filename': parent.get('filename', 'audio'), 'name': ld.project_name(parent) + ' — corrections',
                'ext': '.m4a', 'has_video': False, 'duration': ld._total_secs(parent), 'size': 0,
@@ -333,7 +334,7 @@ def run(job):
                     raise ValueError('The original file has too little clear speech for this speaker.')
                 shutil.copyfile(wav, ref)
             if sid not in job.setdefault('correction_voices', {}):
-                vid, err = ld._clone_with_retry(f'lisan-edit-{parent["id"][:8]}-{sid}', ref)
+                vid, err = ld._clone_with_retry(f'lisan-edit-{parent["id"][:8]}-{sid}', ref, **({"source_language": languages.get(parent.get("source_language")).code} if languages.get(parent.get("source_language")).code != "en" else {}))
                 if not vid:
                     raise ValueError('Could not recover the original speaker’s voice: ' + str(err))
                 job['correction_voices'][sid] = vid

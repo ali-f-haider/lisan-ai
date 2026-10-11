@@ -1,0 +1,80 @@
+{
+  "origin": "invented",
+  "native_review": "needs a native check",
+  "cues": [
+    {
+      "lines": [
+        "ÉLISE: <i>Où est-elle ?</i>"
+      ],
+      "cleaned": [
+        "Où est-elle ?"
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[musique]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(soupire)"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "LUC: Je l’ai trouvée."
+      ],
+      "cleaned": [
+        "Je l’ai trouvée."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "— Bonjour.",
+        "– Bonsoir."
+      ],
+      "cleaned": [
+        "Bonjour.",
+        "Bonsoir."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "Une boîte (petite)."
+      ],
+      "cleaned": [
+        "Une boîte (petite)."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ Une chanson ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "LUC: Je l’ai trouvée.",
+        "ÉLISE: <i>Où est-elle ?</i>"
+      ],
+      "cleaned": [
+        "Je l’ai trouvée.",
+        "Où est-elle ?"
+      ],
+      "speaker_changes": [
+        1
+      ]
+    }
+  ]
+}

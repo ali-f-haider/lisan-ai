@@ -24,6 +24,7 @@ outputs/ top-level files) never sees.
 Money is handled through Hooks (set once by main.py) so this module never has
 to import main.py.
 """
+import languages, lang_text, language_prompts
 import json
 import math
 import os
@@ -404,6 +405,9 @@ def track_file(job, which):
 
 def public_view(job):
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
+    v["source_language"] = languages.get(job.get("source_language")).code
+    if job.get("language_mismatch"):
+        v["language_mismatch"] = job["language_mismatch"]
     v["received_count"] = len(job.get("received", []))
     v["total_chunks"] = job.get("total_chunks", 0)
     v["name"] = project_name(job)
@@ -610,7 +614,7 @@ def _fingerprint(path):
     return {"size": size, "sha1": h.hexdigest()}
 
 
-def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None):
+def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None, source_language="en"):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -655,7 +659,7 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", descrip
     d.mkdir(parents=True, exist_ok=True)
     total_chunks = int(math.ceil(size / float(CHUNK_BYTES)))
     job = {
-        "id": job_id, "uid": uid, "filename": (filename or "video")[:200], "ext": ext, "size": size,
+        "id": job_id, "uid": uid, "source_language": languages.get(source_language).code, "filename": (filename or "video")[:200], "ext": ext, "size": size,
         "name": name, "description": description, "media_present": True,
         "created": _now(), "updated": _now(), "status": "uploading", "stage": "upload",
         "percent": 0, "message": "Uploading...", "received": [], "total_chunks": total_chunks,
@@ -668,6 +672,7 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", descrip
     with _LOCK:
         _JOBS[job_id] = job
     _save(job)
+    _ev(job, "language_set", "ok", job["source_language"])
     _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers} lipsync={'yes ' + _lip_res(lip_res) if lipsync else 'no'}")
     return job, None
 
@@ -971,7 +976,7 @@ def redo_project(job, uid, for_edits=False):
             an["audio_duration"] = old_an.get("audio_duration")
         an["diarized"] = True
         new = {
-            "id": new_id, "uid": uid, "filename": job.get("filename") or "video", "ext": job.get("ext") or "",
+            "id": new_id, "uid": uid, "source_language": languages.get(job.get("source_language")).code, "filename": job.get("filename") or "video", "ext": job.get("ext") or "",
             "size": size, "name": _redo_name(uid, project_name(job)), "description": job.get("description") or "",
             "media_present": False, "created": _now(), "updated": _now(), "status": "editing", "stage": "review",
             "percent": 100, "message": "Saved. Attach your file again to carry on.",
@@ -1415,7 +1420,7 @@ _NOT_SENT_END = {"mr.", "mrs.", "ms.", "dr.", "prof.", "st.", "jr.", "sr.", "vs.
                  "ltd.", "co.", "mt.", "gen.", "col.", "lt.", "capt.", "sgt.", "a.m.", "p.m."}
 
 
-def split_rows_by_sentence(rows):
+def split_rows_by_sentence(rows, source_language="en"):
     """One row per sentence. The speech recogniser hands over stretches that can
     hold two or three sentences by the same speaker; each sentence is dubbed
     (and edited) better as its own line. Uses the word times, so every new line
@@ -1430,7 +1435,7 @@ def split_rows_by_sentence(rows):
         for k, w in enumerate(words):
             cur.append(w)
             tok = str(w.get("word") or "").strip()
-            if k < len(words) - 1 and _SENT_END.search(tok) and tok.lower() not in _NOT_SENT_END:
+            if k < len(words) - 1 and ((_SENT_END.search(tok) and tok.lower() not in _NOT_SENT_END) if languages.get(source_language).code == "en" else lang_text.ends_sentence(" ".join(str(x.get("word") or "").strip() for x in cur), source_language, profile="tidy")):
                 pieces.append(cur)
                 cur = []
         if cur:
@@ -1637,7 +1642,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _ev(job, "speaker_vote", "skipped", f"video of {dur / 60:.1f} min is outside the check's limit")
         else:
             _mark(job, "speakers", 88, "Checking who says each line...")
-            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY)
+            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
             summary = speaker_vote_live.apply(rows, votes)
             usage = votes.get("usage") or {}
             summary["rename"] = speaker_vote_live.compact_names(rows) if summary["status"] == "ok" else {}
@@ -1662,7 +1667,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
     return summary
 
 
-def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
+def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None, source_language="en"):
     """Same row building as whisper_service.transcribe_worker (speaker-turn
     grouping, 15 s cap per line, merge of mid-sentence splits), copied so the
     short flow stays untouched."""
@@ -1688,7 +1693,7 @@ def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
                     })
                     seg_index += 1
         else:
-            for part in ws.split_segment(segment, max_duration=15.0):
+            for part in ws.split_segment(segment, max_duration=15.0, source_language=source_language):
                 speaker = "Speaker 1"
                 part_words = []
                 if turns:
@@ -1710,7 +1715,7 @@ def rows_from_raw(raw_segments, turns, speaker_label_map, silences=None):
                     "arabic_text": "", "words": part_words,
                 })
                 seg_index += 1
-    result = ws.merge_mid_sentence_rows(ws.smooth_speaker_islands(split_rows_by_sentence(result)))
+    result = ws.merge_mid_sentence_rows(ws.smooth_speaker_islands(split_rows_by_sentence(result))) if languages.get(source_language).code == "en" else ws.merge_mid_sentence_rows(ws.smooth_speaker_islands(split_rows_by_sentence(result, source_language), source_language), source_language)
     if silences:
         try:
             result, _n_cuts = split_rows_at_pauses(result, silences)
@@ -1732,6 +1737,7 @@ def _run_analysis(job):
     speaker detection (whole file, one pass) -> transcribe per piece ->
     translate in small batches -> ready to edit. Every step checkpoints, so a
     restart continues instead of starting over."""
+    source_language = languages.get(job.get("source_language")).code
     wd = _wd(job)
     src = wd / f"src{job['ext']}"
     try:
@@ -1893,7 +1899,7 @@ def _run_analysis(job):
                     except Exception as ex:
                         print(f"[longdub] language check of part {i} skipped: {ex}")
                 segs_gen, _info = whisper_service._get_model().transcribe(
-                    str(wd / "vocals" / f"p{i:03d}.wav"), beam_size=5, language="en",
+                    str(wd / "vocals" / f"p{i:03d}.wav"), beam_size=5, language=languages.get(source_language).whisper_code,
                     word_timestamps=True, vad_filter=True, condition_on_previous_text=False)
                 raw = []
                 for s in segs_gen:
@@ -1911,6 +1917,18 @@ def _run_analysis(job):
                 pass
             slot.drop()
         _ev(job, "transcription", "ok", f"{n} pieces")
+
+        judged_ = []
+        for i_ in range(n):
+            lp_ = wd / "asr" / f"p{i_:03d}.lang.json"
+            if lp_.exists():
+                judged_.extend(json.loads(lp_.read_text(encoding="utf-8")))
+        mismatch = lang_check.mismatch(judged_, source_language) if lang_check.ENABLED else None
+        if mismatch:
+            job.update(status="language_mismatch", language_mismatch=mismatch, message=mismatch["message"])
+            _save(job)
+            _ev(job, "language_mismatch", "partial", mismatch["detected"])
+            return
 
         # 6. build lines ----------------------------------------------------
         _mark(job, "build", 86, "Building the transcript...")
@@ -1943,7 +1961,7 @@ def _run_analysis(job):
                 pauses_path.write_text(json.dumps(silences), encoding="utf-8")
             except Exception as ex:
                 print(f"[longdub] pause detection failed: {ex}")
-        rows = rows_from_raw(raw_all, turns, label_map, silences)
+        rows = rows_from_raw(raw_all, turns, label_map, silences, source_language=source_language)
         try:     # what the detector said and what became of it (for the server log; short clips only)
             if len(turns) <= 80:
                 print(f"[longdub] {job['id']} turn_map: " + " ".join(
@@ -1965,13 +1983,13 @@ def _run_analysis(job):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
         _init_speakers(job, rows)
         try:      # free clean-up at the edges between speakers (line_tidy.py): a split phrase is joined, a stray sentence beginning moves to its speaker
-            rows, _tidy = line_tidy.tidy_lines(rows, vocals_all if vocals_all.exists() else None)
+            rows, _tidy = line_tidy.tidy_lines(rows, vocals_all if vocals_all.exists() else None, source_language=source_language)
             _ev(job, "lines_tidied", "ok", ", ".join(f"{k}={v}" for k, v in _tidy.items()))
         except Exception as ex:
             print(f"[longdub] line clean-up skipped: {ex}")
         if line_planner.ENABLED and GEMINI_API_KEY:      # TRIAL, off unless LD_LINE_PLANNER=1: the AI suggests where lines should be cut; every change is checked by rules first
             try:
-                rows, _plan = line_planner.plan_lines(job["id"], rows, GEMINI_API_KEY, vocals_all if vocals_all.exists() else None)
+                rows, _plan = line_planner.plan_lines(job["id"], rows, GEMINI_API_KEY, vocals_all if vocals_all.exists() else None, source_language=source_language)
                 _ev(job, "lines_planned", "ok", ", ".join(f"{k}={v}" for k, v in _plan.items() if k != "refusals"))
             except Exception as ex:
                 print(f"[longdub] line planner skipped: {ex}")
@@ -1989,8 +2007,8 @@ def _run_analysis(job):
                 lp_ = wd / "asr" / f"p{i_:03d}.lang.json"
                 if lp_.exists():
                     judged_.extend(json.loads(lp_.read_text(encoding="utf-8")))
-            l_msg, l_det = lang_check.summarize(judged_) if lang_check.ENABLED else (None, "switched off")
-            t_msg, t_det = lang_check.text_check(rows)
+            l_msg, l_det = lang_check.summarize(judged_, source_language=source_language) if lang_check.ENABLED else (None, "switched off")
+            t_msg, t_det = lang_check.text_check(rows, source_language=source_language)
             w_msg = l_msg or t_msg
             if w_msg:
                 job.setdefault("warnings", []).append(w_msg)
@@ -2076,9 +2094,9 @@ def attach_subtitle(job, text, filename, mode="auto", add_missed=False):
     if job.get("status") not in ("uploading", "estimated"):
         return False, ("A subtitle file can only be added before you accept the estimate.", 409)
     text = str(text or "")
-    ok, info = subs_align.check_file(text, filename)
+    ok, info = subs_align.check_file(text, filename, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
     if not ok:
-        return False, (subs_align.reason_message(info), 400)
+        return False, (subs_align.reason_message(info, job.get("source_language")), 400)
     mode = mode if mode in subs_align.MODES else "auto"
     p = _subs_path(job)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -2118,7 +2136,7 @@ def _apply_subtitle(job, rows):
     try:
         text = p.read_text(encoding="utf-8")
         new_rows, rep = subs_align.correct_rows(rows, text, sub.get("name", ""), mode=sub.get("mode", "auto"),
-                                                add_missed=bool(sub.get("add_missed")))
+                                                add_missed=bool(sub.get("add_missed")), **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
         result = {k: rep.get(k) for k in ("ok", "reason", "mode", "changed", "style", "split", "added", "missed",
                                            "unmatched", "ignored_cues", "found_from", "found_to", "cues") if k in rep}
         if rep.get("ok"):
@@ -2275,7 +2293,7 @@ def glossary_apply(job):
     results, all_flags = {}, {}
     for i in range(0, len(todo), TRANSLATE_BATCH):
         part = todo[i:i + TRANSLATE_BATCH]
-        results.update(_translate_batch(job["id"], part, job.get("glossary"), gender=_gender_args(job, rows, part), flags=all_flags))
+        results.update(_translate_batch(job["id"], part, job.get("glossary"), gender=_gender_args(job, rows, part), flags=all_flags, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {})))
     with _lock_for(job["id"]):
         cur = read_segments(job)          # the user may have kept typing while the AI worked: only untouched lines are replaced
         cur_by = {r["segment_id"]: r for r in cur}
@@ -2319,7 +2337,7 @@ def retranslate_for_gender(job, speaker_id):
     results, flags = {}, {}
     for i in range(0, len(part), TRANSLATE_BATCH):
         results.update(_translate_batch(job["id"], part[i:i + TRANSLATE_BATCH], job.get("glossary"),
-                                        gender=_gender_args(job, rows, part[i:i + TRANSLATE_BATCH]), flags=flags))
+                                        gender=_gender_args(job, rows, part[i:i + TRANSLATE_BATCH]), flags=flags, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {})))
     with _lock_for(job["id"]):
         cur = read_segments(job)       # the person may have kept typing meanwhile: only untouched lines are replaced
         cur_by = {r["segment_id"]: r for r in cur}
@@ -2352,6 +2370,9 @@ def _gender_args(job, rows_all, batch):
         genders = _speaker_genders(job)
         roles = {sp["name"]: sp["role"] for sp in (job.get("speaker_list") or []) if sp.get("name") and sp.get("role")}
         ids = [r["segment_id"] for r in batch]
+        code = languages.get(job.get("source_language")).code
+        if code != "en":
+            return language_prompts.gender_context(rows_all, ids, genders, code, roles=roles)
         return {"speakers": gender_context.speaker_table(genders, roles),
                 "lines": gender_context.build_context(rows_all, ids, genders, roles)}
     except Exception as ex:
@@ -2384,7 +2405,7 @@ def _detect_speaker_genders(job, rows, src):
         found = gender_context.detect_genders(job["id"], src if src and Path(src).exists() else None, segs, chosen,
                                               work=_wd(job) / "gender_tmp", key=GEMINI_API_KEY)
         # What the WORDS show (names, titles, he/she, jobs) beats a voice guess; the person's own choice beats both.
-        people = gender_context.read_transcript_people(job["id"], rows, GEMINI_API_KEY)
+        people = gender_context.read_transcript_people(job["id"], rows, GEMINI_API_KEY, source_language=languages.get(job.get("source_language")).code)
         found, roles = gender_context.combine_people(found, people)
         for sp in lst:
             info = found.get(sp.get("name"))
@@ -2398,7 +2419,7 @@ def _detect_speaker_genders(job, rows, src):
         print(f"[longdub] speaker gender skipped: {ex}")
 
 
-def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flags=None, _again=True):
+def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flags=None, _again=True, source_language="en"):
     """Returns {segment_id: (arabic, emotion)} for the batch, {} on failure. glossary = the project's term list:
     only the terms that really occur in this batch's English are sent to the translator. gender = what _gender_args built;
     flags (a dict, filled in) gets {segment_id: (addressee, gender_check)}."""
@@ -2414,7 +2435,7 @@ def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flag
         try:
             res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY, glossary=hits or None,
                                                       paces={k: v for k, v in (paces or {}).items() if k in {x["segment_id"] for x in batch}} or None,
-                                                      gender=gender)
+                                                      gender=gender, source_language=source_language)
             if isinstance(res, dict) and res.get("status") == "success":
                 out = {}
                 for it in res.get("translated_segments", []):
@@ -2425,7 +2446,7 @@ def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flag
                         if flags is not None and gender:
                             flags[str(it["segment_id"])] = gender_context.read_flags(it)
                 if flags is not None and gender:
-                    _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, _again)
+                    _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, _again, source_language=source_language)
                 return out
         except Exception as ex:
             print(f"[longdub] translate batch failed (attempt {attempt + 1}): {ex}")
@@ -2433,7 +2454,7 @@ def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flag
     return {}
 
 
-def _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, again):
+def _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, again, source_language="en"):
     """A line that says "sir" / "ma'am", or says "Your Honor" to a known judge, has a CERTAIN addressee (see gender_context.build_context).
     If the translator's answer names someone else, the line is translated once more; if it still does, it gets the "check gender" mark."""
     lines = (gender or {}).get("lines") or {}
@@ -2443,7 +2464,7 @@ def _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, again
         return
     if again:
         sub = {}
-        got = _translate_batch(job_id, wrong, glossary, paces, gender=gender, flags=sub, _again=False)
+        got = _translate_batch(job_id, wrong, glossary, paces, gender=gender, flags=sub, _again=False, source_language=source_language)
         for r in wrong:
             sid = r["segment_id"]
             if sid in got and got[sid][0] and sid in sub:
@@ -2454,19 +2475,21 @@ def _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, again
             flags[sid] = (lines[sid]["addressee_is"], True)       # still disagrees: a person looks at it
 
 
-def _row_paces(rows):
+def _row_paces(rows, source_language="en"):
     """{segment_id: "slow" | "normal" | "fast" | "unknown"}: how fast the speaker really speaks in each line (measured, see delivery.py)."""
+    if languages.get(source_language).code != "en":
+        return {str(r.get("segment_id")): "unknown" for r in rows}
     order = sorted(rows, key=lambda r: float(r.get("start") or 0))
     return {r["segment_id"]: delivery.pace(order, i) for i, r in enumerate(order)}
 
 
-def _ground_rows(rows):
+def _ground_rows(rows, source_language="en"):
     """A speed tag of the delivery (rushed, very fast, slowly, drawn out) must agree with the measured pace of the speaker: the AI reads the
     text only and calls a frightened sentence "rushed" even when the speaker is slow. A delivery the user picked is never touched.
     Returns the number of lines changed; never raises."""
     changed = 0
     try:
-        paces = _row_paces(rows)
+        paces = _row_paces(rows, source_language=source_language)
         for r in rows:
             if r.get("emotion_set"):
                 continue
@@ -2484,7 +2507,7 @@ def ground_emotions(job):
     try:
         rows = read_segments(job)
         before = {r["segment_id"]: r.get("emotion") for r in rows}
-        n = _ground_rows(rows)
+        n = _ground_rows(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
         if not n:
             return 0
         with _lock_for(job["id"]):
@@ -2519,8 +2542,8 @@ def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
         heard = {}
         if vocals.exists() and GEMINI_API_KEY:
             heard = emotion_listen.listen(job["id"], rows, vocals, GEMINI_API_KEY, cache_dir=wd / "emotion_listen_cache",
-                                          max_workers=2, selected_ids=selected_ids) or {}
-        paces = _row_paces(rows)
+                                          max_workers=2, selected_ids=selected_ids, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {})) or {}
+        paces = _row_paces(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
         fallbacks = set()
         for r in rows:
             sid = r.get("segment_id")
@@ -2543,19 +2566,19 @@ def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
 def _translate_all(job, rows):
     total = len(rows)
     missing = 0
-    paces = _row_paces(rows)
+    paces = _row_paces(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
     for i in range(0, total, TRANSLATE_BATCH):
         batch = rows[i:i + TRANSLATE_BATCH]
         _mark(job, "translate", 88 + int(10 * i / max(1, total)), f"Translating to Arabic ({min(i + TRANSLATE_BATCH, total)} of {total} lines)...")
         flags = {}
-        got = _translate_batch(job["id"], batch, job.get("glossary"), paces=paces, gender=_gender_args(job, rows, batch), flags=flags)
+        got = _translate_batch(job["id"], batch, job.get("glossary"), paces=paces, gender=_gender_args(job, rows, batch), flags=flags, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
         _apply_gender_flags(batch, flags)
         for r in batch:
             if r["segment_id"] in got and got[r["segment_id"]][0]:
                 r["arabic_text"], r["emotion"] = got[r["segment_id"]]
             else:
                 missing += 1
-    _ground_rows(rows)
+    _ground_rows(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
     if missing:
         job.setdefault("warnings", []).append(
             f"{missing} line(s) could not be translated automatically. Please type the Arabic for them, or use 'Translate again'.")
@@ -3068,7 +3091,7 @@ def split_line(job, segment_id, position):
         new_id = _new_segment_id(job, rows)
     second["segment_id"] = new_id
     flags = {}
-    got = _translate_batch(job["id"], [first, second], gender=_gender_args(job, [x for x in rows if x["segment_id"] != segment_id] + [first, second], [first, second]), flags=flags)
+    got = _translate_batch(job["id"], [first, second], gender=_gender_args(job, [x for x in rows if x["segment_id"] != segment_id] + [first, second], [first, second]), flags=flags, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
     _apply_gender_flags([first, second], flags)
     if not all(got.get(x["segment_id"], ("",))[0] for x in (first, second)):
         return False, "The translation service didn't answer, so nothing was changed. Please try again.", None, None
@@ -3115,7 +3138,7 @@ def retranslate_line(job, segment_id):
     if not (r.get("text") or "").strip():
         return False, "There is no English text to translate.", None
     flags = {}
-    got = _translate_batch(job["id"], [r], job.get("glossary"), gender=_gender_args(job, rows, [r]), flags=flags)
+    got = _translate_batch(job["id"], [r], job.get("glossary"), gender=_gender_args(job, rows, [r]), flags=flags, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
     _apply_gender_flags([r], flags)
     if segment_id not in got or not got[segment_id][0]:
         return False, "The translation service didn't answer. Please try again.", None
@@ -4207,20 +4230,20 @@ def _clone_sample(job, spid, rows, out_dir):
     return final, acc
 
 
-def _clone_with_retry(name, wav):
+def _clone_with_retry(name, wav, source_language="en"):
     import inworld_service
     # The sample is English speech, so the voice is labelled English (see
     # inworld_service.CLONE_SAMPLE_LANGUAGE, changeable with the Railway variable
     # INWORLD_CLONE_LANGUAGE). If the service refuses the label, the default
     # one is tried.
     last = ""
-    lang = inworld_service.CLONE_SAMPLE_LANGUAGE
+    lang = inworld_service.CLONE_SAMPLE_LANGUAGE if languages.get(source_language).code == "en" else languages.get(source_language).whisper_code
     for attempt in range(3):
         try:
             return inworld_service.clone_voice_from_file(name, wav, INWORLD_API_KEY, language_code=lang), ""
         except Exception as ex:
             last = inworld_service._http_error_detail(ex)
-            if lang != inworld_service.DEFAULT_LANGUAGE and "language" in str(last).lower():
+            if languages.get(source_language).code == "en" and lang != inworld_service.DEFAULT_LANGUAGE and "language" in str(last).lower():
                 lang = inworld_service.DEFAULT_LANGUAGE
             time.sleep(5 * (attempt + 1))
     return None, last
@@ -4582,7 +4605,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         new = None
         for ask in range(2):        # the AI service sometimes answers with nothing: ask once more
             try:
-                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY)
+                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
             except Exception as ex:
                 print(f"[longdub] rephrase call failed for {sid}: {ex}")
             if new:
@@ -4817,7 +4840,7 @@ def _run_dubbing(job):
                 refs_ = job_dir(job["id"]) / "editrefs"
                 refs_.mkdir(exist_ok=True)
                 shutil.copyfile(wav, refs_ / f"{spid}.wav")
-                vid, err = _clone_with_retry(f"lisan-tmp-{job['id'][:8]}-{spid}", wav)
+                vid, err = _clone_with_retry(f"lisan-tmp-{job['id'][:8]}-{spid}", wav, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
             if wav is not None:
                 try:
                     wav.unlink()
@@ -4828,7 +4851,7 @@ def _run_dubbing(job):
                 dub["fallback"].pop(spid, None)
                 job.setdefault("voices_pending_delete", []).append(vid)
                 _save(job)
-                _ev(job, "voice_cloned", "ok", f"{names.get(spid)}: reference {secs:.1f}s, voice labelled '{inworld_service.CLONE_SAMPLE_LANGUAGE}'")
+                _ev(job, "voice_cloned", "ok", f"{names.get(spid)}: reference {secs:.1f}s, voice labelled '{inworld_service.CLONE_SAMPLE_LANGUAGE if languages.get(job.get('source_language')).code == 'en' else languages.get(job.get('source_language')).whisper_code}'")
             else:
                 dub["fallback"][spid] = ""     # resolved below once the others are done
                 _save(job)
@@ -4894,7 +4917,7 @@ def _run_dubbing(job):
         if not loud_ref.exists():
             loud_ref = wd / "audio.wav"
         n = len(rows)
-        paces_ = _row_paces(rows)          # how fast each speaker really speaks (measured): a slow one is not fast-forwarded
+        paces_ = _row_paces(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))          # how fast each speaker really speaks (measured): a slow one is not fast-forwarded
         for i, r in enumerate(rows):
             sid = r["segment_id"]
             if sid in dub["lines"] or sid in dub["failed"]:
@@ -5073,7 +5096,7 @@ def _run_dubbing(job):
                     import scene_context
                     if scene_context.ENABLED and _pref != "off":
                         _sc = scene_context.scenes_for_job(job["id"], wd, rows_all, GEMINI_API_KEY,
-                                                           video_path=(wd / "preview.mp4") if job.get("has_video") else None, duration=total)
+                                                           video_path=(wd / "preview.mp4") if job.get("has_video") else None, duration=total, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
                         if _sc is not None:
                             _room_set["scenes"] = _sc["scenes"]
                             _ev(job, "scene_context", "ok" if _sc["scenes"] else "info", str(_sc["summary"])[:600])
@@ -5575,3 +5598,27 @@ def delete_account_jobs(uid):
             for project in projects:
                 _delete_project_assets(project)
     return len(projects)
+
+
+def switch_source_language(job, source_language):
+    """Resume the same paid analysis after an explicit language choice."""
+    code = languages.get(source_language).code
+    if not languages.is_supported(source_language):
+        return False, ("Choose a supported original language.", 400)
+    with _LOCK:
+        if job["id"] in _RUNNING:
+            return False, ("Please wait a moment for the analysis to pause, then try again.", 409)
+    with _lock_for(job["id"]):
+        if job.get("status") != "language_mismatch":
+            return False, ("The language can only be changed while this analysis is paused for review.", 409)
+        wd = _wd(job)
+        for p in (wd / "asr").glob("*.json"):
+            p.unlink()
+        job.setdefault("analysis", {})["asr_done"] = []
+        job["source_language"] = code
+        job.pop("language_mismatch", None)
+        job["status"] = "accepted"
+        _save(job)
+        _ev(job, "language_set", "ok", code)
+        start_worker(job["id"])
+    return True, None

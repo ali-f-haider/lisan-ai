@@ -18,7 +18,8 @@ def speaker_helpers():
     names = {'speaker_at_time', 'assign_speaker_for_segment', 'assign_speaker_by_words',
              'group_words_by_speaker', 'smooth_speaker_islands', 'chunk_words_by_duration', 'merge_mid_sentence_rows'}
     tree.body = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in names]
-    scope = dict(re=re, SPEAKER_ISLAND_MAX_SEC=1.3, SPEAKER_ISLAND_MAX_WORDS=4, SPEAKER_ISLAND_GAP_SEC=.3)
+    import languages, lang_text
+    scope = dict(languages=languages, lang_text=lang_text, re=re, SPEAKER_ISLAND_MAX_SEC=1.3, SPEAKER_ISLAND_MAX_WORDS=4, SPEAKER_ISLAND_GAP_SEC=.3)
     exec(compile(tree, 'whisper_service.py', 'exec'), scope)
     return scope
 

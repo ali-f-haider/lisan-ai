@@ -174,7 +174,7 @@ def register(api, deps, principal, ok):
         async def run():
             status, data = await ld.create(request, {"filename": body["filename"], "size": body["size_bytes"],
                                                      "speakers": body.get("stated_speakers", 2), "name": body.get("name", ""),
-                                                     "description": body.get("description", "")})
+                                                     "description": body.get("description", ""), "source_language": body.get("source_language", "en")})
             if status != 200:
                 service_failed(status, data)
             ld.tag(data["id"], {"key_id": p["key_id"], "price_percent": s["price_percent"], "revision": 0, "terms_version": body["terms_version"]})
@@ -201,6 +201,19 @@ def register(api, deps, principal, ok):
     @api.get("/jobs/{job_id}")
     def get_job(job_id: str, request: Request, p=Depends(principal("read"))):
         return ok(request, view(request, job_of(p, job_id)))
+
+    @api.post("/jobs/{job_id}/source-language")
+    async def switch_language(job_id: str, request: Request, p=Depends(principal("dub"))):
+        body = await read_json(request)
+        if api_schema.validate_body("SourceLanguage", body):
+            raise ApiError("invalid_request")
+        job_of(p, job_id)
+        async def run():
+            status, data = await ld.switch_source(request, job_id, body["source_language"])
+            if status != 200:
+                service_failed(status, data)
+            return 200, view(request, job_of(p, job_id))
+        return await idempotent(request, p, {"job_id": job_id, **body}, run)
 
     @api.delete("/jobs/{job_id}")
     async def delete_job(job_id: str, request: Request, p=Depends(principal("dub"))):

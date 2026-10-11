@@ -1,0 +1,482 @@
+{
+  "language": "es",
+  "origin": "25 invented cases; source text and Arabic expectations both need native review",
+  "timings_status": "estimated: six seconds for text trial only, not a measured speaking rate",
+  "cases": [
+    {
+      "id": "es_gender_female",
+      "text": "Estoy lista.",
+      "duration": 6.0,
+      "context_lines": [
+        "The speaker and addressee are women."
+      ],
+      "context_language": "en",
+      "speaker_gender": "female",
+      "checks": [
+        {
+          "pattern": "(?:مستعد|جاهز)ة",
+          "mode": "strip_tashkeel",
+          "reason": "female self-description",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_gender_male",
+      "text": "Estoy listo.",
+      "duration": 6.0,
+      "context_lines": [
+        "The speaker is a man."
+      ],
+      "context_language": "en",
+      "speaker_gender": "male",
+      "checks": [
+        {
+          "pattern": "(?:مستعد|جاهز)(?!ة)",
+          "mode": "strip_tashkeel",
+          "reason": "male self-description",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_plural_female",
+      "text": "Están listas.",
+      "duration": 6.0,
+      "context_lines": [
+        "They are talking about three women."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مستعد|جاهز)ات",
+          "mode": "strip_tashkeel",
+          "reason": "female plural agreement",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_plural_group",
+      "text": "Estamos listos.",
+      "duration": 6.0,
+      "context_lines": [
+        "They are talking about a mixed group."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مستعد|جاهز)(?:ون|ين)",
+          "mode": "strip_tashkeel",
+          "reason": "male/mixed plural agreement",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_formal_female",
+      "text": "¿Está usted lista?",
+      "duration": 6.0,
+      "context_lines": [
+        "The speaker and addressee are women."
+      ],
+      "context_language": "en",
+      "speaker_gender": "female",
+      "checks": [
+        {
+          "pattern": "(?:مستعد|جاهز)ة",
+          "mode": "strip_tashkeel",
+          "reason": "formal singular female is not plural",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_informal_address",
+      "text": "¿Puedes venir?",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تأتي|تجيء|الحضور|المجيء)",
+          "mode": "strip_tashkeel",
+          "reason": "request retains coming meaning",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_group_address",
+      "text": "¿Pueden ustedes venir?",
+      "duration": 6.0,
+      "context_lines": [
+        "The addressee is a group of adults."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تأتوا|تأتون|يمكنكم|تستطيعون|الحضور|المجيء)",
+          "mode": "strip_tashkeel",
+          "reason": "plural request or neutral infinitive",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_dual_number",
+      "text": "Tengo dos libros.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:كتاب(?:ان|ين)|(?:اثنان|اثنين|[2٢]).*كتاب)",
+          "mode": "strip_tashkeel",
+          "reason": "two books retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_three_number",
+      "text": "Compré tres lápices.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:ثلاثة|[3٣])",
+          "mode": "strip_tashkeel",
+          "reason": "three retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_time",
+      "text": "El tren sale a las 10:30.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:10|١٠)\\s*[:٫]\\s*(?:30|٣٠)|العاشرة والنصف",
+          "mode": "strip_tashkeel",
+          "reason": "time retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_unit",
+      "text": "La caja pesa 5 kg.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:5|٥|خمس).*?(?:كيلو|كغ|كجم)",
+          "mode": "strip_tashkeel",
+          "reason": "mass and unit retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_price",
+      "text": "La entrada cuesta 12 euros.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:12|١٢|اثن[ات].? عشر|اثني عشر).*?يورو",
+          "mode": "strip_tashkeel",
+          "reason": "price retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_name",
+      "text": "Lucía trabaja aquí.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "لوسي[اي]|لوسيا",
+          "mode": "strip_tashkeel",
+          "reason": "name identity retained; transcription needs native check",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_title",
+      "text": "El Dr. Vega espera.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:دكتور|طبيب)",
+          "mode": "strip_tashkeel",
+          "reason": "professional title retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_tomorrow",
+      "text": "Mañana volvemos.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "غدا",
+          "mode": "strip_tashkeel",
+          "reason": "tomorrow retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_help_now",
+      "text": "Necesito ayuda ahora.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مساعد|عون).*?(?:الآن|الان)|(?:الآن|الان).*?(?:مساعد|عون)",
+          "mode": "strip_tashkeel",
+          "reason": "urgent need retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_negative",
+      "text": "No tengo hambre.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:لست|ليس|لا|لم|غير).*?ج(?:ائع|وع)",
+          "mode": "strip_tashkeel",
+          "reason": "negation retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_close",
+      "text": "Cierra la puerta.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:أغلق|اغلق|أقفل|اقفل).*?باب",
+          "mode": "strip_tashkeel",
+          "reason": "close the door retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_open",
+      "text": "Abra la ventana, por favor.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:افتح|إفتح).*?(?:نافذة|شباك)",
+          "mode": "strip_tashkeel",
+          "reason": "open window retained",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_idiom_expensive",
+      "text": "Esto cuesta un ojo de la cara.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:باهظ|غالي|ثروة|مكلف)",
+          "mode": "strip_tashkeel",
+          "reason": "idiom means expensive",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_idiom_distracted",
+      "text": "Estoy en las nubes.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:شارد|مشتت|أفكر|افكر|أحلام|احلام|خيال)",
+          "mode": "strip_tashkeel",
+          "reason": "idiom means distracted",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_idiom_help",
+      "text": "¿Puedes echarme una mano?",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مساعد|عون)",
+          "mode": "strip_tashkeel",
+          "reason": "help request not literal hand",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_sister",
+      "text": "Mi hermana está cansada.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "أخت.*?(?:متعبة|مرهقة)|اخت.*?(?:متعبة|مرهقة)",
+          "mode": "strip_tashkeel",
+          "reason": "sister gender and fatigue",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_brother",
+      "text": "Mi hermano está cansado.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "أخ.*?(?:متعب|مرهق)|اخ.*?(?:متعب|مرهق)",
+          "mode": "strip_tashkeel",
+          "reason": "brother gender and fatigue",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    },
+    {
+      "id": "es_possessor",
+      "text": "Traje el libro de Ana.",
+      "duration": 6.0,
+      "context_lines": [
+        "An invented everyday conversation; no extra facts may be added."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:كتاب).*?(?:آنا|أنا|انا|أنّا)",
+          "mode": "strip_tashkeel",
+          "reason": "book owner retained; name spelling needs check",
+          "native_review": "needs a native check"
+        }
+      ],
+      "native_review": "needs a native check; regex is a provisional screen, not a complete quality judgement"
+    }
+  ]
+}

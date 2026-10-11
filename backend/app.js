@@ -23,6 +23,7 @@ let speakerChoices = {}, clonedBySpeaker = {};
 let voicePools = { male: [], female: [] };
 let availableVoices = [];
 let segmentOffsets = {};
+let currentSourceLanguage = "en";
 let currentJobId = null, totalDuration = 0, isVideoUpload = false;
 let transcribePollTimer = null, generatePollTimer = null, emotionPollTimer = null, lipsyncPollTimer = null;
 let previewAudio = null, previewBtnCurrent = null;
@@ -482,7 +483,7 @@ function previewRow(i, btn) {
 function secFromStamp(t) { const m = String(t).trim().match(/(\d+):(\d+):(\d+)[,.](\d+)/); if (!m) return 0; return parseInt(m[1]) * 3600 + parseInt(m[2]) * 60 + parseInt(m[3]) + parseInt(m[4]) / 1000; }
 function parseSRT(text) { const cues = []; text.replace(/\r/g, "").split(/\n\s*\n/).forEach(b => { const lines = b.split("\n").filter(l => l.trim() !== ""); if (lines.length < 2) return; const ti = lines.findIndex(l => l.includes("-->")); if (ti < 0) return; const p = lines[ti].split("-->"); if (p.length < 2) return; cues.push({ start: secFromStamp(p[0]), end: secFromStamp(p[1]), text: lines.slice(ti + 1).join(" ") }); }); return cues; }
 function parseSBV(text) { const cues = []; text.replace(/\r/g, "").split(/\n\s*\n/).forEach(b => { const lines = b.split("\n").filter(l => l.trim() !== ""); if (lines.length < 2) return; const m = lines[0].match(/^([^,]+),([^,]+)$/); if (!m) return; cues.push({ start: secFromStamp(m[1]), end: secFromStamp(m[2]), text: lines.slice(1).join(" ") }); }); return cues; }
-// Import the English subtitle of this video (see subs_align.py on the server). The words of the subtitle are matched
+// Import a subtitle in the video's original language of this video (see subs_align.py on the server). The words of the subtitle are matched
 // with the words of the transcript, so a subtitle of a whole film, or one on another clock, works: only the part that
 // belongs to this video is used and the rest is ignored. The subtitle's wording replaces what the AI heard.
 function subsText(en, ar) { return window.currentLang === "ar" ? ar : en; }
@@ -516,8 +517,8 @@ const SUBS_REASON_AR = {
     empty: "ملف الترجمة فارغ.",
     too_big: "ملف الترجمة كبير جدًا. يجب أن يكون ملف ترجمة عاديًا لفيلم أو فيديو واحد.",
     no_cues: "لا يبدو هذا ملف ترجمة. اختر ملفًا بصيغة ‎.srt أو ‎.vtt أو ‎.sbv أو ‎.ass.",
-    arabic: "هذه الترجمة بالعربية. اختر الترجمة الإنجليزية لنفس الفيديو.",
-    no_match: "لم نجد كلام هذا الفيديو في ملف الترجمة، لذلك لم يتغير شيء. تأكد أنه الترجمة الإنجليزية لنفس الفيديو."
+    arabic: "هذه الترجمة بالعربية. اختر ترجمة بنفس لغة الفيديو الأصلي.",
+    no_match: "لم نجد كلام هذا الفيديو في ملف الترجمة، لذلك لم يتغير شيء. تأكد أنه ترجمة بنفس لغة الفيديو الأصلي."
 };
 async function importSubs(evt) {
     const f = evt.target.files[0]; evt.target.value = "";
@@ -531,7 +532,7 @@ async function importSubs(evt) {
     let res, data;
     try {
         res = await fetch("/api/subs/align", { method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: text, filename: f.name, mode: choice.mode, add_missed: choice.add_missed, segments: segmentsData }) });
+            body: JSON.stringify({ source_language: currentSourceLanguage, text: text, filename: f.name, mode: choice.mode, add_missed: choice.add_missed, segments: segmentsData }) });
         data = await res.json();
     } catch (e) { notify("error", subsText("The connection failed. Please try again.", "فشل الاتصال. حاول مرة أخرى.")); return; }
     if (!res.ok || !data || !data.ok) {
@@ -578,7 +579,7 @@ function shortWaqfMode(mode) {
 }
 function saveProject() {
     downloadText("dubbing_project.json", JSON.stringify({
-        app: "ai-dubbing-mvp", version: 1, job_id: currentJobId, total_duration: totalDuration, is_video: isVideoUpload,
+        app: "ai-dubbing-mvp", version: 1, job_id: currentJobId, source_language: currentSourceLanguage, total_duration: totalDuration, is_video: isVideoUpload,
         segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })), original_segments: originalSegments,
         speaker_voices: speakerVoices, speaker_voice_names: speakerVoiceNames,
         speaker_choices: speakerChoices, cloned_by_speaker: clonedBySpeaker
@@ -594,6 +595,9 @@ function loadProjectFile(evt) {
         try {
             const p = JSON.parse(String(reader.result));
             if (!p || !Array.isArray(p.segments) || p.segments.some(s => !s || typeof s !== "object" || Array.isArray(s))) throw new Error("Bad project file");
+            currentSourceLanguage = LisanSource.normalise(p.source_language);
+            var originalLanguageSelect = document.getElementById("sourceLanguage");
+            if (originalLanguageSelect) originalLanguageSelect.value = currentSourceLanguage;
             segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, tempo_mode: s.tempo_mode || "excellent", waqf: shortWaqfMode(s.waqf), words: Array.isArray(s.words) ? s.words : [] }));
             originalSegments = Array.isArray(p.original_segments) ? p.original_segments : [];
             speakerVoices = p.speaker_voices || {};
@@ -680,6 +684,7 @@ async function attachMedia(input) {
 
     const form = new FormData();
     form.append("file", file);
+    form.append("source_language", currentSourceLanguage);
 
     const label = document.getElementById("fileUploadText");
     if (label) {
@@ -749,6 +754,8 @@ async function startTranscribe() {
     if (!file) { notify("error", "Choose an audio or video file."); return; }
     const form = new FormData();
     form.append("file", file);
+    currentSourceLanguage = LisanSource.normalise(document.getElementById("sourceLanguage") && document.getElementById("sourceLanguage").value);
+    form.append("source_language", currentSourceLanguage);
     form.append("speaker_count", document.getElementById("speakerCount").value);
     form.append("hf_token", document.getElementById("hfToken").value.trim());
     document.getElementById("progressSection").classList.remove("hidden");
@@ -769,6 +776,8 @@ async function checkTranscribeProgress() {
     fill.style.width = data.percent + "%";
     fill.textContent = data.percent + "%" + (data.status_text ? " — " + data.status_text : "");
     if (data.is_video !== undefined) isVideoUpload = data.is_video;
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(transcribePollTimer);
         segmentsData = data.segments;
@@ -1473,7 +1482,7 @@ function translateBody(lines, geminiKey) {
         if (explicitGender(n)) chosen[n] = speakerGenderByName[n];
         else if (speakerGenderAuto[n] && speakerGenderByName[n]) heard[n] = { gender: speakerGenderByName[n] };
     });
-    var body = { job_id: currentJobId || "", segments: lines, speaker_genders: chosen, heard_genders: heard,
+    var body = { job_id: currentJobId || "", source_language: currentSourceLanguage, segments: lines, speaker_genders: chosen, heard_genders: heard,
                  context: segmentsData.map(function (s) { return { segment_id: s.segment_id, start: s.start, end: s.end, speaker: s.speaker || "Speaker 1", text: s.text || "" }; }) };
     if (geminiKey) body.gemini_api_key = geminiKey;
     return body;
@@ -1531,6 +1540,8 @@ async function checkEmotionProgress() {
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("emotionProgressFill");
     if (typeof data.percent === "number") { fill.style.width = data.percent + "%"; fill.textContent = data.percent + "% — segment " + data.current + "/" + data.total; }
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(emotionPollTimer);
         const emotions = data.emotions || {}; let updated = 0;
@@ -1586,6 +1597,8 @@ async function checkGenerateProgress() {
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("genProgressFill");
     if (typeof data.percent === "number") { fill.style.width = data.percent + "%"; fill.textContent = data.percent + "%"; }
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(generatePollTimer);
         document.getElementById("generateButton").disabled = false;
@@ -1831,7 +1844,9 @@ async function checkLipsyncProgress() {
         const percent = safePercent(data.percent, 5);
         if (fill) fill.style.width = percent + "%";
         if (txt) txt.textContent = percent + "% — " + (data.message || "Processing...");
-        if (data.status === "done") {
+        if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
+    if (data.status === "done") {
             clearInterval(lipsyncPollTimer);
             lipsyncPollTimer = null;
             const btn = document.getElementById("lipsyncButton");
@@ -2032,6 +2047,8 @@ async function startTranscribe() {
     }
     const form = new FormData();
     form.append("file", file);
+    currentSourceLanguage = LisanSource.normalise(document.getElementById("sourceLanguage") && document.getElementById("sourceLanguage").value);
+    form.append("source_language", currentSourceLanguage);
     form.append("speaker_count", document.getElementById("speakerCount").value);
     form.append("hf_token", document.getElementById("hfToken").value.trim());
     document.getElementById("progressSection").classList.remove("hidden");
@@ -2081,6 +2098,8 @@ async function checkEmotionProgress() {
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("emotionProgressFill");
     if (typeof data.percent === "number") { fill.style.width = data.percent + "%"; fill.textContent = data.percent + "% — segment " + data.current + "/" + data.total; }
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(emotionPollTimer);
         const emotions = data.emotions || {}; let updated = 0;
@@ -2140,6 +2159,8 @@ async function checkEmotionProgress() {
     if (!data || data.status === "not_found") return;
     const fill = document.getElementById("emotionProgressFill");
     if (typeof data.percent === "number") { fill.style.width = data.percent + "%"; fill.textContent = data.percent + "% — segment " + data.current + "/" + data.total; }
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(emotionPollTimer);
         const emotions = data.emotions || {}; let updated = 0;
@@ -2696,6 +2717,8 @@ async function startTranscribe() {
     const speakerCount = parseInt(document.getElementById("speakerCount").value, 10) || 0;
     const form = new FormData();
     form.append("file", file);
+    currentSourceLanguage = LisanSource.normalise(document.getElementById("sourceLanguage") && document.getElementById("sourceLanguage").value);
+    form.append("source_language", currentSourceLanguage);
     form.append("speaker_count", speakerCount);
     form.append("voice_consent", "true");
     form.append("lipsync", lipsyncWanted ? "true" : "false");
@@ -2766,6 +2789,8 @@ checkTranscribeProgress = async function() {
         txt.textContent = data.percent + "%" + (data.status_text ? " — " + data.status_text : "");
     }
     if (data.is_video !== undefined) isVideoUpload = data.is_video;
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(transcribePollTimer);
         segmentsData = data.segments;
@@ -2794,6 +2819,8 @@ checkGenerateProgress = async function() {
         fill.style.width = data.percent + "%";
         txt.textContent = data.percent + "%";
     }
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(generatePollTimer);
         document.getElementById("generateButton").disabled = false;
@@ -2859,6 +2886,8 @@ checkTranscribeProgress = async function() {
     if (fill) fill.style.width = (data.percent || 0) + "%";
     if (txt) txt.textContent = (data.percent || 0) + "%" + (data.status_text ? " — " + data.status_text : "") + "... please wait";
     if (data.is_video !== undefined) isVideoUpload = data.is_video;
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(transcribePollTimer);
         segmentsData = data.segments;
@@ -2885,6 +2914,8 @@ checkGenerateProgress = async function() {
     const txt = document.getElementById("genProgressText");
     if (fill && typeof data.percent === "number") fill.style.width = data.percent + "%";
     if (txt && typeof data.percent === "number") txt.textContent = data.percent + "% — generating audio... please wait";
+    if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
         clearInterval(generatePollTimer);
         document.getElementById("generateButton").disabled = false;
@@ -3572,7 +3603,7 @@ function computeTimelineSpan() {
     segmentsData.forEach(function (s) {
         if (!(s.arabic_text || "").trim()) return;
         var off = segmentOffsets[s.segment_id] || 0;
-        var eng = (s.text || "").length / ENGLISH_CHARS_PER_SEC;
+        var eng = sourceLineDuration(s);
         var ar = (window._lineDurations || {})[s.segment_id] || 0;
         over = Math.max(over, s.start + off + Math.max(eng, ar, s.end - s.start) - clip);
     });
@@ -3612,7 +3643,7 @@ function renderTimeline() {
     // is SHORTER (the rest of the block is silence, so the next line may start right after the Arabic ends). An Arabic
     // line that is longer than its block keeps the English estimate, as before.
     function effTime(sg) {
-        var e = (sg.text || "").length / ENGLISH_CHARS_PER_SEC;
+        var e = sourceLineDuration(sg);
         var d = ((window._lineDurations || {})[sg.segment_id]) || 0;
         return Math.max(8 / scale, (d > 0 && d < e) ? d : e);
     }
@@ -3636,9 +3667,9 @@ function renderTimeline() {
             var box = document.createElement("div");
             var left = Math.max(0, (seg.start + off) * scale);
             var engLen = (seg.text || "").length;
-            var width = Math.max(8, (engLen / ENGLISH_CHARS_PER_SEC) * scale);
+            var width = Math.max(8, sourceLineDuration(seg) * scale);
             box.style.cssText = "position:absolute;left:" + left + "px;top:4px;width:" + width + "px;height:26px;background:#42a5f5;border-radius:4px;cursor:grab;color:#fff;font-size:10px;line-height:26px;text-align:center;overflow:hidden;white-space:nowrap;";
-            box.title = "Line " + (i + 1) + ": drag to shift (" + engLen + " English characters)";
+            box.title = "Line " + (i + 1) + ": drag to shift (" + engLen + " original characters)";
             box.textContent = (i + 1) + (off ? " (" + (off > 0 ? "+" : "") + Math.round(off * 1000) + "ms)" : "");
             if (Math.abs(off) > 1.0) shiftHint(box, off, i + 1);
             box.onmousedown = function(ev) {
@@ -3804,7 +3835,9 @@ checkTranscribeProgress = async function () {
             isVideoUpload = data.is_video;
         }
 
-        if (data.status === "done") {
+        if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
+    if (data.status === "done") {
             stopFriendlyMessages("progressText");
             clearInterval(transcribePollTimer);
 
@@ -3891,7 +3924,9 @@ checkGenerateProgress = async function () {
             startFriendlyMessages("genProgressText");
         }
 
-        if (data.status === "done") {
+        if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
+    if (shortLanguageMismatch(data)) return;
+    if (data.status === "done") {
             stopFriendlyMessages("genProgressText");
             clearInterval(generatePollTimer);
 			generatePollTimer = null;
@@ -4697,7 +4732,7 @@ if (window.location.hash.indexOf("subscription-active") > -1) {
     if (!document.querySelector('meta[name="description"]')) {
         var m = document.createElement("meta");
         m.name = "description";
-        m.content = "Lisan AI — automatic English to Arabic video dubbing with voice cloning, emotions and lip-timed audio.";
+        m.content = "Lisan AI — automatic video dubbing into Arabic with voice cloning, emotions and lip-timed audio.";
         document.head.appendChild(m);
     }
 
@@ -5098,7 +5133,7 @@ async function applyVolumes() {
         probe.onloadedmetadata = function () {
             if (probe.duration > 20.5) { notify("error", "Clip is " + Math.round(probe.duration) + "s — the limit is 20 seconds."); return; }
             var form = new FormData();
-            form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
+            form.append("file", f); form.append("source_language", currentSourceLanguage); form.append("speaker", sp); form.append("job_id", currentJobId || "");
             st.textContent = "Uploading & creating voice...";
             fetch("/api/upload_custom_voice", { method: "POST", body: form })
                 .then(settingsResponse)
@@ -5347,7 +5382,7 @@ window.uploadCustomVoice = function () {
     probe.onloadedmetadata = function () {
         if (probe.duration > 20.5) { notify("error", "Clip is " + Math.round(probe.duration) + "s — the limit is 20 seconds."); return; }
         var form = new FormData();
-        form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
+        form.append("file", f); form.append("source_language", currentSourceLanguage); form.append("speaker", sp); form.append("job_id", currentJobId || "");
         if (st) st.textContent = "Uploading & creating voice...";
         function tryUrl(url, fallback) {
             fetch(url, { method: "POST", body: form.clone ? form : form })
@@ -6210,7 +6245,7 @@ window.cleanOldClones = function () {
         probe.onloadedmetadata = function () {
             if (probe.duration > 20.5) { notify("error", "Clip is " + Math.round(probe.duration) + "s — the limit is 20 seconds."); return; }
             var form = new FormData();
-            form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
+            form.append("file", f); form.append("source_language", currentSourceLanguage); form.append("speaker", sp); form.append("job_id", currentJobId || "");
             if (st) st.textContent = "Uploading & creating voice...";
             fetch("/api/upload_custom_voice", { method: "POST", body: form })
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
@@ -6383,7 +6418,7 @@ window.cleanOldClones = function () {
         probe.onloadedmetadata = function () {
             if (probe.duration > 20.5) { notify("error", "Clip is " + Math.round(probe.duration) + "s - the limit is 20 seconds."); return; }
             var form = new FormData();
-            form.append("file", f); form.append("speaker", sp); form.append("job_id", currentJobId || "");
+            form.append("file", f); form.append("source_language", currentSourceLanguage); form.append("speaker", sp); form.append("job_id", currentJobId || "");
             if (st) st.textContent = "Uploading & creating voice...";
             fetch("/api/upload_custom_voice", { method: "POST", body: form })
                 .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
@@ -6811,7 +6846,7 @@ window.cleanOldClones = function () {
     // equivalent cross-speaker fade tail on a FIXED-width block. Both used to
     // run on every renderTimeline() AND both kept writing their own formula
     // into the block's own style.width -- draw8 grows the block to the real
-    // audio duration, draw9 sizes it to the English text length. Since each
+    // audio duration, draw9 sizes it to the original text length. Since each
     // one's write is a mutation the other's MutationObserver (hook8/hook9)
     // is watching, they kept re-triggering each other forever: the block
     // (and the green Arabic-audio-length overlay, which reads the block's
@@ -6930,7 +6965,7 @@ window.cleanOldClones = function () {
             // actually sticks; keep `slot` below for the audio-duration/collision math,
             // which is about real time positions and is unaffected by visual width.
             var engLen = (seg.text || "").length;
-            var slotPx = Math.max(8, (engLen / ENGLISH_CHARS_PER_SEC) * scale);
+            var slotPx = Math.max(8, sourceLineDuration(seg) * scale);
             var wStr = slotPx + "px";
             if (b.style.width !== wStr) b.style.width = wStr;
             var want = (window.overlapAllowed && window.overlapAllowed[seg.segment_id]) ? "inset 0 0 0 2px #22c55e" : "";
@@ -7506,11 +7541,11 @@ window.cleanOldClones = function () {
             if (bar.style.background !== bg) bar.style.background = bg;
             var radStr = shortArabic ? "4px" : "0 4px 4px 0";
             if (bar.style.borderRadius !== radStr) bar.style.borderRadius = radStr;
-            var title = shortArabic
-                ? "Arabic audio: " + dubDur.toFixed(2) + "s - " + ((blockW / scale) - dubDur).toFixed(2) + "s shorter than the English line. The blue part after it is silent; the next line can be dragged up to the end of the Arabic."
-                : hasOverflow
-                ? "Arabic audio: " + dubDur.toFixed(2) + "s - " + (dubDur - blockW / scale).toFixed(2) + "s longer than the English line (original slot " + slot.toFixed(2) + "s)"
-                : "Arabic audio: " + dubDur.toFixed(2) + "s - fits the English line (original slot " + slot.toFixed(2) + "s)";
+            var ar = window.currentLang === "ar";
+            var durationText = dubDur.toFixed(2), slotText = slot.toFixed(2);
+            var title = ar
+                ? "الصوت العربي: " + durationText + " ثانية — " + (shortArabic ? "أقصر من المقطع الأصلي" : hasOverflow ? "أطول من المقطع الأصلي" : "يناسب المقطع الأصلي") + " (المدة الأصلية " + slotText + " ثانية)."
+                : "Arabic audio: " + durationText + "s — " + (shortArabic ? "shorter than the original line" : hasOverflow ? "longer than the original line" : "fits the original line") + " (original slot " + slotText + "s).";
             if (bar.title !== title) bar.title = title;
         }
         // Drop overlay bars for segments that no longer qualify (deleted,
@@ -8432,3 +8467,62 @@ if (document.readyState !== "loading") renderSpeakerGenderInputs();
     sync();
     setInterval(sync, 600);
 })();
+
+
+function shortLanguageMismatch(data) {
+    if (!data || data.status !== "language_mismatch") return false;
+    clearInterval(transcribePollTimer);
+    if (typeof stopFriendlyMessages === "function") stopFriendlyMessages("progressText");
+    var box = document.getElementById("shortLanguageMismatch");
+    if (!box) {
+        box = document.createElement("div"); box.id = "shortLanguageMismatch";
+        box.className = "credits-info-box";
+        document.getElementById("progressSection").appendChild(box);
+    }
+    box.replaceChildren();
+    var ar = window.currentLang === "ar", info = data.language_mismatch || {};
+    var message = document.createElement("p");
+    message.textContent = ar ? "يبدو أن الكلام بلغة أخرى. اختر لغة الفيديو للمتابعة." : "The speech appears to be in a different language. Choose the video's language to continue.";
+    var select = document.createElement("select");
+    select.setAttribute("aria-label", ar ? "لغة الفيديو الأصلية" : "Original video language");
+    LisanSource.options(select, info.supported ? info.detected : currentSourceLanguage, ar ? "ar" : "en");
+    var button = document.createElement("button");
+    function label() { button.textContent = (ar ? "التبديل إلى " : "Switch to ") + LisanSource.name(select.value, ar ? "ar" : "en"); }
+    select.onchange = label; label();
+    button.onclick = async function () {
+        button.disabled = true;
+        try {
+            var response = await fetch("/api/transcribe/" + encodeURIComponent(currentJobId) + "/source-language", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({source_language: select.value})});
+            var result = await response.json();
+            if (!response.ok) throw new Error(result.error || (ar ? "تعذّرت المتابعة. حاول مرة أخرى." : "Could not continue. Please try again."));
+            currentSourceLanguage = LisanSource.normalise(result.source_language);
+            var originalLanguageSelect = document.getElementById("sourceLanguage");
+            if (originalLanguageSelect) originalLanguageSelect.value = currentSourceLanguage;
+            box.remove();
+            transcribePollTimer = setInterval(checkTranscribeProgress, 1000);
+        } catch (error) { notify("error", error.message); button.disabled = false; }
+    };
+    box.append(message, select, button);
+    return true;
+}
+
+(function () {
+    function sourceControls() {
+        LisanSource.mount(document.getElementById("audioFile") && document.getElementById("audioFile").parentElement, window.currentLang || "en");
+        var heading = document.getElementById("thEnglish");
+        if (heading) heading.textContent = LisanSource.name(currentSourceLanguage, window.currentLang || "en");
+    }
+    var previousRender = renderTable;
+    renderTable = function () { var result = previousRender.apply(this, arguments); sourceControls(); return result; };
+    if (typeof applyLang === "function") {
+        var previousLang = applyLang;
+        applyLang = function () { var result = previousLang.apply(this, arguments); sourceControls(); return result; };
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", sourceControls); else sourceControls();
+})();
+
+
+function sourceLineDuration(row) {
+    if (currentSourceLanguage === "en") return (row.text || "").length / ENGLISH_CHARS_PER_SEC;
+    return Math.max(0.1, (Number(row.end) || 0) - (Number(row.start) || 0));
+}

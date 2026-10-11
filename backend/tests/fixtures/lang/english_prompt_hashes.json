@@ -1,0 +1,134 @@
+[
+  {
+    "text": "Wait...",
+    "gender": null,
+    "sha256": "14d57d64ee7421b166313e5ffff59b4f06a3de0e8cf8213444871ce9cb7ee4a2"
+  },
+  {
+    "text": "Wait...",
+    "gender": {
+      "speakers": {
+        "A": "male (certain)"
+      },
+      "lines": {
+        "seg_0": {
+          "speaker_gender": "male",
+          "addressee_is": "female",
+          "before": [],
+          "after": []
+        }
+      }
+    },
+    "sha256": "ce288ea55dc856ca2369b2ae0f13a0db2ba52c4ba68bbde1c5b59016a8f90897"
+  },
+  {
+    "text": "Wait…",
+    "gender": null,
+    "sha256": "ee95a060968a680e733a328a6e24dddd920d510c6255ce3ba3eba415985567d1"
+  },
+  {
+    "text": "Wait…",
+    "gender": {
+      "speakers": {
+        "A": "male (certain)"
+      },
+      "lines": {
+        "seg_0": {
+          "speaker_gender": "male",
+          "addressee_is": "female",
+          "before": [],
+          "after": []
+        }
+      }
+    },
+    "sha256": "432c34825acdd89ed2e8dbc96f6b7236989989446b1abb15f713807d4809eb0a"
+  },
+  {
+    "text": "Wait—",
+    "gender": null,
+    "sha256": "381e14bc43c27e554b8a15639d5ee2e316b02f00f87a1baec14aa3dfefa52f1d"
+  },
+  {
+    "text": "Wait—",
+    "gender": {
+      "speakers": {
+        "A": "male (certain)"
+      },
+      "lines": {
+        "seg_0": {
+          "speaker_gender": "male",
+          "addressee_is": "female",
+          "before": [],
+          "after": []
+        }
+      }
+    },
+    "sha256": "9733ba4a06e9d45ae1abf0f7f5fee03a60df8c8e6417d1c92d2bed6858fe8914"
+  },
+  {
+    "text": "Wait -",
+    "gender": null,
+    "sha256": "3684ebe135da50bff3817a93a999df15cd9aa3aaebffc7193dcbc399f219647f"
+  },
+  {
+    "text": "Wait -",
+    "gender": {
+      "speakers": {
+        "A": "male (certain)"
+      },
+      "lines": {
+        "seg_0": {
+          "speaker_gender": "male",
+          "addressee_is": "female",
+          "before": [],
+          "after": []
+        }
+      }
+    },
+    "sha256": "474d2478c2e116c1a6a4a27c6d40144b3b48dd4bb4b342bcae3ec8c09b1cc09e"
+  },
+  {
+    "text": "I-If this works, ask Dr. Lane.",
+    "gender": null,
+    "sha256": "71473a4c29fa5f53a04311eeb9e650462946b16821d3aa3e52413beb30c154d1"
+  },
+  {
+    "text": "I-If this works, ask Dr. Lane.",
+    "gender": {
+      "speakers": {
+        "A": "male (certain)"
+      },
+      "lines": {
+        "seg_0": {
+          "speaker_gender": "male",
+          "addressee_is": "female",
+          "before": [],
+          "after": []
+        }
+      }
+    },
+    "sha256": "b55e9e14dd55a37058cb58ba8f0eb97ad1e46ef73114571bedd48c450cd805f4"
+  },
+  {
+    "text": "The price is 3.5 dollars.",
+    "gender": null,
+    "sha256": "2de52fc1dc751e2ff4a713a0d3cdddc6bec160d189f20fc253fdf416f58d12db"
+  },
+  {
+    "text": "The price is 3.5 dollars.",
+    "gender": {
+      "speakers": {
+        "A": "male (certain)"
+      },
+      "lines": {
+        "seg_0": {
+          "speaker_gender": "male",
+          "addressee_is": "female",
+          "before": [],
+          "after": []
+        }
+      }
+    },
+    "sha256": "b8c2276ca0f0b52d43481f9d5122207eedfe6a07814fddb020348228b60ecacf"
+  }
+]

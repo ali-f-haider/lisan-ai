@@ -16,6 +16,7 @@ Any failure (no key, no answer, a bad answer, too slow) leaves the lines exactly
 Switch on with the environment variable LD_LINE_PLANNER=1 (needs GEMINI_API_KEY). Measure first with line_planner_trial.py.
 plan_lines(job_id, rows, api_key, vocals=None) -> (rows, report)
 """
+import languages, language_prompts
 import json
 import os
 import re
@@ -64,7 +65,9 @@ def _label(row):
     return str(row.get("speaker") or row.get("speaker_id") or "?")
 
 
-def build_prompt(window, before, after):
+def build_prompt(window, before, after, source_language="en"):
+    if languages.get(source_language).code != "en":
+        return language_prompts.line_planner_prompt(window, before, after, source_language)
     lines = []
     for tag, group in (("(context)", before), ("", window), ("(context)", after)):
         for r in group:
@@ -194,7 +197,7 @@ def _apply(op, rows, vocals):
         line_tidy.shift_head(a, b, n)
 
 
-def plan_lines(job_id, rows, api_key, vocals=None, ask=None, budget_sec=None, window=None):
+def plan_lines(job_id, rows, api_key, vocals=None, ask=None, budget_sec=None, window=None, source_language="en"):
     """Returns (rows, report). `ask(prompt) -> (parsed, usage)` can be injected (tests, the trial); the default asks Gemini."""
     window = window or WINDOW
     report = {"windows": 0, "asked": 0, "applied": 0, "flagged": 0, "cleared": 0, "refused": 0, "reverted_windows": 0, "tokens_in": 0, "tokens_out": 0,
@@ -219,7 +222,7 @@ def plan_lines(job_id, rows, api_key, vocals=None, ask=None, budget_sec=None, wi
             core = work[pos:pos + window]
             before, after = work[max(0, pos - CONTEXT):pos], work[pos + window:pos + window + CONTEXT]
             report["windows"] += 1
-            answer, usage = ask(build_prompt(core, before, after))
+            answer, usage = ask(build_prompt(core, before, after, source_language))
             report["tokens_in"] += usage.get("in", 0)
             report["tokens_out"] += usage.get("out", 0)
             report["tokens_thoughts"] += usage.get("thoughts", 0)

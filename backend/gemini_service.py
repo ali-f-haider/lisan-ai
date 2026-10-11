@@ -1,3 +1,4 @@
+import languages, language_prompts
 import base64
 import json
 import re
@@ -203,7 +204,7 @@ These rules change only the gender and number forms, never the meaning, the leng
 """
 
 
-def translate_segments(job_id: str, segments: list, api_key: str, glossary=None, paces=None, gender=None) -> dict:
+def translate_segments(job_id: str, segments: list, api_key: str, glossary=None, paces=None, gender=None, source_language="en") -> dict:
     """Translate all segments to Arabic (MSA + Tashkeel) and detect emotions. glossary = [{en, ar}]: the customer's own
     terms, which the translation must use. paces = {segment_id: "slow" | "normal" | "fast"}: how fast the speaker really speaks in each
     line (measured from the recording): the speed tags must agree with it."""
@@ -267,6 +268,8 @@ Return JSON array:
 Segments:
 {json.dumps(segments_for_prompt, ensure_ascii=False)}"""
 
+    if languages.get(source_language).code != "en":
+        prompt = language_prompts.translation_prompt(segments, source_language, glossary=glossary, paces=paces, gender=gender)
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -334,7 +337,7 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
     return out
 
 
-def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int, api_key: str):
+def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int, api_key: str, source_language="en"):
     """Rewrites ONE Arabic dubbing line shorter (same meaning, tone and register)
     so the spoken line fits its time. `max_letters` counts Arabic letters only
     (not tashkeel marks, not spaces). Returns the new text, or None when the AI
@@ -353,7 +356,7 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
         "- Keep full Arabic tashkeel (harakat) on every word, like the original.\n"
         "- Keep names, numbers and the sentence type (question / statement) as they are.\n"
         '- Return ONLY valid JSON: {"arabic_text": "..."}\n\n'
-        f"English original (for meaning only): {json.dumps(english or '', ensure_ascii=False)}\n"
+        f"{'English' if languages.get(source_language).code == 'en' else languages.names(source_language)} original (for meaning only): {json.dumps(english or '', ensure_ascii=False)}\n"
         f"Arabic line to shorten: {json.dumps(arabic, ensure_ascii=False)}\n"
     )
     payload = {

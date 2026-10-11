@@ -23,6 +23,7 @@ mode: "auto"  - a new line only where the subtitle starts a dash line (a new spe
       "join"  - never splits a transcript line; a subtitle's lines are written together
       "lines" - every subtitle line is its own line (one line per speaker/line)
 """
+import languages, lang_text
 import html
 import re
 import uuid
@@ -46,12 +47,15 @@ _HARD_END = re.compile(r"(?<![.…])[.!?؟][\"'”’)\]]*$")          # a real 
 _ABBREVIATIONS = {"mr.", "mrs.", "ms.", "dr.", "st.", "jr.", "sr.", "vs.", "no.", "mt.", "prof.", "gen.", "col.", "sgt.", "lt.", "capt."}
 
 
-def _ends_sentence(token):
+def _ends_sentence(token, source_language="en"):
     """A word that closes a sentence (not an abbreviation such as Mr., and not a trailing-off such as \"I-If...\")."""
+    if languages.get(source_language).code != "en":
+        return lang_text.ends_sentence(token, source_language, profile="subtitle")
     return bool(_HARD_END.search(token)) and str(token).strip().lower() not in _ABBREVIATIONS
 
 
 REASONS = {
+    "language": "Choose a subtitle in the same language as your video. Nothing was changed.",
     "empty": "The subtitle file is empty.",
     "too_big": "This subtitle file is too big. It should be a normal subtitle file of one film or video.",
     "no_cues": "This doesn't look like a subtitle file. Please choose an .srt, .vtt, .sbv or .ass file.",
@@ -61,21 +65,25 @@ REASONS = {
 }
 
 
-def reason_message(reason):
+def reason_message(reason, source_language="en"):
+    if languages.get(source_language).code != "en" and reason in ("arabic", "no_match"):
+        return "Choose a subtitle in the same language as your video, then try again. Nothing was changed."
     return REASONS.get(reason, "We couldn't use this subtitle file.")
 
 
-def check_file(text, filename=""):
+def check_file(text, filename="", source_language="en"):
     """(True, number_of_subtitles) or (False, reason). Only looks at the file itself."""
     if not text or not str(text).strip():
         return False, "empty"
     if len(text) > MAX_CHARS:
         return False, "too_big"
-    cues = parse_subtitles(text, filename)
+    cues = parse_subtitles(text, filename, source_language=source_language)
     if not cues:
         return False, "no_cues"
     if sum(1 for c in cues if _is_arabic(" ".join(t for t, _ in c["lines"]))) > len(cues) / 2:
         return False, "arabic"
+    if languages.get(source_language).code != "en" and lang_text.latin_share(" ".join(t for c in cues for t, _ in c["lines"])) < 0.5:
+        return False, "language"
     return True, len(cues)
 
 
@@ -86,8 +94,10 @@ def _secs(m):
     return int(h or 0) * 3600 + int(mi) * 60 + int(s) + float("0." + frac)
 
 
-def _clean_line(line):
+def _clean_line(line, source_language="en"):
     """One subtitle line -> (text, dash). Tags, sound descriptions and music marks are removed."""
+    if languages.get(source_language).code != "en":
+        return lang_text.clean_subtitle_line(line, source_language)
     s = html.unescape(line)
     s = re.sub(r"<[^>]*>", "", s)
     s = re.sub(r"\{[^}]*\}", "", s)
@@ -109,11 +119,20 @@ def _clean_line(line):
     return s, dash
 
 
-def _cue(start, end, raw_lines):
+def _cue(start, end, raw_lines, source_language="en"):
+    if languages.get(source_language).code != "en":
+        parts = [p for line in raw_lines for p in re.split(r"\\[Nn]", line)]
+        changes = set(lang_text.speaker_change_in_cue(parts, source_language))
+        lines = []
+        for i, part in enumerate(parts):
+            text, dash = _clean_line(part, source_language)
+            if text:
+                lines.append((text, dash or i in changes))
+        return {"start": start, "end": end, "lines": lines} if lines and end >= start else None
     lines = []
     for ln in raw_lines:
         for part in re.split(r"\\[Nn]", ln):          # the line break of .ass files
-            t, dash = _clean_line(part)
+            t, dash = _clean_line(part, source_language=source_language)
             if t:
                 lines.append((t, dash))
     if not lines or end < start:
@@ -121,7 +140,7 @@ def _cue(start, end, raw_lines):
     return {"start": start, "end": end, "lines": lines}
 
 
-def parse_subtitles(text, filename=""):
+def parse_subtitles(text, filename="", source_language="en"):
     """SRT, VTT, SBV and ASS/SSA -> [{"start", "end", "lines": [(text, starts_with_dash)]}], sorted by time."""
     text = (text or "").lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
     cues = []
@@ -135,7 +154,7 @@ def parse_subtitles(text, filename=""):
             a, b = _TIME_RE.match(parts[1].strip()), _TIME_RE.match(parts[2].strip())
             if not a or not b:
                 continue
-            c = _cue(_secs(a.groups()), _secs(b.groups()), [parts[9]])
+            c = _cue(_secs(a.groups()), _secs(b.groups()), [parts[9]], source_language=source_language)
             if c:
                 cues.append(c)
     else:
@@ -149,13 +168,13 @@ def parse_subtitles(text, filename=""):
                 a, b = _TIME_RE.search(left), _TIME_RE.search(right)
                 if not a or not b:
                     continue
-                c = _cue(_secs(a.groups()), _secs(b.groups()), lines[ti + 1:])
+                c = _cue(_secs(a.groups()), _secs(b.groups()), lines[ti + 1:], source_language=source_language)
             else:                                                              # SBV: "0:00:01.000,0:00:03.000"
                 m = re.match(r"^\s*(\d+:\d{2}:\d{2}\.\d+)\s*,\s*(\d+:\d{2}:\d{2}\.\d+)\s*$", lines[0])
                 if not m:
                     continue
                 a, b = _TIME_RE.match(m.group(1)), _TIME_RE.match(m.group(2))
-                c = _cue(_secs(a.groups()), _secs(b.groups()), lines[1:])
+                c = _cue(_secs(a.groups()), _secs(b.groups()), lines[1:], source_language=source_language)
             if c:
                 cues.append(c)
     cues.sort(key=lambda c: (c["start"], c["end"]))
@@ -188,8 +207,10 @@ def _is_arabic(text):
     return sum(1 for c in letters if "؀" <= c <= "ۿ") / len(letters) > 0.5
 
 
-def build_stream(cues, mode):
+def build_stream(cues, mode, source_language="en"):
     """The subtitle as one stream of words. Every word knows its cue, its 'line' (for splitting) and its time."""
+    if languages.get(source_language).code != "en":
+        return _language_stream(cues, mode, source_language)
     norms, surfs, cue_ix, unit, times = [], [], [], [], []
     u = 0
     for ci, c in enumerate(cues):
@@ -349,7 +370,9 @@ def _align_all(A, B):
 
 # ------------------------------------------------------------------ the correction
 
-def _row_tokens(row):
+def _row_tokens(row, source_language="en"):
+    if languages.get(source_language).code != "en":
+        return [t.matching for t in lang_text.tokenize(row.get("text") or "", source_language) if t.matching]
     toks = []
     for t in str(row.get("text") or "").split():
         n = norm(t)
@@ -358,7 +381,7 @@ def _row_tokens(row):
     return toks
 
 
-def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False, id_factory=None):
+def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False, id_factory=None, source_language="en"):
     """Returns (new_rows, report). Never raises for bad input: report["ok"] is False with a "reason"."""
     mode = mode if mode in MODES else "auto"
     report = {"ok": False, "mode": mode, "rows": len(rows or []), "reason": "", "cues": 0, "changed": 0, "style": 0,
@@ -371,7 +394,7 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
     if len(subtitle_text) > MAX_CHARS:
         report["reason"] = "too_big"
         return rows, report
-    cues = parse_subtitles(subtitle_text, filename)
+    cues = parse_subtitles(subtitle_text, filename, source_language=source_language)
     report["cues"] = len(cues)
     if not cues:
         report["reason"] = "no_cues"
@@ -379,12 +402,12 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
     if sum(1 for c in cues if _is_arabic(" ".join(t for t, _ in c["lines"]))) > len(cues) / 2:
         report["reason"] = "arabic"
         return rows, report
-    stream = build_stream(cues, mode)
+    stream = build_stream(cues, mode, source_language=source_language)
     B = stream["norm"]
     # transcript words, remembering which row each belongs to
     A, a_row = [], []
     for ri, r in enumerate(rows):
-        for n in _row_tokens(r):
+        for n in _row_tokens(r, source_language=source_language):
             A.append(n)
             a_row.append(ri)
     if len(A) > 80000 or len(B) > 250000:             # far beyond any real video / subtitle: refuse instead of grinding
@@ -416,7 +439,7 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
     for pos, j in enumerate(owned[:-1]):
         r, r2 = b_owner[j], b_owner[owned[pos + 1]]
         if (j not in similar_j and r in last_sure and j > last_sure[r] and r != r2 and rows[r].get("speaker") != rows[r2].get("speaker")
-                and j > 0 and _ends_sentence(stream["surf"][j - 1])):
+                and j > 0 and (stream["end"][j - 1] if "end" in stream else _ends_sentence(stream["surf"][j - 1]))):
             b_owner[j] = r2
 
     # quality of every row: how many of its words are really found in the subtitle
@@ -451,8 +474,8 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
             r_prev = b_owner[prev_j]
             cut = None       # between two speakers: words that finish a sentence go back, words that start a new one go forward
             if r_prev != r_next and rows[r_prev].get("speaker") != rows[r_next].get("speaker"):
-                ends = [x for x, pj in enumerate(pending) if _ends_sentence(stream["surf"][pj])]
-                cut = max(ends) if ends else (-1 if _ends_sentence(stream["surf"][prev_j]) else None)
+                ends = [x for x, pj in enumerate(pending) if (stream["end"][pj] if "end" in stream else _ends_sentence(stream["surf"][pj]))]
+                cut = max(ends) if ends else (-1 if (stream["end"][prev_j] if "end" in stream else _ends_sentence(stream["surf"][prev_j])) else None)
             for pos, pj in enumerate(pending):
                 if r_prev == r_next:
                     owner[pj] = r_prev
@@ -477,7 +500,7 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
         row_words.setdefault(owner[j], []).append(j)
 
     def surf_join(js):
-        return " ".join(stream["surf"][j] for j in js)
+        return _surface_join(stream, js)
 
     def make_id():
         return id_factory() if id_factory else "sub_" + uuid.uuid4().hex[:8]
@@ -497,7 +520,7 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
             new_rows.append(r)
             continue
         old_text = str(r.get("text") or "")
-        old_norm = [norm(t) for t in old_text.split() if norm(t)]
+        old_norm = [norm(t) for t in old_text.split() if norm(t)] if languages.get(source_language).code == "en" else _row_tokens(r, source_language)
         groups, cur_u = [], None                    # the words, grouped by subtitle line (join mode: one group)
         for j in js:
             if mode == "join" or unit[j] != cur_u:
@@ -517,7 +540,7 @@ def correct_rows(rows, subtitle_text, filename="", mode="auto", add_missed=False
             groups[lo:lo + 2] = [groups[lo] + groups[lo + 1]]
             lens = [len(surf_join(g)) for g in groups]
         parts = [surf_join(g) for g in groups]
-        new_norm = [norm(t) for p in parts for t in p.split() if norm(t)]
+        new_norm = [norm(t) for p in parts for t in p.split() if norm(t)] if languages.get(source_language).code == "en" else [n for p in parts for n in _row_tokens({"text": p}, source_language)]
         if new_norm != old_norm:
             n_changed += 1
         elif " ".join(parts) != old_text.strip():
@@ -626,7 +649,45 @@ def _add_missed(new_rows, miss_units, stream, pairs, old_rows, a_row, A, make_id
             continue
         nr = dict(template)
         nr.update({"segment_id": make_id(), "start": round(ta0, 2), "end": round(ta1, 2),
-                   "text": " ".join(stream["surf"][j] for j in unit_js), "arabic_text": "", "locked": False, "added": True})
+                   "text": _surface_join(stream, unit_js), "arabic_text": "", "locked": False, "added": True})
         out.append(nr)
         added += 1
     return out, added
+
+
+def _language_stream(cues, mode, source_language):
+    stream = {key: [] for key in ("norm", "surf", "cue", "unit", "t", "line", "end")}
+    unit = 0
+    line_id = 0
+    for ci, cue in enumerate(cues):
+        for li, (text, dash) in enumerate(cue["lines"]):
+            if mode == "lines" or (mode == "auto" and dash and (li or stream["norm"])):
+                unit += 1
+            tokens = [t for t in lang_text.tokenize(text, source_language) if t.matching]
+            for k, token in enumerate(tokens):
+                # Each character belongs to exactly one matching token. Elision
+                # punctuation and spaces survive matching without being rebuilt.
+                start = 0 if k == 0 else token.start
+                end = tokens[k + 1].start if k + 1 < len(tokens) else len(text)
+                stream["norm"].append(token.matching)
+                stream["surf"].append(text[start:end])
+                stream["cue"].append(ci)
+                stream["unit"].append(unit)
+                stream["line"].append(line_id)
+                prefix = text[:end]
+                stream["end"].append(lang_text.ends_sentence(prefix.rstrip(), source_language, profile="subtitle"))
+                stream["t"].append(cue["start"] + (cue["end"] - cue["start"]) * (k + 0.5) / max(1, len(tokens)))
+            line_id += 1
+    return stream
+
+
+def _surface_join(stream, indices):
+    if "line" not in stream:
+        return " ".join(stream["surf"][j] for j in indices)
+    result, prev = "", None
+    for j in indices:
+        if prev is not None and (j != prev + 1 or stream["line"][j] != stream["line"][prev]):
+            result = result.rstrip() + " "
+        result += stream["surf"][j]
+        prev = j
+    return result.strip()

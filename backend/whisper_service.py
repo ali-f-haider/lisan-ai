@@ -1,3 +1,5 @@
+import source_rows
+import languages, lang_text
 import json
 import re
 import threading
@@ -401,15 +403,19 @@ def _release_diarization_pipeline(hf_token):
     _trim_memory()
 
 
-def split_segment(segment, max_duration=15.0):
+def split_segment(segment, max_duration=15.0, source_language="en"):
     """Fallback splitter used when diarization is unavailable."""
+    if languages.get(source_language).code != "en" and getattr(segment, "words", None):
+        words = [{"word": w.word, "start": w.start, "end": w.end} for w in segment.words if w.start is not None and w.end is not None]
+        if words:
+            return source_rows.split_timed_row({"text": segment.text.strip(), "start": segment.start, "end": segment.end, "words": words}, source_language, max_duration)
     text = segment.text.strip()
     start = segment.start
     end = segment.end
     duration = end - start
     if duration <= max_duration and len(text) < 200:
         return [{"start": start, "end": end, "text": text}]
-    sentences = re.split(r'(?<=[.!?؟])\s+', text)
+    sentences = re.split(r'(?<=[.!?؟])\s+', text) if languages.get(source_language).code == 'en' else lang_text.split_sentences(text, source_language)
     if len(sentences) <= 1:
         if duration <= max_duration:
             return [{"start": start, "end": end, "text": text}]
@@ -604,13 +610,15 @@ SPEAKER_ISLAND_MAX_WORDS = 4
 SPEAKER_ISLAND_GAP_SEC = 0.3     # ...that follows it with no real pause...
 
 
-def smooth_speaker_islands(rows):
+def smooth_speaker_islands(rows, source_language="en"):
     """The speaker detector sometimes flips to the other person for a word or two in the MIDDLE of a sentence
     ("she didn't" / "have a" / "birthday while we were"), which cuts one spoken sentence into three lines. A very short
     line with no pause before or after it, sitting between two lines of the same speaker that do not end a sentence,
     is given to that speaker; merge_mid_sentence_rows then joins the pieces. A real interjection after a finished
     sentence ("?", ".", "!") is left alone. Returns the same list, edited in place."""
     def ends_sentence(t):
+        if languages.get(source_language).code != "en":
+            return lang_text.ends_sentence(t, source_language, profile="tidy")
         return bool(re.search(r'[.!?؟]["\')\]]*\s*$', (t or "").strip()))
 
     for i in range(1, len(rows) - 1):
@@ -630,7 +638,7 @@ def smooth_speaker_islands(rows):
     return rows
 
 
-def merge_mid_sentence_rows(rows):
+def merge_mid_sentence_rows(rows, source_language="en"):
     """Re-join consecutive same-speaker rows cut mid-sentence (no . ! ? at the end)."""
     merged = []
     for row in rows:
@@ -638,6 +646,8 @@ def merge_mid_sentence_rows(rows):
             prev = merged[-1]
             gap = row["start"] - prev["end"]
             prev_ends_sentence = bool(re.search(r'[.!?؟]\s*$', prev["text"]))
+            if languages.get(source_language).code != "en":
+                prev_ends_sentence = lang_text.ends_sentence(prev["text"], source_language, profile="tidy")
             if prev["speaker"] == row["speaker"] and gap <= 0.25 and not prev_ends_sentence:
                 prev["end"] = row["end"]
                 prev["text"] = (prev["text"] + " " + row["text"]).strip()
@@ -664,15 +674,16 @@ def _meter_stage(job_id):
 
 
 @_metered("shortdub_transcribe", lambda job_id, *a, **k: job_id, stage_of=_meter_stage)
-def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False):
+def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count, lipsync_wanted: bool = False, source_language="en", prepared=None):
     # Only MAX_CONCURRENT_TRANSCRIPTIONS jobs actually run at once (see
     # _JobQueue above) -- everyone else waits in line here for a slot. Show
     # a real status first so a queued job doesn't just look stuck at
     # "Upload done..." while it waits; in the common case (a free slot
     # already) acquire() below returns immediately and this is overwritten
     # by "Starting..." before anyone ever polls it.
+    source_language = languages.get(source_language).code
     jobs_progress[job_id] = {
-        "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
+        "status": "processing", "percent": 0, "source_language": source_language, "segments": [], "full_duration": 0.0,
         "status_text": "Waiting for your turn — another video is being processed...",
         "warning": None, "detected_speakers": 0, "is_video": False,
         "has_background": False, "lipsync_wanted": lipsync_wanted,
@@ -704,7 +715,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
         app_state.last_job_activity = time.time()
         try:
             jobs_progress[job_id] = {
-                "status": "processing", "percent": 0, "segments": [], "full_duration": 0.0,
+                "status": "processing", "percent": 0, "source_language": source_language, "segments": [], "full_duration": 0.0,
                 "status_text": "Starting...", "warning": None, "detected_speakers": 0,
                 "is_video": False, "has_background": False, "lipsync_wanted": lipsync_wanted,
             }
@@ -715,7 +726,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
             background_path = None
             extracted_audio = None
 
-            if is_video:
+            if is_video and not prepared:
                 jobs_progress[job_id]["status_text"] = "Extracting audio from video..."
                 jobs_progress[job_id]["percent"] = 3
                 jobs_progress[job_id]["is_video"] = True
@@ -735,7 +746,13 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                     jobs_progress[job_id]["warning"] = "We couldn't separate the voices from the background sound, so the finished video won't include the original background music or ambience."
                     jobs_progress[job_id]["has_background"] = False
 
-            turns = []
+            if prepared:
+                audio_path = prepared["audio_path"]
+                background_path = prepared.get("background_path")
+                jobs_progress[job_id].update(is_video=is_video, has_background=bool(background_path))
+                if background_path:
+                    jobs_progress[job_id]["background_path"] = background_path
+            turns = list((prepared or {}).get("turns") or [])
             speaker_label_map = {}
             warning = jobs_progress[job_id].get("warning")
 
@@ -762,7 +779,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                     diar_result["error"] = str(e)
 
             diar_thread = None
-            if hf_token:
+            if hf_token and not prepared:
                 jobs_progress[job_id]["status_text"] = "Detecting speakers..."
                 jobs_progress[job_id]["percent"] = 15
                 diar_thread = threading.Thread(target=diarize, daemon=True)
@@ -807,25 +824,43 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
                 jobs_progress[job_id]["percent"] = 50
 
+            if prepared:
+                speaker_label_map = dict(prepared.get("speaker_label_map") or {})
+                warning = prepared.get("warning")
+                jobs_progress[job_id]["detected_speakers"] = len(speaker_label_map)
             torch.set_num_threads(4)
             jobs_progress[job_id]["status_text"] = "Transcribing audio..."
             lang_warned = False
+            _mismatch = None
             try:      # is the speech really English? (a warning only, see lang_check.py)
                 import lang_check
                 if lang_check.ENABLED:
                     _lj = lang_check.judge_file(_get_model(), audio_path, max_windows=6)
-                    _lmsg, _ldet = lang_check.summarize(_lj)
+                    _lmsg, _ldet = lang_check.summarize(_lj, source_language=source_language)
+                    _mismatch = lang_check.mismatch(_lj, source_language)
+                    if _mismatch:
+                        import source_jobs
+                        source_jobs.save_retry(UPLOAD_DIR, job_id, {"input_path": input_path, "audio_path": str(audio_path),
+                            "background_path": str(background_path) if background_path else None, "turns": turns,
+                            "speaker_label_map": speaker_label_map, "warning": warning, "speaker_count": speaker_count,
+                            "lipsync_wanted": lipsync_wanted})
+                        jobs_progress[job_id].update(status="language_mismatch", language_mismatch=_mismatch, percent=50, status_text=_mismatch["message"])
+                        _release_model()
+                        return
                     print(f"[lang-check] {job_id}: {_ldet}")
                     if _lmsg:
                         warning = (warning + " | " if warning else "") + _lmsg
                         lang_warned = True
             except Exception as _lex:
+                if _mismatch:
+                    _release_model()
+                    raise
                 print(f"[lang-check] {job_id}: skipped ({_lex})")
             try:
                 segments_gen, info = _get_model().transcribe(
                     str(audio_path),
                     beam_size=5,
-                    language="en",
+                    language=languages.get(source_language).whisper_code,
                     word_timestamps=True,
                     vad_filter=True,
                     condition_on_previous_text=False,
@@ -899,7 +934,7 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                             seg_index += 1
                 else:
                     # No diarization: old behaviour (split long segments by sentences)
-                    split_parts = split_segment(segment, max_duration=15.0)
+                    split_parts = split_segment(segment, max_duration=15.0, source_language=source_language)
                     for part in split_parts:
                         speaker = "Speaker 1"
                         part_words = []
@@ -925,12 +960,16 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
                         })
                         seg_index += 1
 
-            result = merge_mid_sentence_rows(smooth_speaker_islands(result))
+            if source_language != "en":
+                result = [part for row in result for part in source_rows.split_timed_row(row, source_language)]
+                for index, row in enumerate(result):
+                    row["segment_id"] = f"seg_{index}"
+            result = merge_mid_sentence_rows(smooth_speaker_islands(result)) if source_language == "en" else merge_mid_sentence_rows(smooth_speaker_islands(result, source_language), source_language)
             if not lang_warned:      # model-free second look: lines written in Arabic / other non-Latin letters
                 try:
                     import lang_check
                     if lang_check.ENABLED:
-                        _tmsg, _tdet = lang_check.text_check(result)
+                        _tmsg, _tdet = lang_check.text_check(result, source_language=source_language)
                         print(f"[lang-check] {job_id}: text {_tdet}")
                         if _tmsg:
                             warning = (warning + " | " if warning else "") + _tmsg
@@ -1012,6 +1051,8 @@ def transcribe_worker(job_id: str, input_path: str, hf_token: str, speaker_count
 
             jobs_progress[job_id]["segments"] = result
             jobs_progress[job_id]["status"] = "done"
+            import source_jobs
+            source_jobs.clear_retry(UPLOAD_DIR, job_id)
             jobs_progress[job_id]["percent"] = 100
             jobs_progress[job_id]["full_duration"] = total_duration
             jobs_progress[job_id]["status_text"] = "Done"

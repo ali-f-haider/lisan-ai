@@ -1,0 +1,323 @@
+{
+  "origin": "invented; no film or customer data",
+  "native_review": "needs a native check",
+  "profile": "tidy",
+  "lines": [
+    {
+      "id": "pt_00",
+      "speaker": "A",
+      "text": "Onde está a chave?",
+      "expected_splits": [
+        "Onde está a chave?"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_01",
+      "speaker": "B",
+      "text": "Encontrei-a!",
+      "expected_splits": [
+        "Encontrei-a!"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_02",
+      "speaker": "A",
+      "text": "O Sr. Costa chega hoje.",
+      "expected_splits": [
+        "O Sr. Costa chega hoje."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_03",
+      "speaker": "A",
+      "text": "A Dra. Mora revê o plano.",
+      "expected_splits": [
+        "A Dra. Mora revê o plano."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_04",
+      "speaker": "B",
+      "text": "Precisamos de 3,5 metros.",
+      "expected_splits": [
+        "Precisamos de 3,5 metros."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_05",
+      "speaker": "A",
+      "text": "O ecrã mostra 3.5.",
+      "expected_splits": [
+        "O ecrã mostra 3.5."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_06",
+      "speaker": "A",
+      "text": "«Venha amanhã.»",
+      "expected_splits": [
+        "«Venha amanhã.»"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_07",
+      "speaker": "B",
+      "text": "Ele disse: «É azul?»",
+      "expected_splits": [
+        "Ele disse: «É azul?»"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_08",
+      "speaker": "A",
+      "text": "Não, eu—",
+      "expected_splits": [
+        "Não, eu—"
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_09",
+      "speaker": "A",
+      "text": "Se chegar antes de",
+      "expected_splits": [
+        "Se chegar antes de"
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_10",
+      "speaker": "B",
+      "text": "Olá. Como está?",
+      "expected_splits": [
+        "Olá. ",
+        "Como está?"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_11",
+      "speaker": "A",
+      "text": "Muito bem! Obrigado.",
+      "expected_splits": [
+        "Muito bem! ",
+        "Obrigado."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_12",
+      "speaker": "A",
+      "text": "Fale com o Sr.",
+      "expected_splits": [
+        "Fale com o Sr."
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_13",
+      "speaker": "B",
+      "text": "É para a Sra.",
+      "expected_splits": [
+        "É para a Sra."
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_14",
+      "speaker": "A",
+      "text": "O Dr. Costa espera.",
+      "expected_splits": [
+        "O Dr. Costa espera."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_15",
+      "speaker": "A",
+      "text": "Talvez…",
+      "expected_splits": [
+        "Talvez…"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_16",
+      "speaker": "B",
+      "text": "Espere...",
+      "expected_splits": [
+        "Espere..."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_17",
+      "speaker": "A",
+      "text": "A sério?!",
+      "expected_splits": [
+        "A sério?!"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_18",
+      "speaker": "A",
+      "text": "A porta está aberta. ",
+      "expected_splits": [
+        "A porta está aberta. "
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_19",
+      "speaker": "B",
+      "text": "A viagem custa 12 euros.",
+      "expected_splits": [
+        "A viagem custa 12 euros."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_20",
+      "speaker": "A",
+      "text": "Amanhã iremos à oficina.",
+      "expected_splits": [
+        "Amanhã iremos à oficina."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_21",
+      "speaker": "A",
+      "text": "Ana comprou dois cadernos.",
+      "expected_splits": [
+        "Ana comprou dois cadernos."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_22",
+      "speaker": "B",
+      "text": "Não traduza o apelido Sol.",
+      "expected_splits": [
+        "Não traduza o apelido Sol."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_23",
+      "speaker": "A",
+      "text": "Vou ligar às 10:30.",
+      "expected_splits": [
+        "Vou ligar às 10:30."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_24",
+      "speaker": "A",
+      "text": "Tu virás?",
+      "expected_splits": [
+        "Tu virás?"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_25",
+      "speaker": "B",
+      "text": "Você pode entrar.",
+      "expected_splits": [
+        "Você pode entrar."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_26",
+      "speaker": "A",
+      "text": "Elas estão prontas.",
+      "expected_splits": [
+        "Elas estão prontas."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_27",
+      "speaker": "A",
+      "text": "Ele está pronto.",
+      "expected_splits": [
+        "Ele está pronto."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_28",
+      "speaker": "B",
+      "text": "Traga pão, fruta, etc.",
+      "expected_splits": [
+        "Traga pão, fruta, etc."
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "pt_29",
+      "speaker": "A",
+      "text": "Olá, Lúcia! Sente-se.",
+      "expected_splits": [
+        "Olá, Lúcia! ",
+        "Sente-se."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    }
+  ],
+  "shared_cue": {
+    "lines": [
+      "- Onde está a chave?",
+      "- Encontrei-a!"
+    ],
+    "speakers": [
+      "A",
+      "B"
+    ],
+    "expected_speaker_changes": [
+      1
+    ]
+  }
+}

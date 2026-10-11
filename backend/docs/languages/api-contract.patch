@@ -1,0 +1,59 @@
+--- a/api_schema.py
++++ b/api_schema.py
+@@ -38,6 +38,7 @@
+         "required": ["kind", "filename", "size_bytes", "rights_confirmed", "terms_version"],
+         "properties": {
+             "kind": {"type": "string", "enum": ["short", "long"]},
++            "source_language": {"type": "string", "enum": ["en", "es", "fr", "pt", "it", "de"], "default": "en"},
+             "filename": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": r"^[^/\\\x00-\x1f\x7f]+$"},
+             "size_bytes": {"type": "integer", "minimum": 1, "maximum": 2147483648},
+             "name": {"type": "string", "maxLength": 80},
+--- a/docs/api/openapi.yaml
++++ b/docs/api/openapi.yaml
+@@ -3,7 +3,7 @@
+   "info": {
+     "title": "Lisan AI API",
+     "version": "1.0.0-draft",
+-    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. English-to-Arabic dubbing using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
++    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. Dubbing supported source languages into Arabic using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
+   },
+   "servers": [
+     {
+@@ -1421,6 +1421,18 @@
+               "short",
+               "long"
+             ]
++          },
++          "source_language": {
++            "type": "string",
++            "enum": [
++              "en",
++              "es",
++              "fr",
++              "pt",
++              "it",
++              "de"
++            ],
++            "default": "en"
+           },
+           "filename": {
+             "type": "string",
+@@ -1728,6 +1740,18 @@
+               "short",
+               "long"
+             ]
++          },
++          "source_language": {
++            "type": "string",
++            "enum": [
++              "en",
++              "es",
++              "fr",
++              "pt",
++              "it",
++              "de"
++            ],
++            "default": "en"
+           },
+           "status": {
+             "type": "string",

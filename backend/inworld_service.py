@@ -63,6 +63,7 @@ silently skipped):
     here -- that tool is unrelated to the live dubbing pipeline this swap
     is actually about, out of scope for this change.
 """
+import languages
 import base64
 import json
 import os
@@ -444,7 +445,7 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
 
 
 @_metered("shortdub_clone", lambda job_id, *a, **k: job_id)
-def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None) -> dict:
+def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: list = None, source_language=None) -> dict:
     """Same behavior/shape as eleven_service.clone_voices: extracts the
     cleanest reference clip per speaker from the source video (up to ~20s,
     comfortably under Inworld's 30s Instant Voice Cloning sample cap), then
@@ -458,6 +459,10 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
     eleven_service.clone_voices rather than shared/imported -- this keeps
     the two engines fully independent, so nothing here can ever change
     ElevenLabs' behavior, and vice versa."""
+    if source_language is None:
+        import source_jobs
+        from config import UPLOAD_DIR
+        source_language = source_jobs.language(UPLOAD_DIR, job_id)
     if not _configured(api_key):
         return {"error": "Voice cloning is temporarily unavailable. Please try again later, or choose a studio voice in Step 4."}
     audio_path = resolve_job_audio(job_id)
@@ -578,7 +583,7 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
                 cloned_voices[speaker] = f"ERROR: {speaker} doesn't have enough clear speech to copy a voice. Choose a studio voice for this speaker in Step 4."
                 continue
             try:
-                voice_id = clone_voice_from_file(f"Cloned_{speaker}", concat_file, api_key, language_code=CLONE_SAMPLE_LANGUAGE)
+                voice_id = clone_voice_from_file(f"Cloned_{speaker}", concat_file, api_key, language_code=CLONE_SAMPLE_LANGUAGE if languages.get(source_language).code == "en" else languages.get(source_language).whisper_code)
                 cloned_voices[speaker] = voice_id
                 # Keep the reference sample, same as eleven_service.
                 # clone_voices -- lets the user download it via

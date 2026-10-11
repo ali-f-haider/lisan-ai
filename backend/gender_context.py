@@ -6,6 +6,7 @@
   usually the speaker of the line before or after) and the other speakers with their genders. The translator reads this.
 * Nothing here changes a line. It never raises; a missing piece just leaves the translator with less to go on.
 """
+import languages, language_prompts
 import json
 import re
 import subprocess
@@ -212,7 +213,7 @@ def ask_people(job_id, prompt, key):
         return None
 
 
-def read_transcript_people(job_id, rows, key, ask=None):
+def read_transcript_people(job_id, rows, key, ask=None, source_language="en"):
     """{speaker: {"gender": "male"|"female"|"", "role": str}} from what the WORDS of the dialogue show (names, titles, he/she, jobs).
     A gender counts only when the quoted evidence really occurs in the transcript. Never raises; {} when nothing is known."""
     try:
@@ -230,7 +231,7 @@ def read_transcript_people(job_id, rows, key, ask=None):
             if used > MAX_PEOPLE_CHARS:
                 break
             body.append(f"{n} | {t}")
-        prompt = PEOPLE_PROMPT + "Speakers: " + ", ".join(names) + "\nTranscript:\n" + "\n".join(body)
+        prompt = (PEOPLE_PROMPT if languages.get(source_language).code == "en" else language_prompts.people_rules(source_language)) + "Speakers: " + ", ".join(names) + "\nTranscript:\n" + "\n".join(body)
         answer = ask(prompt) if ask else ask_people(job_id, prompt, key)
         if isinstance(answer, dict):
             answer = answer.get("speakers") or answer.get("people")

@@ -9,6 +9,7 @@ from api_schema import BODY_SCHEMAS, validate_body, validate_chunk
 
 
 GOOD_BODIES = {
+    "SourceLanguage": {"source_language": "fr"},
     "CreateJob": {"kind": "short", "filename": "sample.mp4", "size_bytes": 1024,
                   "rights_confirmed": True, "terms_version": "test-version"},
     "QuoteRequest": {"step": "dub"},

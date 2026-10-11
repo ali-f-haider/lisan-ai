@@ -1,0 +1,80 @@
+{
+  "origin": "invented",
+  "native_review": "needs a native check",
+  "cues": [
+    {
+      "lines": [
+        "ANNA: <i>Wo ist er?</i>"
+      ],
+      "cleaned": [
+        "Wo ist er?"
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[Musik]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(Seufzen)"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "KARL: Ich habe ihn gefunden."
+      ],
+      "cleaned": [
+        "Ich habe ihn gefunden."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "— Hallo.",
+        "- Guten Morgen."
+      ],
+      "cleaned": [
+        "Hallo.",
+        "Guten Morgen."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "Eine Kiste (klein)."
+      ],
+      "cleaned": [
+        "Eine Kiste (klein)."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ Ein Lied ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "KARL: Ich habe ihn gefunden.",
+        "ANNA: <i>Wo ist er?</i>"
+      ],
+      "cleaned": [
+        "Ich habe ihn gefunden.",
+        "Wo ist er?"
+      ],
+      "speaker_changes": [
+        1
+      ]
+    }
+  ]
+}

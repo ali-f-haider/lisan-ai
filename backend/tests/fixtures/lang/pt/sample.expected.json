@@ -1,0 +1,80 @@
+{
+  "origin": "invented",
+  "native_review": "needs a native check",
+  "cues": [
+    {
+      "lines": [
+        "LÚCIA: <i>Onde está?</i>"
+      ],
+      "cleaned": [
+        "Onde está?"
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[música]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(suspira)"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "JOÃO: Encontrei-a."
+      ],
+      "cleaned": [
+        "Encontrei-a."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "- Olá.",
+        "— Bom dia."
+      ],
+      "cleaned": [
+        "Olá.",
+        "Bom dia."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "Uma caixa (pequena)."
+      ],
+      "cleaned": [
+        "Uma caixa (pequena)."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ Uma canção ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "JOÃO: Encontrei-a.",
+        "LÚCIA: <i>Onde está?</i>"
+      ],
+      "cleaned": [
+        "Encontrei-a.",
+        "Onde está?"
+      ],
+      "speaker_changes": [
+        1
+      ]
+    }
+  ]
+}

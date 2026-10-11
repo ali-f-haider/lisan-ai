@@ -1,0 +1,323 @@
+{
+  "origin": "invented; no film or customer data",
+  "native_review": "needs a native check",
+  "profile": "tidy",
+  "lines": [
+    {
+      "id": "it_00",
+      "speaker": "A",
+      "text": "Dov’è la chiave?",
+      "expected_splits": [
+        "Dov’è la chiave?"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_01",
+      "speaker": "B",
+      "text": "L’ho trovata!",
+      "expected_splits": [
+        "L’ho trovata!"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_02",
+      "speaker": "A",
+      "text": "Il Sig. Riva arriva oggi.",
+      "expected_splits": [
+        "Il Sig. Riva arriva oggi."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_03",
+      "speaker": "A",
+      "text": "La Dott.ssa Mora controlla il piano.",
+      "expected_splits": [
+        "La Dott.ssa Mora controlla il piano."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_04",
+      "speaker": "B",
+      "text": "Servono 3,5 metri.",
+      "expected_splits": [
+        "Servono 3,5 metri."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_05",
+      "speaker": "A",
+      "text": "Lo schermo mostra 3.5.",
+      "expected_splits": [
+        "Lo schermo mostra 3.5."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_06",
+      "speaker": "A",
+      "text": "«Vieni domani.»",
+      "expected_splits": [
+        "«Vieni domani.»"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_07",
+      "speaker": "B",
+      "text": "Ha detto: «È blu?»",
+      "expected_splits": [
+        "Ha detto: «È blu?»"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_08",
+      "speaker": "A",
+      "text": "No, io—",
+      "expected_splits": [
+        "No, io—"
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_09",
+      "speaker": "A",
+      "text": "Se arrivi prima di",
+      "expected_splits": [
+        "Se arrivi prima di"
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_10",
+      "speaker": "B",
+      "text": "Ciao. Come stai?",
+      "expected_splits": [
+        "Ciao. ",
+        "Come stai?"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_11",
+      "speaker": "A",
+      "text": "Bene! Grazie.",
+      "expected_splits": [
+        "Bene! ",
+        "Grazie."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_12",
+      "speaker": "A",
+      "text": "Parla con il Sig.",
+      "expected_splits": [
+        "Parla con il Sig."
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_13",
+      "speaker": "B",
+      "text": "È per il Dott.",
+      "expected_splits": [
+        "È per il Dott."
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_14",
+      "speaker": "A",
+      "text": "La Sig.ra Riva aspetta.",
+      "expected_splits": [
+        "La Sig.ra Riva aspetta."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_15",
+      "speaker": "A",
+      "text": "Forse…",
+      "expected_splits": [
+        "Forse…"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_16",
+      "speaker": "B",
+      "text": "Aspetta...",
+      "expected_splits": [
+        "Aspetta..."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_17",
+      "speaker": "A",
+      "text": "Davvero?!",
+      "expected_splits": [
+        "Davvero?!"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_18",
+      "speaker": "A",
+      "text": "La porta è aperta. ",
+      "expected_splits": [
+        "La porta è aperta. "
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_19",
+      "speaker": "B",
+      "text": "Il viaggio costa 12 euro.",
+      "expected_splits": [
+        "Il viaggio costa 12 euro."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_20",
+      "speaker": "A",
+      "text": "Domani andremo in officina.",
+      "expected_splits": [
+        "Domani andremo in officina."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_21",
+      "speaker": "A",
+      "text": "Anna ha comprato due quaderni.",
+      "expected_splits": [
+        "Anna ha comprato due quaderni."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_22",
+      "speaker": "B",
+      "text": "Non tradurre il cognome Sol.",
+      "expected_splits": [
+        "Non tradurre il cognome Sol."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_23",
+      "speaker": "A",
+      "text": "Chiamerò alle 10:30.",
+      "expected_splits": [
+        "Chiamerò alle 10:30."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_24",
+      "speaker": "A",
+      "text": "Tu verrai?",
+      "expected_splits": [
+        "Tu verrai?"
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_25",
+      "speaker": "B",
+      "text": "Lei può entrare.",
+      "expected_splits": [
+        "Lei può entrare."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_26",
+      "speaker": "A",
+      "text": "Loro sono pronte.",
+      "expected_splits": [
+        "Loro sono pronte."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_27",
+      "speaker": "A",
+      "text": "Lui è pronto.",
+      "expected_splits": [
+        "Lui è pronto."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_28",
+      "speaker": "B",
+      "text": "Porta pane, frutta, ecc.",
+      "expected_splits": [
+        "Porta pane, frutta, ecc."
+      ],
+      "expected_ends_sentence": false,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    },
+    {
+      "id": "it_29",
+      "speaker": "A",
+      "text": "Ciao, Lucia! Siediti.",
+      "expected_splits": [
+        "Ciao, Lucia! ",
+        "Siediti."
+      ],
+      "expected_ends_sentence": true,
+      "note": "needs a native check; punctuation expectations are proposed deterministic rules"
+    }
+  ],
+  "shared_cue": {
+    "lines": [
+      "- Dov’è la chiave?",
+      "- L’ho trovata!"
+    ],
+    "speakers": [
+      "A",
+      "B"
+    ],
+    "expected_speaker_changes": [
+      1
+    ]
+  }
+}

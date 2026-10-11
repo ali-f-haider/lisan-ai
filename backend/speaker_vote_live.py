@@ -6,6 +6,7 @@ in speaker_vote.py but is OFF here until a matched end-to-end memory test shows 
 
 Nothing in this file names a vendor or model to a customer: every message that can reach a customer is written in plain words.
 """
+import languages, language_prompts
 import base64
 import hashlib
 import json
@@ -51,7 +52,9 @@ def transcript(rows):
     return "\n".join(_row_json(r) for r in rows)
 
 
-def prompt_for(kind, rows):
+def prompt_for(kind, rows, source_language="en"):
+    if languages.get(source_language).code != "en":
+        return language_prompts.speaker_prompt(kind, rows, source_language)
     audio = kind == "audio"
     head = ("Below is the transcript of a scene from a film, one line per row, with start and end seconds. Several different people speak. ")
     if audio:
@@ -72,11 +75,11 @@ def _limit(n_lines, retry=False):
     return min(65536, 24576 + 40 * max(1, int(n_lines)))
 
 
-def _payload(kind, rows, audio_b64, retry=False):
+def _payload(kind, rows, audio_b64, retry=False, source_language="en"):
     parts = []
     if kind == "audio":
         parts.append({"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}})
-    parts.append({"text": prompt_for(kind, rows)})
+    parts.append({"text": prompt_for(kind, rows, source_language=source_language)})
     # "medium" thinking is what the test clip was measured with (an 8,192-token budget maps to it in gemini_service)
     return {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": _limit(len(rows), retry),
@@ -96,14 +99,14 @@ def _default_ask(api_key, payload, timeout):
     return gemini_service.call_gemini(api_key, payload, timeout=timeout)
 
 
-def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage):
+def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en"):
     """One listening request, with one more try (and more output room) when the answer is missing or unusable.
     Returns {segment_id: label} or None. Never raises."""
     ids = [r["segment_id"] for r in rows]
     parse = speaker_vote.parse_audio_answer if kind == "audio" else speaker_vote.parse_dialogue_answer
     for attempt in range(2):
         try:
-            data, _err = ask(api_key, _payload(kind, rows, audio_b64, retry=attempt > 0), 600)
+            data, _err = ask(api_key, _payload(kind, rows, audio_b64, retry=attempt > 0, source_language=source_language), 600)
         except Exception as ex:      # a failing request is an unavailable voter, not a failing job
             print(f"[speaker_vote] {kind} request failed: {type(ex).__name__}")
             data = None
@@ -172,11 +175,13 @@ def _save_state(path, state):
     os.replace(tmp, path)
 
 
-def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None):
+def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_language="en"):
     """Returns {"dialogue": map|None, "audio": map|None, "usage": {...}, "reused": bool}.
     Answers are saved in work_dir so a restart reuses them (no second request, no second cost)."""
     ask = ask or _default_ask
     fp = fingerprint(rows)
+    if languages.get(source_language).code != "en":
+        fp = hashlib.sha256((fp + languages.get(source_language).code).encode("ascii")).hexdigest()
     state_path = Path(work_dir) / STATE_FILE
     saved = _load_state(state_path, fp)
     if saved:
@@ -198,7 +203,7 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None):
 
     def run(kind):
         u = {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}
-        res = _one_voter(kind, job_id, rows, audio_b64, api_key, ask, u)
+        res = _one_voter(kind, job_id, rows, audio_b64, api_key, ask, u, source_language=source_language)
         with locks:
             results[kind] = res
             for k in usage:

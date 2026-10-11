@@ -1,0 +1,120 @@
+{
+  "origin": "invented; expectations captured from existing helpers",
+  "cases": [
+    {
+      "text": "Wait...",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait…",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait.",
+      "tidy": true,
+      "subtitle": true
+    },
+    {
+      "text": "Wait—",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Wait -",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Wait...\"",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait…\"",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait.\"",
+      "tidy": true,
+      "subtitle": true
+    },
+    {
+      "text": "Wait—\"",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Wait -\"",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Wait... ",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait… ",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait. ",
+      "tidy": true,
+      "subtitle": false
+    },
+    {
+      "text": "Wait— ",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Wait - ",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Mr.",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Hi Mr.",
+      "tidy": false,
+      "subtitle": true
+    },
+    {
+      "text": "Mr.\"",
+      "tidy": true,
+      "subtitle": true
+    },
+    {
+      "text": "U.S.",
+      "tidy": true,
+      "subtitle": true
+    },
+    {
+      "text": "3.5",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "What?!",
+      "tidy": true,
+      "subtitle": true
+    },
+    {
+      "text": "I-If",
+      "tidy": false,
+      "subtitle": false
+    },
+    {
+      "text": "Wait.)",
+      "tidy": true,
+      "subtitle": true
+    }
+  ]
+}

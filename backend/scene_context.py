@@ -19,6 +19,7 @@ changing a Step 5.5 setting or redoing a long dub with the same text never pays 
 Everything here is best effort and never raises into the caller; on any problem there is simply no limit.
 Switch off globally with SCENE_CONTEXT=0.
 """
+import languages, language_prompts
 import base64
 import hashlib
 import json
@@ -161,7 +162,9 @@ def _frames(video_path, duration, n):
     return out
 
 
-def _prompt(duration, has_frames):
+def _prompt(duration, has_frames, source_language="en"):
+    if languages.get(source_language).code != "en":
+        return language_prompts.scene_prompt(duration, has_frames, source_language)
     kinds = "\n".join(f'  "{k}": {v[0]}' for k, v in SETTINGS.items())
     return f"""You help a dubbing studio decide how much room echo (reverb) the original recording of a video has.
 Below is the transcript of the video with the time of every line{', and a few frames of the video with their times' if has_frames else ''}.
@@ -201,10 +204,14 @@ def _record(job_id, cost):
         pass
 
 
-def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=None):
+def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=None, source_language=None):
     """-> {"scenes": [...], "cost_usd": float, "reused": bool, "summary": str} or None when there is nothing to go on.
     rows = [{"start": s, "text": english text}] (the transcript)."""
     try:
+        if source_language is None:
+            import source_jobs
+            from config import UPLOAD_DIR
+            source_language = source_jobs.language(UPLOAD_DIR, job_id)
         if not ENABLED or not api_key:
             return None
         text = _transcript(rows)
@@ -216,6 +223,8 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
         if duration < 5:
             return None
         key = hashlib.sha1((text + f"|{duration:.0f}|v{CACHE_VERSION}").encode("utf-8")).hexdigest()[:16]
+        if languages.get(source_language).code != "en":
+            key = hashlib.sha1((key + languages.get(source_language).code).encode("ascii")).hexdigest()[:16]
         cache = Path(cache_dir) / f"{job_id}_scenes.json"
         try:
             if cache.exists():
@@ -230,7 +239,7 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
         if video_path:
             n_frames = max(2, min(MAX_FRAMES, int(duration // 150) + 2))
             frames = _frames(video_path, duration, n_frames)
-        parts = [{"text": _prompt(duration, bool(frames))}, {"text": "TRANSCRIPT:\n" + text}]
+        parts = [{"text": _prompt(duration, bool(frames), source_language)}, {"text": "TRANSCRIPT:\n" + text}]
         for t, jpg in frames:
             parts.append({"text": f"Frame at {_fmt_t(t)} (about {t:.0f} s):"})
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpg).decode("ascii")}})

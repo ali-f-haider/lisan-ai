@@ -10,6 +10,7 @@ Arabic. This module only WARNS; it never blocks and never changes a transcript. 
 
 Every function is best-effort and never raises.
 """
+import languages, lang_text
 import os
 import re
 
@@ -87,8 +88,8 @@ def judge_file(model, path, max_windows=MAX_WINDOWS):
     return out
 
 
-def is_flagged(j):
-    return bool(j) and j.get("lang") != "en" and float(j.get("prob", 0)) >= FLAG_PROB
+def is_flagged(j, source_language="en"):
+    return bool(j) and j.get("lang") != languages.get(source_language).code and float(j.get("prob", 0)) >= FLAG_PROB
 
 
 def _fmt(sec):
@@ -96,10 +97,16 @@ def _fmt(sec):
     return f"{sec // 60}:{sec % 60:02d}"
 
 
-def summarize(judged, ranges=None):
+def summarize(judged, ranges=None, source_language="en"):
     """judged = list of judge results; ranges = optional list of (t0, t1) covering the same stretches in the
     whole video (the long flow judges one stretch per piece and reports the piece's time range).
     Returns (message or None, detail text for the log)."""
+    if languages.get(source_language).code != "en":
+        valid = [j for j in (judged or []) if isinstance(j, dict) and j.get("lang")]
+        flagged = [j for j in valid if is_flagged(j, source_language)]
+        msg = ("The original language could not be confirmed. Please review the original lines." if not valid else
+               "Some speech may be in a different language. Please review the original lines." if flagged else None)
+        return msg, "expected=" + languages.get(source_language).code
     try:
         judged = [j for j in (judged or []) if j]
         if not judged:
@@ -152,9 +159,12 @@ def non_latin_share(text):
     return len(non) / float(len(letters))
 
 
-def text_check(rows):
+def text_check(rows, source_language="en"):
     """Looks at the English text of the lines. Returns (message or None, detail).
     A line counts when more than half of its letters are not Latin."""
+    if languages.get(source_language).code != "en":
+        verdict, evidence = lang_text.looks_like(" ".join(str(r.get("text") or "") for r in (rows or [])), source_language)
+        return ("Please check that the original lines match the language of your video." if verdict == "mismatch" else None), str(evidence)
     try:
         rows = [r for r in (rows or []) if (r.get("text") or "").strip()]
         if not rows:
@@ -170,3 +180,33 @@ def text_check(rows):
         return msg, detail
     except Exception as ex:
         return None, f"skipped ({ex})"
+
+
+def mismatch(judged, source_language="en"):
+    """Pause only for a dominant, confidently detected different language.
+
+    Uses the existing detector; 60% dominance is a conservative heuristic,
+    not a measured accuracy claim. Minority and uncertain speech remain warnings.
+    """
+    import math
+    expected = languages.get(source_language).code
+    speech, totals = 0.0, {}
+    for j in judged or []:
+        try:
+            seconds, prob = float(j.get("speech", 0)), float(j.get("prob", 0))
+            if not math.isfinite(seconds) or not math.isfinite(prob) or seconds < MIN_SPEECH_SEC:
+                continue
+            speech += seconds
+            code = str(j.get("lang") or "").lower()
+            if prob >= FLAG_PROB and code != expected:
+                totals[code] = totals.get(code, 0.0) + seconds
+        except (AttributeError, TypeError, ValueError):
+            continue
+    if not speech or not totals:
+        return None
+    detected = max(totals, key=totals.get)
+    if totals[detected] < MIN_FLAGGED_SPEECH_SEC or totals[detected] / speech < 0.60:
+        return None
+    return {"expected": expected, "detected": detected,
+            "supported": languages.is_supported(detected),
+            "message": "The speech appears to be in a different language. Choose the video's language to continue."}

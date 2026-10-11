@@ -1,3 +1,4 @@
+import languages, language_prompts, source_jobs
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import json
@@ -239,6 +240,11 @@ class VoiceLibraryAddRequest(BaseModel):
     new_name: str = "Voice"
 
 class TranslateRequest(_JobIdModel):
+    source_language: str = "en"
+    @field_validator("source_language")
+    @classmethod
+    def _source_ok(cls, value):
+        return source_jobs.validate(value)
     job_id: str = ""
     segments: List[Segment]
     speaker_genders: Dict[str, str] = {}     # only what the person chose for a speaker (certain)
@@ -246,6 +252,11 @@ class TranslateRequest(_JobIdModel):
     context: List[dict] = []                 # every line of the project: segment_id, start, end, speaker, text (so "you" can be understood)
 
 class EmotionRequest(_JobIdModel):
+    source_language: str = "en"
+    @field_validator("source_language")
+    @classmethod
+    def _source_ok(cls, value):
+        return source_jobs.validate(value)
     job_id: str
     segments: List[Segment]
 
@@ -3554,7 +3565,7 @@ def _cleanup_worker():
         print("[db-backup] first run error:", e)
     try:
         import voice_numbers
-        r2_backup.backup_register_files([voice_numbers.FILE])
+        r2_backup.backup_register_files([voice_numbers.FILE] + list(UPLOAD_DIR.glob("*_source_language.json")))
     except Exception as e:
         print("[register-backup] first run error:", e)
     while True:
@@ -3569,7 +3580,7 @@ def _cleanup_worker():
             print("[db-backup] sweep error:", e)
         try:
             import voice_numbers
-            r2_backup.backup_register_files([voice_numbers.FILE])
+            r2_backup.backup_register_files([voice_numbers.FILE] + list(UPLOAD_DIR.glob("*_source_language.json")))
         except Exception as e:
             print("[register-backup] sweep error:", e)
         try:
@@ -3810,6 +3821,14 @@ def home():
 def app_js():
     return FileResponse(BASE_DIR / "app.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
+@app.get("/source_language.js")
+def source_language_script():
+    return FileResponse(BASE_DIR / "source_language.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+@app.get("/api/source-languages")
+def source_languages():
+    return {"languages": [{"code": item.code, "en": languages.names(item.code), "ar": languages.names(item.code, "ar"), "beta": item.beta} for item in languages.supported()]}
+
 @app.get("/dialogs.js")
 def dialogs_js():
     return FileResponse(BASE_DIR / "dialogs.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
@@ -3942,7 +3961,11 @@ CLONE_QUALITY_WARN_SEC = 30
 
 
 @app.post("/api/transcribe")
-async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form(""), lipsync: str = Form("false"), trim_start: float = Form(-1.0), trim_end: float = Form(-1.0)):
+async def transcribe(request: Request, file: UploadFile = File(...), speaker_count: int = Form(0), hf_token: str = Form(""), voice_consent: str = Form(""), lipsync: str = Form("false"), trim_start: float = Form(-1.0), trim_end: float = Form(-1.0), source_language: str = Form("en")):
+    try:
+        source_language = source_jobs.validate(source_language)
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
     if _rate_limited(request, "transcribe", HEAVY_RATE_MAX, HEAVY_RATE_WINDOW_SEC):
         return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
     # The client already blocks the button until the voice-rights checkbox is
@@ -4046,15 +4069,43 @@ async def transcribe(request: Request, file: UploadFile = File(...), speaker_cou
     jobs_progress[job_id] = {"status": "processing", "percent": 0,
                              "status_text": "Upload done, starting transcription...",
                              "is_video": ext in VIDEO_EXTS}
+    source_jobs.set_language(UPLOAD_DIR, job_id, source_language)
     threading.Thread(target=whisper_service.transcribe_worker,
-                     args=(job_id, str(dest), HF_TOKEN, speaker_count, lipsync_wanted), daemon=True).start()
+                     args=(job_id, str(dest), HF_TOKEN, speaker_count, lipsync_wanted), kwargs={"source_language": source_language}, daemon=True).start()
     _watch_and_deduct(job_id, uid, "transcribe")
     _record_voice_consent(job_id, uid, request)
     return {"job_id": job_id}
 
+@app.post("/api/transcribe/{job_id}/source-language")
+def short_switch_language(job_id: str, body: dict, request: Request):
+    guard = _job_guard(request, job_id, allow_empty=False)
+    if guard:
+        return guard
+    try:
+        code = source_jobs.validate(body.get("source_language"))
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
+    with source_jobs._LOCK:
+        if jobs_progress.get(job_id, {}).get("status") != "language_mismatch":
+            return JSONResponse({"error": "This transcription is not paused for a language choice."}, status_code=409)
+        prepared = source_jobs.retry(UPLOAD_DIR, job_id)
+        if not prepared:
+            return JSONResponse({"error": "The upload is no longer available. Please upload the video again."}, status_code=410)
+        source_jobs.set_language(UPLOAD_DIR, job_id, code)
+        jobs_progress[job_id].update(status="processing", source_language=code, language_mismatch=None)
+        threading.Thread(target=whisper_service.transcribe_worker,
+                         args=(job_id, prepared["input_path"], HF_TOKEN, prepared.get("speaker_count"), prepared.get("lipsync_wanted", False)),
+                         kwargs={"source_language": code, "prepared": prepared}, daemon=True).start()
+    return {"job_id": job_id, "source_language": code}
+
+
 @app.post("/api/attach_media")
-async def attach_media(request: Request, file: UploadFile = File(...)):
+async def attach_media(request: Request, file: UploadFile = File(...), source_language: str = Form("en")):
     """Upload media file for an existing project without transcribing."""
+    try:
+        source_language = source_jobs.validate(source_language)
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
     uid = _current_uid(request)
     if not uid:
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
@@ -4062,6 +4113,7 @@ async def attach_media(request: Request, file: UploadFile = File(...)):
     job_id = str(uuid.uuid4())
     _job_started[job_id] = _time.time()
     _register_job_owner(job_id, uid)
+    source_jobs.set_language(UPLOAD_DIR, job_id, source_language)
     ext = Path(file.filename or "audio.mp4").suffix.lower() or ".mp4"
     dest = UPLOAD_DIR / f"{job_id}{ext}"
 
@@ -4193,7 +4245,9 @@ def progress(job_id: str, request: Request):
     _g = _job_guard(request, job_id)
     if _g:
         return _g
-    return _public_progress(jobs_progress.get(job_id, {"status": "not_found"}))
+    data = dict(jobs_progress.get(job_id, {"status": "not_found"}))
+    data["source_language"] = source_jobs.language(UPLOAD_DIR, job_id)
+    return _public_progress(data)
 
 @app.get("/api/source/{job_id}")
 def source(job_id: str, request: Request):
@@ -4515,12 +4569,18 @@ def translate(req: TranslateRequest, request: Request):
     _g = _job_guard(request, req.job_id)
     if _g:
         return _g
+    if jobs_progress.get(req.job_id, {}).get("status") == "language_mismatch":
+        return JSONResponse({"error": "Choose the original language before translating."}, status_code=409)
     gender, genders = None, None
     try:
         gender, genders = _short_gender_context(req)
     except Exception as ex:
         print(f"[translate] gender context skipped: {type(ex).__name__}: {ex}")
-    result = gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY, gender=gender)
+    code = source_jobs.language(UPLOAD_DIR, req.job_id) if req.job_id else req.source_language
+    if code == "en":
+        result = gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY, gender=gender)
+    else:
+        result = gemini_service.translate_segments(req.job_id, req.segments, GEMINI_API_KEY, gender=gender, source_language=code)
     if gender and isinstance(result, dict) and result.get("status") == "success":
         result["speaker_genders"] = genders          # the page keeps what was heard for the speakers the person did not choose
     return result
@@ -4557,8 +4617,11 @@ def _short_gender_context(req):
         genders.setdefault(r["speaker"], {"gender": "", "source": "", "uncertain": True})
     roles = {}
     if GEMINI_API_KEY:        # what the words of the dialogue show (names, titles, he/she, jobs) beats a voice guess
-        genders, roles = gender_context.combine_people(genders, gender_context.read_transcript_people(req.job_id, rows, GEMINI_API_KEY))
+        genders, roles = gender_context.combine_people(genders, gender_context.read_transcript_people(req.job_id, rows, GEMINI_API_KEY, **({"source_language": source_jobs.language(UPLOAD_DIR, req.job_id)} if req.job_id else {"source_language": req.source_language})))
     ids = [s.segment_id for s in req.segments]
+    code = source_jobs.language(UPLOAD_DIR, req.job_id) if req.job_id else req.source_language
+    if code != "en":
+        return language_prompts.gender_context(rows, ids, genders, code, roles=roles), genders
     return ({"speakers": gender_context.speaker_table(genders, roles), "lines": gender_context.build_context(rows, ids, genders, roles)}, genders)
 
 @app.post("/api/detect_emotions")
@@ -5359,6 +5422,11 @@ threading.Thread(target=_credit_recovery, daemon=True, name="credit-recovery").s
 
 # ===== SUBTITLE FILE -> CORRECTS THE TRANSCRIPT (short dub page; the long dub has its own route above) =====
 class SubsAlignRequest(BaseModel):
+    source_language: str = "en"
+    @field_validator("source_language")
+    @classmethod
+    def _source_ok(cls, value):
+        return source_jobs.validate(value)
     text: str = ""
     filename: str = ""
     mode: str = "auto"
@@ -5375,13 +5443,13 @@ async def subs_align_route(body: SubsAlignRequest, request: Request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if len(body.segments) > 3000 or len(body.text) > subs_align.MAX_CHARS:
         return JSONResponse({"error": customer_message(subs_align.reason_message("too_big")), "reason": "too_big"}, status_code=400)
-    ok, info = subs_align.check_file(body.text, body.filename)
+    ok, info = subs_align.check_file(body.text, body.filename, source_language=body.source_language)
     if not ok:
-        return JSONResponse({"error": customer_message(subs_align.reason_message(info)), "reason": info}, status_code=400)
+        return JSONResponse({"error": customer_message(subs_align.reason_message(info, body.source_language)), "reason": info}, status_code=400)
     rows = [r for r in body.segments if isinstance(r, dict)]
-    new_rows, rep = await asyncio.to_thread(subs_align.correct_rows, rows, body.text, body.filename, body.mode, body.add_missed)
+    new_rows, rep = await asyncio.to_thread(subs_align.correct_rows, rows, body.text, body.filename, body.mode, body.add_missed, source_language=body.source_language)
     if not rep.get("ok"):
-        return JSONResponse({"error": customer_message(subs_align.reason_message(rep.get("reason"))), "reason": rep.get("reason")}, status_code=400)
+        return JSONResponse({"error": customer_message(subs_align.reason_message(rep.get("reason"), body.source_language)), "reason": rep.get("reason")}, status_code=400)
     return {"ok": True, "segments": new_rows, "report": rep}
 
 
@@ -5695,6 +5763,11 @@ def longdub_list(request: Request):
 
 
 class LongDubInit(BaseModel):
+    source_language: str = "en"
+    @field_validator("source_language")
+    @classmethod
+    def _source_ok(cls, value):
+        return source_jobs.validate(value)
     filename: str = ""
     size: int = 0
     speakers: int = 2
@@ -5723,9 +5796,20 @@ def longdub_init(body: LongDubInit, request: Request):
     if not _dg_ok:
         return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE), "capacity": True}, status_code=503)
     job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
-                                            body.name, body.description, body.lip_res)
+                                            body.name, body.description, body.lip_res, source_language=body.source_language)
     if err:
         return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
+    return customer_payload(longdub_service.public_view(job))
+
+
+@app.post("/api/longdub/{job_id}/source-language")
+def long_switch_language(job_id: str, body: dict, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, problem = longdub_service.switch_source_language(job, body.get("source_language"))
+    if not ok:
+        return JSONResponse({"error": problem[0]}, status_code=problem[1])
     return customer_payload(longdub_service.public_view(job))
 
 
@@ -6184,11 +6268,12 @@ def longdub_subtitles(job_id: str, request: Request, lang: str = "ar", fmt: str 
     uid, job, err = _ld_job(request, job_id)
     if err:
         return err
-    if lang not in subs_export.LANGS or fmt not in subs_export.FORMATS:
-        return JSONResponse({"error": "Choose Arabic, English or both, and SRT or VTT."}, status_code=400)
+    code = languages.get(job.get("source_language")).code
+    if lang not in ("ar", code, "both") or fmt not in subs_export.FORMATS:
+        return JSONResponse({"error": "Choose Arabic, the original language or both, and SRT or VTT."}, status_code=400)
     if job.get("status") not in ("editing", "done"):
         return JSONResponse({"error": "The subtitles are available once the lines are ready."}, status_code=409)
-    text, n = subs_export.export(longdub_service.read_segments(job), lang, fmt)
+    text, n = subs_export.export(longdub_service.read_segments(job), "en" if lang == code else lang, fmt)
     if not n:
         return JSONResponse({"error": "There is no text for this language yet."}, status_code=404)
     base = (Path(job.get("filename") or "video").stem[:80] or "video")
@@ -9189,8 +9274,11 @@ class _ApiLongDub:
 
     async def create(self, request, params):
         body = LongDubInit(filename=params["filename"], size=params["size"], speakers=params["speakers"],
-                           name=params["name"], description=params["description"])
+                           name=params["name"], description=params["description"], source_language=params.get("source_language", "en"))
         return _ld_out(await run_in_threadpool(longdub_init, body, request))
+
+    async def switch_source(self, request, job_id, source_language):
+        return _ld_out(await run_in_threadpool(long_switch_language, job_id, {"source_language": source_language}, request))
 
     async def chunk(self, request, job_id, index):
         return _ld_out(await longdub_chunk(job_id, index, request))

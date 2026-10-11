@@ -2,11 +2,12 @@
 
 Only an allow-list of fields is ever copied: no file names, text, speaker names, paths, provider ids or internal
 messages reach an API customer. Unknown statuses and stages fall back to the nearest published value."""
+import languages
 from datetime import datetime, timezone
 
 import api_errors
 
-STATUSES = ("uploading", "estimated", "accepted", "analyzing", "editing", "confirmed", "dubbing", "payment_pending", "done", "failed")
+STATUSES = ("uploading", "estimated", "accepted", "analyzing", "language_mismatch", "editing", "confirmed", "dubbing", "payment_pending", "done", "failed")
 STAGES = ("upload", "estimate", "queued", "extract", "plan", "separate", "speakers", "transcribe", "build", "translate",
           "review", "clone", "speak", "mix", "finish", "done", "failed")
 _STAGE_ALIASES = {"lipsync": "mix"}
@@ -63,7 +64,7 @@ def operation_view(job):
     elif step == "estimate":
         state = "succeeded" if status not in ("uploading",) else "accepted"
     elif step == "analysis":
-        state = {"accepted": "accepted", "analyzing": "running"}.get(status, "succeeded")
+        state = {"accepted": "accepted", "analyzing": "running", "language_mismatch": "running"}.get(status, "succeeded")
     else:
         state = {"confirmed": "accepted", "dubbing": "running", "done": "succeeded"}.get(status, "accepted")
     debited, refunded = _slot_totals(job, step)
@@ -87,10 +88,10 @@ def job_view(job, request_id, result_available):
     except (TypeError, ValueError):
         percent = 0
     api = job.get("api") if isinstance(job.get("api"), dict) else {}
-    return {"id": job["id"], "kind": "long", "status": status, "stage": stage, "percent": percent,
+    return {"id": job["id"], "kind": "long", "source_language": languages.get(job.get("source_language")).code, "status": status, "stage": stage, "percent": percent,
             "revision": int(api.get("revision", 0) or 0), "name": str(job.get("name") or "")[:80],
             "duration_seconds": duration, "media_present": bool(job.get("media_present", True)),
-            "result_available": bool(result_available), "error": err, "created_at": iso(job.get("created")),
+            "result_available": bool(result_available), "language_mismatch": mismatch_view(job), "error": err, "created_at": iso(job.get("created")),
             "updated_at": iso(job.get("updated") or job.get("created")), "current_operation": operation_view(job)}
 
 
@@ -127,3 +128,12 @@ def results_view(files, expires_at=None):
             out.append({"kind": kind, "size_bytes": max(0, int(size)), "media_type": media_type(suffix),
                         "expires_at": iso(expires_at) if expires_at else None})
     return {"results": out}
+
+
+def mismatch_view(job):
+    if job.get("status") != "language_mismatch":
+        return None
+    info = job.get("language_mismatch") or {}
+    detected = info.get("detected")
+    return {"detected_language": languages.get(detected).code if languages.is_supported(detected) else None,
+            "switch_available": True}

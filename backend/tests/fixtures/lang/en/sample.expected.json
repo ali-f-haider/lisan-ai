@@ -1,0 +1,78 @@
+{
+  "origin": "invented",
+  "native_review": "English legacy control",
+  "cues": [
+    {
+      "lines": [
+        "ALICE: <i>Where is it?</i>"
+      ],
+      "cleaned": [
+        "Where is it?"
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[music]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(sighs)"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "BOB: I found it."
+      ],
+      "cleaned": [
+        "I found it."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "- Hello.",
+        "- Good morning."
+      ],
+      "cleaned": [
+        "Hello.",
+        "Good morning."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "A (small) box."
+      ],
+      "cleaned": [
+        "A box."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ A song ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "BOB: I found it.",
+        "ALICE: <i>Where is it?</i>"
+      ],
+      "cleaned": [
+        "I found it.",
+        "Where is it?"
+      ],
+      "speaker_changes": []
+    }
+  ]
+}

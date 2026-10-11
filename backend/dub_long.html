@@ -100,6 +100,7 @@
 
 </div>
 
+<script src="/source_language.js"></script>
 <script src="/dialogs.js"></script>
 <script src="/longdub_editor.js"></script>
 <script src="/longdub_player.js"></script>
@@ -140,7 +141,7 @@ var T = {
     introSteps: [
       "Name your project, upload your video and tell us how many people speak. You pay a small fee to get a price and time estimate for the whole job — it counts toward the total.",
       "If you accept the estimate, we translate it into Arabic.",
-      "You review the text, name the speakers, assign each line to its speaker and edit the English and Arabic. You can save and close at any time and carry on later.",
+      "You review the text, name the speakers, assign each line to its speaker and edit the original and Arabic. You can save and close at any time and carry on later.",
       "You confirm the exact price. We clone each speaker's voice for this job only, dub the video on our servers and email you when it's finished."
     ],
     upsellHeading: "Studio plan feature",
@@ -183,15 +184,15 @@ var T = {
     trackVoices: "⬇️ Dubbed voices only", trackEffects: "⬇️ Music and effects only",
     wmNote: "Free version: you have not bought credits or a subscription yet, so a video you make carries a small semi-transparent Lisan AI logo in the corner. Audio files have none. Buy any credit pack or subscribe, and the videos you make afterwards have no logo.",
     musicAsk: "Keep the background music under the original voices",
-    musicAskNote: "The original English voice is taken out of the background and the music and effects that play at the same moment stay. Where that cannot be done cleanly the background is silenced there, as before. Untick to always silence it while people speak.",
+    musicAskNote: "The original voice is taken out of the background and the music and effects that play at the same moment stay. Where that cannot be done cleanly the background is silenced there, as before. Untick to always silence it while people speak.",
     musicFillNote: "Where the music has a gap because it had to be silenced, an AI music model can fill the gap so the music sounds continuous. It costs {n} credits for each gap that is really filled, and nothing when no gap can be filled. The gaps that need it are found while the dub is made.",
     tracksAsk: "Also save the dubbed voices and the music and effects as separate files",
     tracksAskNote: "For video editors who want to mix the sound themselves. Free, but the two files take about 3 MB per minute of video from your storage.",
     glossHeading: "Glossary (optional)",
-    glossNote: "Names and terms that must always be written the same way in Arabic. One per line: English = Arabic, for example Neo = نيو. The translation follows your list, and you can apply it to lines that are already translated. It costs nothing.",
+    glossNote: "Names and terms that must always be written the same way in Arabic. One per line: Original = Arabic, for example Neo = نيو. The translation follows your list, and you can apply it to lines that are already translated. It costs nothing.",
     glossPh: "Neo = نيو\nZion = صهيون",
     glossSave: "Save glossary", glossApply: "Apply to the lines", glossWorking: "Working…",
-    glossSaved: function (n, bad) { return n + " term" + (n === 1 ? "" : "s") + " saved." + (bad ? " " + bad + " line" + (bad === 1 ? " was" : "s were") + " not understood: write each one as English = Arabic." : ""); },
+    glossSaved: function (n, bad) { return n + " term" + (n === 1 ? "" : "s") + " saved." + (bad ? " " + bad + " line" + (bad === 1 ? " was" : "s were") + " not understood: write each one as Original = Arabic." : ""); },
     glossResult: function (r) {
       var a = [];
       if (r.fixed) a.push(r.fixed + " line" + (r.fixed === 1 ? " now uses" : "s now use") + " your glossary");
@@ -201,13 +202,13 @@ var T = {
       if (r.remaining) a.push(r.remaining + " more line" + (r.remaining === 1 ? "" : "s") + " to do: press the button again");
       return a.join(". ") + ".";
     },
-    subAskLabel: "English subtitle file (optional)",
-    subAskNote: "If the AI mishears words or names, add the English subtitle of this video: it is used to correct the transcript before the translation, so the Arabic is made from the right words. It can be the subtitle of a whole film; Lisan AI finds your part and ignores the rest. It costs nothing.",
+    subAskLabel: "Subtitle file in the original language (optional)",
+    subAskNote: "If the AI mishears words or names, add a subtitle in the video's original language of this video: it is used to correct the transcript before the translation, so the Arabic is made from the right words. It can be the subtitle of a whole film; Lisan AI finds your part and ignores the rest. It costs nothing.",
     subPick: "Add a subtitle file", subChange: "Change the subtitle file", subRemove: "Remove it", subClear: "Remove",
     subPicked: function (n) { return "Subtitle: " + n; },
     subOn: function (n, c) { return "Subtitle file: " + n + " (" + c + " subtitles). It will be used to correct the transcript before the translation."; },
     subNotSub: "This doesn't look like a subtitle file. Please choose an .srt, .vtt, .sbv or .ass file.",
-    subArabic: "This subtitle is in Arabic. Please choose the English subtitle of the same video.",
+    subArabic: "This subtitle is in Arabic. Please choose a subtitle in the video's original language of the same video.",
     subReadFail: "We couldn't read that file.",
     subDone: function (r) {
       var a = [(r.changed || 0) + " line(s) corrected from your subtitle file"];
@@ -320,13 +321,13 @@ var T = {
     doneWarn: function (n) { return n + " line(s) could not be dubbed and were left silent (their price was refunded)."; },
     doneLip: function (a, b) { return "Lip-sync: " + a + " of " + b + " clips were lip-synced."; },
     editorHeading: "3. Review and edit",
-    editorNote: "Check the speakers, fix any wrong words in the English or the Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, split a line in two (if one line holds two people talking), insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. A saved project is kept for 90 days.",
+    editorNote: "Check the speakers, fix any wrong words in the original or Arabic, and make sure every line belongs to the right speaker. You can change the time of any line, split a line in two (if one line holds two people talking), insert a new line after a line, or delete a line. Timing and tashkeel for the Arabic are automatic. Your changes are saved automatically. A saved project is kept for 90 days.",
     colTime: "Time / speaker", colEn: "English", colAr: "Arabic", emotionLbl: "Voice style",
     timeFrom: "From", timeTo: "To", timeBad: "Write the time like 1:23.5 or 83.5 (minutes:seconds).",
     insertLine: "+ Insert a line after", deleteLine: "Delete line",
     splitLine: "Split at cursor", splitting: "Splitting…",
-    splitHint: "Click in the English text, between the words where the second person starts, then press Split at cursor.",
-    confirmDelLine: "Delete this line? Its English and Arabic text will be removed from this project.",
+    splitHint: "Click in the original text, between the words where the second person starts, then press Split at cursor.",
+    confirmDelLine: "Delete this line? Its original and Arabic text will be removed from this project.",
     doneCut: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " longer than the time available even after speeding up to our limit, so " + (n === 1 ? "its end was" : "their ends were") + " cut short (at " + at + "). Next time, shorten those Arabic lines or change their timing."; },
     doneFast: function (n, at) { return n + " line" + (n === 1 ? " was" : "s were") + " sped up by 20% or more to fit (at " + at + ")."; },
     doneRephrased: function (n, at, back) { return n + " line" + (n === 1 ? " was" : "s were") + " too long for " + (n === 1 ? "its" : "their") + " time, so " + (n === 1 ? "it was" : "they were") + " rephrased shorter with the same meaning (at " + at + ")." + (back ? " The credits saved by the shorter text (" + back + ") were refunded." : ""); },
@@ -358,7 +359,7 @@ var T = {
     priceLipNone: "ℹ️ No stretch of speech is long enough to be lip-synced, so nothing is charged for lip-sync.",
     priceTotal: function (n) { return "Total for the whole job: " + n + " credits"; },
     priceTime: function (a, b, lip) { return "⏱ Dubbing " + (lip ? "with lip-sync " : "") + "takes about " + a + "–" + b + " minutes; we email you when the file is ready."; },
-    priceNoArabic: function (n) { return "⚠️ " + n + " line(s) have English but no Arabic. They will be left silent in the dubbed file."; },
+    priceNoArabic: function (n) { return "⚠️ " + n + " line(s) have original text but no Arabic. They will be left silent in the dubbed file."; },
     priceSpeakers: "Speakers that will be cloned:",
     roomLabel: "Room sound:",
     roomAuto: "Match the original (recommended)",
@@ -387,7 +388,7 @@ var T = {
     introSteps: [
       "سمِّ مشروعك، وارفع الفيديو وأخبرنا بعدد المتحدثين. تدفع رسماً صغيراً للحصول على تقدير السعر والوقت للعملية كاملة — ويُحتسب من الإجمالي.",
       "إذا وافقت على التقدير، نقوم بترجمته إلى العربية.",
-      "تراجع النص، وتسمّي المتحدثين، وتُسند كل سطر إلى متحدثه، وتعدّل النص الإنجليزي والعربي. يمكنك الحفظ والإغلاق في أي وقت والمتابعة لاحقاً.",
+      "تراجع النص، وتسمّي المتحدثين، وتُسند كل سطر إلى متحدثه، وتعدّل النص الأصلي والعربي. يمكنك الحفظ والإغلاق في أي وقت والمتابعة لاحقاً.",
       "تؤكد السعر النهائي. نستنسخ صوت كل متحدث لهذه العملية فقط، وندبلج الفيديو على خوادمنا ونراسلك عند الانتهاء."
     ],
     upsellHeading: "ميزة باقة Studio",
@@ -430,15 +431,15 @@ var T = {
     trackVoices: "⬇️ الأصوات المدبلجة فقط", trackEffects: "⬇️ الموسيقى والمؤثرات فقط",
     wmNote: "النسخة المجانية: لم تشترِ رصيداً أو اشتراكاً بعد، لذلك يحمل الفيديو الذي تصنعه شعار Lisan AI صغيراً شبه شفاف في الزاوية. أما الملفات الصوتية فبلا علامة. اشترِ أي باقة رصيد أو اشترك، وتصبح الفيديوهات التي تصنعها بعد ذلك بلا شعار.",
     musicAsk: "أبقِ موسيقى الخلفية تحت أصوات المتحدثين الأصليين",
-    musicAskNote: "يُزال صوت المتحدث الإنجليزي من الخلفية وتبقى الموسيقى والمؤثرات التي تعمل في اللحظة نفسها. وحيث لا يمكن ذلك بنظافة تُكتم الخلفية هناك كما كان من قبل. ألغِ التحديد لكتم الخلفية دائماً أثناء كلام المتحدثين.",
+    musicAskNote: "يُزال صوت المتحدث الأصلي من الخلفية وتبقى الموسيقى والمؤثرات التي تعمل في اللحظة نفسها. وحيث لا يمكن ذلك بنظافة تُكتم الخلفية هناك كما كان من قبل. ألغِ التحديد لكتم الخلفية دائماً أثناء كلام المتحدثين.",
     musicFillNote: "عندما يكون في الموسيقى فراغ لأنه كان لا بدّ من كتمها، يستطيع نموذج موسيقى بالذكاء الاصطناعي ملء الفراغ لتبدو الموسيقى متصلة. تكلفة كل فراغ يُملأ فعلاً {n} رصيداً، ولا شيء إذا لم يُملأ أي فراغ. تُكتشف الفراغات التي تحتاج إلى ذلك أثناء إنتاج الدبلجة.",
     tracksAsk: "احفظ أيضاً الأصوات المدبلجة والموسيقى والمؤثرات كملفات منفصلة",
     tracksAskNote: "لمن يريد مزج الصوت بنفسه في برنامج مونتاج. مجاني، لكن الملفين يأخذان نحو 3 ميغابايت لكل دقيقة فيديو من مساحة التخزين.",
     glossHeading: "قاموس المصطلحات (اختياري)",
-    glossNote: "أسماء ومصطلحات يجب أن تُكتب دائماً بالطريقة نفسها بالعربية. مصطلح في كل سطر: الإنجليزية = العربية، مثل Neo = نيو. تتبع الترجمة قائمتك، ويمكنك تطبيقها على الأسطر المترجمة سابقاً. بلا أي تكلفة.",
+    glossNote: "أسماء ومصطلحات يجب أن تُكتب دائماً بالطريقة نفسها بالعربية. مصطلح في كل سطر: اللغة الأصلية = العربية، مثل Neo = نيو. تتبع الترجمة قائمتك، ويمكنك تطبيقها على الأسطر المترجمة سابقاً. بلا أي تكلفة.",
     glossPh: "Neo = نيو\nZion = صهيون",
     glossSave: "حفظ القاموس", glossApply: "تطبيق على الأسطر", glossWorking: "جارٍ العمل…",
-    glossSaved: function (n, bad) { return "حُفظ " + n + " من المصطلحات." + (bad ? " تعذّر فهم " + bad + " من الأسطر: اكتب كل مصطلح بصيغة الإنجليزية = العربية." : ""); },
+    glossSaved: function (n, bad) { return "حُفظ " + n + " من المصطلحات." + (bad ? " تعذّر فهم " + bad + " من الأسطر: اكتب كل مصطلح بصيغة اللغة الأصلية = العربية." : ""); },
     glossResult: function (r) {
       var a = [];
       if (r.fixed) a.push("أصبح " + r.fixed + " من الأسطر يستخدم قاموسك");
@@ -448,13 +449,13 @@ var T = {
       if (r.remaining) a.push("بقي " + r.remaining + " من الأسطر: اضغط الزر مرة أخرى");
       return a.join("، ") + ".";
     },
-    subAskLabel: "ملف الترجمة الإنجليزية (اختياري)",
-    subAskNote: "إذا أخطأ الذكاء الاصطناعي في سماع كلمات أو أسماء، أضف الترجمة الإنجليزية لهذا الفيديو: تُستخدم لتصحيح النص قبل الترجمة، فتُترجَم الكلمات الصحيحة إلى العربية. ويمكن أن تكون ترجمة فيلم كامل؛ يجد لسان AI الجزء الخاص بفيديوك ويتجاهل الباقي. وهذه الخدمة مجانية.",
+    subAskLabel: "ملف ترجمة بنفس لغة الفيديو (اختياري)",
+    subAskNote: "إذا أخطأ الذكاء الاصطناعي في سماع كلمات أو أسماء، أضف الترجمة بنفس لغة هذا الفيديو: تُستخدم لتصحيح النص قبل الترجمة، فتُترجَم الكلمات الصحيحة إلى العربية. ويمكن أن تكون ترجمة فيلم كامل؛ يجد لسان AI الجزء الخاص بفيديوك ويتجاهل الباقي. وهذه الخدمة مجانية.",
     subPick: "أضف ملف ترجمة", subChange: "غيّر ملف الترجمة", subRemove: "أزله", subClear: "إزالة",
     subPicked: function (n) { return "الترجمة: " + n; },
     subOn: function (n, c) { return "ملف الترجمة: " + n + " (" + c + " ترجمة). سيُستخدم لتصحيح النص قبل الترجمة."; },
     subNotSub: "لا يبدو هذا ملف ترجمة. اختر ملفًا بصيغة ‎.srt أو ‎.vtt أو ‎.sbv أو ‎.ass.",
-    subArabic: "هذه الترجمة بالعربية. اختر الترجمة الإنجليزية لنفس الفيديو.",
+    subArabic: "هذه الترجمة بالعربية. اختر الترجمة بنفس لغة الفيديو.",
     subReadFail: "تعذّرت قراءة هذا الملف.",
     subDone: function (r) {
       var a = ["صُحّح " + (r.changed || 0) + " سطرًا من ملف الترجمة"];
@@ -567,13 +568,13 @@ var T = {
     doneWarn: function (n) { return "تعذّرت دبلجة " + n + " سطر وتُرك صامتاً (وأُعيد ثمنه)."; },
     doneLip: function (a, b) { return "مزامنة الشفاه: تمت مزامنة " + a + " من " + b + " مقطعاً."; },
     editorHeading: "٣. المراجعة والتعديل",
-    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الإنجليزي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو تقسيم سطر إلى اثنين (إذا كان يحوي كلام شخصين)، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ المشروع المحفوظ لمدة 90 يوماً.",
+    editorNote: "راجع المتحدثين، وصحّح أي كلمات خاطئة في النص الأصلي أو العربي، وتأكد أن كل سطر منسوب إلى المتحدث الصحيح. يمكنك تغيير وقت أي سطر، أو تقسيم سطر إلى اثنين (إذا كان يحوي كلام شخصين)، أو إدراج سطر جديد بعد سطر، أو حذف سطر. التوقيت والتشكيل للنص العربي تلقائيان. تُحفظ تعديلاتك تلقائياً. يُحفظ المشروع المحفوظ لمدة 90 يوماً.",
     colTime: "الوقت / المتحدث", colEn: "الإنجليزية", colAr: "العربية", emotionLbl: "الأسلوب",
     timeFrom: "من", timeTo: "إلى", timeBad: "اكتب الوقت بهذا الشكل: 1:23.5 أو 83.5 (دقائق:ثوانٍ).",
     insertLine: "+ إدراج سطر بعده", deleteLine: "حذف السطر",
     splitLine: "تقسيم عند المؤشر", splitting: "جارٍ التقسيم…",
-    splitHint: "انقر داخل النص الإنجليزي بين الكلمتين حيث يبدأ المتحدث الثاني، ثم اضغط «تقسيم عند المؤشر».",
-    confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الإنجليزي والعربي من هذا المشروع.",
+    splitHint: "انقر داخل النص الأصلي بين الكلمتين حيث يبدأ المتحدث الثاني، ثم اضغط «تقسيم عند المؤشر».",
+    confirmDelLine: "هل تريد حذف هذا السطر؟ سيُحذف نصّه الأصلي والعربي من هذا المشروع.",
     doneCut: function (n, at) { return "كان " + n + " سطر أطول من الوقت المتاح حتى بعد التسريع إلى حدّنا الأقصى، فقُطعت نهاياتها (عند " + at + "). في المرة القادمة اختصر هذه الأسطر العربية أو عدّل توقيتها."; },
     doneFast: function (n, at) { return "سُرّع " + n + " سطر بمقدار 20٪ أو أكثر ليتناسب مع الوقت (عند " + at + ")."; },
     doneRephrased: function (n, at, back) { return "كان " + n + " سطر أطول من وقته، فأُعيدت صياغته بشكل أقصر وبالمعنى نفسه (عند " + at + ")." + (back ? " وأُعيدت إليك الأرصدة التي وفّرها النص الأقصر (" + back + ")." : ""); },
@@ -709,6 +710,7 @@ function setCredits(n) {
 }
 
 function applyStaticText() {
+  LisanSource.mount($("uploadCard"), LANG);
   document.documentElement.lang = LANG;
   if (LANG === "ar") document.documentElement.dir = "rtl";
   document.title = T.title;
@@ -909,6 +911,7 @@ function qli(label, n, sub) {      // one line of a cost breakdown inside a bubb
 }
 
 function renderJob() {
+  if (cur) { T.colEn = LisanSource.name(cur.source_language, LANG); T.subsEn = T.colEn; T.subsBoth = T.subsAr + " + " + T.colEn; }
   if (!cur) { $("jobBody").innerHTML = ""; setSpin(false); return; }
   if (cur.status === "editing") { setSpin(false); renderReattach(); return; }
   var j = cur, h = "";
@@ -935,6 +938,8 @@ function renderJob() {
       }
     }
     h += '<div class="ld-row-btns"><button class="btn-plain" id="btnDelete">' + esc(T.cancelUpload) + "</button></div>";
+  } else if (j.status === "language_mismatch") {
+    h += name + '<p>' + esc(LANG === "ar" ? "يبدو أن الكلام بلغة أخرى. اختر لغة الفيديو للمتابعة." : "The speech appears to be in a different language. Choose the video's language to continue.") + '</p><div class="ld-row-btns"><select id="mismatchLanguage"></select><button id="switchSourceLanguage"></button></div>';
   } else if (j.status === "estimated") {
     h += name + renderEstimate(j);
   } else if (isWorking(j.status)) {
@@ -988,6 +993,20 @@ function renderJob() {
   }
   if (lastErr) h += '<div class="ld-err">' + esc(lastErr) + "</div>";
   $("jobBody").innerHTML = h;
+  if (j.status === "language_mismatch") {
+    var chooser = $("mismatchLanguage"), switchButton = $("switchSourceLanguage"), mismatch = j.language_mismatch || {};
+    chooser.setAttribute("aria-label", LANG === "ar" ? "لغة الفيديو الأصلية" : "Original video language");
+    LisanSource.options(chooser, mismatch.supported ? mismatch.detected : j.source_language, LANG);
+    var switchLabel = function () { switchButton.textContent = (LANG === "ar" ? "التبديل إلى " : "Switch to ") + LisanSource.name(chooser.value, LANG); };
+    chooser.onchange = switchLabel; switchLabel();
+    switchButton.onclick = function () {
+      switchButton.disabled = true;
+      api("POST", "/api/longdub/" + j.id + "/source-language", {source_language: chooser.value}).then(function (r) {
+        if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); switchButton.disabled = false; return; }
+        cur = r.data; render(); startPoll();
+      }, function () { switchButton.disabled = false; alertMsg(T.genericErr); });
+    };
+  }
   setSpin((j.status === "uploading" && (uploading || finishingFile)) || (isWorking(j.status) && j.stage !== "review"));
   wireJobButtons();
   if (j.status === "done" && j.file_available) wireSubs(j, "dn");
@@ -1062,6 +1081,8 @@ function wireSubs(j, pfx) {
   var l = $(pfx + "Lang"), f = $(pfx + "Fmt"), a = $(pfx + "Get");
   if (!l || !f || !a) return;
   var upd = function () { a.href = "/api/longdub/" + encodeURIComponent(j.id) + "/subtitles?lang=" + l.value + "&fmt=" + f.value; };
+  var sourceOption = l.querySelector('option[value="en"]');
+  if (sourceOption) { sourceOption.value = LisanSource.normalise(j.source_language); sourceOption.textContent = LisanSource.name(j.source_language, LANG); }
   l.onchange = upd; f.onchange = upd; upd();
 }
 function doneExtrasHtml(j) {
@@ -1363,7 +1384,7 @@ function onFilePicked(file) {
   var wantLip = !!($("lipYes") && $("lipYes").checked && !$("lipYes").disabled);
   if (wantLip && /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(file.name)) { showUploadError(T.lipAudio); return; }
   busyShow(T.busyFile);
-  api("POST", "/api/longdub/init", { filename: file.name, size: file.size, speakers: nsp, lipsync: wantLip, lip_res: wantLip ? ($("lipRes").value || "720P") : "",
+  api("POST", "/api/longdub/init", { filename: file.name, size: file.size, source_language: LisanSource.normalise($("sourceLanguage") && $("sourceLanguage").value), speakers: nsp, lipsync: wantLip, lip_res: wantLip ? ($("lipRes").value || "720P") : "",
                                         name: $("projName").value.trim(), description: $("projDesc").value.trim() }).then(function (r) {
     busyHide();
     if (!r.ok) { showUploadError(r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr)); return; }

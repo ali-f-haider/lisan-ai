@@ -38,6 +38,7 @@ BODY_SCHEMAS = {
         "required": ["kind", "filename", "size_bytes", "rights_confirmed", "terms_version"],
         "properties": {
             "kind": {"type": "string", "enum": ["short", "long"]},
+            "source_language": {"type": "string", "enum": ["en", "es", "fr", "pt", "it", "de"], "default": "en"},
             "filename": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": r"^[^/\\\x00-\x1f\x7f]+$"},
             "size_bytes": {"type": "integer", "minimum": 1, "maximum": 2147483648},
             "name": {"type": "string", "maxLength": 80},
@@ -47,6 +48,8 @@ BODY_SCHEMAS = {
             "terms_version": VERSION,
         },
     },
+    "SourceLanguage": {"type": "object", "additionalProperties": False, "required": ["source_language"],
+                       "properties": {"source_language": {"type": "string", "enum": ["en", "es", "fr", "pt", "it", "de"]}}},
     "QuoteRequest": {
         "type": "object", "additionalProperties": False, "required": ["step"],
         "properties": {

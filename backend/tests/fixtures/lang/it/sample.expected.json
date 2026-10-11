@@ -1,0 +1,80 @@
+{
+  "origin": "invented",
+  "native_review": "needs a native check",
+  "cues": [
+    {
+      "lines": [
+        "LUCIA: <i>Dov’è?</i>"
+      ],
+      "cleaned": [
+        "Dov’è?"
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[musica]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(sospira)"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "MARCO: L’ho trovata."
+      ],
+      "cleaned": [
+        "L’ho trovata."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "– Ciao.",
+        "- Buongiorno."
+      ],
+      "cleaned": [
+        "Ciao.",
+        "Buongiorno."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "Una scatola (piccola)."
+      ],
+      "cleaned": [
+        "Una scatola (piccola)."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ Una canzone ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "MARCO: L’ho trovata.",
+        "LUCIA: <i>Dov’è?</i>"
+      ],
+      "cleaned": [
+        "L’ho trovata.",
+        "Dov’è?"
+      ],
+      "speaker_changes": [
+        1
+      ]
+    }
+  ]
+}

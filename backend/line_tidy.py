@@ -12,6 +12,7 @@ always right at the edge between two speakers. Two mistakes are common and can b
 
 tidy_lines(rows, vocals) -> (rows, report). Never raises: any problem returns the rows as they were.
 """
+import languages, lang_text
 import re
 
 SENT_END = re.compile(r"[.!?؟…][\"'”’)\]]*\s*$")
@@ -24,7 +25,9 @@ MIN_VOICE_SEC = 0.25        # a stretch of voice shorter than this is a breath o
 ONSET_BACK_MAX = 6.0        # a line's start is never moved back by more than this
 
 
-def _ends_sentence(text):
+def _ends_sentence(text, source_language="en"):
+    if languages.get(source_language).code != "en":
+        return lang_text.ends_sentence(text, source_language, profile="tidy")
     t = str(text or "").strip()
     return bool(SENT_END.search(t)) and t.split()[-1].lower() not in NOT_END if t else False
 
@@ -43,14 +46,14 @@ def _join_text(a, b):
     return (str(a or "").strip() + " " + str(b or "").strip()).strip()
 
 
-def merge_split_phrases(rows):
+def merge_split_phrases(rows, source_language="en"):
     """Join neighbouring lines of the same speaker when the first stops in the middle of a sentence."""
     out, joined = [], 0
     for row in rows:
         if out:
             prev = out[-1]
             gap = float(row["start"]) - float(prev["end"])
-            if (_same_voice(prev, row) and gap <= MERGE_GAP and not _ends_sentence(prev.get("text"))
+            if (_same_voice(prev, row) and gap <= MERGE_GAP and not _ends_sentence(prev.get("text"), source_language=source_language)
                     and not INTERRUPTED.search(str(prev.get("text") or ""))
                     and float(row["end"]) - float(prev["start"]) <= MAX_LINE_SEC
                     and not (prev.get("locked") or row.get("locked"))):
@@ -64,11 +67,11 @@ def merge_split_phrases(rows):
     return out, joined
 
 
-def _tail_start(tokens):
+def _tail_start(tokens, source_language="en"):
     """Index of the first word of the unfinished last sentence, or None when the line holds no finished sentence."""
     cut = None
     for i, tok in enumerate(tokens[:-1]):
-        if SENT_END.search(tok) and tok.lower() not in NOT_END:
+        if (SENT_END.search(tok) and tok.lower() not in NOT_END) if languages.get(source_language).code == "en" else lang_text.ends_sentence(" ".join(tokens[:i + 1]), source_language, profile="tidy"):
             cut = i + 1
     return cut
 
@@ -164,7 +167,7 @@ def shift_head(a, b, count):
         a["words"] = list(a.get("words") or []) + list(head_words)
 
 
-def move_unfinished_beginnings(rows, vocals=None):
+def move_unfinished_beginnings(rows, vocals=None, source_language="en"):
     """A sentence has one speaker: when a line ends in the middle of a sentence and the next line has another speaker,
     the unfinished beginning of that sentence moves to the line that finishes it."""
     moved = 0
@@ -173,10 +176,10 @@ def move_unfinished_beginnings(rows, vocals=None):
         if _same_voice(a, b) or a.get("locked") or b.get("locked"):
             continue
         text = str(a.get("text") or "").strip()
-        if not text or _ends_sentence(text) or INTERRUPTED.search(text) or not str(b.get("text") or "").strip():
+        if not text or _ends_sentence(text, source_language=source_language) or INTERRUPTED.search(text) or not str(b.get("text") or "").strip():
             continue
         tokens = _tokens(text)
-        cut = _tail_start(tokens)
+        cut = _tail_start(tokens, source_language=source_language)
         if cut is None or len(tokens) - cut > MAX_TAIL_WORDS:
             continue                            # no finished sentence before it (an interruption), or too long to be a stray beginning
         shift_tail(a, b, cut, vocals)
@@ -203,7 +206,7 @@ def flag_cut(a, b, reason):
         row["cut_reasons"] = reasons
 
 
-def flag_doubtful_cuts(rows):
+def flag_doubtful_cuts(rows, source_language="en"):
     """After the fixes above: a cut between two speakers that still falls in the middle of a sentence (the line before ends
     without a full stop and without a dash, or the line after begins with a small letter) is shown to the person."""
     flagged = 0
@@ -214,23 +217,23 @@ def flag_doubtful_cuts(rows):
         ta, tb = str(a.get("text") or "").strip(), str(b.get("text") or "").strip()
         if not ta or not tb:
             continue
-        open_end = not _ends_sentence(ta) and not INTERRUPTED.search(ta)
-        small_start = tb[0].isalpha() and tb[0].islower() and not _ends_sentence(ta)
+        open_end = not _ends_sentence(ta, source_language=source_language) and not INTERRUPTED.search(ta)
+        small_start = tb[0].isalpha() and tb[0].islower() and not _ends_sentence(ta, source_language=source_language)
         if open_end or small_start:
             flag_cut(a, b, "open_end" if open_end else "small_start")
             flagged += 1
     return flagged
 
 
-def tidy_lines(rows, vocals=None):
+def tidy_lines(rows, vocals=None, source_language="en"):
     """Returns (rows, {"joined": n, "moved": n, "flagged": n}). The rows are changed in place and renumbered."""
     report = {"joined": 0, "moved": 0, "flagged": 0}
     try:
         ordered = sorted(rows, key=lambda r: (float(r["start"]), float(r["end"])))
-        merged, report["joined"] = merge_split_phrases([dict(r) for r in ordered])
-        report["moved"] = move_unfinished_beginnings(merged, vocals)
+        merged, report["joined"] = merge_split_phrases([dict(r) for r in ordered], source_language=source_language)
+        report["moved"] = move_unfinished_beginnings(merged, vocals, source_language=source_language)
         clear_flags(merged)
-        report["flagged"] = flag_doubtful_cuts(merged)
+        report["flagged"] = flag_doubtful_cuts(merged, source_language=source_language)
         for i, r in enumerate(merged):
             r["segment_id"] = f"seg_{i}"
         return merged, report

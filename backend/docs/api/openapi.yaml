@@ -3,7 +3,7 @@
   "info": {
     "title": "Lisan AI API",
     "version": "1.0.0-draft",
-    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. English-to-Arabic dubbing using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
+    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. Dubbing English, Spanish, French, Portuguese, Italian and German into Arabic using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
   },
   "servers": [
     {
@@ -17,6 +17,89 @@
     }
   ],
   "paths": {
+    "/v1/jobs/{job_id}/source-language": {
+      "post": {
+        "summary": "Resume a paused analysis with its chosen original language",
+        "operationId": "switchSourceLanguage",
+        "security": [
+          {
+            "ApiKeyBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "Persist a unique key per logical request. Retry identical content with that key. Completed response TTL is 24 hours; in-flight operations never expire into a second execution.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceLanguage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "X-Request-ID": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "Idempotency-Replayed": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "true",
+                    "false"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/PublicError"
+          }
+        },
+        "x-required-scope": "dub"
+      }
+    },
     "/v1/settings": {
       "get": {
         "operationId": "settings",
@@ -1404,6 +1487,26 @@
       }
     },
     "schemas": {
+      "SourceLanguage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_language"
+        ],
+        "properties": {
+          "source_language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "es",
+              "fr",
+              "pt",
+              "it",
+              "de"
+            ]
+          }
+        }
+      },
       "CreateJob": {
         "type": "object",
         "additionalProperties": false,
@@ -1415,6 +1518,11 @@
           "terms_version"
         ],
         "properties": {
+          "source_language": {
+            "type": "string",
+            "enum": ["en", "es", "fr", "pt", "it", "de"],
+            "default": "en"
+          },
           "kind": {
             "type": "string",
             "enum": [
@@ -1717,6 +1825,11 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
+          "source_language": {
+            "type": "string",
+            "enum": ["en", "es", "fr", "pt", "it", "de"],
+            "default": "en"
+          },
           "id": {
             "type": "string",
             "format": "uuid",
@@ -1736,6 +1849,7 @@
               "estimated",
               "accepted",
               "analyzing",
+              "language_mismatch",
               "editing",
               "confirmed",
               "dubbing",
@@ -1788,6 +1902,7 @@
           "media_present": {
             "type": "boolean"
           },
+          "language_mismatch": {"type": ["object", "null"], "properties": {"detected_language": {"type": ["string", "null"], "enum": ["en", "es", "fr", "pt", "it", "de", null]}, "switch_available": {"type": "boolean"}}, "additionalProperties": false},
           "result_available": {
             "type": "boolean"
           },

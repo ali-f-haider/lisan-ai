@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '..');
 const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8');
+const sourceLanguage = fs.readFileSync(path.join(root, 'source_language.js'), 'utf8');
 const account = fs.readFileSync(path.join(root, 'account.html'), 'utf8');
 
 function excerpt(source, first, last) {
@@ -25,7 +26,7 @@ function context() {
         localStorage: (() => { const data=new Map(); return {getItem:key=>data.get(key)||null,setItem:(key,value)=>data.set(key,value),removeItem:key=>data.delete(key)}; })(),
         document: { getElementById(id) { if (!elements.has(id)) elements.set(id, element()); return elements.get(id); }, querySelector() { return null; } },
         segmentsData: [{ segment_id: 'seg_0', arabic_text: 'مرحبا', emotion: 'neutral', speaker: 'Speaker 1', start: 0 }],
-        speakerVoices: { 'Speaker 1': 'voice' }, currentJobId: 'a'.repeat(32), totalDuration: 4,
+        speakerVoices: { 'Speaker 1': 'voice' }, currentSourceLanguage: 'en', currentJobId: 'a'.repeat(32), totalDuration: 4,
         generatePollTimer: null, checkGenerateProgress() {}, clearInterval() {}, setInterval() { return 1; },
         setBadge() {}, subsText(en, ar) { return c.window.currentLang === "ar" ? ar : en; },
         fetchUsage() {}, refreshCredits() {}, notify(type, text) { messages.push({ type, text }); },
@@ -38,6 +39,7 @@ function context() {
             return { ok: true, async json() { return url.endsWith('regenerate_line') ? { status: 'success', credits_charged: 2 } : { status: 'started' }; } };
         }
     });
+    vm.runInContext(sourceLanguage, c); c.LisanSource = c.window.LisanSource;
     elements.set('ttsProvider', { value: 'elevenlabs' });
     elements.set('geminiVoice', { value: 'Kore' });
     elements.set('durationMode', { value: 'exact' });
@@ -119,7 +121,7 @@ test('Arabic regeneration success reports the actual charge', async () => {
 test('invalid project JSON is described as a file problem and does not replace the current project', () => {
     const notifications = [];
     const current = [{ segment_id: 'existing' }];
-    const c = vm.createContext({ window: { currentLang: 'en' }, segmentsData: current,
+    const c = vm.createContext({ window: { currentLang: 'en' }, currentSourceLanguage: 'en', LisanSource: {normalise: value => ['en','es','fr','pt','it','de'].includes(value) ? value : 'en'}, segmentsData: current,
         notify(type, text) { notifications.push(text); },
         subsText(en, ar) { return c.window.currentLang === "ar" ? ar : en; },
         FileReader: class { readAsText() { this.result = '{bad json'; this.onload(); } }
@@ -427,4 +429,25 @@ test('timeline help is short, translated and contains no vendor names or technic
     const texts = JSON.parse(pair.replace(/,\s*$/,''));
     assert.equal(texts[0], note); assert.match(texts[1], /طبّق التغييرات/);
     assert.doesNotMatch(texts[1], /ElevenLabs|Gemini|Inworld|Fal|MP3|مقاطع|إعادة بناء/i);
+});
+
+test('saved source survives short-project loading and older projects default to English', () => {
+    const { c } = context(); let saved;
+    c.originalSegments = []; c.isVideoUpload = false; c.speakerVoiceNames = {}; c.speakerChoices = {}; c.clonedBySpeaker = {};
+    c.downloadText = (name, text) => { saved = JSON.parse(text); };
+    vm.runInContext(excerpt(app, 'function saveProject(', '// Cloned/custom voices'), c);
+    c.FileReader = class { readAsText() { this.result = JSON.stringify(saved); this.onload(); } };
+    c.renderTable = c.renderSpeakerVoices = c.validateClonedVoicesAfterLoad = c.showMediaBanner = () => {};
+    for (const code of ['en','es','fr','pt','it','de']) {
+        c.currentSourceLanguage = code; c.saveProject();
+        assert.equal(saved.source_language, code);
+        c.currentSourceLanguage = 'en';
+        c.loadProjectFile({target:{files:[{}],value:'invented'}});
+        assert.equal(c.currentSourceLanguage, code);
+        assert.equal(c.document.getElementById('sourceLanguage').value, code);
+    }
+    saved = {segments:[{arabic_text:'أَهْلًا.'}]};
+    c.currentSourceLanguage = 'fr'; c.loadProjectFile({target:{files:[{}],value:'old'}});
+    assert.equal(c.currentSourceLanguage, 'en');
+    assert.equal(c.document.getElementById('sourceLanguage').value, 'en');
 });

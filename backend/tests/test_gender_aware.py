@@ -214,7 +214,8 @@ class ShortDubTests(unittest.TestCase):
     def load(self):
         src = (ROOT / "main.py").read_text(encoding="utf-8")
         fn = src[src.index("def _short_gender_context"):src.index('@app.post("/api/detect_emotions")')]
-        scope = {"GEMINI_API_KEY": "k", "resolve_job_audio": lambda j: None}
+        import languages, language_prompts, source_jobs
+        scope = {"languages": languages, "language_prompts": language_prompts, "source_jobs": source_jobs, "UPLOAD_DIR": Path(tempfile.gettempdir()), "GEMINI_API_KEY": "k", "resolve_job_audio": lambda j: None}
         exec(fn, scope)
         return scope
 

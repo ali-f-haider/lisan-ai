@@ -97,6 +97,7 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 <tr><td><code>GET /v1/account/balance</code></td><td>Your credits</td><td>account</td></tr>
 <tr><td><code>POST /v1/jobs</code></td><td>Create a long-dub job</td><td>dub</td></tr>
 <tr><td><code>GET /v1/jobs</code></td><td>List your API jobs (<code>limit</code>, <code>cursor</code>)</td><td>read</td></tr>
+<tr><td><code>POST /v1/jobs/{id}/source-language</code></td><td>Resume a paused analysis with the original language you choose; no extra charge</td><td>dub</td></tr>
 <tr><td><code>GET /v1/jobs/{id}</code></td><td>Status, progress, last payment, errors</td><td>read</td></tr>
 <tr><td><code>DELETE /v1/jobs/{id}</code></td><td>Delete a job and its files (not while it is processing)</td><td>dub</td></tr>
 <tr><td><code>GET /v1/jobs/{id}/upload</code></td><td>Part size and which parts arrived</td><td>read</td></tr>
@@ -108,6 +109,10 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 <tr><td><code>GET /v1/jobs/{id}/results</code></td><td>Which result files exist</td><td>read</td></tr>
 <tr><td><code>GET /v1/jobs/{id}/results/{kind}</code></td><td>Download <code>mixed</code> (the finished dub), <code>dialogue</code> or <code>background</code></td><td>read</td></tr>
 </table></div>
+
+<h3>Original language</h3>
+<p>When creating a job, you may include <code>source_language</code>: <code>en</code> (English), <code>es</code> (Spanish), <code>fr</code> (French), <code>pt</code> (Portuguese), <code>it</code> (Italian) or <code>de</code> (German). If omitted, it is English. The result is Arabic and the same prices apply. The example tool below starts English projects; use the request field for the other languages. Any subtitle you attach on the website should match the original language.</p>
+<p>If polling returns <code>status: "language_mismatch"</code>, the analysis is paused for your choice. The optional <code>language_mismatch.detected_language</code> is a suggested supported language; it can be <code>null</code> when the speech appears to be outside the supported list. After checking your file, send your choice to <code>POST /v1/jobs/{id}/source-language</code> with the usual authorization and a new <code>Idempotency-Key</code>. The body is, for example, <code>{"source_language":"fr"}</code>. Poll the same job afterward. This resumes its existing analysis and does not start another payment.</p>
 
 <h2>7. Errors</h2>
 <p>A failed call returns an HTTP status and a body like <code>{"error":{"code":"quote_changed","message":"...","request_id":"req_..."}}</code>. Use the <code>code</code> in your software and quote the <code>request_id</code> if you contact support. "Retry" means: send the same request again with the same <code>Idempotency-Key</code>.</p>
