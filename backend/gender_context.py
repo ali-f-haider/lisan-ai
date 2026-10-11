@@ -6,6 +6,8 @@
   usually the speaker of the line before or after) and the other speakers with their genders. The translator reads this.
 * Nothing here changes a line. It never raises; a missing piece just leaves the translator with less to go on.
 """
+import json
+import re
 import subprocess
 import uuid
 from pathlib import Path
@@ -13,6 +15,15 @@ from pathlib import Path
 GENDERS = ("male", "female")
 CONTEXT_LINES = 3           # neighbouring lines shown before and after each line
 MAX_CONTEXT_CHARS = 220     # of each neighbouring line
+
+
+# Words that say WHO is spoken to, whatever the voice sounds like. Only words that are (almost) always said TO a person.
+_FEMALE_CUE = re.compile(r"\b(?:ma'?am|madam|madame|your ladyship)\b", re.I)
+_MALE_CUE = re.compile(r"\b(?:sir|your lordship)\b", re.I)
+# Titles whose Arabic form follows the person addressed; who that is has to be found in the dialogue.
+_HONORIFIC = re.compile(r"\byour\s+(?:honou?r|majesty|excellency|highness|grace|eminence|holiness)\b", re.I)
+_ROLE_OF = {"honou?r": r"judge|justice|magistrate", "majesty": r"king|queen|monarch|emperor|empress|sultan",
+            "highness": r"prince|princess", "excellency": r"ambassador|governor|president|minister"}
 
 
 def clean(g):
@@ -90,23 +101,52 @@ def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=No
     return out
 
 
-def speaker_table(genders):
-    """What the translator is told about each speaker: {name: "male"|"female"|"unknown"} plus how sure we are."""
+def address_cue(text):
+    """"male" / "female" when the line says "sir" / "ma'am" (so the person spoken to is known from the words), else ""."""
+    t = str(text or "")
+    f, m = bool(_FEMALE_CUE.search(t)), bool(_MALE_CUE.search(t))
+    return "female" if f and not m else ("male" if m and not f else "")
+
+
+def _role_speaker(text, me, genders, roles):
+    """The one speaker (not `me`) whose role matches the title in the line ("Your Honor" -> the judge), as (name, gender), or None."""
+    m = _HONORIFIC.search(str(text or ""))
+    if not m or not roles:
+        return None
+    word = m.group(0).split()[-1].lower()
+    for key, pattern in _ROLE_OF.items():
+        if re.fullmatch(key, word):
+            hits = [n for n, r in roles.items() if n != me and re.search(r"\b(?:%s)\b" % pattern, str(r or ""), re.I)]
+            if len(hits) == 1:
+                return hits[0], clean(((genders or {}).get(hits[0]) or {}).get("gender"))
+    return None
+
+
+def speaker_table(genders, roles=None):
+    """What the translator is told about each speaker: {name: "male"|"female"|"unknown"} plus how sure we are (and the role, when known)."""
     table = {}
     for name, info in (genders or {}).items():
         g = clean((info or {}).get("gender"))
+        src = (info or {}).get("source")
         if not g:
             table[name] = "unknown"
-        elif (info or {}).get("source") == "chosen":
+        elif src == "chosen":
             table[name] = f"{g} (certain: chosen by the user)"
+        elif src == "text":
+            table[name] = f"{g} (from the dialogue: a name, a title or he/she words{'; the voice sounded different' if (info or {}).get('uncertain') else ''})"
         else:
             table[name] = f"{g} ({'probably' if (info or {}).get('uncertain') else 'heard'}, from the voice)"
+        role = str((roles or {}).get(name) or "").strip()
+        if role:
+            table[name] += f"; role: {role}"
     return table
 
 
-def build_context(rows_all, ids, genders):
+def build_context(rows_all, ids, genders, roles=None):
     """{segment_id: {"speaker_gender", "before": [...], "after": [...]}} for the lines `ids`, from ALL lines in time order.
-    Each neighbour is {"speaker", "gender", "english"}. rows_all: [{segment_id, start, speaker, text}]."""
+    Each neighbour is {"speaker", "gender", "english"}. rows_all: [{segment_id, start, speaker, text}].
+    A line also gets "addressee_is" (a certain gender: the line says sir / ma'am, or it uses a title like "Your Honor" and the
+    speaker with that role, e.g. the judge, is known) and "probably_said_to" (the speaker of the line just before, else after)."""
     order = sorted((r for r in rows_all or [] if str(r.get("text") or "").strip() or r.get("segment_id") in ids),
                    key=lambda r: float(r.get("start") or 0))
     pos = {r.get("segment_id"): i for i, r in enumerate(order)}
@@ -124,7 +164,114 @@ def build_context(rows_all, ids, genders):
         out[sid] = {"speaker_gender": clean(((genders or {}).get(me.get("speaker")) or {}).get("gender")) or "unknown",
                     "before": [view(r) for r in order[max(0, i - CONTEXT_LINES):i]],
                     "after": [view(r) for r in order[i + 1:i + 1 + CONTEXT_LINES]]}
+        sure = address_cue(me.get("text"))
+        by_role = _role_speaker(me.get("text"), me.get("speaker"), genders, roles)
+        if by_role and by_role[1] and not sure:
+            sure = by_role[1]
+        if sure:
+            out[sid]["addressee_is"] = sure
+        for other in ([order[i - 1]] if i else []) + ([order[i + 1]] if i + 1 < len(order) else []):
+            if other.get("speaker") != me.get("speaker"):
+                out[sid]["probably_said_to"] = {"speaker": other.get("speaker"), "gender": view(other)["gender"]}
+                break
     return out
+
+
+PEOPLE_PROMPT = """Read this dialogue transcript. Every line is: speaker | text.
+For EVERY speaker in the list, say what the DIALOGUE ITSELF shows about them (the sound of a voice is not evidence here):
+- "gender": "male" or "female" only when the words prove it: someone calls them by a name or title that has a gender (Mr., Mrs., Ms., Miss, Madam, Sir, a clearly feminine or masculine first name, "Judge Roberta"), or he / she / his / her is said about them, or they say it of themselves. Otherwise "".
+- "evidence": the exact words from the transcript that prove the gender (copy them letter for letter), or "".
+- "role": their job or position when the dialogue shows it (judge, lawyer, prosecutor, doctor, officer, king, teacher ...): one or two words in lower case, or "".
+Never guess; when the words do not prove it, leave it empty.
+Return ONLY JSON: [{"speaker":"...","gender":"","evidence":"","role":""}]
+"""
+MAX_PEOPLE_CHARS = 400000
+
+
+def _plain(t):
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s']", " ", str(t or "").lower())).strip()
+
+
+def ask_people(job_id, prompt, key):
+    """One Gemini call; returns the parsed JSON or None. Never raises."""
+    try:
+        import gemini_service
+        payload = {"contents": [{"parts": [{"text": prompt}]}],
+                   "generationConfig": {"maxOutputTokens": 8192, "responseMimeType": "application/json"}}
+        data, err = gemini_service.call_gemini(key, payload, timeout=90)
+        try:
+            gemini_service.record_gemini(job_id, data)
+        except Exception:
+            pass
+        if data is None:
+            print(f"[gender] dialogue read: no answer: {err}")
+            return None
+        return json.loads(gemini_service._strip_code_fences(data["candidates"][0]["content"]["parts"][0]["text"]))
+    except Exception as ex:
+        print(f"[gender] dialogue read: unusable answer: {ex}")
+        return None
+
+
+def read_transcript_people(job_id, rows, key, ask=None):
+    """{speaker: {"gender": "male"|"female"|"", "role": str}} from what the WORDS of the dialogue show (names, titles, he/she, jobs).
+    A gender counts only when the quoted evidence really occurs in the transcript. Never raises; {} when nothing is known."""
+    try:
+        lines = [(str(r.get("speaker") or ""), str(r.get("text") or "").strip()[:240])
+                 for r in sorted(rows or [], key=lambda r: float(r.get("start") or 0)) if str(r.get("text") or "").strip()]
+        names = []
+        for n, _ in lines:
+            if n and n not in names:
+                names.append(n)
+        if not names or (ask is None and not key):
+            return {}
+        body, used = [], 0
+        for n, t in lines:
+            used += len(n) + len(t) + 4
+            if used > MAX_PEOPLE_CHARS:
+                break
+            body.append(f"{n} | {t}")
+        prompt = PEOPLE_PROMPT + "Speakers: " + ", ".join(names) + "\nTranscript:\n" + "\n".join(body)
+        answer = ask(prompt) if ask else ask_people(job_id, prompt, key)
+        if isinstance(answer, dict):
+            answer = answer.get("speakers") or answer.get("people")
+        if not isinstance(answer, list):
+            return {}
+        haystack = " " + _plain(" ".join(t for _, t in lines)) + " "
+        out = {}
+        for it in answer:
+            if not isinstance(it, dict) or str(it.get("speaker") or "") not in names:
+                continue
+            name = str(it["speaker"])
+            ev = _plain(it.get("evidence"))
+            g = clean(it.get("gender")) if ev and f" {ev} " in haystack else ""
+            role = re.sub(r"[^a-z \-]", "", str(it.get("role") or "").lower()).strip()[:30]
+            if g or role:
+                out[name] = {"gender": g, "role": role}
+        return out
+    except Exception as ex:
+        print(f"[gender] dialogue read skipped: {ex}")
+        return {}
+
+
+def combine_people(genders, people):
+    """Merge what the dialogue shows into the gender table. The person's own choice is never touched. A gender the words prove wins
+    over a voice guess (a deep or separated voice can fool the listener); if the voice said otherwise the speaker stays marked
+    unsure, so the person is shown it. Returns (new table, {speaker: role})."""
+    out, roles = {}, {}
+    for name, info in (genders or {}).items():
+        info = dict(info or {})
+        p = (people or {}).get(name) or {}
+        if p.get("role"):
+            roles[name] = p["role"]
+        tg = clean(p.get("gender"))
+        if tg and info.get("source") != "chosen":
+            voice = clean(info.get("gender"))
+            if voice == tg:
+                info["uncertain"] = False
+            else:
+                info = {"gender": tg, "source": "text", "uncertain": bool(voice)}
+        out[name] = info
+    return out, roles
 
 
 def read_flags(item):

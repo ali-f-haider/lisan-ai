@@ -312,8 +312,8 @@ var T = {
     storTitle: function (plan) { return plan ? "Storage · " + plan + " plan" : "Storage"; },
     storText: function (used, quota, pct) { return used + " of " + quota + " used (" + pct + "%)"; },
     storOk: function (free) { return free + " free. Finished files count toward your storage."; },
-    storNear: function (free) { return "Only " + free + " left. Delete files you no longer need, or upgrade your plan for more storage."; },
-    storFull: "Your storage is full. Delete some finished files below to be able to save new videos, or upgrade your plan for more storage.",
+    storNear: function (free, top) { return "Only " + free + " left. Delete files you no longer need" + (top ? "." : ", or upgrade your plan for more storage."); },
+    storFull: function (top) { return "Your storage is full. Delete some finished files below to be able to save new videos" + (top ? "." : ", or upgrade your plan for more storage."); },
     nothingYet: function (isSub) { return "Nothing here yet — files you generate will show up here for " + (isSub ? "30 days" : "48 hours") + "."; },
     couldntLoad: "Couldn't load your files right now.",
     dlVideo: "⬇️ Download Video", dlLipsync: "⬇️ Download Lip-Synced Video", dlMp3: "⬇️ Download MP3",
@@ -386,8 +386,8 @@ var T = {
     storTitle: function (plan) { return plan ? "التخزين · باقة " + plan : "التخزين"; },
     storText: function (used, quota, pct) { return "استُخدم " + used + " من " + quota + " (" + pct + "%)"; },
     storOk: function (free) { return "المتاح " + free + ". الملفات الجاهزة تُحتسب من مساحة التخزين."; },
-    storNear: function (free) { return "المتبقي " + free + " فقط. احذف الملفات التي لا تحتاجها أو رقِّ باقتك للحصول على مساحة أكبر."; },
-    storFull: "مساحة التخزين ممتلئة. احذف بعض الملفات الجاهزة أدناه لتتمكن من حفظ فيديوهات جديدة، أو رقِّ باقتك للحصول على مساحة أكبر.",
+    storNear: function (free, top) { return "المتبقي " + free + " فقط. احذف الملفات التي لا تحتاجها" + (top ? "." : " أو رقِّ باقتك للحصول على مساحة أكبر."); },
+    storFull: function (top) { return "مساحة التخزين ممتلئة. احذف بعض الملفات الجاهزة أدناه لتتمكن من حفظ فيديوهات جديدة" + (top ? "." : "، أو رقِّ باقتك للحصول على مساحة أكبر."); },
     nothingYet: function (isSub) { return "لا يوجد شيء هنا بعد — ستظهر الملفات التي تولّدها هنا لمدة " + (isSub ? "30 يومًا" : "48 ساعة") + "."; },
     couldntLoad: "تعذّر تحميل ملفاتك الآن.",
     dlVideo: "⬇️ تنزيل الفيديو", dlLipsync: "⬇️ تنزيل الفيديو المتزامن مع الشفاه", dlMp3: "⬇️ تنزيل MP3",
@@ -709,7 +709,8 @@ function renderStorage(sm) {
   var bar = document.getElementById("storBar"); bar.setAttribute("aria-valuenow", String(pct));
   var full = sm.used_bytes >= sm.quota_bytes, near = !full && pct >= 80;
   box.classList.toggle("full", full); box.classList.toggle("warn", near);
-  document.getElementById("storMsg").textContent = full ? T.storFull : (near ? T.storNear(fmtBytes(free)) : T.storOk(fmtBytes(free)));
+  var top = !!(sm.subscribed && sm.plan_name === "Studio");   // nothing above Studio to upgrade to
+  document.getElementById("storMsg").textContent = full ? T.storFull(top) : (near ? T.storNear(fmtBytes(free), top) : T.storOk(fmtBytes(free)));
 }
 
 function renderMyJobs(jobs) {

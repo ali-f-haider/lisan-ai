@@ -4555,8 +4555,11 @@ def _short_gender_context(req):
         genders.update(found)
     for r in rows:
         genders.setdefault(r["speaker"], {"gender": "", "source": "", "uncertain": True})
+    roles = {}
+    if GEMINI_API_KEY:        # what the words of the dialogue show (names, titles, he/she, jobs) beats a voice guess
+        genders, roles = gender_context.combine_people(genders, gender_context.read_transcript_people(req.job_id, rows, GEMINI_API_KEY))
     ids = [s.segment_id for s in req.segments]
-    return ({"speakers": gender_context.speaker_table(genders), "lines": gender_context.build_context(rows, ids, genders)}, genders)
+    return ({"speakers": gender_context.speaker_table(genders, roles), "lines": gender_context.build_context(rows, ids, genders, roles)}, genders)
 
 @app.post("/api/detect_emotions")
 def detect_emotions(req: EmotionRequest, request: Request):

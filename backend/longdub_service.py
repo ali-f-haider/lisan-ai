@@ -2350,9 +2350,10 @@ def _gender_args(job, rows_all, batch):
     """What the translator needs to get the Arabic gender and number right for these lines (see gender_context.py)."""
     try:
         genders = _speaker_genders(job)
+        roles = {sp["name"]: sp["role"] for sp in (job.get("speaker_list") or []) if sp.get("name") and sp.get("role")}
         ids = [r["segment_id"] for r in batch]
-        return {"speakers": gender_context.speaker_table(genders),
-                "lines": gender_context.build_context(rows_all, ids, genders)}
+        return {"speakers": gender_context.speaker_table(genders, roles),
+                "lines": gender_context.build_context(rows_all, ids, genders, roles)}
     except Exception as ex:
         print(f"[longdub] gender context skipped: {ex}")
         return None
@@ -2382,17 +2383,22 @@ def _detect_speaker_genders(job, rows, src):
         segs = [{"speaker": r["speaker"], "start": r["start"], "end": r["end"]} for r in rows]
         found = gender_context.detect_genders(job["id"], src if src and Path(src).exists() else None, segs, chosen,
                                               work=_wd(job) / "gender_tmp", key=GEMINI_API_KEY)
+        # What the WORDS show (names, titles, he/she, jobs) beats a voice guess; the person's own choice beats both.
+        people = gender_context.read_transcript_people(job["id"], rows, GEMINI_API_KEY)
+        found, roles = gender_context.combine_people(found, people)
         for sp in lst:
             info = found.get(sp.get("name"))
             if info:
                 sp["gender"], sp["gender_source"], sp["gender_uncertain"] = info["gender"], info["source"], info["uncertain"]
+            if roles.get(sp.get("name")):
+                sp["role"] = roles[sp["name"]]
         _ev(job, "speaker_genders", "ok", ", ".join(f"{sp.get('name')}={sp.get('gender') or '?'}({sp.get('gender_source') or 'none'}"
                                                      f"{', unsure' if sp.get('gender_uncertain') else ''})" for sp in lst))
     except Exception as ex:
         print(f"[longdub] speaker gender skipped: {ex}")
 
 
-def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flags=None):
+def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flags=None, _again=True):
     """Returns {segment_id: (arabic, emotion)} for the batch, {} on failure. glossary = the project's term list:
     only the terms that really occur in this batch's English are sent to the translator. gender = what _gender_args built;
     flags (a dict, filled in) gets {segment_id: (addressee, gender_check)}."""
@@ -2418,11 +2424,34 @@ def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flag
                                                       emotion_listen.merge(str(it.get("emotion") or "neutral"), None, "unknown"))
                         if flags is not None and gender:
                             flags[str(it["segment_id"])] = gender_context.read_flags(it)
+                if flags is not None and gender:
+                    _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, _again)
                 return out
         except Exception as ex:
             print(f"[longdub] translate batch failed (attempt {attempt + 1}): {ex}")
         time.sleep(3)
     return {}
+
+
+def _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, again):
+    """A line that says "sir" / "ma'am", or says "Your Honor" to a known judge, has a CERTAIN addressee (see gender_context.build_context).
+    If the translator's answer names someone else, the line is translated once more; if it still does, it gets the "check gender" mark."""
+    lines = (gender or {}).get("lines") or {}
+    wrong = [r for r in batch if lines.get(r["segment_id"], {}).get("addressee_is")
+             and r["segment_id"] in flags and flags[r["segment_id"]][0] != lines[r["segment_id"]]["addressee_is"]]
+    if not wrong:
+        return
+    if again:
+        sub = {}
+        got = _translate_batch(job_id, wrong, glossary, paces, gender=gender, flags=sub, _again=False)
+        for r in wrong:
+            sid = r["segment_id"]
+            if sid in got and got[sid][0] and sid in sub:
+                out[sid], flags[sid] = got[sid], sub[sid]
+    for r in wrong:
+        sid = r["segment_id"]
+        if flags[sid][0] != lines[sid]["addressee_is"]:
+            flags[sid] = (lines[sid]["addressee_is"], True)       # still disagrees: a person looks at it
 
 
 def _row_paces(rows):
@@ -3161,6 +3190,8 @@ def set_speakers(job, speakers):
         entry = {"id": sid, "name": name}
         old = next((sp for sp in job.get("speaker_list", []) if sp.get("id") == sid), {})
         keep = {k: old[k] for k in ("gender", "gender_source", "gender_uncertain") if k in old}
+        if old.get("role"):
+            entry["role"] = old["role"]                         # what the dialogue showed (judge, lawyer ...): not edited on the panel
         if "gender" not in (item or {}):
             entry.update(keep)                                  # the panel said nothing about gender: unchanged
         else:

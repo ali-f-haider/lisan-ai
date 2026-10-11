@@ -25,9 +25,9 @@ def strip(t):
     return MARKS.sub("", t or "")
 
 
-def case(name, lines, target, genders, must, must_not=(), raw=False, check=None):
+def case(name, lines, target, genders, must, must_not=(), raw=False, check=None, roles=None):
     """lines: [(speaker, english)]; target: index of the line that is judged; genders: {speaker: 'male'|'female'|''} (chosen by the user)."""
-    return dict(name=name, lines=lines, target=target, genders=genders, must=must, must_not=list(must_not), raw=raw, check=check)
+    return dict(name=name, lines=lines, target=target, genders=genders, must=must, must_not=list(must_not), raw=raw, check=check, roles=roles or {})
 
 
 M, F = "male", "female"
@@ -44,6 +44,14 @@ CASES = [
     case("a mixed group is asked", [("A", "Are you all ready?"), ("B", "Yes."), ("C", "Yes.")], 0, {"A": M, "B": F, "C": M}, r"(جاهزون|مستعدون|أنتم)", [r"(جاهزات|مستعدات)"]),
     case("a name shows who is addressed (genders not given)", [("A", "Sarah, you look tired."), ("B", "Yes.")], 0, {}, r"تبدين", []),
     case("nothing shows who is addressed: masculine and marked", [("A", "You look tired.")], 0, {}, r"تبدو", [], check=True),
+    # "Your Honor" is said to the judge, whatever the voice sounded like (the judge's gender came from the words of the dialogue).
+    case("'Your Honor' to a woman judge", [("J", "Mr. Reddington, do you have anything to say?"), ("R", "Yes. Thank you, Your Honor.")], 1, {"R": M, "J": F},
+         r"(القاضية|سيادتكِ|حضرتكِ|لكِ)", [r"القاضي" + END, r"سيدي"], roles={"J": "judge"}),
+    case("'Your Honor' to a man judge", [("J", "Mr. Reddington, do you have anything to say?"), ("R", "Yes. Thank you, Your Honor.")], 1, {"R": M, "J": M},
+         r"(القاضي|سيادتك|حضرتك|لك)", [r"القاضية", r"كِ" + END], roles={"J": "judge"}),
+    case("'Your Honor' after another person spoke last", [("J", "Mr. Reddington, do you have anything to say?"), ("L", "We object."), ("R", "Your Honor, I withdraw it.")], 2,
+         {"R": M, "J": F, "L": M}, r"(القاضية|سيادتكِ|حضرتكِ)", [r"القاضي" + END], roles={"J": "judge", "L": "lawyer"}),
+    case("'ma'am' is a woman whoever spoke before", [("A", "Good evening."), ("B", "Yes, ma'am. Right away.")], 1, {"A": M, "B": M}, r"(سيدتي|سيدة|مدام|هانم)", [r"سيدي" + END]),
 ]
 
 
@@ -52,7 +60,8 @@ def run_case(c, key):
     genders = {sp: ({"gender": c["genders"][sp], "source": "chosen", "uncertain": False} if c["genders"].get(sp) else {"gender": "", "source": "", "uncertain": True})
                for sp, _ in c["lines"]}
     tid = rows[c["target"]]["segment_id"]
-    gender = {"speakers": gc.speaker_table(genders), "lines": gc.build_context(rows, [tid], genders)}
+    roles = c.get("roles") or {}
+    gender = {"speakers": gc.speaker_table(genders, roles), "lines": gc.build_context(rows, [tid], genders, roles)}
     seg = Segment(segment_id=tid, start=rows[c["target"]]["start"], end=rows[c["target"]]["end"] + 2.0, speaker=rows[c["target"]]["speaker"], text=rows[c["target"]]["text"])
     return gemini_service.translate_segments("trial", [seg], key, gender=gender), gender
 

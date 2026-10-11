@@ -194,7 +194,9 @@ Each segment may carry "speaker_gender" and the neighbouring lines "before" / "a
 - First person (I, me, my, we): agree with the SPEAKER's gender. A woman says "أنا مُتْعَبَةٌ", a man "أنا مُتْعَبٌ".
 - Second person (you, your): decide WHO IS BEING SPOKEN TO from the neighbouring lines: usually the speaker of the line just before or after, or the person named or addressed (a name, sir, ma'am, darling, Mr., Mrs.). One man: أنتَ / ـكَ. One woman: أنتِ / ـكِ. Two people: use the dual or the plural as natural. A group of men or a mixed group: أنتم / ـكم. A group of women only: أنتنّ / ـكنّ. Commands and verbs agree the same way.
 - Third person (he, she, they, him, her): by who is meant, not by who speaks.
-- Use the stated gender of a speaker as a fact; "unknown" means you must decide from the text (names, titles, he/she said, mr/mrs) and if there is no clue use the masculine form.
+- Titles and forms of address (your honor, sir, ma'am, madam, miss, doctor, judge, professor, captain, officer, mr., mrs., ms., your majesty): the Arabic form follows the PERSON SPOKEN TO, never a stock masculine phrase. "Your Honor" to a woman judge is «سيادة القاضية» (or «حضرة القاضية»), to a man «سيادة القاضي»; with a woman use ـكِ / أنتِ, never ـكَ / أنتَ. The speakers table may give a role (judge, lawyer ...): "your honor" is said to the speaker whose role is judge.
+- "addressee_is" on a segment is CERTAIN: the line is said to that person (male or female, one person); use it for every "you", title and command in the line. "probably_said_to" is only the speaker of the neighbouring line: check it against the words (a name, a title, a reply) before relying on it.
+- Use the stated gender of a speaker as a fact. "(certain: chosen by the user)" and "(from the dialogue ...)" are facts. "(probably, from the voice)" can be wrong (a deep voice, a mixed-up recording): a name, a title or a he/she word in the lines overrides it. "unknown" means you must decide from the text (names, titles, he/she said, mr/mrs) and if there is no clue use the masculine form.
 - If you had to choose a gender-marked word WITHOUT real evidence (the speaker or the addressee is unknown and the text gives no clue), set "gender_check": true. Otherwise false.
 - "addressee": who the line is said to: "male", "female", "group" (more than one person), "none" (said to nobody, a general statement) or "unknown".
 These rules change only the gender and number forms, never the meaning, the length limits or the timing rules above.
@@ -228,6 +230,10 @@ def translate_segments(job_id: str, segments: list, api_key: str, glossary=None,
         g = gender_lines.get(str(seg.segment_id))
         if g:
             item["speaker_gender"] = g.get("speaker_gender", "unknown")
+            if g.get("addressee_is"):
+                item["addressee_is"] = g["addressee_is"]
+            if g.get("probably_said_to"):
+                item["probably_said_to"] = g["probably_said_to"]
             if g.get("before"):
                 item["before"] = g["before"]
             if g.get("after"):

@@ -653,12 +653,13 @@ function fmtBytesGB(n) { n = Number(n) || 0; return n >= 1073741824 ? (Math.roun
 // The server refuses to start a dub that could not be saved when the user's storage is full: say it in the page language.
 function storageMsg(d) {
   var sm = d.storage || {}, u = fmtBytesGB(sm.used_bytes), q = fmtBytesGB(sm.quota_bytes);
+  var top = !!(sm.subscribed && sm.plan_name === "Studio");   // nothing above Studio to upgrade to
   if (LANG === "ar") {
     return (sm.full ? "مساحة التخزين ممتلئة (" + u + " من " + q + "). " : "لا توجد مساحة تخزين كافية لحفظ هذا الفيديو (" + u + " من " + q + " مستخدمة). ")
-      + "احذف بعض الملفات الجاهزة من صفحة حسابك لتتمكن من حفظ فيديوهات جديدة، أو رقِّ باقتك للحصول على مساحة أكبر.";
+      + "احذف بعض الملفات الجاهزة من صفحة حسابك لتتمكن من حفظ فيديوهات جديدة" + (top ? "." : "، أو رقِّ باقتك للحصول على مساحة أكبر.");
   }
   return (sm.full ? "Your storage is full (" + u + " of " + q + " used). " : "There is not enough storage to save this video (" + u + " of " + q + " used). ")
-    + "Delete some finished files on your Account page to be able to save new videos, or upgrade your plan for more storage.";
+    + "Delete some finished files on your Account page to be able to save new videos" + (top ? "." : ", or upgrade your plan for more storage.");
 }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 function fmtTime(sec) { sec = Math.max(0, Math.round(sec || 0)); var m = Math.floor(sec / 60), s = sec % 60; return m + ":" + (s < 10 ? "0" : "") + s; }

@@ -228,7 +228,8 @@ class ShortDubTests(unittest.TestCase):
 
     def test_choice_first_then_what_was_heard_then_a_listening_check_for_the_rest(self):
         scope = self.load()
-        with mock.patch("gender_context.detect_genders", return_value={"S3": {"gender": "female", "source": "heard", "uncertain": False}}) as det:
+        with mock.patch("gender_context.detect_genders", return_value={"S3": {"gender": "female", "source": "heard", "uncertain": False}}) as det, \
+                mock.patch("gender_context.read_transcript_people", return_value={}):
             args, genders = scope["_short_gender_context"](self.Req)
         self.assertEqual([r["speaker"] for r in det.call_args[0][2]], ["S3"])        # only the speaker nobody knows is listened to
         self.assertEqual((genders["S1"]["source"], genders["S2"]["source"], genders["S2"]["uncertain"], genders["S3"]["gender"]), ("chosen", "heard", True, "female"))
@@ -269,6 +270,99 @@ class TrialScriptTests(unittest.TestCase):
         self.assertTrue(re.search(woman_tired["must_not"][0], t.strip("أَنَا مُتْعَبٌ جِدًّا.")))
         self.assertTrue(re.search(man_tired["must"], t.strip("أَنَا مُتْعَبٌ جِدًّا.")))
         self.assertTrue(re.search(t.CASES[6]["must"], "أُحِبُّكِ.") and not re.search(t.CASES[6]["must_not"][0], "أُحِبُّكِ."))
+
+
+class YourHonorTests(unittest.TestCase):
+    """Reddington says "Your Honor" to a woman judge: the Arabic must be feminine. The judge's gender comes from the WORDS of the dialogue
+    (a voice guess can be wrong), and a line with a certain addressee that is translated for someone else is translated again."""
+    ROWS = [dict(segment_id="s0", start=0, speaker="Judge", text="Mr. Reddington, do you have anything to say?"),
+            dict(segment_id="s1", start=5, speaker="Red", text="Yes. Thank you, Your Honor."),
+            dict(segment_id="s2", start=9, speaker="Lawyer", text="We object, Judge Roberta."),
+            dict(segment_id="s3", start=12, speaker="Red", text="Yes, sir.")]
+
+    def answer(self, *items):
+        return lambda prompt: list(items)
+
+    def test_the_dialogue_shows_the_gender_and_the_role_only_with_real_evidence(self):
+        ask = self.answer({"speaker": "Judge", "gender": "female", "evidence": "Judge Roberta", "role": "Judge"},
+                          {"speaker": "Red", "gender": "male", "evidence": "he said it loudly", "role": ""},       # invented quote
+                          {"speaker": "Lawyer", "gender": "", "evidence": "", "role": "lawyer"},
+                          {"speaker": "Ghost", "gender": "male", "evidence": "sir", "role": ""})                   # not a speaker
+        got = gc.read_transcript_people("j", self.ROWS, "k", ask=ask)
+        self.assertEqual(got, {"Judge": {"gender": "female", "role": "judge"}, "Lawyer": {"gender": "", "role": "lawyer"}})
+        self.assertEqual(gc.read_transcript_people("j", self.ROWS, "", ), {})               # no key, no model: nothing
+        self.assertEqual(gc.read_transcript_people("j", self.ROWS, "k", ask=lambda p: None), {})
+        self.assertEqual(gc.read_transcript_people("j", self.ROWS, "k", ask=lambda p: 1 / 0), {})
+
+    def test_the_words_beat_the_voice_but_never_the_person(self):
+        voice = {"Judge": {"gender": "male", "source": "heard", "uncertain": False}, "Red": {"gender": "male", "source": "heard", "uncertain": False},
+                 "Lawyer": {"gender": "male", "source": "chosen", "uncertain": False}}
+        people = {"Judge": {"gender": "female", "role": "judge"}, "Red": {"gender": "male", "role": ""}, "Lawyer": {"gender": "female", "role": "lawyer"}}
+        table, roles = gc.combine_people(voice, people)
+        self.assertEqual(table["Judge"], {"gender": "female", "source": "text", "uncertain": True})   # the voice said otherwise: shown to the person
+        self.assertEqual((table["Red"]["source"], table["Red"]["uncertain"]), ("heard", False))        # the words agree: sure now
+        self.assertEqual(table["Lawyer"]["gender"], "male")                                            # the person's choice stays
+        self.assertEqual(roles, {"Judge": "judge", "Lawyer": "lawyer"})
+        self.assertIn("from the dialogue", gc.speaker_table(table, roles)["Judge"])
+        self.assertIn("role: judge", gc.speaker_table(table, roles)["Judge"])
+
+    def test_your_honor_is_said_to_the_judge_and_sir_to_a_man(self):
+        table = {"Judge": {"gender": "female", "source": "text", "uncertain": False}, "Red": {"gender": "male", "source": "heard", "uncertain": False},
+                 "Lawyer": {"gender": "male", "source": "heard", "uncertain": False}}
+        ctx = gc.build_context(self.ROWS, ["s1", "s3"], table, {"Judge": "judge", "Lawyer": "lawyer"})
+        self.assertEqual(ctx["s1"]["addressee_is"], "female")
+        self.assertEqual(ctx["s1"]["probably_said_to"], {"speaker": "Judge", "gender": "female"})
+        self.assertEqual(ctx["s3"]["addressee_is"], "male")                      # "sir" is a man whoever spoke before
+        self.assertEqual(ctx["s3"]["probably_said_to"]["speaker"], "Lawyer")
+        no_role = gc.build_context(self.ROWS, ["s1"], table, {})
+        self.assertNotIn("addressee_is", no_role["s1"])                          # without a known judge it is only a hint
+        two = gc.build_context(self.ROWS, ["s1"], table, {"Judge": "judge", "Lawyer": "judge"})
+        self.assertNotIn("addressee_is", two["s1"])                              # two judges: not certain
+        self.assertEqual(gc.address_cue("Right this way, ma'am."), "female")
+        self.assertEqual(gc.address_cue("Sir, ma'am"), "")
+        self.assertEqual(gc.address_cue("I miss you, Mister"), "")
+
+    def test_the_translator_sees_the_certain_addressee_and_the_title_rule(self):
+        seen = {}
+        def fake(url_key, payload, timeout=0):
+            seen["prompt"] = payload["contents"][0]["parts"][0]["text"]
+            return None, "stop"
+        gender = {"speakers": {"Judge": "female (from the dialogue)"}, "lines": {"s1": {"speaker_gender": "male", "addressee_is": "female",
+                  "probably_said_to": {"speaker": "Judge", "gender": "female"}, "before": [], "after": []}}}
+        with mock.patch("gemini_service.call_gemini", fake), mock.patch("gemini_service.record_gemini"):
+            gemini_service.translate_segments("j", [Segment(segment_id="s1", start=5, end=7, speaker="Red", text="Thank you, Your Honor.")], "k", gender=gender)
+        p = seen["prompt"]
+        for needle in ('"addressee_is": "female"', '"probably_said_to"', "your honor", "سيادة القاضية", "role"):
+            self.assertIn(needle, p)
+
+    def test_a_line_translated_for_the_wrong_person_is_translated_again_then_marked(self):
+        gender = {"speakers": {}, "lines": {"s1": {"speaker_gender": "male", "addressee_is": "female", "before": [], "after": []}}}
+        row = dict(segment_id="s1", start=5, end=7, speaker="Red", text="Thank you, Your Honor.")
+        def run(answers):
+            calls = []
+            def fake(job_id, segs, key, **kw):
+                calls.append(len(segs))
+                a = answers[min(len(calls) - 1, len(answers) - 1)]
+                return {"status": "success", "translated_segments": [{"segment_id": "s1", "arabic_text": a[0], "emotion": "neutral", "addressee": a[1], "gender_check": False}]}
+            flags = {}
+            with mock.patch("gemini_service.translate_segments", fake):
+                out = ld._translate_batch("j", [row], gender=gender, flags=flags)
+            return out, flags, calls
+        out, flags, calls = run([("شُكْرًا لَكَ", "male"), ("شُكْرًا لَكِ", "female")])
+        self.assertEqual((out["s1"][0], flags["s1"], calls), ("شُكْرًا لَكِ", ("female", False), [1, 1]))
+        out, flags, calls = run([("شُكْرًا لَكَ", "male")])
+        self.assertEqual((flags["s1"], calls), (("female", True), [1, 1]))                 # it still disagrees: a person looks at it
+        out, flags, calls = run([("شُكْرًا لَكِ", "female")])
+        self.assertEqual((flags["s1"], calls), (("female", False), [1]))                 # right the first time: one call only
+
+    def test_the_role_is_kept_when_the_speaker_panel_is_saved(self):
+        job = {"id": "j", "status": "editing", "speaker_list": [{"id": "sp1", "name": "Judge", "gender": "female", "gender_source": "text", "gender_uncertain": False, "role": "judge"}]}
+        with mock.patch.object(ld, "read_segments", return_value=[]), mock.patch.object(ld, "_write_segments"), mock.patch.object(ld, "_save", create=True):
+            try:
+                ld.set_speakers(job, [{"id": "sp1", "name": "Judge"}])
+            except Exception:
+                pass
+        self.assertEqual(job["speaker_list"][0].get("role"), "judge")
 
 
 if __name__ == "__main__":
