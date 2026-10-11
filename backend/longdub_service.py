@@ -27,6 +27,7 @@ to import main.py.
 import languages, lang_text, language_prompts
 import json
 import math
+import voice_admin
 import os
 import re
 import shutil
@@ -404,7 +405,9 @@ def track_file(job, which):
 
 
 def public_view(job):
+    from voice_admin import retention_days
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
+    v["voice_retention_days"] = retention_days(DATA_DIR)
     v["source_language"] = languages.get(job.get("source_language")).code
     if job.get("language_mismatch"):
         v["language_mismatch"] = job["language_mismatch"]
@@ -4083,7 +4086,7 @@ MAX_FAILED_LINE_SHARE = 0.10   # more failed lines than this and the whole job f
 
 def _delete_pending_voices(job):
     """Delete every temporary cloned voice this job still has on Inworld.
-    Finished projects keep voices for seven days after last correction use.
+    Finished projects keep voices for the admin-configured period after last correction use.
     Explicit finish, failure and project deletion release them. Anything that can't be deleted right
     now stays listed and is retried by the hourly housekeeping."""
     ids = list(job.get("voices_pending_delete") or [])
@@ -4110,6 +4113,9 @@ def sweep_voices():
     the job ended)."""
     if not LONG_DIR.exists():
         return
+    import voice_admin
+    from config import DATA_DIR as voice_data_dir
+    days = voice_admin.retention_days(voice_data_dir)
     import longdub_edits
     for d in LONG_DIR.iterdir():
         if not d.is_dir():
@@ -4133,7 +4139,7 @@ def sweep_voices():
                 continue
             if job and job.get("voices_pending_delete") and job["id"] not in _RUNNING \
                     and job.get("status") not in ("payment_pending", "confirmed", "dubbing") and not (job.get("edit_assets") and job.get("status") == "done"
-                             and _now() - job.get("edit_voice_last_used", (job.get("result") or {}).get("finished", _now())) < 7 * 86400):
+                             and (voice_admin.expires_at(job, days) or float("inf")) > _now()):
                 _delete_pending_voices(job)
                 if job.get("status") == "done":
                     job.setdefault("dub", {})["voices"] = {}
@@ -5415,7 +5421,7 @@ def _run_dubbing(job):
         ok = Hooks.send_email(uid, "Your dubbed video is ready",
                               f"Hi,\n\nYour dubbed {'video' if video_out else 'audio'} \"{job['filename']}\" is ready.\n"
                               "Download it from https://lisanai.org/dub-long (or your Account page).\n"
-                              "Cloned voices remain available for corrections for seven days after last use, or until you finish corrections. "
+                              f"Cloned voices remain available for corrections for {voice_admin.retention_days(DATA_DIR)} days after last use, or until you finish corrections. "
                               f"It stays available for your plan's storage period.{note}\n\n-- Lisan AI")
         _ev(job, "email_sent", "ok" if ok else "failed", "finished email" + ("" if ok else f": {Hooks.email_error() or 'unknown reason'}"))
     except Exception as ex:
@@ -5510,7 +5516,7 @@ def sweep_orphan_voices(force=False):
     A voice is named lisan-tmp-<first 8 characters of the project id>-<speaker>. When the project folder is gone
     (deleted, expired, a restart that lost its record) nothing can ever delete that voice by its project, so it
     stays and counts against the account's voice slots. A voice whose project folder still exists is never touched
-    here: the project's own cleanup (and its seven-day correction window) owns it. If the list of voices or of
+    here: the project's own cleanup (and its configured correction window) owns it. If the list of voices or of
     projects cannot be read completely, nothing is deleted. Runs at most once a day."""
     if not INWORLD_API_KEY or not LONG_DIR.is_dir():
         return 0

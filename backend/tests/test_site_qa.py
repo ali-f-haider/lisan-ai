@@ -40,22 +40,24 @@ class RetentionIsDescribedOnceTests(unittest.TestCase):
                         "تُحذف الأصوات المنسوخة عند انتهاء المهمة", "ولا تُحفظ الأصوات المنسوخة", "يُحذف عند انتهاء المهمة"):
                 self.assertNotIn(old, text, "%s still says: %s" % (name, old))
 
-    def test_the_public_pages_all_give_the_seven_day_rule_in_both_languages(self):
+    def test_public_pages_explain_the_configurable_voice_retention_in_both_languages(self):
         for name in ("landing.html", "help.html", "privacy.html", "pricing.html"):
             text = visible_text(read(name))
-            self.assertTrue("7 days" in text, name)
-            self.assertTrue(("7 أيام" in text) or ("٧ أيام" in text), name + " (Arabic)")
+            self.assertIn("voice-retention period shown in the project", text, name)
+            self.assertNotIn("7 days", text, name)
+            self.assertIn("مدة حفظ الأصوات الموضحة في المشروع", text, name + " (Arabic)")
 
     def test_the_numbers_match_what_the_server_does(self):
         service = read("longdub_service.py")
-        self.assertIn("< 7 * 86400", service)                                   # voices: 7 days after the last use
+        self.assertIn("voice_admin.expires_at(job, days)", service)
+        self.assertIn("voice_admin.retention_days(voice_data_dir)", service)
         self.assertRegex(service, r'LONGDUB_PROJECT_KEEP_DAYS"\) or 90\)')       # saved project: 90 days
         self.assertRegex(service, r'LONGDUB_PARK_HOURS"\) or 24\)')              # idle project: video leaves after 24 hours
         self.assertIn('"uploading": 24, "estimated": 24, "failed": 24, "cancelled": 24', service)
         privacy = visible_text(read("privacy.html"))
-        for must in ("6 hours", "24 hours", "90 days", "7 days", "Finish corrections"):
+        for must in ("6 hours", "24 hours", "90 days", "voice-retention period shown in the project", "Finish corrections"):
             self.assertIn(must, privacy)
-        for must in ("6 ساعات", "24 ساعة", "90 يوماً", "7 أيام", "إنهاء التصحيحات"):
+        for must in ("6 ساعات", "24 ساعة", "90 يوماً", "مدة حفظ الأصوات الموضحة في المشروع", "إنهاء التصحيحات"):
             self.assertIn(must, privacy)
 
     def test_the_arabic_help_no_longer_says_a_project_is_kept_seven_days(self):

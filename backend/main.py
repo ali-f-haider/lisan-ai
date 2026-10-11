@@ -3817,6 +3817,11 @@ def home():
         html = html.replace("<body>", '<body class="ui-new">', 1)
     return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
 
+@app.get("/admin_voice_controls.js")
+def admin_voice_controls_js():
+    return FileResponse(BASE_DIR / "admin_voice_controls.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
 @app.get("/background_review.js")
 def background_review_js():
     return FileResponse(BASE_DIR / "background_review.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
@@ -5743,6 +5748,7 @@ def longdub_config(request: Request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     p = _ld_pricing()
     return {
+        "voice_retention_days": voice_admin.retention_days(DATA_DIR),
         "max_min": p["max_min"], "min_sec": longdub_service.MIN_SEC,
         "limits": _public_limits(),
         "chunk_bytes": longdub_service.CHUNK_BYTES,
@@ -9359,3 +9365,187 @@ async def admin_save_api_settings(request: Request):
     _api_settings_cache["value"] = clean
     _api_settings_cache["at"] = time.time()
     return {"ok": True, "settings": clean}
+
+# Voice storage controls are independent of prices and use the persistent data volume.
+import voice_admin
+from contextlib import contextmanager, ExitStack
+
+_voice_admin_state_lock = threading.Lock()
+_voice_admin_state = {'running': False, 'requests': 0, 'token': '', 'error': ''}
+
+
+@app.middleware("http")
+async def voice_cleanup_gate(request, call_next):
+    tracked = request.method not in ('GET', 'HEAD', 'OPTIONS') and request.url.path.startswith('/api/') and not request.url.path.startswith('/api/admin/voice_management')
+    if tracked:
+        with _voice_admin_state_lock:
+            if _voice_admin_state['running']:
+                return JSONResponse({'error': 'Voice cleanup is running. Please try again when it finishes.'}, status_code=503)
+            _voice_admin_state['requests'] += 1
+    try:
+        return await call_next(request)
+    finally:
+        if tracked:
+            with _voice_admin_state_lock:
+                _voice_admin_state['requests'] -= 1
+
+
+def _voice_admin_projects():
+    if not longdub_service.LONG_DIR.is_dir():
+        raise ValueError('The project inventory could not be verified.')
+    projects = []
+    for directory in longdub_service.LONG_DIR.iterdir():
+        if not directory.is_dir():
+            continue
+        if directory.is_symlink() or not longdub_service._valid_id(directory.name):
+            raise ValueError('A project folder could not be verified. Cleanup is blocked.')
+        job = longdub_service.load_job(directory.name)
+        if not isinstance(job, dict) or job.get('id') != directory.name:
+            raise ValueError('A project record could not be read. Cleanup is blocked.')
+        projects.append(job)
+    return projects
+
+
+@contextmanager
+def _voice_admin_context():
+    projects = _voice_admin_projects()
+    with ExitStack() as held:
+        for job in sorted(projects, key=lambda j: j['id']):
+            held.enter_context(longdub_service._lock_for(job['id']))
+        if {j['id'] for j in _voice_admin_projects()} != {j['id'] for j in projects}:
+            raise ValueError('The project inventory changed. Please refresh it.')
+        yield
+
+
+def _voice_admin_saved():
+    rows = []
+    for offset in range(0, 100000, 1000):
+        page = _api_rest('GET', 'user_voices?select=id,uid,elevenlabs_voice_id&order=id&limit=1000&offset=' + str(offset))
+        if not isinstance(page, list) or any(not isinstance(r, dict) or not r.get('id') for r in page):
+            raise ValueError('The saved voice inventory could not be verified.')
+        rows.extend(page)
+        if len(page) < 1000:
+            return rows
+    raise ValueError('The complete saved voice inventory could not be verified.')
+
+
+def _voice_admin_delete_saved(vid):
+    # Use the freshly verified row IDs, never an untrusted query fragment.
+    for row in _voice_admin_saved():
+        if row.get('elevenlabs_voice_id') == vid:
+            _api_rest('DELETE', 'user_voices?id=eq.' + urllib.parse.quote(str(row['id']), safe=''), prefer='return=minimal')
+
+
+def _voice_admin_busy():
+    return bool(longdub_service._RUNNING or _voice_admin_state['requests'] or
+                any(p.get('status') == 'processing' for p in list(jobs_progress.values()) if isinstance(p, dict)) or
+                any(j.get('status') in voice_admin.BUSY for j in _voice_admin_projects()))
+
+
+def _voice_admin_manager():
+    return voice_admin.Manager(DATA_DIR, lambda: voice_admin.list_custom(inworld_service, INWORLD_API_KEY),
+        _voice_admin_projects, _voice_admin_saved, longdub_service._save, _voice_admin_delete_saved,
+        lambda vid: voice_admin.delete_custom(inworld_service, INWORLD_API_KEY, vid),
+        busy=_voice_admin_busy, context=_voice_admin_context)
+
+
+@app.get('/api/admin/voice_management')
+def admin_voice_management(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({'error': 'unauthorized'}, status_code=401)
+    try:
+        return JSONResponse({'settings': voice_admin.read_settings(DATA_DIR)}, headers={'Cache-Control': 'no-store'})
+    except ValueError as ex:
+        return JSONResponse({'error': str(ex)}, status_code=503)
+
+
+@app.post('/api/admin/voice_management/settings')
+async def admin_voice_settings(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({'error': 'unauthorized'}, status_code=401)
+    try:
+        return {'ok': True, 'settings': voice_admin.save_settings(DATA_DIR, await request.json())}
+    except (ValueError, OSError):
+        return JSONResponse({'error': 'Choose 1 to 30 whole days. If saving still fails, check the server data volume.'}, status_code=400)
+
+
+@app.get('/api/admin/voice_management/inventory')
+def admin_voice_inventory(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({'error': 'unauthorized'}, status_code=401)
+    try:
+        with _voice_admin_context():
+            result = _voice_admin_manager().inventory()
+        return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+    except Exception:
+        try:
+            voices = voice_admin.list_custom(inworld_service, INWORLD_API_KEY)
+            rows = [{**v, 'category': 'unverified', 'projects': [], 'saved_rows': 0, 'selectable': False} for v in voices]
+            return JSONResponse({'voices': rows, 'total': len(rows), 'counts': {'unverified': len(rows)},
+                'cleanup_busy': True, 'pending_cleanup': [],
+                'warning': 'Stored voices were counted, but their project or saved-library references could not be verified. Cleanup is blocked.'},
+                headers={'Cache-Control': 'no-store'})
+        except Exception:
+            return JSONResponse({'error': 'The complete voice, project and saved-library inventory could not be verified. Nothing was deleted.'}, status_code=503)
+
+
+@app.post('/api/admin/voice_management/preview')
+async def admin_voice_preview(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({'error': 'unauthorized'}, status_code=401)
+    try:
+        body = await request.json()
+        return _voice_admin_manager().preview(body.get('ids'))
+    except ValueError as ex:
+        return JSONResponse({'error': str(ex)}, status_code=409)
+    except Exception:
+        return JSONResponse({'error': 'Cleanup could not be previewed. Verify the inventories and try again.'}, status_code=503)
+
+
+@app.post('/api/admin/voice_management/cleanup')
+async def admin_voice_cleanup(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({'error': 'unauthorized'}, status_code=401)
+    try:
+        body = await request.json()
+        token = body.get('token')
+        manager = _voice_admin_manager()
+        manager.status(token)  # verify durable confirmation exists before starting
+        with _voice_admin_state_lock:
+            if _voice_admin_state['running'] or _voice_admin_busy():
+                return JSONResponse({'error': 'Wait for running jobs or cleanup to finish.'}, status_code=409)
+            _voice_admin_state.update(running=True, token=token, error='')
+        def worker():
+            try:
+                manager.execute(token)
+            except Exception as ex:
+                with _voice_admin_state_lock:
+                    _voice_admin_state['error'] = str(ex) if isinstance(ex, ValueError) else 'Cleanup stopped. Refresh the inventory and retry the pending cleanup.'
+            finally:
+                with _voice_admin_state_lock:
+                    _voice_admin_state['running'] = False
+        try:
+            threading.Thread(target=worker, daemon=True).start()
+        except Exception:
+            with _voice_admin_state_lock:
+                _voice_admin_state['running'] = False
+            raise
+        return {'ok': True, 'token': token}
+    except Exception:
+        return JSONResponse({'error': 'Cleanup confirmation could not be read. Preview it again.'}, status_code=400)
+
+
+@app.get('/api/admin/voice_management/cleanup/{token}')
+def admin_voice_cleanup_status(token: str, request: Request):
+    if not _admin_check(request):
+        return JSONResponse({'error': 'unauthorized'}, status_code=401)
+    try:
+        result = _voice_admin_manager().status(token)
+        with _voice_admin_state_lock:
+            if _voice_admin_state['token'] == token:
+                result['running'] = _voice_admin_state['running']
+                result['error'] = _voice_admin_state['error']
+        return JSONResponse(result, headers={'Cache-Control': 'no-store'})
+    except Exception:
+        return JSONResponse({'error': 'Cleanup status could not be read.'}, status_code=404)
+

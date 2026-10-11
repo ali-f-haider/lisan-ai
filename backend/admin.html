@@ -523,6 +523,28 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <button class="btn" onclick="savePricing()">💾 Save Inworld settings</button>
       </div>
 
+      <div class="card" id="voiceStorageManager">
+        <h3>Voice storage manager</h3>
+        <p class="muted">Temporary long-dub voices stay available after their last correction use. Saved library voices keep their own storage. Free cleanup does not delete videos, exports, source samples or backgrounds.</p>
+        <div class="form-group"><label for="voiceRetentionDays">Keep temporary voices for (days)</label>
+          <input id="voiceRetentionDays" type="number" min="1" max="30" step="1" value="2" style="width:120px;">
+          <span class="muted">Default: 2 days. Changes also apply to existing projects at the next hourly cleanup. Opening a project does not restart the clock; using its voices for corrections does.</span>
+        </div>
+        <button class="btn" onclick="saveVoiceStorageSettings()">Save retention</button>
+        <button class="btn" onclick="refreshVoiceStorage()">Refresh voice inventory</button>
+        <p class="muted" id="voiceInventoryNote" style="margin:12px 0;">Refresh to inspect the complete workspace, projects and saved library. Nothing is deleted automatically by this page.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+          <button class="btn" onclick="selectAllVoiceStorage(true)">Select all available</button>
+          <button class="btn" onclick="selectAllVoiceStorage(false)">Clear selection</button>
+          <button class="btn" onclick="previewVoiceCleanup(true)">Preview expired and leftover cleanup</button>
+          <button class="btn" onclick="previewVoiceCleanup(false)">Preview selected deletion</button>
+        </div>
+        <p class="muted">Untracked short-dub clones may still be used by projects saved on your computer. Delete them only when finished with those tests. Other workspace voices are listed for inspection but are not selected by this manager.</p>
+        <div id="voiceInventoryRows" style="max-height:550px;overflow:auto;"></div>
+        <progress id="voiceCleanupProgress" hidden max="1" value="0" style="width:100%;margin-top:12px;"></progress>
+        <p id="voiceCleanupStatus" role="status" aria-live="polite"></p><div id="voiceCleanupResume"></div>
+      </div>
+
       <div class="card" id="cardEleven">
         <h3>ElevenLabs <span class="pill" id="pillEleven">—</span> <span class="status-chip" data-status="elevenlabs">—</span></h3>
         <p class="muted" style="margin-bottom:16px;">Legacy engine. Only needed while saved voices created on ElevenLabs still exist, or if you select it above. If you stop paying for ElevenLabs, those old voices stop working. Its rates stay active because an old voice is charged at ElevenLabs' rate for as long as it exists.</p>
@@ -868,6 +890,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
 </div>
 
 <script src="/dialogs.js"></script>
+<script src="/admin_voice_controls.js"></script>
 <script>
 let ADMIN_TOKEN = sessionStorage.getItem('adminToken') || '';
 let usersCache = [];
@@ -963,6 +986,7 @@ async function saveApiSettings() {
 async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
+  loadVoiceStorageSettings();
   loadBusiness(); loadUsers(); loadPricing(); loadApiSettings(); loadMaintenance(); loadAudit(); loadBillingHealth(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
 }
 
