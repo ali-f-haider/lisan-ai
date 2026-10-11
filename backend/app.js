@@ -8508,7 +8508,7 @@ function shortLanguageMismatch(data) {
 
 (function () {
     function sourceControls() {
-        LisanSource.mount(document.getElementById("audioFile") && document.getElementById("audioFile").parentElement, window.currentLang || "en");
+        LisanSource.mount(document.getElementById("sourceLanguageSection"), window.currentLang || "en");
         var heading = document.getElementById("thEnglish");
         if (heading) heading.textContent = LisanSource.name(currentSourceLanguage, window.currentLang || "en");
     }

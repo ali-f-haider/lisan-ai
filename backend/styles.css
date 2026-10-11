@@ -841,31 +841,64 @@ a.btn-logout:hover, body a.btn-logout:hover, body.dark a.btn-logout:hover, body.
 .file-upload-area:hover { background: var(--primary-light); transform: translateY(-1px); }
 #fileUploadLabel { display: flex; align-items: center; gap: 8px; }
 
-/* Step 1: stack the upload button and the Load Project button vertically
-   so they always render the exact same width, regardless of how long the
-   selected filename is (horizontally, browsers size each by its own text
-   content, which made them look mismatched) */
-#step1UploadRow .file-upload-area,
-#step1UploadRow > button.green {
+/* Upload setup: language is a separate field, never part of a file button. */
+#step1Card .step1-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 24px;
+    align-items: start;
+}
+#step1Card .step1-main { min-width: 0; }
+#step1Card .step1-source {
+    max-width: 360px;
+    margin-bottom: 16px;
+}
+#step1Card .step1-source .ld-lipres { margin: 0 !important; }
+#step1Card #sourceLanguageLabel { margin: 0 0 8px; }
+#step1Card #sourceLanguage { min-height: 44px; width: 100%; }
+#step1UploadRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(160px, .55fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+#step1UploadRow > button {
+    min-height: 52px;
     width: 100%;
-    box-sizing: border-box;
+    margin: 0;
     justify-content: center;
 }
-/* #fileUploadLabel must actually stretch across the button before a
-   percentage max-width on the text span inside it means anything --
-   otherwise it shrinks to fit "Upload Media" and truncates that too */
-#step1UploadRow #fileUploadLabel {
-    flex: 1 1 auto;
-    min-width: 0;
-    justify-content: center;
+#step1UploadRow #loadProjectStep1Btn {
+    background: var(--muted-surface);
+    color: var(--text);
+    border: 1px solid var(--border);
 }
+#step1UploadRow #loadProjectStep1Btn:hover {
+    background: var(--logout-hover-bg);
+    border-color: var(--accent);
+}
+#step1UploadRow #fileUploadLabel { flex: 1 1 auto; min-width: 0; justify-content: center; }
 #step1UploadRow #fileUploadText {
-    flex: 0 1 auto;
     min-width: 0;
-    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+#step1Card .step1-options {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--muted-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+#step1Card .credits-info-box { width: auto; }
+#step1Card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 960px) {
+    #step1Card .step1-layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+}
+@media (max-width: 520px) {
+    #step1UploadRow { grid-template-columns: minmax(0, 1fr); }
+    #step1Card .step1-source { max-width: none; }
 }
 
 /* Credits info box */

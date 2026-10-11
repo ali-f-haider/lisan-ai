@@ -61,6 +61,22 @@ test('the original column returns to English after a foreign project',()=>{
     c.currentSourceLanguage='en';c.sourceControls();assert.equal(heading.textContent,'English');
     c.window.currentLang='ar';c.sourceControls();assert.equal(heading.textContent,'الإنجليزية');
 });
+test('the short-dub picker mounts outside the upload control and keeps its choice on refresh',()=>{
+    const {context:c,elements,element}=setup();
+    const host=element('div');host.id='sourceLanguageSection';
+    const button=element('button');
+    const file=element('input');file.id='audioFile';file.parentElement=button;
+    vm.runInContext(fn('sourceControls'),c);
+    c.sourceControls();
+    assert.equal(host.children.length,1);
+    assert.equal(button.children.length,0);
+    elements.get('sourceLanguage').value='fr';
+    c.window.currentLang='ar';c.sourceControls();
+    assert.equal(host.children.length,1);
+    assert.equal(button.children.length,0);
+    assert.equal(elements.get('sourceLanguage').value,'fr');
+    assert.equal(elements.get('sourceLanguageLabel').textContent,'لغة الفيديو الأصلية');
+});
 test('translation payload carries project source without changing original or Arabic text',()=>{
     const {context:c}=setup();vm.runInContext(fn('translateBody'),c);
     c.currentSourceLanguage='it';const rows=[{segment_id:'a',speaker:'A',text:'Buongiorno.',arabic_text:'صباح الخير.'}];

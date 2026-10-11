@@ -74,10 +74,23 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
 
 <div class="card" id="step1Card">
     <h3 id="step1Title">Step 1: Upload Audio or Video</h3>
-    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;">
-        <div style="flex:1;min-width:280px;">
+    <div class="step1-layout">
+        <div class="step1-main">
             <p class="note" id="step1SupportsNote" data-tip-src data-tip-host="step1Title">Supports: MP3, WAV, MP4, AVI, MKV, MOV, WEBM.<br>Each dub covers <strong>4-30 seconds</strong> (<strong>4-15 seconds</strong> if lip-sync is selected below). Longer video, or a file over 50 MB (up to <strong>300 MB</strong>)? You'll be asked to choose the part to dub.</p>
-            <div id="lipsyncChoiceSection" style="margin:8px 0 0 0;padding:10px 12px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;">
+            <div class="step1-source" id="sourceLanguageSection"></div>
+            <div id="step1UploadRow">
+                <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
+                <button type="button" id="uploadMediaBtn" class="file-upload-area" onclick="document.getElementById('audioFile').click()">
+                    <span id="fileUploadLabel">
+                        <span aria-hidden="true">📁</span>
+                        <span id="fileUploadText">Upload Media</span>
+                    </span>
+                </button>
+                <button type="button" class="green" id="loadProjectStep1Btn" onclick="document.getElementById('projectFileStep1').click()">📂 Load Project</button>
+                <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
+            </div>
+
+            <div id="lipsyncChoiceSection" class="step1-options">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;margin:0;">
                     <input type="checkbox" id="lipsyncWantedCheckbox" onchange="onLipsyncChoiceChanged(this)">
                     <span id="lipsyncChoiceLabel">Also generate a lip-synced video</span> <span class="alpha-badge" style="background:#f59e0b;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:.5px;margin-inline-start:6px;vertical-align:middle;">ALPHA</span>
@@ -85,18 +98,6 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
                 <p class="note" id="lipsyncChoiceNote" data-tip-src data-tip-host="lipsyncChoiceLabel" style="margin:6px 0 0 0;border:none;background:none;padding:0;font-size:12px;">Checked: the dubbed part can be <strong>4-15 seconds</strong>. Unchecked: <strong>4-30 seconds</strong>. With a longer video you choose which part.</p>
                 <p class="note" id="lipsyncAlphaChoiceNote" style="margin:8px 0 0 0;background:#fef3c7;border:1px solid #fbbf24;color:#92400e;border-radius:8px;padding:8px 10px;font-size:12.5px;">⚠️ <strong>Alpha version:</strong> lip-sync is still experimental and may show unexpected results — the picture may change, or the mouth movements may not match the Arabic well. You use it at your own responsibility.</p>
             </div>
-            <div id="step1UploadRow" style="display:flex;flex-direction:column;align-items:stretch;gap:10px;margin-top:8px;">
-                <div class="file-upload-area" onclick="document.getElementById('audioFile').click()" style="margin-top:0;">
-                    <input type="file" id="audioFile" accept="audio/*,video/*,.mp4,.avi,.mkv,.mov,.webm" class="hidden" onchange="onFileSelected(this)">
-                    <div id="fileUploadLabel">
-                        <span>📁</span>
-                        <span id="fileUploadText">Upload Media</span>
-                    </div>
-                </div>
-                <button class="green" onclick="document.getElementById('projectFileStep1').click()">📂 Load Project</button>
-                <input type="file" id="projectFileStep1" accept=".json,application/json" class="hidden" onchange="loadProjectFile(event)">
-            </div>
-
             <div id="voiceConsentSection" class="hidden" style="margin-top:12px;padding:10px 12px;background:#fef3c7;border:1px solid #fbbf24;border-radius:8px;">
                 <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin:0;">
                     <input type="checkbox" id="voiceConsentCheckbox" onchange="onVoiceConsentChanged(this)" style="margin-top:2px;">
