@@ -898,7 +898,7 @@ def delete_job(job, uid):
 # the audio again. None of this costs credits.
 
 _MEDIA_FILES = ("audio.wav", "vocals_mono.wav", "background.wav", "vocals.wav", "vocals_normalized.wav", "src.part",
-                "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "dubbing_bg_bgref.wav", "dubbing_bg_final_bg.wav", "price_music_muted.wav",
+                "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_ambience.wav", "dubbing_bg_levelref.wav", "dubbing_bg_matched.wav", "dubbing_bg_bgref.wav", "dubbing_bg_final_bg.wav", "price_music_muted.wav",
                 "preview.mp4", "preview.m4a", "preview.tmp.mp4", "preview.tmp.m4a")
 _MEDIA_DIRS = ("pieces", "vocals", "bg", "asr", "sep")
 
@@ -3968,7 +3968,7 @@ def music_quote(job):
         spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job))
         muted = wd / "price_music_muted.wav"
         clean = dub_background.mute(bg, wd / "vocals_mono.wav", muted, spans)
-        count = dub_background.count_repairs(clean, spans, wd / "price_music.pcm", original=bg) if clean == muted else 0
+        count = dub_background.count_repairs(clean, spans, wd / "price_music.pcm", original=bg, recording=wd / "audio.wav", vocals=wd / "vocals_mono.wav") if clean == muted else 0
         if count and (not FAL_API_KEY or not music_fill.ENABLED):
             raise ValueError("Music inpainting is unavailable right now.")
     except Exception as ex:
@@ -5363,6 +5363,8 @@ def _run_dubbing(job):
         job["result"] = {"kind": "video" if video_out else "audio", "file": final_name, "size": size,
                          "duration": round(total, 1), "lines": len(dub["lines"]), "failed_lines": len(failed),
                          "finished": _now()}
+        if bg.exists():
+            job["result"]["background_report"] = repaired_["music_fill"]
         if lip_summary is not None:
             job["result"]["lipsync"] = lip_summary
         if wm_on:
@@ -5384,7 +5386,7 @@ def _run_dubbing(job):
         for sub in ("dub",):
             shutil.rmtree(wd / sub, ignore_errors=True)
         # (pauses.json, speech_spans.json and turns.json are tiny and are kept: a "Redo" of this project needs them)
-        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_matched.wav", "dubbing_bg_bgref.wav", "dubbing_bg_final_bg.wav", "price_music_muted.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
+        for f in ("audio.wav", "background.wav", "background_lifted.wav", "background_restored.wav", "background_restored_lifted.wav", "background_ducked.wav", "dubbing_bg_muted.wav", "dubbing_bg_repaired.wav", "dubbing_bg_ambience.wav", "dubbing_bg_levelref.wav", "dubbing_bg_matched.wav", "dubbing_bg_bgref.wav", "dubbing_bg_final_bg.wav", "price_music_muted.wav", "vocals_mono.wav", "reactions.wav", f"src{job['ext']}", "preview.mp4", "preview.m4a"):
             try:
                 (wd / f).unlink()
             except Exception:

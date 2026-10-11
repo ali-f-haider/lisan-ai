@@ -1647,8 +1647,8 @@ function showMergeQuote(quote) {
     var note = document.getElementById("mergePriceNote");
     if (!note) return;
     note.textContent = quote.music_kept === false
-        ? subsText("Merge price: " + quote.max_total + " credits. The original music cannot be rebuilt reliably (almost all of it is speech), so the background stays silent while people speak.",
-                   "سعر الدمج: " + quote.max_total + " رصيداً. لا يمكن إعادة بناء الموسيقى الأصلية بشكل موثوق (معظم الفيديو كلام)، لذلك يبقى الصوت الخلفي صامتاً أثناء حديث الأشخاص.")
+        ? subsText("Merge price: " + quote.max_total + " credits. Some original music may be missing. Ambience matching remains available; review the background after merging.",
+                   "سعر الدمج: " + quote.max_total + " رصيداً. قد تغيب بعض الموسيقى الأصلية. تبقى مطابقة الأجواء متاحة؛ راجع الخلفية بعد الدمج.")
         : quote.music_max > 0
         ? subsText("Merge price: up to " + quote.max_total + " credits, including up to " + quote.music_max + " for music inpainting. Only successful repairs are charged.",
                    "سعر الدمج: بحد أقصى " + quote.max_total + " رصيداً، منها حتى " + quote.music_max + " لإصلاح الموسيقى. تُحاسب فقط على الإصلاحات الناجحة.")
@@ -1718,8 +1718,8 @@ async function mergeVideo() {
         if (data.error) { notify("error", data.error); return; }
         if (currentJobId !== mergePayload.job_id) { notify("success", "Your previous project's merged video is ready on your Account page."); return; }
         const bgNote = !data.has_background ? "⚠️ No background separation available; dubbed vocals only."
-            : data.music_kept === false ? "ℹ️ Background sounds are mixed in, but silent while people speak because the original music could not be rebuilt."
-            : data.music_incomplete ? "ℹ️ Some stretches of the background music could not be rebuilt and stay silent while people speak. You were charged only for the parts that were rebuilt."
+            : data.music_kept === false ? subsText("Some original music could not be restored. Review the background details below.", "تعذّرت استعادة بعض الموسيقى الأصلية. راجع تفاصيل الخلفية أدناه.")
+            : data.music_incomplete ? subsText("Some music sections need review. Only successful music repairs were charged.", "تحتاج بعض أجزاء الموسيقى إلى مراجعة. حُسبت تكلفة الإصلاحات الناجحة فقط.")
             : "✅ Background music/sounds mixed with the dubbed vocals.";
         document.getElementById("videoResults").classList.remove("hidden");
         document.getElementById("videoResults").innerHTML = `
@@ -1729,6 +1729,7 @@ async function mergeVideo() {
                 <a href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed_video.mp4?cache=${Date.now()}" download="final_dubbed_video.mp4">⬇️ Download Dubbed Video (MP4)</a>
                 <a class="blue" href="/api/download/${encodeURIComponent(currentJobId || "")}_final_dubbed.mp3?cache=${Date.now()}" download="final_dubbed.mp3">⬇️ Download Pure Vocals (MP3)</a>
             </div>`;
+        if (window.LisanBackground) document.getElementById("videoResults").insertAdjacentHTML("beforeend", window.LisanBackground.html(data.background_report, currentLang));
         notify("success", "Video merged successfully!");
         if (data.watermarked) notify("info", subsText("Free version: your video carries a small semi-transparent Lisan AI logo. Buy credits or subscribe to make videos without it.", "النسخة المجانية: يحمل الفيديو شعار Lisan AI صغيراً شبه شفاف. اشترِ رصيداً أو اشترك لتصنع فيديوهات بدونه."));
     } catch (e) { stopMergeProgress(); hideMergeProgress(); document.getElementById("mergeButton").disabled = false; notify("error", e.message); }

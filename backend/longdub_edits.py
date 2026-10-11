@@ -417,7 +417,7 @@ def run(job):
                 ld._sync_paid(job); ld._save(job)
             rebuilt = dub_background.checkpointed_prepare(job, ld._save, plan['music'].get('repairs', 0), sw / 'background.wav', sw / 'vocals_mono.wav', voices, work,
                 'restore_bg', dub_background.speech_spans(sw / 'speech_spans.json', all_rows),
-                key=ld.FAL_API_KEY, gemini_key=ld.GEMINI_API_KEY, allow=allow, on_filled=charge)
+                key=ld.FAL_API_KEY, gemini_key=ld.GEMINI_API_KEY, allow=allow, on_filled=charge, original=sw / "audio.wav")
             effects = ld.OUTPUT_DIR / f"{parent['id']}{ld.TRACK_KINDS['effects']}"
             restored_effects = work / 'recovered_effects.m4a'
             ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(rebuilt['path']), '-t', str(total), '-c:a', 'aac', '-b:a', '192k', str(restored_effects)])
@@ -438,6 +438,7 @@ def run(job):
         job['result'] = {'kind': 'audio', 'file': final.name, 'size': final.stat().st_size, 'duration': total,
                          'finished': time.time(), 'lines': len(plan['rows']), 'selected': [r['segment_id'] for r in plan['rows']],
                          'tracks': {'voices': {'size': pure.stat().st_size}}}
+        job['result']['background_report'] = (parent.get('result') or {}).get('background_report') or ((job.get('background_checkpoint') or {}).get('restore_bg') or {}).get('music_fill')
         parent['edit_voice_last_used'] = time.time(); ld._save(parent)
         job['status'] = 'done'; ld._mark(job, 'done', 100, 'Your correction tracks are ready.'); ld._save(job)
         try:

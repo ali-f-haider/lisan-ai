@@ -1,0 +1,498 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "id": "quiet_home",
+      "file": "quiet_home.ogg",
+      "environments": [
+        "small_room",
+        "medium_room"
+      ],
+      "tags": [
+        "quiet",
+        "indoor",
+        "domestic"
+      ],
+      "author": "Joseph Sardin",
+      "source_page": "https://bigsoundbank.com/sound-atmosphere-in-a-house-s2458.html",
+      "source_audio": "https://bigsoundbank.com/UPLOAD/flac/2458.flac",
+      "source_encoding": "lossless original",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "b44c87e810ca6c9eff454ccf6209ce411434f2dc00957cec872f0c66c83e8893",
+      "source_page_sha256": "ff3a4380813f2405331d8c7a47e458f0a4d8e65143712558a87221fffe2360eb",
+      "max_duration_sec": 600,
+      "speech": "not detected in full-recording automated audit",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": false,
+      "audit": {
+        "speech": false,
+        "music": false,
+        "prominent_events": [],
+        "texture": "continuous splashing and churning water",
+        "environment": "fountain",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": false
+      },
+      "duration_sec": 106.06932,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -31.564,
+        "peak": 0.899096,
+        "bands": [
+          0.075191,
+          0.632372,
+          0.17403,
+          0.080269,
+          0.038138
+        ],
+        "level_range_db": 1.133,
+        "stereo_correlation": 0.4099
+      },
+      "storage_encoding": "Ogg Vorbis quality 5",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 106.06932,
+      "perspective": "environmental",
+      "occupancy": "unspecified"
+    },
+    {
+      "id": "indoor_hallway",
+      "file": "indoor_hallway.flac",
+      "environments": [
+        "medium_room",
+        "large_room"
+      ],
+      "tags": [
+        "quiet",
+        "indoor",
+        "hallway"
+      ],
+      "author": "Philipp Grzemba (Sheyvan)",
+      "source_page": "https://freesound.org/people/Sheyvan/sounds/570015/",
+      "source_audio": "https://cdn.freesound.org/previews/570/570015_3248005-hq.mp3",
+      "source_encoding": "public high-quality MP3 preview",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "5a27d4a9315994f723391f5e09c8fd19b0381c3562126c48c44665f3f109f60c",
+      "source_page_sha256": "babdb3c694e26d96a345cf727baa78ccacf6a29ace63dcee181d701556a48cad",
+      "max_duration_sec": 600,
+      "speech": "detected or uncertain",
+      "music": "detected or uncertain",
+      "auto_approved": true,
+      "audit": {
+        "speech": true,
+        "music": true,
+        "prominent_events": [
+          "acoustic guitar playing and practicing",
+          "faint background voices"
+        ],
+        "texture": "sparse, reverberant, musical",
+        "environment": "indoor room",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": false
+      },
+      "duration_sec": 50.895896,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -41.611,
+        "peak": 0.046509,
+        "bands": [
+          0.789957,
+          0.187976,
+          0.015941,
+          0.004763,
+          0.001363
+        ],
+        "level_range_db": 1.191,
+        "stereo_correlation": 0.5233
+      },
+      "listening_approval": {
+        "by": "Ali",
+        "date": "2026-10-11",
+        "result": "suitable"
+      },
+      "storage_encoding": "FLAC 16-bit (from licensed public MP3 preview)",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 50.895896,
+      "perspective": "environmental",
+      "occupancy": "empty"
+    },
+    {
+      "id": "large_studio",
+      "file": "large_studio.flac",
+      "environments": [
+        "studio",
+        "large_room",
+        "medium_room"
+      ],
+      "tags": [
+        "quiet",
+        "indoor",
+        "ventilation"
+      ],
+      "author": "Philipp Grzemba (Sheyvan)",
+      "source_page": "https://freesound.org/people/Sheyvan/sounds/540222/",
+      "source_audio": "https://cdn.freesound.org/previews/540/540222_3248005-hq.mp3",
+      "source_encoding": "public high-quality MP3 preview",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "da90be09d69dcf048fd07bf27ef7bbbd930e4db51e8ca3f96790090565abd215",
+      "source_page_sha256": "06fbd33b14f0e9e07af9f4ef9fbdac81b12e1734ab2a3ec87526215477248ce3",
+      "max_duration_sec": 600,
+      "speech": "not detected in full-recording automated audit",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": true,
+      "audit": {
+        "speech": false,
+        "music": false,
+        "prominent_events": [
+          "faint clicks",
+          "distant low thuds",
+          "subtle handling noise"
+        ],
+        "texture": "sparse",
+        "environment": "indoor",
+        "persistent_hum": true,
+        "confidence": "high",
+        "suitable_quiet_bed": false
+      },
+      "duration_sec": 157.0,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -53.539,
+        "peak": 0.011108,
+        "bands": [
+          0.849962,
+          0.093953,
+          0.037547,
+          0.01192,
+          0.006618
+        ],
+        "level_range_db": 1.724,
+        "stereo_correlation": 0.7394
+      },
+      "listening_approval": {
+        "by": "Ali",
+        "date": "2026-10-11",
+        "result": "suitable"
+      },
+      "storage_encoding": "FLAC 16-bit (from licensed public MP3 preview)",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 157.0,
+      "perspective": "environmental",
+      "occupancy": "empty"
+    },
+    {
+      "id": "wind_trees",
+      "file": "wind_trees.ogg",
+      "environments": [
+        "outdoors"
+      ],
+      "tags": [
+        "wind",
+        "trees",
+        "forest"
+      ],
+      "author": "Joseph Sardin",
+      "source_page": "https://bigsoundbank.com/forest-wind-in-the-trees-s0904.html",
+      "source_audio": "https://bigsoundbank.com/UPLOAD/bwf-en/0904.wav",
+      "source_encoding": "lossless original",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "140e9befc851a1e4c668c10e72e89944a812fecbd3b1c48454db2c05d96e8731",
+      "source_page_sha256": "68b7c8998b00aba26f7924a1e98c6fb8d71bc016c8662a616f831a857781a05e",
+      "max_duration_sec": 600,
+      "speech": "not detected in full-recording automated audit",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": false,
+      "audit": {
+        "speech": false,
+        "music": false,
+        "prominent_events": [
+          "flowing water stream",
+          "distant bird calls"
+        ],
+        "texture": "flowing stream with light bird calls",
+        "environment": "forest stream",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": false
+      },
+      "duration_sec": 218.441156,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -45.667,
+        "peak": 0.913585,
+        "bands": [
+          0.012926,
+          0.195508,
+          0.278666,
+          0.318053,
+          0.194848
+        ],
+        "level_range_db": 9.25,
+        "stereo_correlation": 0.6903
+      },
+      "storage_encoding": "Ogg Vorbis quality 5",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 218.441156,
+      "perspective": "environmental",
+      "occupancy": "unspecified"
+    },
+    {
+      "id": "forest",
+      "file": "forest.ogg",
+      "environments": [
+        "outdoors"
+      ],
+      "tags": [
+        "forest",
+        "birds",
+        "insects"
+      ],
+      "author": "Joseph Sardin",
+      "source_page": "https://bigsoundbank.com/forest-s0100.html",
+      "source_audio": "https://bigsoundbank.com/UPLOAD/bwf-en/0100.wav",
+      "source_encoding": "lossless original",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "5c48ff8ca354f6cdf9c036eaedad63a545e12334be77e14717af789116872d6a",
+      "source_page_sha256": "6bc92a8d57727786bf42d5cdfee170868386236bbb007ec519d16daae0caf86a",
+      "max_duration_sec": 600,
+      "speech": "not detected in full-recording automated audit",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": false,
+      "audit": {
+        "speech": false,
+        "music": false,
+        "prominent_events": [
+          "frequent bird vocalizations",
+          "close bird chirping",
+          "distant bird calls"
+        ],
+        "texture": "natural",
+        "environment": "forest",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": false
+      },
+      "duration_sec": 54.35483,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -37.399,
+        "peak": 0.256005,
+        "bands": [
+          0.132868,
+          0.068373,
+          0.057467,
+          0.064884,
+          0.676408
+        ],
+        "level_range_db": 10.892,
+        "stereo_correlation": 0.0387
+      },
+      "storage_encoding": "Ogg Vorbis quality 5",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 54.35483,
+      "perspective": "environmental",
+      "occupancy": "unspecified"
+    },
+    {
+      "id": "rain_concrete",
+      "file": "rain_concrete.ogg",
+      "environments": [
+        "outdoors"
+      ],
+      "tags": [
+        "rain",
+        "concrete"
+      ],
+      "author": "Joseph Sardin",
+      "source_page": "https://bigsoundbank.com/rain-on-concrete-s1289.html",
+      "source_audio": "https://bigsoundbank.com/UPLOAD/flac/1289.flac",
+      "source_encoding": "lossless original",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "ec5be1f41821e9791ff27b56e01c38cae5021037fc21d66b3a3fe9f3aabb8031",
+      "source_page_sha256": "d4c055dae7de5ba7cc1ab9958708448714be5db0836afbbc0ad192b3c9bd8be4",
+      "max_duration_sec": 600,
+      "speech": "not detected in full-recording automated audit",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": true,
+      "audit": {
+        "speech": false,
+        "music": false,
+        "prominent_events": [
+          "steady rain falling",
+          "water splashing and dripping"
+        ],
+        "texture": "wet, steady, grainy",
+        "environment": "outdoor",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": true
+      },
+      "duration_sec": 80.81068,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -39.659,
+        "peak": 0.744076,
+        "bands": [
+          0.005353,
+          0.036116,
+          0.031231,
+          0.101488,
+          0.825813
+        ],
+        "level_range_db": 7.171,
+        "stereo_correlation": 1.0
+      },
+      "storage_encoding": "Ogg Vorbis quality 5",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 80.81068,
+      "perspective": "environmental",
+      "occupancy": "unspecified"
+    },
+    {
+      "id": "sea",
+      "file": "sea.ogg",
+      "environments": [
+        "outdoors"
+      ],
+      "tags": [
+        "sea",
+        "waves",
+        "beach"
+      ],
+      "author": "Joseph Sardin",
+      "source_page": "https://bigsoundbank.com/small-waves-facing-the-ocean-s1046.html",
+      "source_audio": "https://bigsoundbank.com/UPLOAD/flac/1046.flac",
+      "source_encoding": "lossless original",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "9eb714484b78d9ce82d6dfeb6408654311b63b65ec596bc916a08d590b484fba",
+      "source_page_sha256": "7dfd3d43aae471b0d8f6f7992786a96e98ec21818fb6149294b5477ca6251111",
+      "max_duration_sec": 600,
+      "speech": "not detected in full-recording automated audit",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": true,
+      "audit": {
+        "speech": false,
+        "music": false,
+        "prominent_events": [
+          "crashing ocean waves",
+          "water receding on shoreline"
+        ],
+        "texture": "continuous ocean surf",
+        "environment": "beach",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": true
+      },
+      "duration_sec": 137.642653,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -33.076,
+        "peak": 0.315157,
+        "bands": [
+          0.012471,
+          0.012299,
+          0.16343,
+          0.512724,
+          0.299075
+        ],
+        "level_range_db": 6.629,
+        "stereo_correlation": 0.5994
+      },
+      "storage_encoding": "Ogg Vorbis quality 5",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 137.642653,
+      "perspective": "environmental",
+      "occupancy": "unspecified"
+    },
+    {
+      "id": "traffic",
+      "file": "traffic.ogg",
+      "environments": [
+        "outdoors"
+      ],
+      "tags": [
+        "traffic",
+        "urban",
+        "distant"
+      ],
+      "author": "Joseph Sardin",
+      "source_page": "https://bigsoundbank.com/paris-by-night-s0680.html",
+      "source_audio": "https://bigsoundbank.com/UPLOAD/bwf-en/0680.wav",
+      "source_encoding": "lossless original",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "licence_checked": "2026-10-11",
+      "sha256": "cb02da890dc63dd29a9750fc57f5f97686a8166f8629b2b154abf7fa9831e70a",
+      "source_page_sha256": "dfa8c1070798b4df95e6cd3a5837ac4514fdc92a9e1170e98efce6c49246b456",
+      "max_duration_sec": 600,
+      "speech": "detected or uncertain",
+      "music": "not detected in full-recording automated audit",
+      "auto_approved": false,
+      "audit": {
+        "speech": true,
+        "music": false,
+        "prominent_events": [
+          "continuous trickling and splashing water",
+          "distant city background noise",
+          "person groaning"
+        ],
+        "texture": "wet",
+        "environment": "fountain",
+        "persistent_hum": false,
+        "confidence": "high",
+        "suitable_quiet_bed": false
+      },
+      "duration_sec": 80.825601,
+      "sample_rate": 44100,
+      "channels": 2,
+      "characteristics": {
+        "rms_db": -29.869,
+        "peak": 0.698951,
+        "bands": [
+          0.652351,
+          0.174476,
+          0.116874,
+          0.048715,
+          0.007584
+        ],
+        "level_range_db": 11.793,
+        "stereo_correlation": 0.7187
+      },
+      "storage_encoding": "Ogg Vorbis quality 5",
+      "loop_crossfade_sec": 1.5,
+      "loop_start_sec": 0,
+      "loop_end_sec": 80.825601,
+      "perspective": "distant",
+      "occupancy": "unspecified"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import bg_duck
 import dub_audio
 import music_fill
 import pause_bed
+import section_background
 
 
 def speech_spans(map_path, rows=()):
@@ -36,7 +37,17 @@ def mute(bg, vocals, destination, spans):
     return Path(destination)
 
 
-def count_repairs(muted, spans, raw, original=None):
+def count_repairs(muted, spans, raw, original=None, recording=None, vocals=None, scenes=None, sections=None):
+    # The quote runs the same free bed as generation before counting paid holes.
+    if recording is not None and vocals is not None:
+        local, report, temporary = section_background.local_bed(muted, original or muted, recording, vocals,
+            spans, Path(raw).parent, Path(raw).stem, scenes=scenes)
+        try:
+            return count_repairs(local, spans, raw, original=original, sections=report.get('ambience_scenes'))
+        finally:
+            temporary.unlink(missing_ok=True)
+    if sections and len(sections) > 1:
+        return section_background.count(muted, spans, raw, original, sections, count_repairs)
     pcm = None
     try:
         music_fill._to_pcm(muted, raw)
@@ -99,15 +110,22 @@ def short_holes(muted, spans, raw):
 
 
 def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None, on_filled=None, preserve_music=True,
-            strict=True, progress=None, log=None, original=None):
+            strict=True, progress=None, log=None, original=None, scenes=None):
     work = Path(work)
     muted = work / f'{tag}_muted.wav'
     repaired = work / f'{tag}_repaired.wav'
     matched = work / f'{tag}_matched.wav'
     clean = mute(bg, vocals, muted, spans)
+    did_mute = clean == muted
+    local_report = {}
+    local_temp = work / f'{tag}_ambience.wav'
+    if original is not None and spans:
+        clean, local_report, local_temp = section_background.local_bed(clean, bg, original, vocals, spans,
+            work, tag, scenes=scenes, log=log)
+    sections = local_report.get('ambience_scenes')
     info = {'filled': False, 'reason': 'Music repair was not requested', 'gaps': []}
     try:
-        required = count_repairs(clean, spans, work / f'{tag}_inspect.pcm', original=bg) if clean == muted and preserve_music else 0
+        required = count_repairs(clean, spans, work / f'{tag}_inspect.pcm', original=bg, sections=sections) if did_mute and preserve_music else 0
         if required and (not key or not music_fill.ENABLED):
             raise RuntimeError('Music inpainting is unavailable. The background cannot be preserved reliably.')
     except (ValueError, RuntimeError) as ex:
@@ -139,7 +157,7 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
     elif not blend['ok']:
         notes['pause_note'] = 'the original sound is NOT used in the pauses: ' + str(blend.get('reason') or '')
     short = 0
-    if key and clean == muted and preserve_music and spans:
+    if key and did_mute and preserve_music and spans:
         try:
             short = short_holes(clean, spans, work / f'{tag}_short.pcm')
             if not short and music_fill.steady_engine(clean, bg, spans)['ok']:
@@ -147,10 +165,10 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
         except Exception as ex:      # only a free extra: never a reason to stop
             if log:
                 log('short holes not checked: ' + str(ex))
-    if key and clean == muted and (required or short):
+    if key and did_mute and (required or short):
         # reference=bg: the sound of a steady engine / wind is learned from the whole track (its pauses), not only from what is left
         # nothing quoted (required == 0): only the free local rebuild may run, the model is never called, so nothing unquoted is charged
-        info = music_fill.fill(clean, repaired, spans, key, gemini_key=gemini_key,
+        info = section_background.fill(clean, repaired, spans, key, sections=sections, gemini_key=gemini_key,
                                allow=allow if required else (lambda: False), on_filled=on_filled, progress=progress, log=log,
                                reference=reference, reference_pad=0.4 if reference is not bg else 0.15)
         if info['filled']:
@@ -160,14 +178,14 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
         incomplete = required and (not info['filled'] or any(not g['ok'] for g in wanted) or
                                    int(info.get('found', 0)) > sum(bool(g['ok']) for g in wanted))
         if incomplete:
-            notes = '; '.join(f"{g['start']}-{g['end']} s: {g['note']}" for g in wanted if not g['ok'])
+            gap_notes = '; '.join(f"{g['start']}-{g['end']} s: {g['note']}" for g in wanted if not g['ok'])
             if log:
-                log('music repair incomplete: ' + info['reason'] + (' | ' + notes if notes else ''))
+                log('music repair incomplete: ' + info['reason'] + (' | ' + gap_notes if gap_notes else ''))
             if strict:
                 raise RuntimeError('Music repair could not finish all silent music sections. ' + info['reason'])
             # Not strict: a hole that could not be rebuilt stays silent (it was muted), the repaired ones are kept.
             info['incomplete'] = True
-    temps = [muted, repaired, matched]
+    temps = [muted, repaired, matched, local_temp]
     if blend['ok']:
         temps.append(bg_ref)
         final = work / f'{tag}_final_bg.wav'
@@ -186,13 +204,25 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
     if KEEP_UNDER_SPEECH and KEEP_SPEECH_DB:
         lower += [(a, b, KEEP_SPEECH_DB) for a, b in spans]
     lower += [(g['start'], g['end'], music_fill.LOCAL_FILL_DB) for g in (info.get('gaps') or []) if g.get('ok') and g.get('local')]
-    measurements = dub_audio.match_background(bg_ref, clean, matched, vocals, dub, spans, lower=lower)
-    if blend['ok']:
+    level_ref = bg_ref
+    if local_report.get('ok'):
+        level_ref = work / f'{tag}_levelref.wav'
+        section_background.level_reference(bg_ref, local_temp, level_ref, spans, gain_db=-KEEP_SPEECH_DB)
+        temps.append(level_ref)
+        info['steady_bed'] = local_report['reason']
+    measurements = dub_audio.match_background(level_ref, clean, matched, vocals, dub, spans, lower=lower)
+    if blend['ok'] and not local_report.get('ok'):
         # A quiet steady background (a buzz, a room tone) that the separator took away under the voices comes back there, so it does
         # not pulse with the original speech. Only for a steady sound; never raises.
         floored = work / f'{tag}_floor.wav'
         temps.append(floored)
-        bed = pause_bed.bed_floor(matched, original, vocals, bg, spans, floored, log=log)
+        import ambience_match
+        if scenes is None:
+            scenes = ambience_match.cached_scenes(work, tag, bg)
+        bed = pause_bed.bed_floor(matched, original, vocals, bg, spans, floored, log=log, scenes=scenes)
+        if bed.get('ambience_scenes') is not None:
+            info['ambience_scenes'] = bed['ambience_scenes']
+            info['ambience_samples'] = bed['crowd_bed']
         if bed['ok'] and floored.exists():
             os.replace(floored, matched)
             info['steady_bed'] = bed['reason']
@@ -200,6 +230,9 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
             notes['bed_note'] = 'steady background not restored: ' + str(bed['reason'])
             if log:
                 log('steady background not restored: ' + bed['reason'])
+    if local_report.get('ambience_scenes'):
+        info['ambience_scenes'] = local_report['ambience_scenes']
+        info['ambience_samples'] = local_report['crowd_bed']
     info.update(notes)
     return {'path': matched, 'music_fill': info, 'measurements': measurements, 'temps': temps}
 

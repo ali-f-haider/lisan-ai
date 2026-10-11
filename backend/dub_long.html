@@ -104,6 +104,7 @@
 <script src="/dialogs.js"></script>
 <script src="/longdub_editor.js"></script>
 <script src="/longdub_player.js"></script>
+<script src="/background_review.js"></script>
 <script>
 // ---- Dark mode (same key + logic as account.html) ----
 (function () {
@@ -972,6 +973,7 @@ function renderJob() {
               "<div style='color:var(--text-muted);margin-top:4px;'>" + esc(T.chAfter) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.after) + "</div></div>";
           }).join("") + "</details>";
       }
+      if (window.LisanBackground) h += window.LisanBackground.html(r.background_report, LANG);
       if (r.background) h += "<div class='ld-warn'>" + esc(T.doneBg(r.background.state, r.background.failed_parts, r.background.parts)) + "</div>";
       if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
       if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";

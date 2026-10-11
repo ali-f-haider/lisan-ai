@@ -386,10 +386,10 @@ def _crowd_bed(mt, o, speech, free, n, out_path, part, info, log=None):
     return info
 
 
-def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, log=None):
-    """Writes `out_path` = `matched` (the finished background) with the steady bed put back where the separator took it away under
-    speech: per frequency bin the level is at least (pause level + floor_db). Only when the sound in the pauses of the original is
-    steady and `original` is the same recording. Returns {"ok", "reason", "added_db"}; never raises."""
+def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, log=None, scenes=None):
+    """Put missing background back under speech from clean pauses of the same recording.
+    Changing ambience uses real scene-scoped samples; one steady room retains its spectral floor.
+    Returns {"ok", "reason", "added_db"}; never raises."""
     floor_db = FLOOR_DB if floor_db is None else float(floor_db)
     info = {'ok': False, 'reason': '', 'added_db': 0.0}
     out_path = Path(out_path)
@@ -417,6 +417,10 @@ def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, l
         sinfo = {}
         speech = speech_frames(b, o, v, spans, n, sinfo)
         free = ~speech
+        import ambience_match
+        ambience = ambience_match.restore(mt, o, speech, free, n, out_path, part, scenes=scenes, level_db=CROWD_BED_DB)
+        if ambience["ok"] or ambience["scoped"]:
+            return ambience
         segs = _pool(o, free, n)
         if sum(len(s) for s in segs) / RATE < BED_MIN_POOL_SEC:
             info['reason'] = 'too little clean sound in the pauses to know the background'

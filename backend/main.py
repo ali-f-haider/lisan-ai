@@ -3817,6 +3817,11 @@ def home():
         html = html.replace("<body>", '<body class="ui-new">', 1)
     return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
 
+@app.get("/background_review.js")
+def background_review_js():
+    return FileResponse(BASE_DIR / "background_review.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
 @app.get("/app.js")
 def app_js():
     return FileResponse(BASE_DIR / "app.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
@@ -4962,6 +4967,7 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
             print(f"[voice-clean] {req.job_id}: skipped ({_vc_ex})")
 
     music_incomplete = False
+    background_report = None
     if bg is not None:
         # Optionally enhance the separated background
         _merge_say(req.job_id, 8, "Preparing the background sound...")
@@ -4996,7 +5002,8 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
             gemini_key=GEMINI_API_KEY, allow=allow_music, on_filled=charge_music, preserve_music=keep_music,
             strict=False, progress=music_progress, log=lambda t: print(f"[merge-music] {req.job_id}: {t}"),
             original=video if Path(str(video)).exists() else None)
-        music_incomplete = bool((_bp.get("music_fill") or {}).get("incomplete"))
+        background_report = _bp.get("music_fill")
+        music_incomplete = bool((background_report or {}).get("incomplete"))
         bg_to_use = _bp["path"]
         _merge_say(req.job_id, 82, "Mixing the dubbed voice with the background...")
         # Use the same original phrase mask for reactions, so no original dialogue is reintroduced there.
@@ -5032,7 +5039,7 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
     os.replace(final, published_final)
     return {"status": "success", "has_background": bg is not None, "enhanced": req.enhance_background,
             "watermarked": marked, "credits_charged": merge_cost + price["music_charged"],
-            "music_kept": bool(price.get("music_kept", True)), "music_incomplete": music_incomplete}
+            "music_kept": bool(price.get("music_kept", True)), "music_incomplete": music_incomplete, "background_report": background_report}
 
 # Optional reference photos for Step 7 -- uploaded separately from the
 # /api/lipsync call itself (this just saves them to disk under the job's
@@ -9015,7 +9022,7 @@ def _short_merge_price(req):
         muted = OUTPUT_DIR / f"{req.job_id}_price_muted.wav"
         clean = dub_background.mute(bg, bg.parent / "vocals.wav", muted, spans)
         try:
-            repairs = dub_background.count_repairs(clean, spans, OUTPUT_DIR / f"{req.job_id}_price.pcm", original=bg) if clean == muted else 0
+            repairs = dub_background.count_repairs(clean, spans, OUTPUT_DIR / f"{req.job_id}_price.pcm", original=bg, recording=video, vocals=bg.parent / "vocals.wav") if clean == muted else 0
             if repairs and not FAL_API_KEY:
                 raise ValueError("Music inpainting is temporarily unavailable.")
         except ValueError as ex:
