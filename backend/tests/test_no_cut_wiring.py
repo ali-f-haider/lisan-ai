@@ -81,7 +81,7 @@ class PassTests(unittest.TestCase):
         metas = [meta(0, 1, 2.5), meta(1, 2.2, 2.5), meta(2, 3.4, 2.5)]
         seen = []
 
-        def reph(job, r, tag, m, slot, room, voice, loud, d, cap=None, gap=None, min_letters=None):
+        def reph(job, r, tag, m, slot, room, voice, loud, d, cap=None, gap=None, min_letters=None, rows_all=None):
             seen.append(min_letters)
             m2 = dict(m)
             m2["dur"] = round(room - 0.05, 3)

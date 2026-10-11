@@ -4249,10 +4249,15 @@ def _clone_with_retry(name, wav, source_language="en"):
     return None, last
 
 
+def _voice_text(text, waqf="auto", gap=None):
+    """The exact text submitted for speech, also retained in line metadata."""
+    from arabic_waqf import pausal
+    return pausal(text, waqf, gap)
+
+
 def _tts_with_retry(voice_id, text, waqf="auto", gap=None):
     import inworld_service
-    from arabic_waqf import pausal
-    text = pausal(text, waqf, gap)          # only the copy sent to the voice gets the stop form (at a real stop, see arabic_waqf); the stored text never changes
+    text = _voice_text(text, waqf, gap)          # only the copy sent to the voice gets the stop form (at a real stop, see arabic_waqf); the stored text never changes
     import urllib.error
     last = ""
     for wait in (0, 4, 12, 30):
@@ -4580,15 +4585,36 @@ def _ar_letters(text):
     return len(re.sub(r"[\s\u064B-\u065F\u0670\u0640]", "", text or ""))
 
 
-def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None, gap=None, min_letters=None):
+def _rephrase_gender(job, r, rows_all=None):
+    """Keep the reviewed line as the reference, including during a second rewrite."""
+    rows = rows_all if rows_all is not None else read_segments(job)
+    rows = rows or [r]
+    reviewed = next((x for x in rows if x.get("segment_id") == r["segment_id"]), r)
+    context = _gender_args(job, rows, [reviewed]) or {}
+    line = context.get("lines", {}).get(r["segment_id"], {})
+    context["reviewed_arabic_text"] = reviewed.get("arabic_text") or r["arabic_text"]
+    if gender_context.clean(reviewed.get("addressee")):
+        line["reviewed_addressee"] = gender_context.clean(reviewed["addressee"])
+    context.setdefault("lines", {})[r["segment_id"]] = line
+    return context
+
+
+def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None, gap=None, min_letters=None, rows_all=None):
     """A line that is still too long after using the silence after it and the
     "good" stretch would have its end cut. Instead, ask for a SHORTER version of
     the same sentence (same meaning), speak that, and use it if it is shorter.
     Up to REPHRASE_TRIES tries. Returns (meta, new_text) -- new_text is None when
     nothing better was found (the original line and meta stay). cap = the speed-up this speaker's delivery allows (default TEMPO_MAX)."""
     import gemini_service
+    import arabic_rewrite_guard
     cap = min(TEMPO_MAX, cap or TEMPO_MAX)
     sid = r["segment_id"]
+    gender = _rephrase_gender(job, r, rows_all)
+    context = gender.get("lines", {}).get(sid, {})
+    reviewed = gender["reviewed_arabic_text"]
+    # Preserve the legacy no-context request for old callers with no gender evidence.
+    gender_kw = {"gender": gender} if (gender.get("speakers") or context.get("reviewed_addressee")
+                 or context.get("addressee_is") or arabic_rewrite_guard.address_gender(reviewed)) else {}
     cur_text = r["arabic_text"].strip()
     best_meta, best_text, best_out = meta, None, None
     for attempt in range(1, REPHRASE_TRIES + 1):
@@ -4605,7 +4631,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         new = None
         for ask in range(2):        # the AI service sometimes answers with nothing: ask once more
             try:
-                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
+                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY, **gender_kw, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
             except Exception as ex:
                 print(f"[longdub] rephrase call failed for {sid}: {ex}")
             if new:
@@ -4624,6 +4650,11 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
                     new = merge_tashkeel(new, got.get(sid, ""))
             except Exception as ex:
                 print(f"[longdub] tashkeel for a rephrased line failed: {ex}")
+        conflict = arabic_rewrite_guard.conflict(reviewed, new, context.get("speaker_gender"),
+                                                    context.get("addressee_is") or context.get("reviewed_addressee"))
+        if conflict:
+            _ev(job, "line_rephrase", "failed", f"{sid}: shorter wording rejected ({conflict}); keeping the reviewed wording")
+            break
         audio, err = _tts_with_retry(voice_id, f"{tag}{new}", r.get("waqf"), gap)
         if audio is None:
             _ev(job, "line_rephrase", "failed", f"{sid}: the voice service did not speak the shorter version: {err}")
@@ -4632,6 +4663,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         raw2.write_bytes(audio)
         out2 = d / "fit" / f"{sid}_rp{attempt}.wav"
         m2 = _fit_line(raw2, out2, slot, room, loud_ref, float(r["start"]))
+        m2["voice_text"] = _voice_text(f"{tag}{new}", r.get("waqf"), gap)
         try:
             raw2.unlink()
         except Exception:
@@ -4709,7 +4741,7 @@ def _no_cut_pass(job, dub, rows, total, voice_for, loud_ref, d, paces):
                 slot = max(float(r["end"]) - float(r["start"]), 0.5)
                 cap_ = min(TEMPO_MAX, delivery.tempo_cap(paces.get(sid, "unknown")))
                 meta2, new_text = _rephrase_to_fit(job, rr, tag, dict(m), slot, max(target, 0.3), voice_for(r["speaker_id"]), loud_ref, d,
-                                                   cap=cap_, gap=gap_, min_letters=NOCUT_MIN_LETTERS)
+                                                   cap=cap_, gap=gap_, min_letters=NOCUT_MIN_LETTERS, rows_all=rows)
                 if new_text is None:
                     return None
                 meta2.update({"start": float(r["start"]), "seg": sid, "chars": len(f"{tag}{new_text}"), "pace": paces.get(sid, "unknown")})
@@ -4938,6 +4970,7 @@ def _run_dubbing(job):
             nxt = float(rows[i + 1]["start"]) - 0.05 if i + 1 < n else total
             room = max(nxt - float(r["start"]), 0.05)
             meta = _fit_line(raw, d / "fit" / f"{sid}.wav", slot, room, loud_ref, float(r["start"]))
+            meta["voice_text"] = _voice_text(text, r.get("waqf"), gap_)
             new_text = None
             pace_ = paces_.get(sid, "unknown")
             cap_ = min(TEMPO_MAX, delivery.tempo_cap(pace_))
@@ -4945,7 +4978,7 @@ def _run_dubbing(job):
             # too long for its room, or fast-forwarded more than this speaker's delivery allows: the wording is shortened first
             if REPHRASE_ENABLED and (meta["dur"] > room + 0.02 or meta["tempo"] > cap_ + 0.02) and _ar_letters(r["arabic_text"]) >= REPHRASE_MIN_LETTERS:
                 _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Shortening a line to fit (line {i + 1} of {n})...")
-                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d, cap=cap_, gap=gap_)
+                meta, new_text = _rephrase_to_fit(job, r, tag, meta, slot, room, voice_for(r["speaker_id"]), loud_ref, d, cap=cap_, gap=gap_, rows_all=rows)
                 meta["pace"] = pace_
             meta.update({"start": float(r["start"]), "seg": sid, "chars": len(text) if new_text is None else len(f"{tag}{new_text}")})
             if new_text is not None:
