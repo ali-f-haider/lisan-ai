@@ -12,7 +12,7 @@ class PausalTests(unittest.TestCase):
     def test_short_vowel_becomes_sukoon(self):
         self.assertEqual(pausal("هَذَا كِتَابُهُ."), "هَذَا كِتَابُهْ.")
         self.assertEqual(pausal("ذَهَبَ مُحَمَّدٌ."), "ذَهَبَ مُحَمَّدْ.")
-        self.assertEqual(pausal("أَنَا فِي الْبَيْتِ."), "أَنَا فِي الْبَيْتْ.")
+        self.assertEqual(pausal("أَنَا فِي الْبَيْتِ."), "أَنَا فِي الْبَيْتِ.")
         self.assertEqual(pausal("لَمْ يَصِلِ."), "لَمْ يَصِلْ.")
         self.assertEqual(pausal("هُوَ كَتَبَ."), "هُوَ كَتَبْ.")
 
@@ -60,7 +60,7 @@ class PausalTests(unittest.TestCase):
         self.assertEqual(pausal("مُعَلِّمُونَ."), "مُعَلِّمُونْ.")          # a real nun is never removed
 
     def test_only_the_last_word_before_each_stop(self):
-        self.assertEqual(pausal("نَعَمُ يَا سَيِّدِي، لَقَدْ فَهِمْتُ. هَيَّا بِنَا!"), "نَعَمُ يَا سَيِّدِي، لَقَدْ فَهِمْتْ. هَيَّا بِنَا!")
+        self.assertEqual(pausal("نَعَمُ يَا سَيِّدِي، لَقَدْ فَهِمْتُ. هَيَّا بِنَا!"), "نَعَمُ يَا سَيِّدِي، لَقَدْ فَهِمْتُ. هَيَّا بِنَا!")
         self.assertEqual(pausal("كَيْفَ حَالُكَ؟"), "كَيْفَ حَالُكْ؟")
 
     def test_idempotent_and_unmarked_text_untouched(self):

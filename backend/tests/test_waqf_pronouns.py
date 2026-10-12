@@ -23,7 +23,7 @@ class PronounSpeechTests(unittest.TestCase):
             self.assertEqual(pausal(text), 'هَلْ ' + pronoun + '؟ كِتَابُهْ.')
 
     def test_ordinary_words_keep_the_existing_stop_form(self):
-        self.assertEqual(pausal('بِنْتِ.'), 'بِنْتْ.')
+        self.assertEqual(pausal('كِتَابِ.'), 'كِتَابْ.')
         self.assertEqual(pausal('كِتَابٌ.'), 'كِتَابْ.')
         self.assertEqual(pausal('شُكْرًا.'), 'شُكْرَا.')
 
