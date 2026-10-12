@@ -12,6 +12,7 @@ temporary copy that is sent to the voice engine: the last word before a real sto
     فَتًى        ->  فَتَى              (alef maqsura keeps its long vowel; special: جِدًّا -> جِدَّا, مَسَاءً -> مَسَاءَا)
     مَدْرَسَةٌ   ->  مَدْرَسَهْ         ة is a silent ه: also with tanween fatha
     امْرَأَةٌ ... لَافِتَةٌ   the ة of these words is a silent ه everywhere in the voice copy (not before an ال word: امْرَأَةُ الرَّجُلِ)
+    أَنْتَ، أَنْتِ        unchanged      the vowel identifies the addressee; و / ف prefixes also keep it
     هُنَا، فِي، يَدْعُو   unchanged      long vowels stay long
     قَاضٍ، دَاعٍ         unchanged      defective nouns (منقوص) need their own treatment: never turned into قَاضْ
 
@@ -167,6 +168,10 @@ def _pausal_word(word):
     if len(g) < 2 or not _MARK.search(word):
         return word
     letter, marks = g[-1]
+    # These vowels identify the addressee, not a grammatical case ending.
+    # Keep them in the speech copy so the voice can distinguish أنتَ / أنتِ.
+    if _norm(_bare(g)) in {"انت", "وانت", "فانت"} and (_FATHA in marks or _KASRA in marks):
+        return word
     prev_letter, prev_marks = g[-2]
     # 1. ة is a silent ه at a stop, whatever it carries (also a tanween fatha)
     if letter == "ة":
