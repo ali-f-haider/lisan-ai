@@ -95,11 +95,17 @@
     if (current) return null;
     opts = opts || {};
     var T = S[opts.lang === 'ar' ? 'ar' : 'en'];
+    if (opts.purpose === 'speech-removal') {
+      var ar = opts.lang === 'ar';
+      T = Object.assign({}, T, {title: function () { return ar ? 'إزالة الكلام' : 'Remove speech'; },
+        saveClose: ar ? 'إزالة' : 'Remove', discard: ar ? 'إلغاء' : 'Cancel',
+        keys: ar ? 'المسافة تشغيل/إيقاف · [ البداية · ] النهاية · Esc إلغاء' : 'Space play/pause · [ start · ] end · Esc cancel'});
+    }
     var st = { opts: opts, T: T, a: +opts.start || 0, b: +opts.end || 0, raf: 0, stopAt: null, ctx: null, gain: null, el: null, closing: false, dur: +opts.duration || 0 };
     st.a0 = st.a; st.b0 = st.b;
     current = st;
 
-    var ov = document.createElement('div'); ov.className = 'ld-pl-overlay';
+    var ov = document.createElement('div'); ov.className = 'ld-pl-overlay' + (opts.purpose === 'speech-removal' ? ' lisan-remove' : '');
     var box = document.createElement('div'); box.className = 'ld-pl'; if (opts.lang === 'ar') box.dir = 'rtl';
     box.innerHTML =
       '<h4>' + esc(T.title(opts.index, opts.speaker || '')) + '</h4>' +
@@ -127,21 +133,27 @@
         '<div class="ld-pl-info" id="plLen"></div>' +
         '<div class="ld-pl-keys">' + esc(T.keys) + '</div>' +
       '</div>' +
+      (opts.purpose === 'speech-removal' ? '<div class="ld-pl-info">' + esc(opts.lang === 'ar' ? 'حدد مقطعًا لا يزال فيه الكلام الأصلي مسموعًا.' : 'Select a section where original speech is still audible.') + '</div><div class="ld-pl-saved" id="plSaved"></div>' : '') +
       '<div class="ld-pl-err hidden" id="plErr"></div>' +
       '<div class="ld-pl-foot"><button type="button" class="btn-plain" id="plDiscard">' + esc(T.discard) + '</button><button type="button" class="green" id="plClose">' + esc(T.saveClose) + '</button></div>';
     ov.appendChild(box); document.body.appendChild(ov);
     st.ov = ov;
     var q = function (id) { return box.querySelector('#' + id); };
     st.q = q;
+    if (opts.purpose === 'speech-removal') {
+      box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', T.title());
+      st.ranges = (opts.savedRanges || []).map(function (p) { return p.slice(); });
+      renderSaved(st);
+    }
     q('plEnglish').textContent = (opts.text || '') + (opts.text && opts.arabic ? '  ·  ' : '') + (opts.arabic || '');
 
     st.err = function (msg) { var e = q('plErr'); e.textContent = msg || ''; e.classList.toggle('hidden', !msg); };
-    q('plDiscard').onclick = function () { closeOnly(st); };
+    q('plDiscard').onclick = function () { if (!st.closing) closeOnly(st); };
     q('plClose').onclick = function () { applyAndClose(st); };
 
     st.onKey = function (e) {
       if (current !== st) return;
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); applyAndClose(st); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); if (opts.purpose === 'speech-removal') { if (!st.closing) closeOnly(st); } else applyAndClose(st); return; }
       if (!st.el) return;
       var tag = e.target && e.target.tagName;
       if ((tag === 'INPUT' && e.target.type === 'text') || tag === 'SELECT' || tag === 'TEXTAREA') return;
@@ -231,7 +243,7 @@
     ['plA', 'plB'].forEach(function (id) {
       q(id).onchange = function () {
         var v = parse(this.value);
-        if (v === null) { this.value = fmt(id === 'plA' ? st.a : st.b); return; }
+        if (v === null) { if (st.opts.purpose === 'speech-removal') st.err(st.T.bad); else this.value = fmt(id === 'plA' ? st.a : st.b); return; }
         v = Math.round(v * 1000) / 1000;
         if (id === 'plA') st.a = v; else st.b = v;
         this.value = fmt(v); refresh(st);
@@ -337,12 +349,34 @@
     current = null;
   }
 
+  function renderSaved(st) {
+    var host = st.q('plSaved'); if (!host) return; host.replaceChildren();
+    st.ranges.forEach(function (pair, index) {
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'btn-plain';
+      b.textContent = fmt(pair[0]) + '–' + fmt(pair[1]) + ' ×';
+      b.title = st.opts.lang === 'ar' ? 'التراجع عن إزالة هذا المقطع' : 'Undo removal of this section';
+      b.setAttribute('aria-label', b.title + ' ' + fmt(pair[0]) + '–' + fmt(pair[1]));
+      b.onclick = async function () {
+        if (st.closing || !st.opts.onUndo) return; st.closing = true;
+        st.q('plClose').disabled = true; st.q('plDiscard').disabled = true;
+        try { st.ranges = await st.opts.onUndo(index); if (current === st) renderSaved(st); }
+        catch (ex) { st.err(ex.message || st.T.generic); }
+        finally { st.closing = false; st.q('plClose').disabled = false; st.q('plDiscard').disabled = false; }
+      }; host.appendChild(b);
+    });
+  }
+
   // Closing puts the times into the line, but only when they changed. The caller's onApply may refuse (Error) and the box stays open.
   function applyAndClose(st) {
     if (st.closing) return;
+    if (st.opts.purpose === 'speech-removal') {
+      var a = parse(st.q('plA').value), b = parse(st.q('plB').value);
+      if (a === null || b === null) { st.err(st.T.bad); return; }
+      st.a = Math.round(a * 1000) / 1000; st.b = Math.round(b * 1000) / 1000;
+    }
     var T = st.T, changed = Math.abs(st.a - st.a0) > 0.0004 || Math.abs(st.b - st.b0) > 0.0004;
-    if (!changed) { closeOnly(st); return; }
-    if (!(st.b > st.a)) { st.err(T.bad); st.q('plMain').classList.remove('hidden'); return; }
+    if (!changed && st.opts.purpose !== 'speech-removal') { closeOnly(st); return; }
+    if (!Number.isFinite(st.a) || !Number.isFinite(st.b) || st.a < 0 || !(st.b > st.a) || (st.dur && st.b > st.dur + 0.01)) { st.err(T.bad); st.q('plMain').classList.remove('hidden'); return; }
     if (!st.opts.onApply) { closeOnly(st); return; }
     st.closing = true;
     var btn = st.q('plClose'); btn.disabled = true;

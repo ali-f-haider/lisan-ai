@@ -627,7 +627,7 @@ def keep_verdicts(mask, env_v, env_o):
                   "corr_median": None if not cs else round(float(np.median(cs)), 2)}
 
 
-def keep_music(bg_path, vocals_path, out_path, mask, max_sec=None):
+def keep_music(bg_path, vocals_path, out_path, mask, max_sec=None, forced_mask=None):
     """Writes `out_path` (16-bit stereo WAV, 44.1 kHz): the background with the leftover of the original voices taken out
     where `mask` is True and the music kept; stretches where that did not work are silenced instead.
     max_sec = how long it may take at most (default KEEP_MAX_SEC); a job that is going to take longer is given up early
@@ -689,10 +689,14 @@ def keep_music(bg_path, vocals_path, out_path, mask, max_sec=None):
         if done.returncode != 0 or not soft.exists() or soft.stat().st_size < 1000:
             raise RuntimeError("ffmpeg failed while writing the result")
         hard, rep = keep_verdicts(mask, env_v, env_o)
+        if forced_mask is not None:
+            hard |= forced_mask
         info.update(rep)
         info["kept_share"] = round(1.0 - float((hard & mask).sum()) / max(1.0, float(mask.sum())), 3)
         if hard.any():
             gain = mute_gain_curve(hard)
+            if forced_mask is not None:
+                gain[forced_mask] = 0.0
             centers = (np.arange(gain.size) + 0.5) * _FS
             dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(soft), "-vn", "-ac", str(CH), "-ar", str(RATE),
                                     "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -775,11 +779,11 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None
             return info
         bgp = _frame_power_db(bg_path)
         n = bgp.size
-        if n < 200:
+        if n < 1 or (n < 200 and not getattr(spans, "forced", None)):
             info["reason"] = "background too short"
             return info
-        if spans:
-            mask = speech_mute_mask(spans, n)
+        if spans or getattr(spans, "forced", None):
+            mask = speech_mute_mask(list(spans or []) + list(getattr(spans, "forced", ())), n)
             src = "speech map"
             if vocals_path is not None and Path(vocals_path).exists():
                 # the map starts at the first recognised word: soft starts, breaths and word ends are in the separated
@@ -798,22 +802,27 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None
         else:
             info["reason"] = "no speech map and no separated voices to follow"
             return info
+        import speech_removal
+        forced_ranges = speech_removal.forced(spans)
+        forced_mask = speech_mute_mask(forced_ranges, n) if forced_ranges else None
+        if forced_mask is not None:
+            mask |= forced_mask
         share = float(mask.mean())
         info["share"] = round(share, 3)
-        if float(mask.sum()) * FRAME_SEC < MUTE_MIN_SPEECH_SEC:
+        if forced_mask is None and float(mask.sum()) * FRAME_SEC < MUTE_MIN_SPEECH_SEC:
             info["reason"] = "no speech found in the original"
             return info
         # does the background hold a copy of the voices? (louder while people speak than in the pauses)
         k = int(0.15 / FRAME_SEC)
-        near = np.convolve(mask.astype(float), np.ones(2 * k + 1), mode="same") > 0.5     # speech and its surroundings
-        inner = np.convolve((~mask).astype(float), np.ones(2 * k + 1), mode="same") < 0.5   # well inside speech
+        near = np.convolve(np.pad(mask.astype(float), (k, k)), np.ones(2 * k + 1), mode="valid") > 0.5
+        inner = np.convolve(np.pad((~mask).astype(float), (k, k)), np.ones(2 * k + 1), mode="valid") < 0.5
         far = ~near
         lvl_speech = _db(bgp[inner].mean()) if inner.sum() >= 100 else None
         lvl_pause = _db(bgp[far].mean()) if far.sum() >= 100 else None
         info["speech_db"] = None if lvl_speech is None else round(lvl_speech, 1)
         if lvl_speech is not None and lvl_pause is not None:
             info["leak_db"] = round(lvl_speech - lvl_pause, 1)
-        if mode == "auto":
+        if mode == "auto" and forced_mask is None:
             leaky = info["leak_db"] is not None and info["leak_db"] >= MUTE_LEAK_DB
             quiet = lvl_speech is not None and lvl_speech < MUTE_QUIET_DB
             if not (leaky or quiet):
@@ -823,7 +832,8 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None
                 return info
         want_keep = KEEP_MODE if keep is None else bool(keep)
         if want_keep and vocals_path is not None:
-            kr = keep_music(bg_path, vocals_path, out_path, mask, max_sec=keep_max_sec)
+            extra = {"forced_mask": forced_mask} if forced_mask is not None else {}
+            kr = keep_music(bg_path, vocals_path, out_path, mask, max_sec=keep_max_sec, **extra)
             if kr["ok"]:
                 info["muted"] = True
                 info["kept_music"] = bool(kr["kept_share"] is not None and kr["kept_share"] >= 0.05)
@@ -837,6 +847,8 @@ def mute_speech(bg_path, vocals_path, out_path, spans=None, mode=None, keep=None
         gain = mute_gain_curve(mask)
         if strict:
             gain[mask] = 0.0  # speech is digital silence before instrumental repair
+        if forced_mask is not None:
+            gain[forced_mask] = 0.0
         centers = (np.arange(gain.size) + 0.5) * (HOP * RATE / ANALYSIS_RATE)
         dec = subprocess.Popen(["ffmpeg", "-v", "error", "-i", str(bg_path), "-vn", "-ac", str(CH), "-ar", str(RATE),
                                 "-f", "f32le", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)

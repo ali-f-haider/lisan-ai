@@ -85,7 +85,7 @@ def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n, info=None):
     nobody speaks according to the transcript; then only the transcribed words (and their margins) count as speech.
     `info` (a dict) gets "dirty": True in that case."""
     nf = n // FRAME
-    vl = _mono_db(vocal_pcm, nf)
+    vl = _mono_db(vocal_pcm, nf) if vocal_pcm is not None else np.full(nf, -120.0)
     thr = max(float(vl.max()) + VOICE_GLOBAL_DB, VOICE_FLOOR_DB)
     local = maximum_filter1d(vl, size=1001, mode='nearest') + VOICE_LOCAL_DB
     voice = vl > np.maximum(local, thr)
@@ -93,8 +93,14 @@ def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n, info=None):
     ol, bl = _smooth(_mono_db(orig_pcm, nf), 10), _smooth(_mono_db(base_pcm, nf), 10)
     consistent = ol <= bl + CONSISTENT_DB
     inside = np.zeros(nf, dtype=bool)
-    for a, b in spans:
+    reference = getattr(spans, "reference", None) if vocal_pcm is None else None
+    for a, b in reference if reference is not None else spans:
         inside[max(0, int((a - PAD_SEC) * 100)):min(nf, int((b + PAD_SEC) * 100) + 1)] = True
+    import speech_removal
+    mandatory = np.zeros(nf, dtype=bool)
+    for a, b in speech_removal.forced(spans):
+        mandatory[max(0, int((a - PAD_SEC) * 100)):min(nf, int((b + PAD_SEC) * 100) + 1)] = True
+    inside |= mandatory
     outside = ~inside
     # ...and what the voices hold there is a murmur, clearly quieter than the speech: when it is as loud as the speech, the transcript
     # simply missed people talking, and the original must not be laid in there.
@@ -103,7 +109,7 @@ def speech_frames(base_pcm, orig_pcm, vocal_pcm, spans, n, info=None):
         if info is not None:
             info['dirty'] = True
         return inside
-    return voice | (inside & ~consistent)
+    return voice | (inside if vocal_pcm is None else inside & ~consistent) | mandatory
 
 
 def _weights(speech):
@@ -398,20 +404,23 @@ def bed_floor(matched, original, vocals, base, spans, out_path, floor_db=None, l
     pcms = []
     part = out_path.with_name(out_path.name + '.part.wav')
     try:
-        if not original or not Path(original).exists() or not vocals or not Path(vocals).exists() or not spans:
+        import speech_removal
+        trusted_bed = bool(speech_removal.forced(spans) and original and base and
+                           Path(original).resolve() == Path(base).resolve() and not vocals)
+        if not original or not Path(original).exists() or (not trusted_bed and (not vocals or not Path(vocals).exists())) or not spans:
             info['reason'] = 'no original recording to take the steady sound from'
             return info
         for s, r in zip(srcs, raws):
-            pcms.append(_open(s, r))
-        if any(p is None for p in pcms):
+            pcms.append(_open(s, r) if s is not None else None)
+        if any(p is None for i, p in enumerate(pcms) if not (trusted_bed and i == 2)):
             info['reason'] = 'an audio file is empty'
             return info
         mt, o, v, b = pcms
-        n = min(len(mt), len(o), len(v), len(b))
-        if any(abs(len(x) - len(mt)) > RATE // 4 for x in (o, v, b)):
+        n = min(len(p) for p in (mt, o, v, b) if p is not None)
+        if any(abs(len(x) - len(mt)) > RATE // 4 for x in (o, v, b) if x is not None):
             info['reason'] = 'the original recording has another length than the background'
             return info
-        if not _same_recording(b, o, v, n):
+        if not trusted_bed and not _same_recording(b, o, v, n):
             info['reason'] = 'the original recording does not match the separated sound'
             return info
         sinfo = {}

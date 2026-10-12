@@ -1003,7 +1003,7 @@ def redo_project(job, uid, for_edits=False):
         _JOBS[new_id] = new
     _write_segments(new, rows)
     old_wd = _wd(job)
-    for f in ("pauses.json", "speech_spans.json", "turns.json"):     # tiny timing maps (not there for projects finished before they were kept)
+    for f in ("pauses.json", "speech_spans.json", "turns.json", "speech_removals.json"):     # tiny timing maps (not there for projects finished before they were kept)
         try:
             if (old_wd / f).exists():
                 shutil.copyfile(old_wd / f, nd / f)
@@ -2965,6 +2965,9 @@ def set_line_time(job, segment_id, start, end, manual=False):
         err = _time_error(rows, segment_id, start, end, total)
         if err:
             return False, err, None
+        if not r.get("manual_time") and not r.get("added"):
+            r.setdefault("source_start", r["start"])
+            r.setdefault("source_end", r["end"])
         r["start"], r["end"] = start, end
         _clear_speaker_review(r)
         if manual:
@@ -3961,14 +3964,14 @@ def set_lipsync_resolution(job, uid, res):
     return True, None
 
 
-def music_quote(job):
+def music_quote(job, removals=None):
     wd = _wd(job)
     bg = wd / "background.wav"
     if not bg.exists():
         return {"repairs": 0, "max_credits": 0}
     fee = max(0, int(_job_pricing(job).get("music_fill_credits", 10)))
     try:
-        spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job))
+        spans = dub_background.speech_spans(wd / "speech_spans.json", read_segments(job), removals=removals)
         muted = wd / "price_music_muted.wav"
         clean = dub_background.mute(bg, wd / "vocals_mono.wav", muted, spans)
         count = dub_background.count_repairs(clean, spans, wd / "price_music.pcm", original=bg, recording=wd / "audio.wav", vocals=wd / "vocals_mono.wav") if clean == muted else 0

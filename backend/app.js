@@ -581,6 +581,7 @@ function saveProject() {
     downloadText("dubbing_project.json", JSON.stringify({
         app: "ai-dubbing-mvp", version: 1, job_id: currentJobId, source_language: currentSourceLanguage, total_duration: totalDuration, is_video: isVideoUpload,
         segments: segmentsData.map(s => Object.assign({}, s, { waqf: shortWaqfMode(s.waqf) })), original_segments: originalSegments,
+        speech_removals: window.LisanSpeechRemoval ? LisanSpeechRemoval.projectData(currentJobId) : [],
         speaker_voices: speakerVoices, speaker_voice_names: speakerVoiceNames,
         speaker_choices: speakerChoices, cloned_by_speaker: clonedBySpeaker
     }, null, 2));
@@ -595,6 +596,7 @@ function loadProjectFile(evt) {
         try {
             const p = JSON.parse(String(reader.result));
             if (!p || !Array.isArray(p.segments) || p.segments.some(s => !s || typeof s !== "object" || Array.isArray(s))) throw new Error("Bad project file");
+            var restoredRemovals = window.LisanSpeechRemoval ? LisanSpeechRemoval.copy(p.speech_removals || []) : [];
             currentSourceLanguage = LisanSource.normalise(p.source_language);
             var originalLanguageSelect = document.getElementById("sourceLanguage");
             if (originalLanguageSelect) originalLanguageSelect.value = currentSourceLanguage;
@@ -605,6 +607,7 @@ function loadProjectFile(evt) {
             speakerChoices = p.speaker_choices || {};
             clonedBySpeaker = p.cloned_by_speaker || {};
             if (p.job_id) currentJobId = p.job_id;
+            if (window.LisanSpeechRemoval && Object.prototype.hasOwnProperty.call(p, "speech_removals")) LisanSpeechRemoval.remember(currentJobId, restoredRemovals);
             if (Number(p.total_duration) > 0) totalDuration = Number(p.total_duration);
             isVideoUpload = !!p.is_video;
             renderTable(); renderSpeakerVoices();
@@ -1655,7 +1658,7 @@ function showMergeQuote(quote) {
         : subsText("Merge price: " + quote.max_total + " credits.", "سعر الدمج: " + quote.max_total + " رصيداً.");
 }
 function validMergeQuote(quote) {
-    return Number.isInteger(quote.max_total) && quote.max_total >= 1 && Number.isInteger(quote.music_max) && quote.music_max >= 0 && quote.music_max <= quote.max_total;
+    return Number.isInteger(quote.max_total) && quote.max_total >= 0 && Number.isInteger(quote.music_max) && quote.music_max >= 0 && quote.music_max <= quote.max_total;
 }
 var mergeQuoteSerial = 0;
 async function refreshMergePrice() {
@@ -1695,6 +1698,7 @@ async function mergeVideo() {
     let stopMergeProgress = function() {};
     try {
         showMergeProgress("Checking your video and the price...", 3);
+        if (window.LisanSpeechRemoval) await LisanSpeechRemoval.sync("/api/speech-removals/" + encodeURIComponent(mergePayload.job_id), mergePayload.job_id);
         const quoteResponse = await fetch("/api/merge_video/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mergePayload) });
         const quote = await quoteResponse.json();
         if (!quoteResponse.ok) throw new Error(quote.error || "Could not check the merge price.");
@@ -1711,7 +1715,7 @@ async function mergeVideo() {
         }
         notify("info", "Merging dubbed audio with video and background music...");
         stopMergeProgress = startMergeProgress(mergePayload.job_id);
-        const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({},mergePayload,{accepted_credits:quote.max_total})) });
+        const res = await fetch("/api/merge_video", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(Object.assign({},mergePayload,{accepted_credits:quote.max_total,speech_removal_revision:quote.speech_removal_revision||""})) });
         const data = await res.json();
         stopMergeProgress();
         document.getElementById("mergeButton").disabled = false;
@@ -3283,6 +3287,7 @@ function createRow(seg, i) {
     var db = mk("button"); db.className = "action-btn red"; db.textContent = "Delete"; db.onclick = function() { deleteSegment(i); };
     var lb = mk("button"); lb.className = "action-btn"; lb.textContent = seg.locked ? "🔒" : "🔓"; lb.title = seg.locked ? "Locked" : "Lock this line"; lb.onclick = function() { toggleLock(i); };
     aCell.appendChild(pb); aCell.appendChild(rb); aCell.appendChild(ib); aCell.appendChild(db); aCell.appendChild(lb);
+    if (window.LisanSpeechRemoval) LisanSpeechRemoval.button(aCell, function () { openShortSpeechRemoval(seg, i); }, typeof currentLang === "string" ? currentLang : "en", "action-btn");
     // No manual "Split" button here -- detected pauses are split
     // automatically right after transcription (see autoSplitAllPauses),
     // before the row is ever rendered.
@@ -5732,6 +5737,8 @@ window.cleanOldClones = function () {
         ["Choose an audio or video file.", "اختر ملف صوت أو فيديو."],
         ["Line locked: Auto-Fix, Translate and Tashkeel will skip it.", "السطر مقفل: سيتخطاه الإصلاح التلقائي والترجمة والتشكيل."],
         ["Line unlocked.", "السطر غير مقفل."],
+        ["Remove speech", "إزالة الكلام"],
+        ["Select a section where original speech is still audible.", "حدد مقطعًا لا يزال فيه الكلام الأصلي مسموعًا."],
         ["Manual line inserted. Enter its start and end times manually for precise placement.", "أُدرج سطر يدوي. أدخل وقت البداية والنهاية يدوياً لتحديد موضعه بدقة."],
         ["Could not load voices. Please try again in a moment.", "تعذّر تحميل الأصوات. يُرجى المحاولة بعد قليل."],
         ["Voice generation is temporarily unavailable. Please try again later.", "خدمة توليد الصوت غير متاحة مؤقتًا. يُرجى المحاولة لاحقًا."],
@@ -6780,6 +6787,7 @@ window.cleanOldClones = function () {
             localStorage.setItem(SAVE_KEY, JSON.stringify({
                 uid: window._lisanUid,
                 currentJobId: currentJobId, totalDuration: totalDuration, isVideoUpload: isVideoUpload,
+                speech_removals: window.LisanSpeechRemoval ? LisanSpeechRemoval.projectData(currentJobId) : [],
                 segments: segmentsData, originalSegments: originalSegments,
                 speakerVoices: speakerVoices, speakerVoiceNames: speakerVoiceNames,
                 speakerChoices: speakerChoices, clonedBySpeaker: clonedBySpeaker,
@@ -6791,6 +6799,7 @@ window.cleanOldClones = function () {
     function applyRestore(d) {
         segmentsData = d.segments; originalSegments = d.originalSegments || [];
         currentJobId = d.currentJobId || null; totalDuration = d.totalDuration || 0; isVideoUpload = !!d.isVideoUpload;
+        if (window.LisanSpeechRemoval && Object.prototype.hasOwnProperty.call(d, "speech_removals")) LisanSpeechRemoval.remember(currentJobId, d.speech_removals || []);
         speakerVoices = d.speakerVoices || {}; speakerVoiceNames = d.speakerVoiceNames || {};
         speakerChoices = d.speakerChoices || {}; clonedBySpeaker = d.clonedBySpeaker || {};
         window.customBySpeaker = d.customBySpeaker || {}; segmentOffsets = d.segmentOffsets || {};
@@ -8526,4 +8535,19 @@ function shortLanguageMismatch(data) {
 function sourceLineDuration(row) {
     if (currentSourceLanguage === "en") return (row.text || "").length / ENGLISH_CHARS_PER_SEC;
     return Math.max(0.1, (Number(row.end) || 0) - (Number(row.start) || 0));
+}
+
+
+function openShortSpeechRemoval(seg, index) {
+    if (!currentJobId || !window.LisanSpeechRemoval) return;
+    var id = currentJobId, lang = typeof currentLang === "string" ? currentLang : "en";
+    var original = originalSegments.find(function (r) { return r.segment_id === seg.segment_id; }) || seg;
+    LisanSpeechRemoval.open({job:id,endpoint:"/api/speech-removals/"+encodeURIComponent(id),
+        current:function(){return currentJobId===id;},
+        error:function(ex){notify("error",lang==="ar" ? "تعذّر حفظ المقطع. راجع التوقيت وحاول مرة أخرى." : ex.message);},
+        saved:function(){window._mergeShownTotal=null;notify("info",lang==="ar" ? "حُفظت إزالة الكلام. تُطبّق عند الدمج التالي." : "Speech removal saved. Applied on the next merge.");refreshMergePrice();},
+        player:{lang:lang,index:index+1,speaker:seg.speaker||"",text:seg.text||"",arabic:seg.arabic_text||"",
+            start:Number(original.start),end:Number(original.end),duration:totalDuration,kind:"audio",
+            fetchSource:function(){return workspaceHasMedia ? {url:"/api/source/"+encodeURIComponent(id),kind:"audio"} : null;}}
+    });
 }

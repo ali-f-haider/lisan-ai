@@ -7,6 +7,7 @@
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/longdub_editor.css">
+<link rel="stylesheet" href="/speech_removal.css">
 </head>
 <body>
 <div id="userBar">
@@ -103,7 +104,7 @@
 <script src="/source_language.js"></script>
 <script src="/dialogs.js"></script>
 <script src="/longdub_editor.js"></script>
-<script src="/longdub_player.js"></script>
+<script src="/longdub_player.js"></script><script src="/speech_removal.js"></script>
 <script src="/background_review.js"></script>
 <script>
 // ---- Dark mode (same key + logic as account.html) ----
@@ -1754,10 +1755,10 @@ function lineOp(send, done) {
 // This part only says where the picture comes from and what to do with the new times.
 var localMedia = null;       // {jobId, url, name}: the user's own file played in the browser (saved projects), never uploaded
 
-function openPlayer(s) {
+function openPlayer(s, purpose) {
   if (!window.LisanPlayer || LisanPlayer.isOpen()) return;
   var job = cur, id = s.segment_id;
-  LisanPlayer.open({
+  var options = {
     lang: LANG, index: segs.indexOf(s) + 1, speaker: s.speaker || "", text: s.text || "", arabic: s.arabic_text || "",
     start: +s.start, end: +s.end, duration: job.duration || 0,
     size: job.size, kind: job.has_video ? "video" : "audio",
@@ -1784,7 +1785,16 @@ function openPlayer(s) {
           return true;
         }, function () { lineBusy = false; throw new Error(T.netErr); });
     }
-  });
+  };
+  if (purpose === "speech-removal") {
+    options.start = s.source_start == null ? +s.start : +s.source_start;
+    options.end = s.source_end == null ? +s.end : +s.source_end;
+    return LisanSpeechRemoval.open({job: job.id, endpoint: "/api/longdub/" + job.id + "/speech-removals", player: options,
+      busy: function () { return lineBusy; }, current: function () { return cur && cur.id === job.id; },
+      error: function (ex) { alertMsg(LANG === "ar" ? "تعذّر حفظ المقطع. راجع التوقيت وحاول مرة أخرى." : ex.message); },
+      saved: function () { pricePreview = null; setSaved(true, LANG === "ar" ? "حُفظت إزالة الكلام؛ تُطبّق عند التصدير التالي." : "Speech removal saved; applied on the next export."); }});
+  }
+  LisanPlayer.open(options);
 }
 
 function applyRows(rows, focusId) {
@@ -1993,7 +2003,7 @@ function buildRow(s) {
   var bDel = document.createElement("button"); bDel.className = "btn-danger"; bDel.textContent = T.deleteLine;
   bDel.style.padding = "4px 10px"; bDel.style.fontSize = "12px";
   var bMan = document.createElement("button"); bMan.className = "btn-plain"; bMan.textContent = T.enterMan; bMan.title = T.enterManHint;
-  lb.appendChild(bMan); lb.appendChild(bSplit); lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
+  lb.appendChild(bMan); LisanSpeechRemoval.button(lb, function () { openPlayer(s, "speech-removal"); }, LANG); lb.appendChild(bSplit); lb.appendChild(bIns); lb.appendChild(bDel); time.appendChild(lb);
   var en = document.createElement("textarea"); en.className = "en"; en.value = s.text || ""; en.dir = "ltr"; en.maxLength = 2000;
   var wrap = document.createElement("div"); wrap.className = "ld-arwrap";
   var ar = document.createElement("textarea"); ar.className = "ar"; ar.value = s.arabic_text || ""; ar.maxLength = 2000;

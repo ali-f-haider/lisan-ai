@@ -1,0 +1,25 @@
+/* Removal dialog only: no changes to the ordinary editor controls. */
+.ld-pl-overlay.lisan-remove {position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box}
+.lisan-remove .ld-pl {width:min(850px,100%);max-height:94vh;overflow:auto;background:var(--card,#fff);color:var(--text,#1f2937);border:1px solid var(--border,#d1d5db);border-radius:14px;padding:18px;box-sizing:border-box}
+.lisan-remove .ld-pl h4 {margin:0 0 12px}
+.lisan-remove .ld-pl-info {font-size:13px;color:var(--text-muted,#64748b);margin:8px 0;white-space:pre-wrap}
+.lisan-remove .ld-pl video {display:block;max-height:38vh;width:100%;background:#000;border-radius:8px}
+.lisan-remove .ld-pl video.audio {height:55px;background:transparent}
+.lisan-remove .ld-pl-time {text-align:center;font-variant-numeric:tabular-nums;margin:8px 0}
+.lisan-remove .ld-pl-row {display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:10px 0}
+.lisan-remove .ld-pl-row label {display:flex;gap:6px;align-items:center;margin:0}
+.lisan-remove #plSeek {width:100%;box-sizing:border-box}
+.lisan-remove .ld-pl-marks {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
+.lisan-remove .ld-pl-mark {display:flex;flex-direction:column;gap:6px}
+.lisan-remove .ld-pl-mark input {width:100%;box-sizing:border-box;font-variant-numeric:tabular-nums;direction:ltr}
+.lisan-remove .ld-pl-mark .btns {display:flex;gap:6px;flex-wrap:wrap}
+.lisan-remove .ld-pl .btn-plain {background:var(--muted-surface,#f1f5f9);color:var(--text,#1f2937);border:1px solid var(--border,#d1d5db);border-radius:7px;padding:6px 10px;cursor:pointer}
+.lisan-remove .ld-pl .btn-plain:disabled {opacity:.55;cursor:default}
+.lisan-remove .ld-pl-err {color:var(--danger,#dc2626);font-size:13px;margin:8px 0}
+.lisan-remove .ld-pl-foot {display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px}
+.lisan-remove .ld-pl-foot button {padding:8px 14px;border-radius:8px;border:1px solid var(--border,#d1d5db);background:var(--accent,#3b82f6);color:#fff;cursor:pointer}
+.lisan-remove .ld-pl-foot .green {background:var(--success,#16a34a)}
+.lisan-remove .ld-pl-foot .btn-plain {background:var(--muted-surface,#f1f5f9);color:var(--text,#1f2937)}
+.lisan-remove .ld-pl-saved {display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;max-height:110px;overflow:auto}
+.lisan-remove .ld-pl-saved button {font-size:12px;direction:ltr}
+@media(max-width:520px){.lisan-remove .ld-pl-marks{grid-template-columns:1fr}.lisan-remove .ld-pl{padding:12px}}

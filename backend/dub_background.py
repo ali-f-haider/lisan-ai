@@ -8,15 +8,22 @@ import dub_audio
 import music_fill
 import pause_bed
 import section_background
+import speech_removal
 
 
-def speech_spans(map_path, rows=()):
+def speech_spans(map_path, rows=(), removals=None):
     spans = []
     if map_path and Path(map_path).exists():
         spans = [(float(a), float(b)) for a, b in json.loads(Path(map_path).read_text(encoding='utf-8'))]
-    # Protect every original line, including gaps inside phrases and manually repaired ASR omissions.
-    spans += [(float(r['start']), float(r['end'])) for r in rows if r.get('text')]
-    return spans
+    # Protect original source speech; output timing changes are not removal requests.
+    for r in rows:
+        if not r.get('text') or r.get('added'):
+            continue
+        if r.get('manual_time') and 'source_start' not in r:
+            continue
+        spans.append((float(r.get('source_start', r['start'])), float(r.get('source_end', r['end']))))
+    explicit = (speech_removal.read(Path(map_path).with_name(speech_removal.FILE_NAME)) if map_path else []) if removals is None else speech_removal.validate(removals)
+    return speech_removal.SpeechSpans(spans + [tuple(x) for x in explicit], explicit)
 
 
 # Keep the REAL background under the speech (bg_duck's own "keep" mode: the leftover of the voice is
@@ -39,7 +46,7 @@ def mute(bg, vocals, destination, spans):
 
 def count_repairs(muted, spans, raw, original=None, recording=None, vocals=None, scenes=None, sections=None):
     # The quote runs the same free bed as generation before counting paid holes.
-    if recording is not None and vocals is not None:
+    if recording is not None and (vocals is not None or speech_removal.forced(spans)):
         local, report, temporary = section_background.local_bed(muted, original or muted, recording, vocals,
             spans, Path(raw).parent, Path(raw).stem, scenes=scenes)
         try:
@@ -242,15 +249,38 @@ def checkpointed_prepare(job, save, expected_repairs, *args, **kwargs):
     work, tag = Path(args[3]), args[4]
     path = work / f'{tag}_matched.wav'
     record = job.setdefault('background_checkpoint', {}).get(tag) or {}
-    if record.get('ready') and path.exists():
+    import speech_removal
+    spans = args[5] if len(args) > 5 else kwargs.get("spans", ())
+    fingerprint = speech_removal.signature(spans)
+    if record.get('ready') and path.exists() and (record.get('speech_signature') == fingerprint or
+            (not record.get('speech_signature') and not speech_removal.forced(spans))):
         return {'path': path, 'music_fill': record['music_fill'],
                 'measurements': record['measurements'], 'temps': [path]}
     if (record.get('started') and expected_repairs) or job.get('paid', {}).get('music_fill', 0):
         raise RuntimeError('Music repair was interrupted before its completed checkpoint. The job cannot safely repeat paid repairs; generation has stopped for refund/review.')
-    job['background_checkpoint'][tag] = {'started': True}
+    job['background_checkpoint'][tag] = {'started': True, 'speech_signature': fingerprint}
     save(job)  # persist before any provider request
     result = prepare(*args, **kwargs)
-    job['background_checkpoint'][tag] = {'started': True, 'ready': True,
+    job['background_checkpoint'][tag] = {'started': True, 'ready': True, 'speech_signature': fingerprint,
         'music_fill': result['music_fill'], 'measurements': result['measurements']}
     save(job)
     return result
+
+
+def removal_quote(background, ranges, work, fee, has_key, reference=None):
+    """Same mandatory cleanup and free ambience preflight as a correction export."""
+    import tempfile
+    spans = speech_removal.SpeechSpans(ranges, ranges, reference)
+    with tempfile.TemporaryDirectory(prefix='removal_quote_', dir=work) as directory:
+        directory = Path(directory)
+        muted = directory / 'muted.wav'
+        clean = mute(background, None, muted, spans)
+        try:
+            required = count_repairs(clean, spans, directory / 'inspect.pcm', original=background,
+                                     recording=background, vocals=None)
+            if required and (not has_key or not music_fill.ENABLED):
+                raise ValueError('Background music repair is unavailable right now.')
+        except (ValueError, RuntimeError) as ex:
+            return {'repairs': 0, 'max_credits': 0, 'each': fee, 'kept': False,
+                    'note': 'Some selected background sections may remain quiet: ' + str(ex)}
+        return {'repairs': required, 'max_credits': required * fee, 'each': fee, 'kept': True}

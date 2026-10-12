@@ -58,8 +58,8 @@ def _clip(source, target, a, b):
 
 
 def _spans(spans, a, b):
-    return [(max(0, s - a / RATE), min((b - a) / RATE, e - a / RATE))
-            for s, e in spans if s < b / RATE and e > a / RATE]
+    import speech_removal
+    return speech_removal.clipped(spans, a / RATE, b / RATE)
 
 
 def level_reference(original, restored, target, spans, gain_db=3.0):

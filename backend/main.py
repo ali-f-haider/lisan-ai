@@ -325,6 +325,7 @@ class MergeRequest(_JobIdModel):
     enhance_background: bool = True
     keep_music: bool = True
     accepted_credits: int = -1
+    speech_removal_revision: str = ""
 
 class LipSyncRequest(_JobIdModel):
     job_id: str
@@ -4931,12 +4932,10 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
     if _no_acct is not None:
         return _no_acct
     bal = get_credits(uid)
-    merge_cost = int(_get_pricing_config().get("mergeCredits", 1))
-    if merge_cost <= 0:
-        merge_cost = 1
-    if bal is None:
+    merge_cost = max(0, int(price.get("merge", max(1, int(_get_pricing_config().get("mergeCredits", 1))))))
+    if price["max_total"] and bal is None:
         return JSONResponse({"error": "We could not verify your balance. Nothing was charged."}, status_code=503)
-    if bal < price["max_total"]:
+    if price["max_total"] and bal < price["max_total"]:
         plural = "s" if merge_cost != 1 else ""
         return JSONResponse({"error": f"Insufficient credits (merge costs {merge_cost} credit{plural}). Use âž• Buy."}, status_code=402)
     _sv = find_job_video(req.job_id)
@@ -5037,7 +5036,7 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
         marked = bool(_wr["ok"])
         print(f"[watermark] merge {req.job_id}: {'ok' if marked else 'FAILED, delivered without'} ({_wr['reason']})")
 
-    if not debit_confirmed(deduct_credits(uid, merge_cost, "merge", req.job_id)):
+    if merge_cost and not debit_confirmed(deduct_credits(uid, merge_cost, "merge", req.job_id)):
         final.unlink(missing_ok=True)
         raise RuntimeError("The merge payment could not be confirmed. Please contact support.")
     price["merge_charged"] = merge_cost
@@ -6057,6 +6056,8 @@ def _ld_public_rows(rows, job=None):
         d["emotion_review"] = dub_review.emotion_review(r)
         d["heard"] = r.get("segment_id") not in unheard
         d["manual_time"] = bool(r.get("manual_time"))
+        for key in ("source_start", "source_end"):
+            if key in r: d[key] = r[key]
         d["gender_check"] = bool(r.get("gender_check"))      # the Arabic of this line had to guess a gender: a person is asked to look
         d["cut_check"] = r.get("cut_check")          # "start" / "end" / "both": a cut next to this line may be wrong, a person is asked to look
         d.update(_ld_speaker_review(r))
@@ -9023,6 +9024,11 @@ def _short_merge_price(req):
     bg = job_background_audio(req.job_id)
     repairs = 0
     music_kept, music_note = True, ""
+    import speech_removal
+    removal_file = bg.parent / speech_removal.FILE_NAME if bg is not None else None
+    removals = speech_removal.read(removal_file) if removal_file is not None else []
+    if removal_file is not None and removal_file.exists():
+        merge = 0  # exporting an explicit local cleanup adds no local-work fee
     if bg is not None and req.keep_music:
         spans = _short_speech_spans(req.job_id, bg)
         muted = OUTPUT_DIR / f"{req.job_id}_price_muted.wav"
@@ -9038,7 +9044,8 @@ def _short_merge_price(req):
             repairs, music_kept, music_note = 0, False, customer_message(str(ex))
             print(f"[merge-quote] {req.job_id}: music not preserved: {music_note}")
     return {"merge": merge, "music_each": fee, "music_repairs": repairs, "music_max": repairs * fee,
-            "music_charged": 0, "max_total": merge + repairs * fee, "music_kept": music_kept, "music_note": music_note}
+            "music_charged": 0, "max_total": merge + repairs * fee, "music_kept": music_kept, "music_note": music_note,
+            "speech_removal_revision": speech_removal.revision(removals), "speech_removal_required": bool(removals)}
 
 
 @app.post("/api/merge_video/quote")
@@ -9069,6 +9076,9 @@ def merge_video(req: MergeRequest, request: Request):
     price = None
     try:
         price = _short_merge_price(req)
+        token = getattr(req, "speech_removal_revision", "")
+        if (token or price.get("speech_removal_required")) and token != price.get("speech_removal_revision"):
+            return JSONResponse({"error": "Saved speech sections changed. Check the export price again."}, status_code=409)
         if req.accepted_credits != price["max_total"]:
             return JSONResponse({"error": "The price changed. Check the new price and confirm again."}, status_code=409)
         _merge_say(req.job_id, 1, "Starting...")
@@ -9549,3 +9559,93 @@ def admin_voice_cleanup_status(token: str, request: Request):
     except Exception:
         return JSONResponse({'error': 'Cleanup status could not be read.'}, status_code=404)
 
+
+
+# Explicit original-speech cleanup is free metadata work, separate from line timing.
+class SpeechRemovalEdits(BaseModel):
+    ranges: list = []
+    revision: str = ""
+
+
+@app.get("/speech_removal.js")
+def speech_removal_script():
+    return FileResponse(BASE_DIR / "speech_removal.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/speech_removal.css")
+def speech_removal_styles():
+    return FileResponse(BASE_DIR / "speech_removal.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
+
+
+def _short_removal_location(job_id, request):
+    guard = _job_guard(request, job_id, allow_empty=False)
+    if guard: return None, 0, guard
+    uid = _current_uid(request)
+    owner = _job_owner.get(job_id) or _uid_for_job(job_id)
+    if not uid or not owner or str(owner) != str(uid):
+        return None, 0, JSONResponse({"error": "not found"}, status_code=404)
+    bg = job_background_audio(job_id)
+    if bg is None:
+        return None, 0, JSONResponse({"error": "Attach the original file before editing speech removal."}, status_code=409)
+    source = resolve_job_audio(job_id) or find_job_video(job_id)
+    duration = ffmpeg_utils.get_media_duration(source) if source is not None else 0
+    return bg.parent / "speech_removals.json", duration, None
+
+
+@app.get("/api/speech-removals/{job_id}")
+def short_speech_removals(job_id: str, request: Request):
+    import speech_removal
+    path, duration, error = _short_removal_location(job_id, request)
+    if error: return error
+    try:
+        ranges = speech_removal.read(path)
+        return {"ranges": ranges, "revision": speech_removal.revision(ranges), "duration": duration}
+    except ValueError as ex:
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
+
+
+@app.put("/api/speech-removals/{job_id}")
+def short_save_speech_removals(job_id: str, body: SpeechRemovalEdits, request: Request):
+    import speech_removal
+    path, duration, error = _short_removal_location(job_id, request)
+    if error: return error
+    if not begin_operation(job_id):
+        return JSONResponse({"error": "Wait for the current operation to finish."}, status_code=409)
+    try:
+        return speech_removal.write(path, body.ranges, duration, body.revision)
+    except ValueError as ex:
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
+    finally:
+        finish_operation(job_id)
+
+
+@app.get("/api/longdub/{job_id}/speech-removals")
+def long_speech_removals(job_id: str, request: Request):
+    import speech_removal
+    uid, job, error = _ld_job(request, job_id)
+    if error: return error
+    try:
+        ranges = speech_removal.read(longdub_service._wd(job) / speech_removal.FILE_NAME)
+        return {"ranges": ranges, "revision": speech_removal.revision(ranges), "duration": longdub_service._total_secs(job)}
+    except ValueError as ex:
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
+
+
+@app.put("/api/longdub/{job_id}/speech-removals")
+def long_save_speech_removals(job_id: str, body: SpeechRemovalEdits, request: Request):
+    import speech_removal
+    uid, job, error = _ld_job(request, job_id)
+    if error: return error
+    try:
+        with longdub_service._lock_for(job_id):
+            job = longdub_service.load_job(job_id)
+            if not job or str(job.get("uid")) != str(uid):
+                return JSONResponse({"error": "not found"}, status_code=404)
+            if job.get("status") not in ("editing", "done") or longdub_edits.active(job):
+                return JSONResponse({"error": "Wait for this project to finish."}, status_code=409)
+            result = speech_removal.write(longdub_service._wd(job) / speech_removal.FILE_NAME,
+                                         body.ranges, longdub_service._total_secs(job), body.revision)
+            longdub_service._ev(job, "speech_removal_saved", "ok", f"{len(result['ranges'])} explicit source sections; nothing charged")
+            return result
+    except ValueError as ex:
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)

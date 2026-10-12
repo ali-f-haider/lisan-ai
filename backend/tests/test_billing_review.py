@@ -8,6 +8,7 @@ import json
 import math
 import sys
 import os
+import shutil
 import tempfile
 import threading
 import unittest
@@ -301,9 +302,12 @@ class BillingReviewTests(unittest.TestCase):
                 env={'Hooks':NS(pricing=lambda cfg=cfg:cfg),'read_segments':lambda _:rows,'math':math,
                      'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1,'_job_pricing':lambda _job,cfg=cfg:cfg}
                 long=extract('longdub_service.py',['dub_price'],env)
-                corrections=extract('longdub_edits.py',['quote'], {'rows':lambda _:rows,'active':lambda _:False,
-                          'restore_source':lambda _:None,'background':lambda _:Path('retained.wav'), 'math':math,
-                          'ld':NS(Hooks=NS(pricing=lambda cfg=cfg:cfg),_job_pricing=lambda _job,cfg=cfg:cfg), 'hashlib':__import__('hashlib'),'json':json})
+                import speech_removal
+                fixture = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, fixture, True)
+                bed = fixture / 'retained.wav'; bed.write_bytes(b'retained background')
+                corrections=extract('longdub_edits.py',['quote'], {'speech_removal':speech_removal,'rows':lambda _:rows,'active':lambda _:False,
+                          'restore_source':lambda _:None,'background':lambda _:bed, 'math':math,
+                          'ld':NS(_wd=lambda _:fixture,Hooks=NS(pricing=lambda cfg=cfg:cfg),_job_pricing=lambda _job,cfg=cfg:cfg), 'hashlib':__import__('hashlib'),'json':json})
                 expected = max(1, configured)
                 for kind,price in [('long',long['dub_price'](parent)),('correction',corrections['quote'](parent,['line']))]:
                     with self.subTest(kind=kind, configured=configured):

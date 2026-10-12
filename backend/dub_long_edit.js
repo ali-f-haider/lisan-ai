@@ -5,7 +5,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   'use strict';
   var lang = localStorage.getItem('lisan_lang') === 'ar' ? 'ar' : 'en', project = null, state = null;
   var selected = new Set(), page = 0, dirty = false, working = false, saveTimer = null, saveFlight = null;
-  var manualNoticeId = '', notified = new Set(), pollTimer = null; var meta = {}, listen = null;
+  var manualNoticeId = '', notified = new Set(), pollTimer = null; var meta = {}, listen = null, backgroundPrice = null;
   var $ = function(id) { return document.getElementById(id); };
   var tr = function(en, ar) { return lang === 'ar' ? ar : en; };
   async function api(path, method, body) {
@@ -50,7 +50,8 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     document.querySelectorAll('#lines input,#lines textarea,#lines select,#lines button,#pages button,#pages input,#pagesBottom button,#pagesBottom input').forEach(function(c) { c.disabled = value; });
     ['dub','finish','projects','restore','pickFile','openProject'].forEach(function(id) { $(id).disabled = value; });
   }
-  function count() { $('selectedCount').textContent = tr(selected.size + ' selected lines', selected.size + ' أسطر محددة'); }
+  function count() { $('selectedCount').textContent = tr(selected.size + ' selected lines', selected.size + ' أسطر محددة');
+    $('dub').textContent = !selected.size&&state&&state.speech_removal_configured ? (backgroundPrice&&project&&backgroundPrice.id===project.id ? tr('Export background · up to '+backgroundPrice.max+' credits','تصدير الخلفية · حتى '+backgroundPrice.max+' رصيد') : tr('Export background','تصدير الخلفية')) : tr('Dub selected lines','دبلجة الأسطر المحددة'); }
   function invalidate(row) {
     var index = state.segments.findIndex(function(r) { return r.segment_id === row.segment_id; });
     var batch = (state.batches || []).find(function(b) { return b.page === Math.floor(index / 10); });
@@ -210,6 +211,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       var caret=false; ['click','keyup','select'].forEach(function(event){original.addEventListener(event,function(){caret=true;});});
       var controls=document.createElement('div');controls.className='ld-lbtns';tools.appendChild(controls);
       button(controls,'Enter man.','إدخال يدوي',function(){openPlayer(row);});
+      LisanSpeechRemoval.button(controls,function(){openPlayer(row,'speech-removal');},lang);
       button(controls,'Split at cursor','تقسيم عند المؤشر',function(){if(!caret){notify('info',tr('Click between two words in the original text, then split.','انقر بين كلمتين في النص الأصلي ثم اضغط التقسيم.'));return;}action(row,'split',{position:original.selectionStart});});
       button(controls,'+ Insert a line after','+ إدراج سطر بعده',function(){action(row,'insert');});
       button(controls,'Delete line','حذف السطر',async function(){if(await LisanDialog.confirm(tr('Delete this correction line? The first dub stays saved.','حذف هذا السطر من التصحيحات؟ تظل الدبلجة الأولى محفوظة.'),{danger:true}))action(row,'delete');},true);
@@ -231,7 +233,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     state.history.forEach(function(job){
       var item=document.createElement('div');item.className='ld-list-item';var content=document.createElement('div'),label=document.createElement('strong');label.textContent=job.name;content.appendChild(label);var status=document.createElement('p');status.className='ld-plain-note';status.textContent=statusText(job)+(job.status==='done' ? tr(' · Cost: ',' · التكلفة: ')+cost(job)+tr(' credits',' رصيد') : '');content.appendChild(status);
       if(job.status==='done' && window.LisanBackground) content.insertAdjacentHTML('beforeend', window.LisanBackground.html((job.result || {}).background_report, lang));
-      if(job.status==='done'&&job.file_available){var links=document.createElement('div');links.className='ld-downloads';[['download',tr('Music/effects + selected voices','الموسيقى والمؤثرات مع الأصوات المحددة')],['track/voices',tr('Selected voices only','الأصوات المحددة فقط')]].forEach(function(pair){var link=document.createElement('a');link.className='ld-dl';link.href='/api/longdub/'+job.id+'/'+pair[0];link.textContent=pair[1];links.appendChild(link);});content.appendChild(links);}
+      if(job.status==='done'&&job.file_available){var links=document.createElement('div');links.className='ld-downloads';((job.result||{}).background_only ? [['download',tr('Cleaned background','الخلفية بعد إزالة الكلام')]] : [['download',tr('Music/effects + selected voices','الموسيقى والمؤثرات مع الأصوات المحددة')],['track/voices',tr('Selected voices only','الأصوات المحددة فقط')]]).forEach(function(pair){var link=document.createElement('a');link.className='ld-dl';link.href='/api/longdub/'+job.id+'/'+pair[0];link.textContent=pair[1];links.appendChild(link);});content.appendChild(links);}
       if(job.error){var note=document.createElement('p');note.className='ld-err';note.textContent=lang==='ar' ? 'تعذّر إكمال هذا التصدير. راجع الملف الأصلي والتوقيت.' : job.error;content.appendChild(note);}
       item.appendChild(content);$('history').appendChild(item);
     });
@@ -260,7 +262,8 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     try{
       await save();var ids=Array.from(selected),id=project.id;
       var quote=await api('/api/longdub/'+id+'/corrections/quote','POST',{selected:ids});
-      if(!Number.isInteger(quote.max_total)||quote.max_total<1)throw new Error(tr('The price is unavailable.','السعر غير متاح.'));
+      if(!Number.isInteger(quote.max_total)||quote.max_total<0)throw new Error(tr('The price is unavailable.','السعر غير متاح.'));
+      if(!ids.length&&quote.max_total>0&&(!backgroundPrice||backgroundPrice.id!==id||backgroundPrice.token!==quote.token)){backgroundPrice={id:id,token:quote.token,max:quote.max_total};count();notify('info',tr('Check the price on the button, then click Export background again.','تحقق من السعر على الزر، ثم اضغط تصدير الخلفية مرة أخرى.'));return;}
       if(ids.length>1){var question=tr('Dub '+ids.length+' selected lines for up to '+quote.max_total+' credits?','دبلجة '+ids.length+' أسطر محددة بحد أقصى '+quote.max_total+' رصيداً؟');if(!await LisanDialog.confirm(question))return;}
       var job=await api('/api/longdub/'+id+'/corrections/dub','POST',{selected:ids,token:quote.token});state.busy=true;progress(job);await poll();await refreshCredits().catch(function(){$('balance').textContent='…';});
     }catch(ex){error(ex);}finally{if(!state||!state.busy)setBusy(false);}
@@ -276,11 +279,11 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
   };
   /* Enter man.: the same dialog as the long-dub page (longdub_player.js). This part only says where the sound comes from
      and what happens with the new times. */
-  function openPlayer(row) {
+  function openPlayer(row, purpose) {
     if (working || !project || !window.LisanPlayer || LisanPlayer.isOpen()) return;
     var id = project.id, info = meta[id] || {}, kind = info.has_video ? 'video' : 'audio';
     var who = (state.speaker_list || []).find(function(s) { return s.id === row.speaker_id; });
-    LisanPlayer.open({
+    var options = {
       lang: lang, index: state.segments.indexOf(row) + 1, speaker: (who && who.name) || row.speaker || '',
       text: row.text || '', arabic: row.arabic_text || '', start: Number(row.start), end: Number(row.end), duration: state.duration,
       size: info.size, kind: kind,
@@ -297,7 +300,12 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
         renderLines();
         return true;
       }
-    });
+    };
+    if(purpose==='speech-removal') return LisanSpeechRemoval.open({job:id,endpoint:'/api/longdub/'+id+'/speech-removals',player:options,
+      busy:function(){return working;},current:function(){return project&&project.id===id;},error:error,
+      saved:function(data){backgroundPrice=null;state.speech_removals=data.ranges;state.speech_removal_configured=true;count();notify('info',tr('Speech removal saved. Applied on the next export.','حُفظت إزالة الكلام. تُطبّق عند التصدير التالي.'));
+        api('/api/longdub/'+id+'/corrections').then(function(view){if(!project||project.id!==id)return;state.has_assets=view.has_assets;state.can_play=view.can_play;$('recovery').classList.toggle('hidden',state.has_assets&&state.can_play);}).catch(error);}});
+    LisanPlayer.open(options);
   }
   /* The person's own copy of the film is only played in their browser: nothing is uploaded and nothing costs credits. */
   function keepFile(id, file, url) {

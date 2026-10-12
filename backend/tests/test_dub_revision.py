@@ -167,7 +167,7 @@ class CorrectionTests(unittest.TestCase):
         self.assertLess(level(2.1,2.9),level(0.2,1.5)-19)                    # inside: about 20 dB lower
         self.assertLess(np.abs(np.diff(x)).max(),0.1)                         # no step: the change is faded
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg/FFprobe required')
-    def test_corrected_file_quiets_the_effects_under_the_time_a_line_gained(self):
+    def test_corrected_file_keeps_effects_when_only_the_arabic_timing_changes(self):
         import soundfile as sf
         tone=DATA/'sample.mp3'
         ff.run_ffmpeg(['ffmpeg','-y','-f','lavfi','-i','sine=frequency=440:duration=5','-c:a','libmp3lame',str(tone)])
@@ -182,7 +182,7 @@ class CorrectionTests(unittest.TestCase):
         x,sr=sf.read(str(wav))
         def hum(a,b):
             s=x[int(a*sr):int(b*sr)]*np.hanning(int((b-a)*sr));f=np.abs(np.fft.rfft(s,16000*4));return f[int(105*4):int(115*4)].max()
-        self.assertLess(hum(.35,.85),hum(10,10.5)/5)       # the extra 0.2-1.0 s: the effects are about 20 dB down
+        self.assertAlmostEqual(hum(.35,.85)/hum(10,10.5),1.0,delta=.04)  # alignment alone must preserve the background
         self.assertGreater(hum(1.6,2.1)*1.0,hum(10,10.5)/3)       # the rest of the line keeps its effects (voice is at 440 Hz)
     def test_recovery_does_not_reuse_a_full_redo_project(self):
         ok,redo=ld.redo_project(self.parent,'user')

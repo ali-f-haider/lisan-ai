@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import time
 import uuid
+import speech_removal
 import longdub_service as ld
 import dub_review
 from shortdub_billing import debit_confirmed
@@ -198,9 +199,11 @@ def restore_source(parent):
 
 def view(parent):
     current = rows(parent)
-    return {'segments': current, 'batches': dub_review.batches(current, parent.get('correction_reviewed')),
+    removal_file = ld._wd(parent) / speech_removal.FILE_NAME
+    return {'segments': current, 'speech_removals': speech_removal.read(removal_file),
+            'speech_removal_configured': removal_file.exists(), 'batches': dub_review.batches(current, parent.get('correction_reviewed')),
             'overlaps': dub_review.overlaps(current), 'speaker_list': parent.get('speaker_list', []),
-            'duration': ld._total_secs(parent), 'can_play': bool(player_source(parent)), 'has_assets': bool(background(parent)) and all(
+            'duration': ld._total_secs(parent), 'can_play': bool(player_source(parent)), 'has_assets': bool(background(parent)) and parent.get('background_speech_removals', speech_removal.read(removal_file)) == speech_removal.read(removal_file) and all(
                 (parent.get('edit_assets') and (parent.get('dub') or {}).get('voices', {}).get(s['id'])) or
                 (ld.job_dir(parent['id']) / 'editrefs' / (s['id'] + '.wav')).exists()
                 for s in parent.get('speaker_list', [])),
@@ -214,6 +217,8 @@ def output_budget(parent):
     budget = dub_review.output_budget(0, total, False, False, False)
     if background(parent) is None:
         budget += math.ceil(total * 25000) + 1048576
+    if speech_removal.read(ld._wd(parent) / speech_removal.FILE_NAME):
+        budget += math.ceil(total * 25000) + 1048576  # a reusable cleaned background is a stored user asset
     refs = ld.job_dir(parent['id']) / 'editrefs'
     budget += sum(30 * 44100 * 2 for s in parent.get('speaker_list', []) if not (refs / (s['id'] + '.wav')).exists())
     return budget
@@ -222,14 +227,19 @@ def output_budget(parent):
 def quote(parent, selected):
     if parent.get('status') != 'done' or active(parent):
         raise ValueError('This project is still being processed.')
-    if not isinstance(selected, list) or not selected or len(selected) != len(set(selected)):
+    removal_file = ld._wd(parent) / speech_removal.FILE_NAME
+    removals = speech_removal.read(removal_file)
+    if not isinstance(selected, list) or (not selected and not removal_file.exists()) or len(selected) != len(set(selected)):
         raise ValueError('Select at least one different line to correct.')
     current = rows(parent)
     subset = [r for r in current if r['segment_id'] in selected]
     if len(subset) != len(selected) or any(not r.get('arabic_text', '').strip() for r in subset):
         raise ValueError('Each selected line must belong to this project and contain Arabic text.')
     source = restore_source(parent)
-    if background(parent) is None and source is None:
+    base = background(parent)
+    if parent.get('background_speech_removals', removals) != removals:
+        base = None  # an older project recovered with these masks needs its original again for undo
+    if base is None and source is None:
         raise ValueError('Attach the original file to recover this older project’s editing assets.')
     import inworld_service
     pricing = ld._job_pricing(parent)
@@ -242,12 +252,23 @@ def quote(parent, selected):
     for sid in need_clones:
         if not (ld.job_dir(parent['id']) / 'editrefs' / f'{sid}.wav').exists() and source is None:
             raise ValueError('Attach the original file again to recover the reference for this speaker.')
-    music = ld.music_quote(source) if source and background(parent) is None else {'max_credits': 0, 'repairs': 0}
+    cached = removal_background(parent, removals) if removals and base is not None else None
+    if base is None and source:
+        music = ld.music_quote(source, removals=removals)
+    elif removals and cached is None:
+        import dub_background
+        fee = max(0, int(pricing.get('music_fill_credits', 10)))
+        reference = dub_background.speech_spans(ld._wd(parent) / 'speech_spans.json', ld.read_segments(parent), removals=[])
+        music = dub_background.removal_quote(base, removals, ld._wd(parent), fee, bool(ld.FAL_API_KEY), reference=reference)
+    else:
+        music = {'max_credits': 0, 'repairs': 0, 'kept': True}
     voice, clones = math.ceil(chars / cpc), len(need_clones) * max(0, int(pricing.get('clone_credits', 5)))
-    merge = max(1, int(pricing.get('merge_credits', 1)))
+    merge = max(1, int(pricing.get('merge_credits', 1))) if subset and not removal_file.exists() else 0
     payload = {'rows': subset, 'speaker_ids': speaker_ids, 'need_clones': need_clones, 'chars': chars,
                'voice': voice, 'clones': clones, 'merge': merge, 'cpc': cpc,
-               'music': music, 'due': voice + clones + merge, 'max_total': voice + clones + merge + music['max_credits']}
+               'music': music, 'speech_removals': removals, 'background_base': speech_removal.asset_signature(base),
+               'cached_background': cached.name if cached is not None else '',
+               'due': voice + clones + merge, 'max_total': voice + clones + merge + music['max_credits']}
     payload['token'] = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     return payload
 
@@ -258,7 +279,7 @@ def start(parent, selected, token):
         if token != plan['token']:
             raise ValueError('The selected lines or price changed. Review the price again.')
         balance = ld.Hooks.get_credits(parent['uid'])
-        if balance is None or balance < plan['max_total']:
+        if plan['max_total'] and (balance is None or balance < plan['max_total']):
             raise ValueError('Your verified balance must cover the confirmed maximum price.')
         # The same price check made twice (a retry after a lost reply, a second click) names the same job, so it
         # can be paid only once. An earlier try that failed is not reused: a new attempt gets a new job.
@@ -280,7 +301,7 @@ def start(parent, selected, token):
                'reserved_output_bytes': output_budget(parent)}
         ld.job_dir(jid).mkdir(parents=True, exist_ok=True)
         ld._save(job)
-        if not debit_confirmed(ld._charge(job, 'dub', parent['uid'], plan['due'], 'long_dub_correction')):
+        if plan['due'] and not debit_confirmed(ld._charge(job, 'dub', parent['uid'], plan['due'], 'long_dub_correction')):
             job['status'] = 'failed'
             job['error'] = 'The correction payment could not be confirmed. Nothing was submitted.'
             ld._save(job)
@@ -289,13 +310,15 @@ def start(parent, selected, token):
         job['status'] = 'confirmed'
         try:
             ld._save(job)
-            parent['edit_voice_last_used'] = ld._now()
-            ld._save(parent)
+            if plan['rows']:
+                parent['edit_voice_last_used'] = ld._now()
+                ld._save(parent)
             ld.start_worker(jid)
         except Exception:
-            refunded = ld._refund(job, parent['uid'], plan['due'], 'dub', 'queue_failed')
+            refunded = ld._refund(job, parent['uid'], plan['due'], 'dub', 'queue_failed') if plan['due'] else True
             job['status'] = 'failed'
-            job['error'] = ('The correction could not be queued. Its confirmed payment was refunded.' if refunded else
+            job['error'] = ('The export could not be queued. Try again.' if not plan['due'] else
+                            'The correction could not be queued. Its confirmed payment was refunded.' if refunded else
                             'The correction could not be queued. Its payment is being returned and will appear in your credit history.')
             try:
                 ld._save(job)
@@ -324,7 +347,7 @@ def run(job):
         source = restore_source(parent)
         refs = ld.job_dir(parent['id']) / 'editrefs'; refs.mkdir(exist_ok=True)
         voice_map = parent.setdefault('dub', {}).setdefault('voices', {})
-        if not parent.get('edit_assets'):
+        if plan['rows'] and not parent.get('edit_assets'):
             voice_map.clear()  # pre-upgrade IDs were already deleted at the provider
         for sid in plan['need_clones']:
             ref = refs / f'{sid}.wav'
@@ -402,7 +425,12 @@ def run(job):
             _mix_correction_chunk(items, start, end, fit, path)
             pieces.append(path)
         voices = work / 'voices.wav'; ld._concat_wavs(pieces, voices)
+        removals = plan.get('speech_removals') or []
         effects = background(parent)
+        if parent.get('background_speech_removals', removals) != removals:
+            effects = None
+        recovered_background = effects is None
+        background_report = None
         if effects is None:
             if source is None:
                 raise ValueError('The original background is unavailable. Attach the original file.')
@@ -416,17 +444,52 @@ def run(job):
                     raise ValueError('Music repair payment could not be verified')
                 ld._sync_paid(job); ld._save(job)
             rebuilt = dub_background.checkpointed_prepare(job, ld._save, plan['music'].get('repairs', 0), sw / 'background.wav', sw / 'vocals_mono.wav', voices, work,
-                'restore_bg', dub_background.speech_spans(sw / 'speech_spans.json', all_rows),
+                'restore_bg', dub_background.speech_spans(sw / 'speech_spans.json', all_rows, removals=removals),
                 key=ld.FAL_API_KEY, gemini_key=ld.GEMINI_API_KEY, allow=allow, on_filled=charge, original=sw / "audio.wav")
+            background_report = rebuilt['music_fill']
             effects = ld.OUTPUT_DIR / f"{parent['id']}{ld.TRACK_KINDS['effects']}"
             restored_effects = work / 'recovered_effects.m4a'
             ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(rebuilt['path']), '-t', str(total), '-c:a', 'aac', '-b:a', '192k', str(restored_effects)])
             os.replace(restored_effects, effects)
+            parent['background_speech_removals'] = removals
+            parent.setdefault('result', {})['background_report'] = background_report
             ld._save(parent)
         ld._mark(job, 'mix', 88, 'Saving the correction tracks…'); ld._save(job)
-        # The reused effects layer was cleaned around the lines as they were first timed. Where a corrected line now reaches past its
-        # original place, an original word can still sit in what was a pause, so the layer is faded down there, under the new voice only.
-        quiet = quiet_filter(quiet_ranges(checkpoint.values(), {r['segment_id']: r for r in ld.read_segments(parent)}))
+        # Explicit removal is independent of where corrected voices are placed.
+        if removals and not recovered_background:
+            cached = removal_background(parent, removals)
+            if cached is not None:
+                effects = cached
+                background_report = (parent.get('speech_removal_cache') or {}).get('report')
+            else:
+                if speech_removal.asset_signature(effects) != plan.get('background_base'):
+                    raise ValueError('The saved background changed. Check the export price again.')
+                fee = max(0, int(ld._job_pricing(parent).get('music_fill_credits', 10)))
+                def allow_removal_music():
+                    balance = ld.Hooks.get_credits(job['uid'])
+                    return balance is not None and balance >= fee and job['paid'].get('music_fill', 0) + fee <= plan['music']['max_credits']
+                def charge_removal_music(a, b):
+                    if fee and not debit_confirmed(ld._charge(job, f'removal_music:{a:.3f}:{b:.3f}', job['uid'], fee, 'long_dub_music_fill')):
+                        raise ValueError('Music repair payment could not be verified')
+                    ld._sync_paid(job); ld._save(job)
+                reference = dub_background.speech_spans(ld._wd(parent) / 'speech_spans.json', ld.read_segments(parent), removals=[])
+                explicit = speech_removal.SpeechSpans(removals, removals, reference)
+                cleaned = dub_background.checkpointed_prepare(job, ld._save, plan['music'].get('repairs', 0),
+                    effects, None, voices, work, 'manual_bg', explicit, original=effects,
+                    key=ld.FAL_API_KEY if plan['music'].get('kept', True) else '', gemini_key='',
+                    allow=allow_removal_music, on_filled=charge_removal_music, strict=False)
+                spliced = work / "selected_background.wav"
+                speech_removal.splice_background(effects, cleaned["path"], removals, spliced)
+                output = ld.OUTPUT_DIR / f"{job['id']}{ld.TRACK_KINDS['effects']}"
+                tmp_bg = work / 'cleaned_background.m4a'
+                ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(spliced), '-t', str(total), '-c:a', 'aac', '-b:a', '192k', str(tmp_bg)])
+                os.replace(tmp_bg, output)
+                parent['speech_removal_cache'] = {'ranges': removals, 'base': plan['background_base'],
+                    'job_id': job['id'], 'report': cleaned['music_fill']}
+                ld._save(parent)
+                effects, background_report = output, cleaned['music_fill']
+        # New plans keep output placement separate from source cleanup. Legacy queued plans retain their old behavior.
+        quiet = 'anull' if 'speech_removals' in plan else quiet_filter(quiet_ranges(checkpoint.values(), {r['segment_id']: r for r in ld.read_segments(parent)}))
         final = ld.OUTPUT_DIR / f"{job['id']}_final_corrections.m4a"
         tmp = work / 'corrections.m4a'
         ff.run_ffmpeg(['ffmpeg', '-y', '-i', str(voices), '-i', str(effects), '-filter_complex',
@@ -439,7 +502,11 @@ def run(job):
                          'finished': time.time(), 'lines': len(plan['rows']), 'selected': [r['segment_id'] for r in plan['rows']],
                          'tracks': {'voices': {'size': pure.stat().st_size}}}
         job['result']['background_report'] = (parent.get('result') or {}).get('background_report') or ((job.get('background_checkpoint') or {}).get('restore_bg') or {}).get('music_fill')
-        parent['edit_voice_last_used'] = time.time(); ld._save(parent)
+        if plan['rows']:
+            parent['edit_voice_last_used'] = time.time(); ld._save(parent)
+        if background_report is not None:
+            job['result']['background_report'] = background_report
+        job['result']['background_only'] = not bool(plan['rows'])
         job['status'] = 'done'; ld._mark(job, 'done', 100, 'Your correction tracks are ready.'); ld._save(job)
         try:
             ld.Hooks.send_email(job['uid'], 'Your Lisan AI corrections are ready', ready_email_text(job.get('edit_of')))
@@ -517,3 +584,17 @@ def finish(parent):
         parent['edit_assets'] = False
         parent.setdefault('dub', {})['voices'] = {}
         ld._save(parent)
+
+
+def removal_background(parent, ranges):
+    """Reuse only a completed, owned cleanup against the same original bed."""
+    if parent.get('background_speech_removals') == ranges and background(parent) is not None:
+        return background(parent)  # recovered once with exactly these regions: no repeat repair
+    record = parent.get('speech_removal_cache') or {}
+    if record.get('ranges') != ranges or record.get('base') != speech_removal.asset_signature(background(parent)):
+        return None
+    job = ld.load_job(record.get('job_id', ''))
+    if not job or job.get('uid') != parent['uid'] or job.get('edit_of') != parent['id'] or job.get('status') != 'done':
+        return None
+    path = ld.OUTPUT_DIR / f"{job['id']}{ld.TRACK_KINDS['effects']}"
+    return path if path.exists() else None
