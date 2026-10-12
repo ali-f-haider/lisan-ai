@@ -1,5 +1,8 @@
 """Free ambience preflight and independent music repairs inside sound sections."""
 from pathlib import Path
+from contextlib import contextmanager, ExitStack
+import subprocess
+import tempfile
 import wave
 
 import numpy as np
@@ -62,6 +65,35 @@ def _spans(spans, a, b):
     return speech_removal.clipped(spans, a / RATE, b / RATE)
 
 
+@contextmanager
+def _pcm_reference(path, work):
+    """Reuse readable references; decode other formats locally, in private scratch space.
+
+    Completed projects store AAC/M4A. The sound-file reader cannot open that
+    format on all hosts, whereas FFmpeg already supports it in our pipeline.
+    Conversion stays on disk and the caller still reads bounded audio blocks.
+    """
+    import soundfile as sf
+    try:
+        info = sf.info(path)
+    except (OSError, RuntimeError):
+        info = None
+    if info is not None and info.samplerate == RATE and info.channels == 2 and info.frames > 0:
+        yield path
+        return
+    with tempfile.TemporaryDirectory(prefix='level_ref_', dir=work) as directory:
+        decoded = Path(directory) / 'reference.wav'
+        try:
+            subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-i', str(path), '-vn',
+                '-ar', str(RATE), '-ac', '2', '-c:a', 'pcm_s16le', str(decoded)],
+                check=True, timeout=1800, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if sf.info(decoded).frames <= 0:
+                raise ValueError('Empty audio reference')
+        except (subprocess.SubprocessError, OSError, RuntimeError, ValueError):
+            raise ValueError('The background audio could not be read. Please try the export again.') from None
+        yield decoded
+
+
 def level_reference(original, restored, target, spans, gain_db=3.0):
     """Do not level a restored bed back to the separator's zero reference.
 
@@ -70,7 +102,11 @@ def level_reference(original, restored, target, spans, gain_db=3.0):
     once. Existing louder effects and clean pauses keep their original guide.
     """
     import soundfile as sf
-    with sf.SoundFile(original) as source, sf.SoundFile(restored) as filled:
+    with ExitStack() as stack:
+        original_pcm = stack.enter_context(_pcm_reference(original, Path(target).parent))
+        restored_pcm = stack.enter_context(_pcm_reference(restored, Path(target).parent))
+        source = stack.enter_context(sf.SoundFile(original_pcm))
+        filled = stack.enter_context(sf.SoundFile(restored_pcm))
         if any(a.samplerate != RATE or a.channels != 2 for a in (source, filled)) or abs(len(source) - len(filled)) > RATE // 4:
             raise ValueError('Background level references do not match')
         with sf.SoundFile(target, 'w', samplerate=RATE, channels=2, subtype='PCM_16') as out:
