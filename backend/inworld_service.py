@@ -68,6 +68,7 @@ import base64
 import json
 import os
 import random
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -106,6 +107,20 @@ try:
     LOCALIZE_CANDIDATES = max(1, min(5, int(os.environ.get("INWORLD_LOCALIZE_CANDIDATES") or 3)))
 except ValueError:
     LOCALIZE_CANDIDATES = 3
+
+# Inworld limits how many localization requests an account may START per
+# minute (2 on the plan in use when this was written; the 2026-10 court-scene
+# log showed the third and fourth speaker of a project being refused for
+# that reason and falling back to the plain copied voice). All speakers used
+# to be started at the same moment, so everyone after the second one hit the
+# limit. The starts are now paced to stay inside it: set the Railway variable
+# INWORLD_LOCALIZE_PER_MINUTE if the plan's limit changes. The window is a
+# little over a minute so a small clock difference never causes a refusal.
+try:
+    LOCALIZE_STARTS_PER_MINUTE = max(1, min(60, int(os.environ.get("INWORLD_LOCALIZE_PER_MINUTE") or 2)))
+except ValueError:
+    LOCALIZE_STARTS_PER_MINUTE = 2
+LOCALIZE_WINDOW_S = 62.0
 
 
 # Maps this app's canonical emotion/style vocabulary (config.
@@ -337,6 +352,66 @@ def _preview_bytes(cand):
         return None
 
 
+class StartPacer:
+    """Lets at most `limit` calls begin in any `window` seconds. wait() blocks
+    until the next call may begin and records its start, so threads that share
+    one pacer can never start more than the limit allows. The clock and sleep
+    are parameters only so tests do not have to wait."""
+
+    def __init__(self, limit, window, clock=time.monotonic, sleep=time.sleep):
+        self.limit, self.window = max(1, int(limit)), float(window)
+        self._clock, self._sleep = clock, sleep
+        self._starts = []
+        self._lock = threading.Lock()
+
+    def wait(self) -> float:
+        """Seconds spent waiting before this call was allowed to begin."""
+        waited = 0.0
+        with self._lock:                    # waiting threads queue here, one at a time
+            while True:
+                now = self._clock()
+                self._starts = [t for t in self._starts if now - t < self.window]
+                if len(self._starts) < self.limit:
+                    self._starts.append(now)
+                    return waited
+                pause = max(0.01, self._starts[0] + self.window - now)
+                self._sleep(pause)
+                waited += pause
+
+
+# One pacer for the whole process: every project and every speaker shares the
+# account's limit, so they must share the pacer too.
+_localize_pacer = StartPacer(LOCALIZE_STARTS_PER_MINUTE, LOCALIZE_WINDOW_S)
+
+
+def _retry_after(e, default: float) -> float:
+    """Seconds to wait after an HTTP 429: the provider's Retry-After header
+    (whole seconds, at most two minutes) when it sends a usable one."""
+    try:
+        seconds = float(e.headers.get("Retry-After"))
+    except (AttributeError, TypeError, ValueError):
+        return default
+    return min(seconds, 120.0) if seconds > 0 else default
+
+
+def _post_retrying_429(path: str, api_key: str, body: dict, timeout: int, waits, before=None):
+    """POST that is repeated while the provider answers HTTP 429. A 429 means
+    the request was refused before anything happened, so repeating it can
+    never create a second voice or a second charge. `waits` is the pause (in
+    seconds) after each refusal; the last attempt has None and raises. Any
+    other error raises at once. `before` runs ahead of every attempt, the
+    retries included (used to stay inside the starts-per-minute limit)."""
+    for wait in waits:
+        if before:
+            before()
+        try:
+            return _request("POST", path, api_key, body, timeout=timeout)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or wait is None:
+                raise
+            time.sleep(_retry_after(e, wait) + random.uniform(0, 5))
+
+
 def localize_voice(voice_id: str, api_key: str, target_language: str = None, candidates: int = None, chooser=None) -> dict:
     """Voice Localization in two calls: ask for localized candidates, then
     approve one. Inworld does no scoring itself (a person is meant to listen),
@@ -352,16 +427,9 @@ def localize_voice(voice_id: str, api_key: str, target_language: str = None, can
     lang = target_language or LOCALIZE_LANGUAGE
     n = candidates or LOCALIZE_CANDIDATES
     try:
-        data = None
-        for attempt, wait in enumerate((20, 40, None)):
-            try:
-                data = _request("POST", f"/voices/v1/voices/{voice_id}:localize", api_key,
-                                {"targetLanguage": lang, "candidateCount": n}, timeout=420)
-                break
-            except urllib.error.HTTPError as e:
-                if e.code != 429 or wait is None:
-                    raise
-                time.sleep(wait + random.uniform(0, 5))
+        data = _post_retrying_429(f"/voices/v1/voices/{voice_id}:localize", api_key,
+                                  {"targetLanguage": lang, "candidateCount": n}, 420,
+                                  (20, 40, 60, None), before=_localize_pacer.wait)
         draft = _pick(data, "draftVoiceId", "draft_voice_id")
         if not draft:
             dv = _pick(data, "draftVoice", "draft")
@@ -387,8 +455,10 @@ def localize_voice(voice_id: str, api_key: str, target_language: str = None, can
             else:
                 why = "no audio previews found in the answer, first candidate used"
         cand = ids[picked]
-        ans = _request("POST", f"/voices/v1/voices/{voice_id}:approveLocalization", api_key,
-                       {"draftVoiceId": draft, "candidateId": cand}, timeout=120)
+        # The approval can also be refused for rate; losing it would throw away
+        # the finished localization, so it is repeated like the request itself.
+        ans = _post_retrying_429(f"/voices/v1/voices/{voice_id}:approveLocalization", api_key,
+                                 {"draftVoiceId": draft, "candidateId": cand}, 120, (15, 30, 45, None))
         return {"ok": True, "candidates": len(ids), "candidate": str(cand), "picked": picked, "scores": scores,
                 "note": why, "answer": json.dumps(_shape(ans))[:300]}
     except Exception as e:
@@ -396,8 +466,10 @@ def localize_voice(voice_id: str, api_key: str, target_language: str = None, can
 
 
 def localize_many(voices: dict, api_key: str, chooser=None) -> dict:
-    """{name: voice_id} -> {name: localize_voice result}. All voices are done at
-    the same time (each takes about two minutes on Inworld's side)."""
+    """{name: voice_id} -> {name: localize_voice result}. The voices run side by
+    side (each takes about two minutes on Inworld's side), but their STARTS
+    are paced to the account's per-minute limit (see _localize_pacer), so with
+    more speakers than the limit the later ones simply begin a little later."""
     from concurrent.futures import ThreadPoolExecutor
     out = {}
     if not voices:
