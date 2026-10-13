@@ -120,6 +120,31 @@ h2{font-size:clamp(28px,4vw,44px)}
 html[data-lang="ar"] .hero h1{max-width:17ch;line-height:1.3;font-size:clamp(36px,6vw,68px)}
 .hero .sub{max-width:660px;margin:26px auto 0;font-size:clamp(16.5px,2vw,19.5px);color:var(--muted)}
 .cta-row{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:36px}
+/* Source languages: quiet floating cards around the hero, a compact grid on smaller screens. */
+.hero-intro{position:relative;padding-inline:180px}
+.language-title{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.language-orbit{position:absolute;inset:0;list-style:none;margin:0;padding:0;pointer-events:none;direction:ltr}
+.language-card{position:absolute;top:var(--y);display:flex;align-items:center;gap:12px;width:166px;min-height:68px;padding:12px 14px;text-align:start;border:1px solid rgba(98,199,255,.22);border-radius:18px;background:linear-gradient(135deg,rgba(23,36,54,.96),rgba(12,18,29,.96));box-shadow:0 16px 40px -18px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.07);pointer-events:auto;animation:language-float 7s ease-in-out infinite;animation-delay:var(--delay)}
+.language-card:nth-child(odd){left:0}
+.language-card:nth-child(even){right:0;border-color:rgba(230,184,92,.23);background:linear-gradient(135deg,rgba(36,30,23,.96),rgba(18,18,26,.96));animation-duration:8s}
+.language-flag{display:flex;flex:none;width:36px;height:36px;overflow:hidden;border-radius:50%;border:1px solid rgba(255,255,255,.2);box-shadow:0 3px 12px rgba(0,0,0,.25)}
+.language-flag svg{display:block;width:100%;height:100%}
+.language-name{font-size:13.5px;font-weight:600;line-height:1.4;direction:ltr}
+.language-name .ar{direction:rtl}
+.language-code{display:block;margin-top:4px;font-size:10px;font-weight:500;letter-spacing:.14em;color:var(--dim);line-height:1}
+.hero-intro:hover .language-card{animation-play-state:paused}
+@keyframes language-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-9px) rotate(1deg)}}
+@media (max-width:1100px){
+  .hero-intro{padding-inline:0}
+  .language-orbit{position:static;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 12px;max-width:660px;margin:40px auto 0}
+  .language-card{position:relative;top:auto;left:auto!important;right:auto!important;width:auto;justify-content:center}
+}
+@media (max-width:600px){
+  .language-orbit{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 12px;margin-top:32px;max-width:400px}
+  .language-card{min-height:62px;padding:10px;gap:10px;border-radius:14px}
+  .language-name{font-size:13px}
+  .language-flag{width:32px;height:32px}
+}
 
 .stage{position:relative;margin:64px auto 0;max-width:1040px;border:1px solid var(--line2);border-radius:22px;background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));box-shadow:0 40px 120px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.06);padding:22px 22px 20px;overflow:hidden;direction:ltr}
 .stage::before{content:"";position:absolute;inset:0;background:radial-gradient(60% 90% at 50% 45%,rgba(230,184,92,.07),transparent 70%);pointer-events:none}
@@ -372,6 +397,7 @@ html.js .rv.in{opacity:1;transform:none}
 <!-- ========== HERO ========== -->
 <div class="hero">
   <div class="wrap">
+    <div class="hero-intro">
     <div class="pill"><i></i>
       <span class="en">AI dubbing · Six original languages to Modern Standard Arabic</span>
       <span class="ar">دبلجة بالذكاء الاصطناعي · من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية إلى العربية الفصحى</span>
@@ -393,6 +419,35 @@ html.js .rv.in{opacity:1;transform:none}
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
         <span class="en">See how it works</span><span class="ar">شاهد كيف يعمل</span>
       </a>
+    </div>
+
+    <h2 class="language-title" id="hero-source-languages"><span class="en">Supported source languages</span><span class="ar">لغات الفيديو الأصلية المدعومة</span></h2>
+    <ul class="language-orbit" aria-labelledby="hero-source-languages">
+      <li class="language-card" data-source-language="en" style="--y:94px;--delay:-1s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="36" fill="#18396b"/><path d="M0 0l36 36M36 0L0 36" stroke="#fff" stroke-width="8"/><path d="M0 0l36 36M36 0L0 36" stroke="#cb3442" stroke-width="3"/><path d="M18 0v36M0 18h36" stroke="#fff" stroke-width="12"/><path d="M18 0v36M0 18h36" stroke="#cb3442" stroke-width="7"/></svg></span>
+        <span class="language-name"><span class="en">English</span><span class="ar" lang="ar">الإنجليزية</span><span class="language-code" aria-hidden="true">EN</span></span>
+      </li>
+      <li class="language-card" data-source-language="es" style="--y:118px;--delay:-2s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="36" fill="#aa2438"/><path d="M0 9h36v18H0z" fill="#f7c64b"/><rect x="10" y="14" width="6" height="8" rx="1" fill="#aa2438"/><path d="M9 13h8M10 23h6" stroke="#fff0c2" stroke-width="1.5"/></svg></span>
+        <span class="language-name"><span class="en">Spanish</span><span class="ar" lang="ar">الإسبانية</span><span class="language-code" aria-hidden="true">ES</span></span>
+      </li>
+      <li class="language-card" data-source-language="fr" style="--y:198px;--delay:-3s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="12" height="36" fill="#234a89"/><rect x="12" width="12" height="36" fill="#f6f5f0"/><rect x="24" width="12" height="36" fill="#cc3b48"/></svg></span>
+        <span class="language-name"><span class="en">French</span><span class="ar" lang="ar">الفرنسية</span><span class="language-code" aria-hidden="true">FR</span></span>
+      </li>
+      <li class="language-card" data-source-language="pt" style="--y:222px;--delay:-4s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="36" fill="#c93b44"/><rect width="14" height="36" fill="#257548"/><circle cx="14" cy="18" r="7" fill="none" stroke="#edc551" stroke-width="2"/><path d="M11 14h6v7l-3 2-3-2z" fill="#f6f5f0"/><path d="M12.5 16h3v4l-1.5 1-1.5-1z" fill="#c93b44"/></svg></span>
+        <span class="language-name"><span class="en">Portuguese</span><span class="ar" lang="ar">البرتغالية</span><span class="language-code" aria-hidden="true">PT</span></span>
+      </li>
+      <li class="language-card" data-source-language="it" style="--y:302px;--delay:-5s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="12" height="36" fill="#328262"/><rect x="12" width="12" height="36" fill="#f6f5f0"/><rect x="24" width="12" height="36" fill="#cb3d4b"/></svg></span>
+        <span class="language-name"><span class="en">Italian</span><span class="ar" lang="ar">الإيطالية</span><span class="language-code" aria-hidden="true">IT</span></span>
+      </li>
+      <li class="language-card" data-source-language="de" style="--y:326px;--delay:-6s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="12" fill="#20242c"/><rect y="12" width="36" height="12" fill="#cb3a45"/><rect y="24" width="36" height="12" fill="#f2c34e"/></svg></span>
+        <span class="language-name"><span class="en">German</span><span class="ar" lang="ar">الألمانية</span><span class="language-code" aria-hidden="true">DE</span></span>
+      </li>
+    </ul>
     </div>
 
     <div class="stage" aria-hidden="true">
