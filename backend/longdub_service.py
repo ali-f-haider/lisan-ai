@@ -4462,9 +4462,25 @@ def _level_voices(job, dub, rows):
         job["voice_anchor"] = {str(k): v for k, v in anchors.items()}
         for sid, g in gains.items():
             dub["lines"][sid]["gain_db"] = round(g, 1)
+        names = {s["id"]: s.get("name") for s in (job.get("speaker_list") or [])}
         if stats:
-            names = {s["id"]: s.get("name") for s in (job.get("speaker_list") or [])}
             _ev(job, "voice_levels", "info", voice_level.describe(stats, names))
+        # Measuring only (no gain changes here): which lines still end up well under their target level, and what held them there --
+        # the gain limit or the peak limit. Kept on the line itself and summarised in the log, so a quiet line can be traced to its cause.
+        short = voice_level.shortfalls(items, None, GAIN_MAX_DB, PEAK_CEIL_DB)
+        for m in dub["lines"].values():
+            m.pop("level_miss_db", None)
+            m.pop("level_limit", None)
+        for sid, info in short.items():
+            dub["lines"][sid]["level_miss_db"] = info["miss"]
+            dub["lines"][sid]["level_limit"] = info["limit"]
+        if short:
+            def where(sid):
+                r = by_row.get(sid) or {}
+                t = r.get("start")
+                at = f"{int(float(t) // 60)}:{int(float(t) % 60):02d}" if isinstance(t, (int, float)) else str(sid)
+                return f"{at} {names.get(r.get('speaker_id')) or r.get('speaker_id') or ''}".strip()
+            _ev(job, "voice_level_shortfalls", "info", voice_level.describe_shortfalls(short, {sid: where(sid) for sid in short}))
     except Exception as ex:
         print(f"[longdub] voice levelling skipped: {ex}")
 
