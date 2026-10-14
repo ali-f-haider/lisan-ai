@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 import urllib.request
+from supabase_keys import sb_auth
 import urllib.error
 import urllib.parse
 import uuid
@@ -350,7 +351,7 @@ def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
         req = urllib.request.Request(
             f"{supabase_url}/rest/v1/lipsync_runs",
             data=json.dumps(row).encode("utf-8"),
-            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+            headers={"apikey": service_key, **sb_auth(service_key),
                      "Content-Type": "application/json", "Prefer": "return=minimal"},
             method="POST",
         )
@@ -379,7 +380,7 @@ def _update_lipsync_run(task_id, status, error=None, usage=None):
                 req = urllib.request.Request(
                     f"{supabase_url}/rest/v1/lipsync_runs?task_id=eq.{urllib.parse.quote(str(task_id), safe='')}",
                     data=json.dumps({"billed_seconds": billed}).encode("utf-8"),
-                    headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+                    headers={"apikey": service_key, **sb_auth(service_key),
                              "Content-Type": "application/json", "Prefer": "return=minimal"},
                     method="PATCH",
                 )
@@ -394,7 +395,7 @@ def _update_lipsync_run(task_id, status, error=None, usage=None):
         req = urllib.request.Request(
             f"{supabase_url}/rest/v1/lipsync_runs?task_id=eq.{urllib.parse.quote(str(task_id), safe='')}",
             data=json.dumps(patch).encode("utf-8"),
-            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}",
+            headers={"apikey": service_key, **sb_auth(service_key),
                      "Content-Type": "application/json", "Prefer": "return=minimal"},
             method="PATCH",
         )

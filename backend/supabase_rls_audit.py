@@ -34,6 +34,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from supabase_keys import sb_auth
 
 ZERO_UUID = "00000000-0000-0000-0000-000000000000"
 KNOWN_TABLES = [
@@ -80,7 +81,11 @@ class Api:
         self.anon = anon
 
     def call(self, method, path, token=None, body=None, prefer=None, timeout=20):
-        headers = {"apikey": self.anon, "Authorization": "Bearer " + (token or self.anon)}
+        headers = {"apikey": self.anon}
+        if token:
+            headers["Authorization"] = "Bearer " + token
+        else:
+            headers.update(sb_auth(self.anon))        # old keys also go in Authorization; new sb_ keys do not
         data = None
         if body is not None:
             data = json.dumps(body).encode()

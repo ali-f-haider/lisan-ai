@@ -8,6 +8,7 @@ import secrets
 import shutil
 import threading
 import urllib.request
+from supabase_keys import sb_auth
 import uuid
 import audio_enhance
 import voice_clean
@@ -168,7 +169,7 @@ def read_terms():
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
 
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
-GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]
 
 # ==================== ALL MODELS ====================
 
@@ -423,7 +424,7 @@ def _persist_session(token, sb_access_token):
             data=body,
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                **sb_auth(SUPABASE_SERVICE_KEY),
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
@@ -445,7 +446,7 @@ def _restore_session_from_db(token) -> bool:
         url = f"{SUPABASE_URL}/rest/v1/app_sessions?token=eq.{token}&select=sb_access_token"
         req = urllib.request.Request(url, headers={
             "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            **sb_auth(SUPABASE_SERVICE_KEY),
         })
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
@@ -527,7 +528,7 @@ def _read_site_gate_flag():
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return None
     url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=site_gate_enabled&order=updated_at.desc&limit=1"
-    req = urllib.request.Request(url, headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+    req = urllib.request.Request(url, headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
     with urllib.request.urlopen(req, timeout=5) as r:
         rows = json.load(r)
     if isinstance(rows, list) and rows:
@@ -877,7 +878,7 @@ def user_info(request: Request):
             if SUPABASE_SERVICE_KEY:
                 dn_req = urllib.request.Request(
                     f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{user_id}&select=display_name",
-                    headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                    headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
                 with urllib.request.urlopen(dn_req, timeout=10) as dn_r:
                     dn_rows = json.load(dn_r)
                 if dn_rows and dn_rows[0].get("display_name"):
@@ -949,7 +950,7 @@ def _forget_session(tok: str):
         try:
             req = urllib.request.Request(
                 f"{SUPABASE_URL}/rest/v1/app_sessions?token=eq.{tok}",
-                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY),
                          "Prefer": "return=minimal"},
                 method="DELETE")
             urllib.request.urlopen(req, timeout=10).read()
@@ -1031,7 +1032,7 @@ def api_me(request: Request):
                 try:
                     dn_req = urllib.request.Request(
                         f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=display_name",
-                        headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                        headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
                     with urllib.request.urlopen(dn_req, timeout=10) as dn_r:
                         rows = json.load(dn_r)
                     if rows and rows[0].get("display_name"):
@@ -1412,7 +1413,7 @@ def _sb_rpc(function: str, args: dict, strict=False):
     req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/rpc/{function}", data=body, headers={
         "Content-Type": "application/json",
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
@@ -1437,7 +1438,7 @@ def set_credits(uid, new_amount):
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
     hdrs = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=minimal"
     }
@@ -1819,7 +1820,7 @@ def billing_portal(request: Request):
     try:
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_customer_id",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         customer_id = rows[0].get("stripe_customer_id") if rows else None
@@ -1859,7 +1860,7 @@ def billing_cancel(request: Request):
     try:
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_customer_id,stripe_subscription_id",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         customer_id = rows[0].get("stripe_customer_id") if rows else None
@@ -1910,7 +1911,7 @@ def _profile_subscription_id(uid):
     try:
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=stripe_subscription_id",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         return (rows[0].get("stripe_subscription_id") if rows else "") or ""
@@ -2168,7 +2169,7 @@ def _delete_account_run(request: Request, response: Response, uid):
     best-effort logged and continues past a single failure except the auth
     delete itself, so a partial failure never leaves the account half-open
     with no way for the user to know."""
-    sb_hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    sb_hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
 
     # 1) Cancel any active Stripe subscription immediately.
     if stripe and STRIPE_SECRET_KEY:
@@ -2627,7 +2628,7 @@ def _uid_for_job(job_id):
     import urllib.request as _ur
     import urllib.parse as _up
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?job_id=eq.{_up.quote(job_id)}&select=uid&limit=1"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -2648,7 +2649,7 @@ def _subscription_active(uid):
         return False
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_status"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -2694,7 +2695,7 @@ def _wm_rows(path):
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return None
     import urllib.request as _ur
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(f"{SUPABASE_URL}/rest/v1/{path}", headers=hdrs)
         with _ur.urlopen(req, timeout=8) as r:
@@ -2755,7 +2756,7 @@ def _uid_for_subscription(stripe_subscription_id):
     import urllib.parse as _up
     url = (f"{SUPABASE_URL}/rest/v1/profiles?stripe_subscription_id=eq."
            f"{_up.quote(stripe_subscription_id)}&select=id&limit=1")
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -2777,7 +2778,7 @@ def _set_subscription_fields(uid, **fields):
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
     hdrs = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
@@ -2809,7 +2810,7 @@ def _set_subscription_plan_key(uid, plan_key):
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
     hdrs = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
@@ -2837,7 +2838,7 @@ def _set_subscription_cancel_flag(uid, flag):
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
     hdrs = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
@@ -2863,7 +2864,7 @@ def _set_subscription_pending_plan(uid, plan_key):
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}"
     hdrs = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
@@ -2903,7 +2904,7 @@ def _read_subscription_profile(uid):
     if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return {}
     import urllib.request as _ur
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     for cols in (
         "subscription_status,subscription_plan_key,subscription_current_period_end,subscription_cancel_at_period_end,subscription_pending_plan_key",
         "subscription_status,subscription_plan_key,subscription_current_period_end,subscription_cancel_at_period_end",
@@ -2934,7 +2935,7 @@ def _get_profile_plan_key(uid):
     try:
         req = _ur.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_plan_key",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with _ur.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         return (rows[0].get("subscription_plan_key") or "") if rows else ""
@@ -2963,7 +2964,7 @@ def _get_profile_clones_used(uid):
     try:
         req = _ur.Request(
             f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_clones_used",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with _ur.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         if not rows:
@@ -2997,7 +2998,7 @@ def _increment_clone_usage(uid, n):
             data=body,
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                **sb_auth(SUPABASE_SERVICE_KEY),
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
@@ -3028,7 +3029,7 @@ def _reset_subscription_clone_usage(uid):
             data=body,
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                **sb_auth(SUPABASE_SERVICE_KEY),
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
@@ -3058,7 +3059,7 @@ def _count_user_voices(uid):
     try:
         req = _ur.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?uid=eq.{uid}&select=id",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with _ur.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         return len(rows)
@@ -3088,7 +3089,7 @@ def _save_user_voice(uid, elevenlabs_voice_id, name, description="", source_job_
     }).encode("utf-8")
     hdrs = {
         "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=minimal",
     }
@@ -3124,7 +3125,7 @@ def _voice_engines_for_ids(voice_ids: list) -> dict:
         ids_csv = ",".join(ids)
         req = _ur.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?elevenlabs_voice_id=in.({ids_csv})&select=elevenlabs_voice_id,voice_engine",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with _ur.urlopen(req, timeout=10) as r:
             rows = json.load(r)
         for row in rows:
@@ -3152,7 +3153,7 @@ def _tag_voice_engine(elevenlabs_voice_id: str, engine: str):
         req = _ur.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?elevenlabs_voice_id=eq.{elevenlabs_voice_id}",
             data=body,
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY),
                      "Content-Type": "application/json", "Prefer": "return=minimal"},
             method="PATCH",
         )
@@ -3187,7 +3188,7 @@ def _all_saved_voice_ids():
         raise RuntimeError("Supabase not configured")
     req = urllib.request.Request(
         f"{SUPABASE_URL}/rest/v1/user_voices?select=elevenlabs_voice_id",
-        headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+        headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
     with urllib.request.urlopen(req, timeout=10) as r:
         rows = json.load(r)
     return [row.get("elevenlabs_voice_id") for row in rows if row.get("elevenlabs_voice_id")]
@@ -3310,7 +3311,7 @@ def _set_subscription_credits(uid, amount):
             data=body,
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                **sb_auth(SUPABASE_SERVICE_KEY),
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
@@ -3328,7 +3329,7 @@ def _email_for_uid(uid):
         return None
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=email"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -3344,7 +3345,7 @@ def _already_notified(job_id):
     import urllib.request as _ur
     import urllib.parse as _up
     url = f"{SUPABASE_URL}/rest/v1/expiry_notices?job_id=eq.{_up.quote(job_id)}&select=job_id&limit=1"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -3413,7 +3414,7 @@ def _record_voice_consent(job_id, uid, request):
             data=body,
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                **sb_auth(SUPABASE_SERVICE_KEY),
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
@@ -4462,7 +4463,7 @@ def my_voices(request: Request):
         try:
             req = urllib.request.Request(
                 f"{SUPABASE_URL}/rest/v1/user_voices?uid=eq.{uid}&select=id,elevenlabs_voice_id,name,description,created_at&order=created_at.desc",
-                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
             with urllib.request.urlopen(req, timeout=10) as r:
                 voices = json.load(r)
         except Exception as ex:
@@ -4500,7 +4501,7 @@ def update_my_voice(voice_row_id: str, req: VoiceUpdateRequest, request: Request
     # describe another user's saved voice even by guessing a row id.
     url = f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}"
     hdrs = {
-        "apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY),
         "Content-Type": "application/json", "Prefer": "return=minimal",
     }
     try:
@@ -4530,7 +4531,7 @@ def delete_my_voice(voice_row_id: str, request: Request):
     try:
         lookup = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id,voice_engine",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
         with urllib.request.urlopen(lookup, timeout=10) as r:
             rows = json.load(r)
     except Exception:
@@ -4542,7 +4543,7 @@ def delete_my_voice(voice_row_id: str, request: Request):
         try:
             lookup = urllib.request.Request(
                 f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}&select=elevenlabs_voice_id",
-                headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
             with urllib.request.urlopen(lookup, timeout=10) as r:
                 rows = json.load(r)
         except Exception as ex:
@@ -4555,7 +4556,7 @@ def delete_my_voice(voice_row_id: str, request: Request):
     try:
         delreq = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/user_voices?id=eq.{voice_row_id}&uid=eq.{uid}",
-            headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Prefer": "return=minimal"},
+            headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY), "Prefer": "return=minimal"},
             method="DELETE")
         with urllib.request.urlopen(delreq, timeout=10) as r:
             r.read()
@@ -5594,7 +5595,7 @@ def _ld_email_address(uid):
         try:
             import urllib.parse as _uparse
             req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/admin/users/{_uparse.quote(str(uid), safe='')}",
-                                         headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"})
+                                         headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
             with urllib.request.urlopen(req, timeout=10) as r:
                 addr = (json.load(r).get("email") or "").strip() or None
             if addr:
@@ -5625,7 +5626,7 @@ def _ld_event_writer():
                 req = urllib.request.Request(
                     f"{SUPABASE_URL}/rest/v1/long_dub_events",
                     data=json.dumps(row).encode("utf-8"),
-                    headers={"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                    headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY),
                              "Content-Type": "application/json", "Prefer": "return=minimal"},
                     method="POST")
                 urllib.request.urlopen(req, timeout=8).read()
@@ -6415,7 +6416,7 @@ def account_summary(request: Request):
     
     def _fetch_and_filter(table):
         url = f"{SUPABASE_URL}/rest/v1/{table}?select=*&order=created_at.desc&limit=500"
-        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
         try:
             req = _ur.Request(url, headers=hdrs)
             with _ur.urlopen(req, timeout=10) as r:
@@ -6434,7 +6435,7 @@ def account_summary(request: Request):
     # only showed up inside the total balance. Tolerant of the table having
     # no created_at column yet: falls back to unordered rows with no date.
     grants = []
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     for order_q in ("&order=created_at.desc", ""):
         try:
             req = _ur.Request(
@@ -6477,7 +6478,7 @@ def _job_belongs_to_uid(uid: str, job_id: str) -> bool:
     import urllib.request as _ur
     import urllib.parse as _up
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{_up.quote(str(uid), safe='')}&job_id=eq.{_up.quote(str(job_id), safe='')}&select=job_id&limit=1"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -6493,7 +6494,7 @@ def _user_job_ids(uid):
         return None
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=job_id,created_at&order=created_at.desc&limit=1000"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         rows = []
         for offset in range(0, 200000, 1000):
@@ -6701,7 +6702,7 @@ def account_summary_diag(request: Request):
         
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?select=*&order=created_at.desc&limit=5"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     
     raw_data = []
     err = None
@@ -6821,7 +6822,7 @@ def _persist_admin_session(token):
             data=body,
             headers={
                 "apikey": SUPABASE_SERVICE_KEY,
-                "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+                **sb_auth(SUPABASE_SERVICE_KEY),
                 "Content-Type": "application/json",
                 "Prefer": "return=minimal",
             },
@@ -6851,7 +6852,7 @@ def _restore_admin_session_from_db(token):
                f"&created_at=gt.{cutoff}&select=created_at")
         req = urllib.request.Request(url, headers={
             "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            **sb_auth(SUPABASE_SERVICE_KEY),
         })
         with urllib.request.urlopen(req, timeout=10) as r:
             rows = json.load(r)
@@ -7031,7 +7032,7 @@ def _get_pricing_config():
         # would stop new ones from being created (this fix only papers over
         # existing duplicates, it doesn't prevent new ones).
         url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=*&order=updated_at.desc&limit=1"
-        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=5) as r:
             rows = json.load(r)
@@ -7233,7 +7234,7 @@ def _save_pricing_config(config):
         url = f"{SUPABASE_URL}/rest/v1/pricing_config?on_conflict=id"
         hdrs = {
             "apikey": SUPABASE_SERVICE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+            **sb_auth(SUPABASE_SERVICE_KEY),
             "Content-Type": "application/json",
             "Prefer": "resolution=merge-duplicates,return=minimal"
         }
@@ -7381,7 +7382,7 @@ def _get_generated_minutes():
     now = time.gmtime()
     month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
     url = f"{SUPABASE_URL}/rest/v1/credit_spends?action=eq.generate&select=uid,generated_seconds,created_at&limit=5000&order=created_at.desc"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -7409,7 +7410,7 @@ def _get_lipsync_spend_this_month():
     import urllib.parse as _up
     now = time.gmtime()
     month_start = f"{now.tm_year:04d}-{now.tm_mon:02d}-01T00:00:00"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
 
     def _rows(table, select, extra=""):
         out, off = [], 0
@@ -7511,7 +7512,7 @@ def admin_overview(request: Request):
     import urllib.request as _ur
     def _fetch_count(table):
         url = f"{SUPABASE_URL}/rest/v1/{table}?select=*"
-        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Prefer": "count=exact"}
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY), "Prefer": "count=exact"}
         try:
             req = _ur.Request(url, headers=hdrs, method="HEAD")
             with _ur.urlopen(req, timeout=5) as r:
@@ -7520,7 +7521,7 @@ def admin_overview(request: Request):
             return 0
     def _fetch_rows(table, limit=20):
         url = f"{SUPABASE_URL}/rest/v1/{table}?order=created_at.desc&limit={limit}&select=*"
-        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
         try:
             req = _ur.Request(url, headers=hdrs)
             with _ur.urlopen(req, timeout=5) as r:
@@ -7557,7 +7558,7 @@ def admin_users(request: Request, q: str = ""):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/profiles?order=created_at.desc&limit=500&select=*"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -7621,7 +7622,7 @@ def _log_spend(uid, action, credits, job_id=None, reason=None):
         row["job_id"] = job_id
     body = json.dumps(row).encode("utf-8")
     url = f"{SUPABASE_URL}/rest/v1/credit_spends"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY), "Content-Type": "application/json", "Prefer": "return=minimal"}
     try:
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=5) as r: pass
@@ -7643,7 +7644,7 @@ def _log_audit(target_uid, delta, reason):
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     }).encode("utf-8")
     url = f"{SUPABASE_URL}/rest/v1/credit_audit"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}", "Content-Type": "application/json", "Prefer": "return=minimal"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY), "Content-Type": "application/json", "Prefer": "return=minimal"}
     try:
         req = _ur.Request(url, data=body, headers=hdrs, method="POST")
         with _ur.urlopen(req, timeout=5) as r: pass
@@ -7675,7 +7676,7 @@ def admin_pricing_debug(request: Request):
         return {"error": "SUPABASE_URL/SUPABASE_SERVICE_KEY not configured"}
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/pricing_config?id=eq.singleton&select=*&order=updated_at.desc&limit=1"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -7714,7 +7715,7 @@ def admin_audit(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     import urllib.request as _ur
     url = f"{SUPABASE_URL}/rest/v1/credit_audit?order=created_at.desc&limit=100&select=*"
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     try:
         req = _ur.Request(url, headers=hdrs)
         with _ur.urlopen(req, timeout=10) as r:
@@ -7761,7 +7762,7 @@ def admin_longdub_log(request: Request, q: str = "", limit: int = 300, date_from
     import urllib.parse as _up
     limit = max(1, min(int(limit or 300), 1000))
     q = (q or "").strip()
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     flt = ""
     note = ""
     # optional day range (UTC, both days included): date_from / date_to as YYYY-MM-DD
@@ -7849,7 +7850,7 @@ def admin_health(request: Request):
         except Exception:
             return "fail"
     supabase = _check(f"{SUPABASE_URL}/rest/v1/profiles?limit=1",
-                       {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}) \
+                       {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}) \
         if (SUPABASE_URL and SUPABASE_SERVICE_KEY) else "not_configured"
     eleven = "ok" if ELEVENLABS_API_KEY else "not_configured"
     gemini = "ok" if GEMINI_API_KEY else "not_configured"
@@ -8442,7 +8443,7 @@ def _assistant_account_text(uid, job_id=""):
     try:
         import urllib.request as _ur
         url = f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&select=action,credits,job_id,created_at&order=created_at.desc&limit=12"
-        hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+        hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
         with _ur.urlopen(_ur.Request(url, headers=hdrs), timeout=8) as r:
             rows = json.load(r)
         if rows:
@@ -9169,7 +9170,7 @@ from starlette.concurrency import run_in_threadpool
 def _api_rest(method, path, body=None, prefer=None):
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         raise RuntimeError("database unavailable")
-    hdrs = {"apikey": SUPABASE_SERVICE_KEY, "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}"}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
     data = None
     if body is not None:
         data = json.dumps(body).encode("utf-8")

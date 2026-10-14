@@ -22,6 +22,7 @@ import json
 import time
 import urllib.parse
 import urllib.request
+from supabase_keys import sb_auth
 
 import alibaba_cost
 import resource_meter
@@ -96,7 +97,7 @@ class _Fetcher:
             q = f"{self.url}/rest/v1/{table}?select={select}{params}&limit={PAGE}&offset={offset}"
             if ordered:
                 q += f"&order={order}"
-            req = urllib.request.Request(q, headers={"apikey": self.key, "Authorization": f"Bearer {self.key}"})
+            req = urllib.request.Request(q, headers={"apikey": self.key, **sb_auth(self.key)})
             try:
                 with urllib.request.urlopen(req, timeout=25) as r:
                     page = json.load(r) or []

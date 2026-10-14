@@ -6,6 +6,7 @@ a refund is a negative row), so this total cannot drift from what the Account pa
 import json
 import urllib.parse
 import urllib.request
+from supabase_keys import sb_auth
 
 LIMIT = 1000
 
@@ -31,7 +32,7 @@ def for_job(uid, job_id, supabase_url, service_key, opener=urllib.request.urlope
         return None
     url = (f"{supabase_url}/rest/v1/credit_spends?uid=eq.{urllib.parse.quote(str(uid), safe='')}"
            f"&job_id=eq.{urllib.parse.quote(str(job_id), safe='')}&select=credits&limit={LIMIT}")
-    request = urllib.request.Request(url, headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"})
+    request = urllib.request.Request(url, headers={"apikey": service_key, **sb_auth(service_key)})
     try:
         with opener(request, timeout=10) as response:
             rows = json.load(response)

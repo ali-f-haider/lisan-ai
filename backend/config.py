@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.82.48"
+APP_VERSION = "1.82.49"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -217,8 +217,7 @@ WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")
 # --- Gemini model lists (text + TTS) ---
 GEMINI_MODELS = [
     "gemini-2.5-flash",
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.0-flash",
+    "gemini-3.6-flash",
     "gemini-flash-latest",
 ]
 

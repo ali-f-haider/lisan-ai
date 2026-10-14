@@ -342,12 +342,13 @@ def _fetch_table(supabase_url, service_key, table):
     """All rows of one table via PostgREST, paged. Returns a list or raises."""
     import json as _json
     import urllib.request as _rq
+    from supabase_keys import sb_auth
     rows = []
     offset = 0
     while True:
         req = _rq.Request(
             f"{supabase_url}/rest/v1/{table}?select=*&limit={_DB_PAGE}&offset={offset}",
-            headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+            headers={"apikey": service_key, **sb_auth(service_key)},
         )
         with _rq.urlopen(req, timeout=60) as r:
             page = _json.loads(r.read().decode("utf-8"))
