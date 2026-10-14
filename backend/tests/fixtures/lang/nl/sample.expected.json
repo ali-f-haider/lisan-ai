@@ -1,0 +1,102 @@
+{
+  "origin": "invented",
+  "native_review": "needs a native check",
+  "cues": [
+    {
+      "lines": [
+        "[muziek]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "ANNA: Waar is de sleutel?",
+        "BAS: Ik heb hem."
+      ],
+      "cleaned": [
+        "Waar is de sleutel?",
+        "Ik heb hem."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "- Kom je mee?",
+        "- Ik blijf hier."
+      ],
+      "cleaned": [
+        "Kom je mee?",
+        "Ik blijf hier."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "(zucht) Ik wacht nog."
+      ],
+      "cleaned": [
+        "Ik wacht nog."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ Een klein lied ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "<i>IJsselmeer is mooi.</i>"
+      ],
+      "cleaned": [
+        "IJsselmeer is mooi."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[applaus]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "'s Avonds kom ik.",
+        "M'n jas ligt hier."
+      ],
+      "cleaned": [
+        "'s Avonds kom ik.",
+        "M'n jas ligt hier."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(een onbekende notitie) Dit is dialoog."
+      ],
+      "cleaned": [
+        "(een onbekende notitie) Dit is dialoog."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "« Dat zei zij. »",
+        "“Dat zei hij.”"
+      ],
+      "cleaned": [
+        "« Dat zei zij. »",
+        "“Dat zei hij.”"
+      ],
+      "speaker_changes": []
+    }
+  ]
+}

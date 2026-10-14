@@ -1,6 +1,6 @@
 # Floating source-language icons — 13 October 2026
 
-The landing introduction now shows six compact cards with crisp inline vector flag icons for English, Spanish, French, Portuguese, Italian and German. Blue and gold borders, dark surfaces and soft shadows match the existing page. On wide screens three cards float gently on each side of the introduction; at smaller widths they form a three-column or two-column grid below the actions. Names follow the English/Arabic page selection. The animation pauses while hovering over the introduction and is disabled by the existing reduced-motion setting.
+The landing introduction now shows eight compact cards with crisp inline vector flag icons for English, Spanish, French, Portuguese, Italian, German, Dutch and Polish. Blue and gold borders, dark surfaces and soft shadows match the existing page. On wide screens four cards float gently on each side of the introduction; at smaller widths they form a three-column or two-column grid below the actions. Names follow the English/Arabic page selection. The animation pauses while hovering over the introduction and is disabled by the existing reduced-motion setting.
 
 ## Changed files
 
@@ -12,7 +12,7 @@ The change is already saved in the project folder. Existing mixed line endings i
 
 ## Verification
 
-The three new unit tests pass. A headless browser loaded the real local page and scripts with mocked read-only APIs and external requests blocked. All twelve combinations of English/Arabic and widths 1440, 1180, 1024, 768, 390 and 320 pixels passed: all six cards are visible, no horizontal overflow, no badge-to-badge overlap and no badge overlap with the headline, description or actions. Names switch with the interface, reduced motion disables animation and no page script errors were reported. Desktop and mobile previews were visually inspected. These are local page checks, not a live deployment check.
+The former six-card checks are historical. The eight-card proposal requires a fresh local visual check at widths 1440, 1180, 1024, 768, 390 and 320 pixels, in English/Arabic and reduced motion, before release. No eight-card visual result is claimed here.
 
 Required complete discovery result (`python -m unittest discover -s tests -v`):
 

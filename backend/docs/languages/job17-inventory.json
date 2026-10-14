@@ -1,0 +1,1616 @@
+{
+  "scope": "Active top-level source, tests, tools and docs/api; excludes credentials/media/backups/historical handoffs",
+  "counts": {
+    "API": 9,
+    "prompt": 16,
+    "help": 5,
+    "engine": 74,
+    "UI text": 23,
+    "test": 49,
+    "legal": 2
+  },
+  "rows": [
+    {
+      "file": "api_jobs.py",
+      "line": 91,
+      "category": "API",
+      "current": "return {\"id\": job[\"id\"], \"kind\": \"long\", \"source_language\": languages.get(job.get(\"source_language\")).code, \"status\": status, \"stage\": stage, \"percent\": percent,",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "api_jobs.py",
+      "line": 138,
+      "category": "API",
+      "current": "return {\"detected_language\": languages.get(detected).code if languages.is_supported(detected) else None,",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "api_schema.py",
+      "line": 41,
+      "category": "API",
+      "current": "\"source_language\": {\"type\": \"string\", \"enum\": [\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\"], \"default\": \"en\"},",
+      "change": "01-api-and-interface: \"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "api_schema.py",
+      "line": 52,
+      "category": "API",
+      "current": "\"properties\": {\"source_language\": {\"type\": \"string\", \"enum\": [\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\"]}}},",
+      "change": "01-api-and-interface: \"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "assistant_service.py",
+      "line": 228,
+      "category": "prompt",
+      "current": "- The subtitle can be the subtitle of a whole film while the video is only a few minutes of it, and its times may be different (for example the clip starts at minute 72 of the film): Lisan AI matches by the WORDS, finds the part that belongs to the video and ignores everything else. The subtitle must match the language of the video; choose English, Spanish, French, Portuguese, Italian or German before uploading.",
+      "change": "01-api-and-interface: Spanish, French, Portuguese, Italian, German, Dutch or Polish",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "assistant_service.py",
+      "line": 287,
+      "category": "prompt",
+      "current": "- Accent with videos that are not in English (all dubs): after copying a voice, Lisan AI tries to adapt it so it sounds more like a native Arabic speaker. That adaptation is designed for English speech. With Spanish, French, Portuguese, Italian or German videos it may not be applied; the dub then uses the plain copy of the speaker's own voice, which can sound less like a native Arabic speaker. A voice copied from another language also matches the speaker best in that language, so the Arabic is a best-effort result. Say it plainly and do not promise a native accent. If the accent matters, suggest a short test first. Do not say which language is better or worse, and do not name the technology behind it.",
+      "change": "01-api-and-interface: Spanish, French, Portuguese, Italian, German, Dutch or Polish",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "assistant_service.py",
+      "line": 333,
+      "category": "prompt",
+      "current": "\"You are the Lisan AI helper: a friendly assistant inside the Lisan AI website, which dubs English, Spanish, French, Portuguese, Italian and German video and audio into Arabic \"",
+      "change": "01-api-and-interface: English, Spanish, French, Portuguese, Italian, German, Dutch and Polish",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "docs/api/openapi.yaml",
+      "line": 6,
+      "category": "API",
+      "current": "\"description\": \"PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. Dubbing English, Spanish, French, Portuguese, Italian and German into Arabic using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect.\"",
+      "change": "01-api-and-interface: English, Spanish, French, Portuguese, Italian, German, Dutch and Polish",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "docs/api/openapi.yaml",
+      "line": 1523,
+      "category": "API",
+      "current": "\"enum\": [\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\"],",
+      "change": "01-api-and-interface: \"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "docs/api/openapi.yaml",
+      "line": 1830,
+      "category": "API",
+      "current": "\"enum\": [\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\"],",
+      "change": "01-api-and-interface: \"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "docs/api/openapi.yaml",
+      "line": 1905,
+      "category": "API",
+      "current": "\"language_mismatch\": {\"type\": [\"object\", \"null\"], \"properties\": {\"detected_language\": {\"type\": [\"string\", \"null\"], \"enum\": [\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", null]}, \"switch_available\": {\"type\": \"boolean\"}}, \"additionalProperties\": false},",
+      "change": "01-api-and-interface: \"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "emotion_listen.py",
+      "line": 161,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "emotion_listen.py",
+      "line": 268,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "emotion_listen.py",
+      "line": 269,
+      "category": "prompt",
+      "current": "fingerprint.update(languages.get(source_language).code.encode(\"ascii\"))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "gemini_service.py",
+      "line": 271,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "gemini_service.py",
+      "line": 359,
+      "category": "prompt",
+      "current": "f\"{'English' if languages.get(source_language).code == 'en' else languages.names(source_language)} original (for meaning only): {json.dumps(english or '', ensure_ascii=False)}\\n\"",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "gender_context.py",
+      "line": 234,
+      "category": "prompt",
+      "current": "prompt = (PEOPLE_PROMPT if languages.get(source_language).code == \"en\" else language_prompts.people_rules(source_language)) + \"Speakers: \" + \", \".join(names) + \"\\nTranscript:\\n\" + \"\\n\".join(body)",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "help.html",
+      "line": 71,
+      "category": "help",
+      "current": "<div class=\"card\"><h3>Will the Arabic voice sound like a native Arabic speaker if my video is not in English?</h3><p>Lisan AI copies each speaker's voice, then adapts it so it sounds more natural in Arabic. That adaptation is designed for English speech. With a Spanish, French, Portuguese, Italian or German video it may not be applied, and the dub then uses the plain copy of the speaker's own voice, which can sound less like a native Arabic speaker. A voice copied from another language also matches the speaker best in that language, so the Arabic is a best-effort result. If the accent matters to you, try a short test first before dubbing the whole video.</p></div>",
+      "change": "01-api-and-interface: Spanish, French, Portuguese, Italian, German, Dutch or Polish",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "help.html",
+      "line": 129,
+      "category": "help",
+      "current": "<div class=\"card\"><h3>هل سيبدو الصوت العربي كمتحدث عربي أصلي إذا لم يكن الفيديو بالإنجليزية؟</h3><p>ينسخ Lisan AI صوت كل متحدث ثم يكيّفه ليبدو أكثر طبيعية بالعربية. صُمم هذا التكييف للكلام الإنجليزي. في الفيديوهات الإسبانية أو الفرنسية أو البرتغالية أو الإيطالية أو الألمانية قد لا يُطبَّق، فتُستخدم عندها نسخة المتحدث العادية من صوته، وقد تبدو أقل شبهاً بمتحدث عربي أصلي. كما أن الصوت المنسوخ من لغة أخرى يشبه المتحدث أكثر حين ينطق بتلك اللغة نفسها، فتكون النتيجة بالعربية أفضل جهد ممكن لا نتيجة مضمونة. إن كانت اللكنة تهمك فجرّب مقطعاً قصيراً أولاً قبل دبلجة الفيديو كاملاً.</p></div>",
+      "change": "01-api-and-interface: الإيطالية أو الألمانية أو الهولندية أو البولندية قد",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "inworld_service.py",
+      "line": 702,
+      "category": "engine",
+      "current": "voice_id = clone_voice_from_file(f\"Cloned_{speaker}\", concat_file, api_key, language_code=CLONE_SAMPLE_LANGUAGE if languages.get(source_language).code == \"en\" else languages.get(source_language).whisper_code)",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "landing.html",
+      "line": 9,
+      "category": "UI text",
+      "current": "<meta name=\"description\" content=\"Lisan AI dubs English, Spanish, French, Portuguese, Italian and German video into native-quality Modern Standard Arabic. Voice cloning, 30+ speaking styles, full tashkeel, a visual timeline for fine-tuning, and long-video dubbing. Pay as you go or subscribe monthly.\">",
+      "change": "01-api-and-interface: English, Spanish, French, Portuguese, Italian, German, Dutch and Polish; 01-api-and-interface: Modern Standard Arabic",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "landing.html",
+      "line": 13,
+      "category": "UI text",
+      "current": "<script type=\"application/ld+json\">{\"@context\": \"https://schema.org\", \"@graph\": [{\"@type\": \"Organization\", \"@id\": \"https://lisanai.org/#org\", \"name\": \"Lisan AI\", \"alternateName\": [\"LisanAI\", \"Lisan AI Dubbing\"], \"url\": \"https://lisanai.org/\", \"logo\": \"https://lisanai.org/logo.png\", \"email\": \"contact@lisanai.org\", \"description\": \"Lisan AI is an video dubbing service into Arabic: voice cloning, Modern Standard Arabic with full tashkeel, and long-video dubbing.\"}, {\"@type\": \"WebSite\", \"@id\": \"https://lisanai.org/#site\", \"url\": \"https://lisanai.org/\", \"name\": \"Lisan AI\", \"alternateName\": \"LisanAI\", \"inLanguage\": [\"en\", \"ar\"], \"publisher\": {\"@id\": \"https://lisanai.org/#org\"}}, {\"@type\": \"SoftwareApplication\", \"name\": \"Lisan AI\", \"url\": \"https://lisanai.org/\", \"applicationCategory\": \"MultimediaApplication\", \"operatingSystem\": \"Web\", \"description\": \"Dub English, Spanish, French, Portuguese, Italian and German video into native-quality Modern Standard Arabic with voice cloning and a visual timeline for fine-tuning.\", \"publisher\": {\"@id\": \"https://lisanai.org/#org\"}}]}</script>",
+      "change": "01-api-and-interface: English, Spanish, French, Portuguese, Italian, German, Dutch and Polish; 01-api-and-interface: Modern Standard Arabic",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "landing.html",
+      "line": 402,
+      "category": "UI text",
+      "current": "<span class=\"en\">AI dubbing · Six original languages to Modern Standard Arabic</span>",
+      "change": "01-api-and-interface: Eight original languages",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "landing.html",
+      "line": 403,
+      "category": "UI text",
+      "current": "<span class=\"ar\">دبلجة بالذكاء الاصطناعي · من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية إلى العربية الفصحى</span>",
+      "change": "01-api-and-interface: والإيطالية والألمانية والهولندية والبولندية إلى العربية الفصحى",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "landing.html",
+      "line": 426,
+      "category": "UI text",
+      "current": "<li class=\"language-card\" data-source-language=\"en\" style=\"--y:94px;--delay:-1s\">",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "landing.html",
+      "line": 430,
+      "category": "UI text",
+      "current": "<li class=\"language-card\" data-source-language=\"es\" style=\"--y:118px;--delay:-2s\">",
+      "change": "01-api-and-interface: --y:94px",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "landing.html",
+      "line": 434,
+      "category": "UI text",
+      "current": "<li class=\"language-card\" data-source-language=\"fr\" style=\"--y:198px;--delay:-3s\">",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "landing.html",
+      "line": 438,
+      "category": "UI text",
+      "current": "<li class=\"language-card\" data-source-language=\"pt\" style=\"--y:222px;--delay:-4s\">",
+      "change": "01-api-and-interface: --y:198px",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "landing.html",
+      "line": 442,
+      "category": "UI text",
+      "current": "<li class=\"language-card\" data-source-language=\"it\" style=\"--y:302px;--delay:-5s\">",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "landing.html",
+      "line": 446,
+      "category": "UI text",
+      "current": "<li class=\"language-card\" data-source-language=\"de\" style=\"--y:326px;--delay:-6s\">",
+      "change": "01-api-and-interface: --y:302px",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 92,
+      "category": "engine",
+      "current": "return bool(j) and j.get(\"lang\") != languages.get(source_language).code and float(j.get(\"prob\", 0)) >= FLAG_PROB",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 104,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 109,
+      "category": "engine",
+      "current": "return msg, \"expected=\" + languages.get(source_language).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 165,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 192,
+      "category": "engine",
+      "current": "expected = languages.get(source_language).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 211,
+      "category": "engine",
+      "current": "\"supported\": languages.is_supported(detected),",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "languages.py",
+      "line": 131,
+      "category": "engine",
+      "current": "NEW_LANGUAGES = (\"es\", \"fr\", \"pt\", \"it\", \"de\")",
+      "change": "Keep staged today; only ENABLED_LANGUAGES activation patch changes enabled records.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "StagedRegistryTests + Job17LegacyParityTests"
+    },
+    {
+      "file": "languages.py",
+      "line": 132,
+      "category": "engine",
+      "current": "STAGED_LANGUAGES = (\"nl\", \"pl\")",
+      "change": "Keep staged today; only ENABLED_LANGUAGES activation patch changes enabled records.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "StagedRegistryTests + Job17LegacyParityTests"
+    },
+    {
+      "file": "languages.py",
+      "line": 134,
+      "category": "engine",
+      "current": "ENABLED_LANGUAGES = (\"en\",) + NEW_LANGUAGES",
+      "change": "03-activate-last: ENABLED_LANGUAGES = (\"en\",) + NEW_LANGUAGES + STAGED_LANGUAGES",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "languages.py",
+      "line": 147,
+      "category": "engine",
+      "current": "return record if record.code in ENABLED_LANGUAGES else _REGISTRY[0]",
+      "change": "Keep staged today; only ENABLED_LANGUAGES activation patch changes enabled records.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "StagedRegistryTests + Job17LegacyParityTests"
+    },
+    {
+      "file": "languages.py",
+      "line": 161,
+      "category": "engine",
+      "current": "return tuple(record for record in _REGISTRY if record.code in ENABLED_LANGUAGES)",
+      "change": "Keep staged today; only ENABLED_LANGUAGES activation patch changes enabled records.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "StagedRegistryTests + Job17LegacyParityTests"
+    },
+    {
+      "file": "languages.py",
+      "line": 165,
+      "category": "engine",
+      "current": "return isinstance(code, str) and code.strip().lower() in ENABLED_LANGUAGES",
+      "change": "Keep staged today; only ENABLED_LANGUAGES activation patch changes enabled records.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "StagedRegistryTests + Job17LegacyParityTests"
+    },
+    {
+      "file": "languages.py",
+      "line": 176,
+      "category": "engine",
+      "current": "enabled_languages: tuple = ENABLED_LANGUAGES",
+      "change": "Keep staged today; only ENABLED_LANGUAGES activation patch changes enabled records.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "StagedRegistryTests + Job17LegacyParityTests"
+    },
+    {
+      "file": "line_planner.py",
+      "line": 69,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "line_tidy.py",
+      "line": 29,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "line_tidy.py",
+      "line": 74,
+      "category": "engine",
+      "current": "if (SENT_END.search(tok) and tok.lower() not in NOT_END) if languages.get(source_language).code == \"en\" else lang_text.ends_sentence(\" \".join(tokens[:i + 1]), source_language, profile=\"tidy\"):",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_edits.py",
+      "line": 295,
+      "category": "engine",
+      "current": "job = {'id': jid, 'uid': parent['uid'], 'edit_of': parent['id'], 'source_language': languages.get(parent.get('source_language')).code, 'status': 'payment_pending',",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_edits.py",
+      "line": 360,
+      "category": "engine",
+      "current": "vid, err = ld._clone_with_retry(f'lisan-edit-{parent[\"id\"][:8]}-{sid}', ref, **({\"source_language\": languages.get(parent.get(\"source_language\")).code} if languages.get(parent.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 411,
+      "category": "engine",
+      "current": "v[\"source_language\"] = languages.get(job.get(\"source_language\")).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 665,
+      "category": "engine",
+      "current": "\"id\": job_id, \"uid\": uid, \"source_language\": languages.get(source_language).code, \"filename\": (filename or \"video\")[:200], \"ext\": ext, \"size\": size,",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 982,
+      "category": "engine",
+      "current": "\"id\": new_id, \"uid\": uid, \"source_language\": languages.get(job.get(\"source_language\")).code, \"filename\": job.get(\"filename\") or \"video\", \"ext\": job.get(\"ext\") or \"\",",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 1441,
+      "category": "engine",
+      "current": "if k < len(words) - 1 and ((_SENT_END.search(tok) and tok.lower() not in _NOT_SENT_END) if languages.get(source_language).code == \"en\" else lang_text.ends_sentence(\" \".join(str(x.get(\"word\") or \"\").strip() for x in cur), source_language, profile=\"tidy\")):",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 1648,
+      "category": "engine",
+      "current": "votes = speaker_vote_live.collect(job[\"id\"], rows, vocals_all, wd, GEMINI_API_KEY, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 1721,
+      "category": "engine",
+      "current": "result = ws.merge_mid_sentence_rows(ws.smooth_speaker_islands(split_rows_by_sentence(result))) if languages.get(source_language).code == \"en\" else ws.merge_mid_sentence_rows(ws.smooth_speaker_islands(split_rows_by_sentence(result, source_language), source_language), source_language)",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 1743,
+      "category": "engine",
+      "current": "source_language = languages.get(job.get(\"source_language\")).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 1905,
+      "category": "engine",
+      "current": "str(wd / \"vocals\" / f\"p{i:03d}.wav\"), beam_size=5, language=languages.get(source_language).whisper_code,",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2100,
+      "category": "engine",
+      "current": "ok, info = subs_align.check_file(text, filename, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2142,
+      "category": "engine",
+      "current": "add_missed=bool(sub.get(\"add_missed\")), **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2299,
+      "category": "engine",
+      "current": "results.update(_translate_batch(job[\"id\"], part, job.get(\"glossary\"), gender=_gender_args(job, rows, part), flags=all_flags, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {})))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2343,
+      "category": "engine",
+      "current": "gender=_gender_args(job, rows, part[i:i + TRANSLATE_BATCH]), flags=flags, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {})))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2376,
+      "category": "engine",
+      "current": "code = languages.get(job.get(\"source_language\")).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2411,
+      "category": "engine",
+      "current": "people = gender_context.read_transcript_people(job[\"id\"], rows, GEMINI_API_KEY, source_language=languages.get(job.get(\"source_language\")).code)",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2483,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2513,
+      "category": "engine",
+      "current": "n = _ground_rows(rows, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2548,
+      "category": "engine",
+      "current": "max_workers=2, selected_ids=selected_ids, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {})) or {}",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2549,
+      "category": "engine",
+      "current": "paces = _row_paces(rows, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2572,
+      "category": "engine",
+      "current": "paces = _row_paces(rows, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2577,
+      "category": "engine",
+      "current": "got = _translate_batch(job[\"id\"], batch, job.get(\"glossary\"), paces=paces, gender=_gender_args(job, rows, batch), flags=flags, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 2584,
+      "category": "engine",
+      "current": "_ground_rows(rows, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 3100,
+      "category": "engine",
+      "current": "got = _translate_batch(job[\"id\"], [first, second], gender=_gender_args(job, [x for x in rows if x[\"segment_id\"] != segment_id] + [first, second], [first, second]), flags=flags, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 3147,
+      "category": "engine",
+      "current": "got = _translate_batch(job[\"id\"], [r], job.get(\"glossary\"), gender=_gender_args(job, rows, [r]), flags=flags, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 4251,
+      "category": "engine",
+      "current": "lang = inworld_service.CLONE_SAMPLE_LANGUAGE if languages.get(source_language).code == \"en\" else languages.get(source_language).whisper_code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 4257,
+      "category": "engine",
+      "current": "if languages.get(source_language).code == \"en\" and lang != inworld_service.DEFAULT_LANGUAGE and \"language\" in str(last).lower():",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 4669,
+      "category": "engine",
+      "current": "new = gemini_service.shorten_arabic_line(job[\"id\"], r.get(\"text\") or \"\", cur_text, max_letters, GEMINI_API_KEY, **gender_kw, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 4910,
+      "category": "engine",
+      "current": "vid, err = _clone_with_retry(f\"lisan-tmp-{job['id'][:8]}-{spid}\", wav, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 4921,
+      "category": "engine",
+      "current": "_ev(job, \"voice_cloned\", \"ok\", f\"{names.get(spid)}: reference {secs:.1f}s, voice labelled '{inworld_service.CLONE_SAMPLE_LANGUAGE if languages.get(job.get('source_language')).code == 'en' else languages.get(job.get('source_language')).whisper_code}'\")",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 4987,
+      "category": "engine",
+      "current": "paces_ = _row_paces(rows, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))          # how fast each speaker really speaks (measured): a slow one is not fast-forwarded",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 5167,
+      "category": "engine",
+      "current": "video_path=(wd / \"preview.mp4\") if job.get(\"has_video\") else None, duration=total, **({\"source_language\": languages.get(job.get(\"source_language\")).code} if languages.get(job.get(\"source_language\")).code != \"en\" else {}))",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 5675,
+      "category": "engine",
+      "current": "code = languages.get(source_language).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "longdub_service.py",
+      "line": 5676,
+      "category": "engine",
+      "current": "if not languages.is_supported(source_language):",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "main.py",
+      "line": 3842,
+      "category": "engine",
+      "current": "return {\"languages\": [{\"code\": item.code, \"en\": languages.names(item.code), \"ar\": languages.names(item.code, \"ar\"), \"beta\": item.beta} for item in languages.supported()]}",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "main.py",
+      "line": 6287,
+      "category": "engine",
+      "current": "code = languages.get(job.get(\"source_language\")).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "scene_context.py",
+      "line": 166,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "scene_context.py",
+      "line": 226,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "scene_context.py",
+      "line": 227,
+      "category": "prompt",
+      "current": "key = hashlib.sha1((key + languages.get(source_language).code).encode(\"ascii\")).hexdigest()[:16]",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "source_jobs.py",
+      "line": 18,
+      "category": "engine",
+      "current": "if not languages.is_supported(value):",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "source_jobs.py",
+      "line": 20,
+      "category": "engine",
+      "current": "return languages.get(value).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "source_jobs.py",
+      "line": 43,
+      "category": "engine",
+      "current": "return languages.get(data.get('source_language')).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "source_language.js",
+      "line": 5,
+      "category": "UI text",
+      "current": "{code: \"en\", en: \"English\", ar: \"الإنجليزية\"},",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "source_language.js",
+      "line": 6,
+      "category": "UI text",
+      "current": "{code: \"es\", en: \"Spanish\", ar: \"الإسبانية\"},",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "source_language.js",
+      "line": 7,
+      "category": "UI text",
+      "current": "{code: \"fr\", en: \"French\", ar: \"الفرنسية\"},",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "source_language.js",
+      "line": 8,
+      "category": "UI text",
+      "current": "{code: \"pt\", en: \"Portuguese\", ar: \"البرتغالية\"},",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "source_language.js",
+      "line": 9,
+      "category": "UI text",
+      "current": "{code: \"it\", en: \"Italian\", ar: \"الإيطالية\"},",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "source_language.js",
+      "line": 10,
+      "category": "UI text",
+      "current": "{code: \"de\", en: \"German\", ar: \"الألمانية\"}",
+      "change": "01-api-and-interface: {code: \"de\", en: \"German\", ar: \"الألمانية\"}, ↵         {code: \"nl\", en: \"Dutch\", ar: \"الهولندية\"}, ↵         {code: \"pl\", en: \"Polish\", ar: \"البولندية\"}",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "speaker_vote_live.py",
+      "line": 56,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "speaker_vote_live.py",
+      "line": 183,
+      "category": "prompt",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "speaker_vote_live.py",
+      "line": 184,
+      "category": "prompt",
+      "current": "fp = hashlib.sha256((fp + languages.get(source_language).code).encode(\"ascii\")).hexdigest()",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 52,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 69,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\" and reason in (\"arabic\", \"no_match\"):",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 85,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\" and lang_text.latin_share(\" \".join(t for c in cues for t, _ in c[\"lines\"])) < 0.5:",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 99,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 123,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 212,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 374,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 523,
+      "category": "engine",
+      "current": "old_norm = [norm(t) for t in old_text.split() if norm(t)] if languages.get(source_language).code == \"en\" else _row_tokens(r, source_language)",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 543,
+      "category": "engine",
+      "current": "new_norm = [norm(t) for p in parts for t in p.split() if norm(t)] if languages.get(source_language).code == \"en\" else [n for p in parts for n in _row_tokens({\"text\": p}, source_language)]",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "tests/test_api_language_proposal.py",
+      "line": 21,
+      "category": "test",
+      "current": "for code in ('en','es','fr','pt','it','de'):",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_api_source_language.py",
+      "line": 38,
+      "category": "test",
+      "current": "for code in ('en','es','fr','pt','it','de'):",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_api_source_language.py",
+      "line": 46,
+      "category": "test",
+      "current": "self.assertEqual({j['source_language'] for j in self.get('/jobs').json()['jobs']}, {'en','es','fr','pt','it','de'})",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_landing_languages.py",
+      "line": 6,
+      "category": "test",
+      "current": "from languages import supported",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_confusion.py",
+      "line": 16,
+      "category": "test",
+      "current": "cls.codes = ('en', 'es', 'fr', 'pt', 'it', 'de', 'nl', 'pl')",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_job17_legacy.py",
+      "line": 21,
+      "category": "test",
+      "current": "self.assertEqual(json.loads(json.dumps([dataclasses.asdict(r) for r in L.supported()])), self.before['records'])",
+      "change": "03-activate-last: [dataclasses.asdict(L.get_record(r['code'])) for r in self.before['records']]",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 60,
+      "category": "test",
+      "current": "for code in L.NEW_LANGUAGES:",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 62,
+      "category": "test",
+      "current": "self.assertIn('following '+L.names(code)+' audio segments',prompt)",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 66,
+      "category": "test",
+      "current": "self.assertIn(L.names(code),P.emotion_prompt('English in data',code))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 68,
+      "category": "test",
+      "current": "self.assertIn(L.names(code),P.scene_prompt(30,False,code))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 69,
+      "category": "test",
+      "current": "self.assertIn(L.names(code),P.speaker_prompt('audio',rows(),code))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 70,
+      "category": "test",
+      "current": "self.assertIn(L.names(code),P.line_planner_prompt(rows(),source_language=code))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_prompts.py",
+      "line": 71,
+      "category": "test",
+      "current": "self.assertIn(L.names(code),P.people_rules(code))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 10,
+      "category": "test",
+      "current": "self.assertEqual(tuple(r.code for r in L.supported()), ('en','es','fr','pt','it','de'))",
+      "change": "03-activate-last: ('en','es','fr','pt','it','de','nl','pl')",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 11,
+      "category": "test",
+      "current": "for r in L.supported():",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 17,
+      "category": "test",
+      "current": "self.assertEqual(L.names(r.code,'ar'),r.arabic_name)",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 18,
+      "category": "test",
+      "current": "self.assertEqual(L.names(r.code,'native'),r.native_name)",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 25,
+      "category": "test",
+      "current": "L.get('es').code='xx'",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 29,
+      "category": "test",
+      "current": "self.assertIs(L.get(value),L.get('en'))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 30,
+      "category": "test",
+      "current": "self.assertFalse(L.is_supported(value))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 31,
+      "category": "test",
+      "current": "self.assertIs(L.get(' ES '),L.get('es'))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 32,
+      "category": "test",
+      "current": "self.assertIs(L.get(dataclasses.replace(L.get('en'),code=[])),L.get('en'))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 33,
+      "category": "test",
+      "current": "self.assertTrue(L.is_supported('FR'))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 37,
+      "category": "test",
+      "current": "self.assertEqual(p.enabled_languages,tuple(r.code for r in L.supported()))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "line": 45,
+      "category": "test",
+      "current": "for r in L.supported():",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 24,
+      "category": "test",
+      "current": "old = ('en', 'es', 'fr', 'pt', 'it', 'de')",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 25,
+      "category": "test",
+      "current": "self.assertEqual(tuple(r.code for r in L.supported()), old)",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 27,
+      "category": "test",
+      "current": "self.assertEqual(L.STAGED_LANGUAGES, ('nl', 'pl'))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 30,
+      "category": "test",
+      "current": "self.assertFalse(L.is_supported(code))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 32,
+      "category": "test",
+      "current": "self.assertEqual(L.get(code).code, 'en')",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 33,
+      "category": "test",
+      "current": "self.assertEqual(L.names(code), 'English')",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 70,
+      "category": "test",
+      "current": "self.assertEqual(L.get(value).code, 'en')",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 71,
+      "category": "test",
+      "current": "self.assertFalse(L.is_supported(value))",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 72,
+      "category": "test",
+      "current": "self.assertEqual(L.get(' FR ').code, 'fr')",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 122,
+      "category": "test",
+      "current": "for code in ('en', 'es', 'fr', 'pt', 'it', 'de', 'nl'):",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "line": 181,
+      "category": "test",
+      "current": "self.assertEqual(trial.TRIAL_LANGUAGES[:5], L.NEW_LANGUAGES)",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_text.py",
+      "line": 14,
+      "category": "test",
+      "current": "for code in L.NEW_LANGUAGES:",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_text.py",
+      "line": 24,
+      "category": "test",
+      "current": "for r in L.supported():",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_text.py",
+      "line": 37,
+      "category": "test",
+      "current": "for r in L.supported():",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_text.py",
+      "line": 84,
+      "category": "test",
+      "current": "for r in L.supported():",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_lang_text.py",
+      "line": 93,
+      "category": "test",
+      "current": "for code in L.NEW_LANGUAGES:",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_shortdub_ui.js",
+      "line": 124,
+      "category": "test",
+      "current": "const c = vm.createContext({ window: { currentLang: 'en' }, currentSourceLanguage: 'en', LisanSource: {normalise: value => ['en','es','fr','pt','it','de'].includes(value) ? value : 'en'}, segmentsData: current,",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_shortdub_ui.js",
+      "line": 441,
+      "category": "test",
+      "current": "for (const code of ['en','es','fr','pt','it','de']) {",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_source_language_integration.py",
+      "line": 25,
+      "category": "test",
+      "current": "CODES = tuple(l.code for l in languages.supported())",
+      "change": "Retain regression expectation today. On activation extend explicit production sets; preserve frozen legacy comparisons. See 03 patch where required.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Run this unchanged test today; reviewed activation proposal"
+    },
+    {
+      "file": "tests/test_source_language_lifecycle.py",
+      "line": 40,
+      "category": "test",
+      "current": "for code in ('en','es','fr','pt','it','de'):",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_source_language_lifecycle.py",
+      "line": 53,
+      "category": "test",
+      "current": "for code in ('en','es','fr','pt','it','de',None):",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_source_language_lifecycle.py",
+      "line": 116,
+      "category": "test",
+      "current": "for code in ('en','es','fr','pt','it','de'):",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_source_language_ui.js",
+      "line": 31,
+      "category": "test",
+      "current": "test('all six original languages have consistent neutral English and Arabic names',()=>{",
+      "change": "03-activate-last: all eight original languages",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tests/test_source_language_ui.js",
+      "line": 33,
+      "category": "test",
+      "current": "assert.deepEqual(Array.from(c.LisanSource.entries,e=>e.code),['en','es','fr','pt','it','de']);",
+      "change": "03-activate-last: 'en','es','fr','pt','it','de','nl','pl'",
+      "safety": "Old six outputs retained; planned UI copy intentionally updated",
+      "test": "API/source lifecycle/UI eight-code matrix; unchanged six output proof"
+    },
+    {
+      "file": "tools/language_trial.py",
+      "line": 21,
+      "category": "engine",
+      "current": "TRIAL_LANGUAGES = languages.NEW_LANGUAGES + languages.STAGED_LANGUAGES",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "tools/language_trial.py",
+      "line": 132,
+      "category": "engine",
+      "current": "parser.add_argument('--languages',nargs='+',choices=TRIAL_LANGUAGES,default=list(languages.NEW_LANGUAGES))",
+      "change": "Registry-driven; inspect the dedicated patch/plan before activation.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Eight-source integration matrix"
+    },
+    {
+      "file": "whisper_service.py",
+      "line": 408,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\" and getattr(segment, \"words\", None):",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "whisper_service.py",
+      "line": 418,
+      "category": "engine",
+      "current": "sentences = re.split(r'(?<=[.!?؟])\\s+', text) if languages.get(source_language).code == 'en' else lang_text.split_sentences(text, source_language)",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "whisper_service.py",
+      "line": 620,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "whisper_service.py",
+      "line": 649,
+      "category": "engine",
+      "current": "if languages.get(source_language).code != \"en\":",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "whisper_service.py",
+      "line": 684,
+      "category": "engine",
+      "current": "source_language = languages.get(source_language).code",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "whisper_service.py",
+      "line": 863,
+      "category": "engine",
+      "current": "language=languages.get(source_language).whisper_code,",
+      "change": "No textual change: active-only get/support lookup blocks nl/pl today; generic non-en branch obtains new data after activation. Never replace with get_record in production.",
+      "safety": "Existing sources unchanged; staged gates remain six",
+      "test": "Short/long/API/correction/source-switch lifecycle matrix with nl/pl after activation"
+    },
+    {
+      "file": "lang_check.py",
+      "line": 150,
+      "category": "engine",
+      "current": "_LATIN = re.compile(r\"[A-Za-zÀ-ɏ]\")",
+      "change": "No change: legacy range À-ɏ already includes Polish letters including ł. New sources use Unicode-name latin_share; do not impose ASCII or change English.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Polish diacritic Latin-share tests"
+    },
+    {
+      "file": "subs_align.py",
+      "line": 74,
+      "category": "engine",
+      "current": "def check_file(text, filename=\"\", source_language=\"en\"):",
+      "change": "02 adds mismatch-only nl/pl text screen. Latin share alone cannot separate Latin-script languages; inconclusive is not proof of a match.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Wrong long-en/de/nl/pl subtitles + short inconclusive alignment tests"
+    },
+    {
+      "file": "dub_long.html",
+      "line": 1205,
+      "category": "UI text",
+      "current": "var ar = (text.match(/[\\u0600-\\u06FF]/g) || []).length, la = (text.match(/[A-Za-z]/g) || []).length;",
+      "change": "02 adds Unicode Latin count only for nl/pl; preserve old six ASCII precheck.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Polish all-diacritic subtitle accepted by client precheck"
+    },
+    {
+      "file": "app.js",
+      "line": 8520,
+      "category": "UI text",
+      "current": "function sourceControls() {",
+      "change": "No edit: shared source_language.js entries drive picker/names and generic source timings.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "test_source_language_ui.js / test_shortdub_ui.js"
+    },
+    {
+      "file": "dub_long_edit.js",
+      "line": 1,
+      "category": "UI text",
+      "current": "var EMOTIONS = [\"neutral\", \"happy\", \"sad\", \"angry\", \"fearful\", \"surprised\", \"disgusted\", \"shouting\", \"whispering\", \"screaming\", \"yelling\", \"crying\", \"laughing\", \"sarcastic\", \"seductive\", \"narrative\", \"announcer\", \"conversational\", \"depressed\", \"anxious\", \"confident\", \"indifferent\", \"excited\", \"serious\", \"playful\", \"terrified\", \"relieved\", \"thoughtful\", \"mocking\", \"pleading\", \"commanding\", \"slowly\", \"rushed\", \"drawn out\", \"hesitant\", \"stammering\", \"softly\", \"booming\", \"sorrowful\", \"frustrated\", \"annoyed\", \"appalled\", \"awe\", \"regretful\", \"resigned\", \"curious\", \"deadpan\", \"tired\", \"sneezing\", \"coughing\", \"sighing\", \"gasping\", \"laugh\", \"sigh\", \"clear throat\", \"yawn\", \"very fast\", \"very quiet\", \"high pitch\"];",
+      "change": "No edit: shared source-language helper names restored source; do not replace it with UI locale.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Correction reload source labels nl/pl + en"
+    },
+    {
+      "file": "dialogs.js",
+      "line": 585,
+      "category": "UI text",
+      "current": "function readSubtitleFile(file) {",
+      "change": "No manual six-language list; shared subtitle reader remains unchanged.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Subtitle Unicode roundtrip"
+    },
+    {
+      "file": "pricing.html",
+      "line": 68,
+      "category": "UI text",
+      "current": "<h1><span class=\"en\">Pricing</span><span class=\"ar\">الأسعار</span></h1>",
+      "change": "01 adds bilingual language-list/same-price sentence only; price computation unchanged.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Pricing UI copy/native check; no paid calls"
+    },
+    {
+      "file": "terms.html",
+      "line": 5,
+      "category": "legal",
+      "current": "<meta name=\"description\" content=\"The terms of use for Lisan AI, the Arabic AI dubbing service.\">",
+      "change": "Current terms describe dubbing generically; no six-source enumeration. No change to rights or law references (Germany is jurisdiction, not source selection).",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Legal source-language wording review"
+    },
+    {
+      "file": "privacy.html",
+      "line": 5,
+      "category": "legal",
+      "current": "<meta name=\"description\" content=\"How Lisan AI, the Arabic AI dubbing service, collects, uses and protects your data.\">",
+      "change": "No six-source restriction found; leave data/voice retention unchanged.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Privacy wording review"
+    },
+    {
+      "file": "admin.html",
+      "line": 5,
+      "category": "UI text",
+      "current": "<title>Lisan AI — Admin</title>",
+      "change": "No source-language enumeration found; no admin setting/price/schema change.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Admin smoke unchanged"
+    },
+    {
+      "file": "chat.js",
+      "line": 1,
+      "category": "UI text",
+      "current": "/* Lisan AI helper: the floating chat box. One self-contained file (no libraries).",
+      "change": "No six-language list; helper knowledge updated through assistant_service + help/landing.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Helper knowledge offline source check"
+    },
+    {
+      "file": "add_faq.py",
+      "line": 1,
+      "category": "help",
+      "current": "import re",
+      "change": "Historical page mutation utility; no source list to extend, do not run it.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "No regeneration of customer pages"
+    },
+    {
+      "file": "rebuild_help.py",
+      "line": 1,
+      "category": "help",
+      "current": "from pathlib import Path",
+      "change": "Historical page mutation utility; no new language integration edit, do not run it.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "No regeneration of customer pages"
+    },
+    {
+      "file": "LANDING_LANGUAGE_BADGES.md",
+      "line": 3,
+      "category": "help",
+      "current": "The landing introduction now shows six compact cards with crisp inline vector flag icons for English, Spanish, French, Portuguese, Italian and German. Blue and gold borders, dark surfaces and soft shadows match the existing page. On wide screens three cards float gently on each side of the introduction; at smaller widths they form a three-column or two-column grid below the actions. Names follow the English/Arabic page selection. The animation pauses while hovering over the introduction and is disabled by the existing reduced-motion setting.",
+      "change": "01 changes list/count and replaces historical six-card QA claim with required fresh visual review.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "Eight-card local visual review pending"
+    },
+    {
+      "file": "main.py",
+      "line": 3840,
+      "category": "API",
+      "current": "@app.get(\"/api/source-languages\")",
+      "change": "Registry-driven /api/source-languages stays six today, eight only after switch. All input validation remains source_jobs.validate. No route edit.",
+      "safety": "Existing six behavior preserved; copy/layout approval needed for proposals",
+      "test": "API rejection of staged nl/pl; enabled list after activation"
+    }
+  ]
+}

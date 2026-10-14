@@ -3985,7 +3985,7 @@ def music_quote(job, removals=None):
     return {"repairs": count, "max_credits": count * fee, "each": fee, "kept": True}
 
 
-def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, music_budget=0):
+def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, music_budget=0, delivery_mode=""):
     """User reviewed everything and accepts the exact price: charge it and
     start the dubbing. Returns (True, None) or (False, (message, status))."""
     if job.get("status") != "editing":
@@ -4047,6 +4047,7 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
         job["room_pref"] = room if room in ROOM_CHOICES else "auto"
         job["want_tracks"] = bool(tracks)
         job["music_pref"] = "keep" if keep_music else "silence"     # music under the original voices: kept where possible / silenced as before
+        job["delivery_mode"] = clean_delivery_mode(delivery_mode)   # how the voice speaks: "" = not chosen (the server setting / the provider's default)
         job["status"] = "confirmed"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -4055,7 +4056,8 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
     _ev(job, "dub_confirmed", "ok",
         f"due={price['due']} (voice {price['voice']}, clones {price['clones']}, merge {price['merge']}"
         + (f", lip-sync {lip_plan['credits']} for {len(lip_plan['clips'])} clips / {lip_plan['seconds']}s at {lip_plan['per_sec']:g}/s" if lip_plan else "")
-        + f") chars={price['chars']} lines={price['lines']} speakers={len(price['speakers_used'])}", price["due"])
+        + f") chars={price['chars']} lines={price['lines']} speakers={len(price['speakers_used'])}"
+        + (f" delivery={job['delivery_mode']}" if job.get("delivery_mode") else ""), price["due"])
     start_worker(job["id"])
     return True, None
 
@@ -4264,7 +4266,13 @@ def _voice_text(text, waqf="auto", gap=None):
     return pausal(text, waqf, gap)
 
 
-def _tts_with_retry(voice_id, text, waqf="auto", gap=None):
+def clean_delivery_mode(value):
+    """How the voice speaks (Inworld deliveryMode): stable, balanced or creative; "" = the customer did not choose."""
+    value = str(value or "").strip().lower()
+    return value if value in ("stable", "balanced", "creative") else ""
+
+
+def _tts_with_retry(voice_id, text, waqf="auto", gap=None, delivery=None):
     import inworld_service
     text = _voice_text(text, waqf, gap)          # only the copy sent to the voice gets the stop form (at a real stop, see arabic_waqf); the stored text never changes
     import urllib.error
@@ -4273,7 +4281,7 @@ def _tts_with_retry(voice_id, text, waqf="auto", gap=None):
         if wait:
             time.sleep(wait)
         try:
-            return inworld_service.synthesize(voice_id, text, INWORLD_API_KEY, language="ar"), ""
+            return inworld_service.synthesize(voice_id, text, INWORLD_API_KEY, language="ar", **({"delivery": delivery} if delivery else {})), ""
         except urllib.error.HTTPError as ex:
             last = inworld_service._http_error_detail(ex)
             if ex.code in (400, 401, 403, 404, 422):
@@ -4680,7 +4688,7 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         if conflict:
             _ev(job, "line_rephrase", "failed", f"{sid}: shorter wording rejected ({conflict}); keeping the reviewed wording")
             break
-        audio, err = _tts_with_retry(voice_id, f"{tag}{new}", r.get("waqf"), gap)
+        audio, err = _tts_with_retry(voice_id, f"{tag}{new}", r.get("waqf"), gap, job.get("delivery_mode"))
         if audio is None:
             _ev(job, "line_rephrase", "failed", f"{sid}: the voice service did not speak the shorter version: {err}")
             break
@@ -4983,7 +4991,7 @@ def _run_dubbing(job):
             tag = inworld_service.instruction_tag(r.get("emotion"))
             text = f"{tag}{r['arabic_text'].strip()}"
             gap_ = (float(rows[i + 1]["start"]) - float(r["end"])) if i + 1 < n else 99.0       # silence after the line: a long one is a real stop
-            audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text, r.get("waqf"), gap_)
+            audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text, r.get("waqf"), gap_, job.get("delivery_mode"))
             if audio is None:
                 dub["failed"].append(sid)
                 _ev(job, "line_generation", "failed", f"{sid} ({len(text)} chars): {err}")

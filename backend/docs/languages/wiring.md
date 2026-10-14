@@ -158,3 +158,54 @@ For every UI/help/legal location in inventory.md, apply the linked copy ID to th
 | New-language translation quality / speaking rate | unmeasured / estimated | Dry trials only. Native source/Arabic review and audio trials still required; no ranking claimed. |
 
 Required integration cases: each source through short/long upload, transcription args, rows/two-speaker subtitle, translation, original clone label, target ar, download; missing/en parity; uppercase/unknown boundary handling; UI locale independent; JSON save/load; restart/redo/copy/reattach/correction; mismatch switch/mixed/inconclusive/unsupported speech; subtitle wrong language and short inconclusive cues; quote/billing unchanged; source-only logs with no content. Do not silently enable a language on a page before all its consumers accept and retain it.
+
+## Dutch and Polish — Job17 proposals, UNAPPLIED
+
+Use this section rather than the historical Job16 wiring above: the current engine already forwards source_language generically. These patches were made against the **current** files after detecting concurrent work, not against old Job16 copies. `job17-wiring/manifest.json` includes current hashes and literal old→new replacements. The files themselves are unified diffs; do not stage them as if they had changed their target files. The delivered foundations keep nl/pl disabled. Ali alone runs git; Claude owns integration and version.
+
+| Patch | Exact targets | Apply order / status |
+| --- | --- | --- |
+| 01-api-and-interface.patch | API request/result/mismatch enums, source_language.js, API documentation, assistant list/caveat, help source labels/caveat, pricing list, landing bilingual copy/metadata/eight badges/layout and historical badge notes | Prepare in an integration checkout; do not deploy separately. Every Arabic addition needs Ali's native check. New eight-card visual layout is unmeasured and must be reviewed. |
+| 02-new-source-safety.patch | lang_check.py, subs_align.py, dub_long.html | Prepare new-code-only warning/mismatch/subtitle Unicode branches; do not change English or the other five checks. |
+| 03-activate-last.patch | languages.py plus explicit-count/list tests and staged-vs-enabled tests | Single ENABLED_LANGUAGES switch, last. No additions to NEW_LANGUAGES. Check all preceding wiring/tests/native review first, release together after Ali's approval. |
+
+All other listed engine consumers (short/long/corrections, speech recognition, line tidy/planner, people, scene, listening, cloning, API adapters) **need no textual patch**: current non-English branches already read the registry. Never change them to get_record; that would bypass staging. Names for Dutch and Polish already exist in the audio mismatch display map, which is not a list of authorised jobs. Any new enum or UI entry must ship with the single activation switch, never in advance on the live site.
+
+### Prompt builder map
+
+| Builder | File:line/function | Difference for nl/pl |
+| --- | --- | --- |
+| language_notes | language_prompts.py:134 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| gender_rules | language_prompts.py:146 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| glossary_block | language_prompts.py:154 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| translation_prompt | language_prompts.py:163 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| emotion_prompt | language_prompts.py:219 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| scene_prompt | language_prompts.py:228 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| speaker_prompt | language_prompts.py:233 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| line_planner_prompt | language_prompts.py:241 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+| gender_context | language_prompts.py:249 | Stable context/legacy keys; no deterministic NL/PL morphology inferred. |
+| people_rules | language_prompts.py:290 | get_record selects staged data; shared nl/pl notes or source heading apply; old six strings unchanged. |
+
+The shared Dutch notes preserve actual address/gender, IJ names, compound/separable meanings, time expressions and contextual idioms. Polish notes preserve inflected-name identity, omitted subjects, past person/gender, quoted speech, nonhuman/nonvirile groups and polite third-person address. Every Arabic form stays provisional. Text templates cannot prove acoustic understanding or correct translation.
+
+### Specific hazards and release checks
+
+- English text evidence accepts every tested Latin-script source, and the old German screen accepts three Dutch paragraphs. **Do not patch these checks in Job17.** Ali explicitly requested preserving legacy behavior. See every false-match row in job17-confusion.json and the handoff. The new nl/pl screen is exclusive on this invented set only. Word presence is neither audio language detection nor a calibrated probability; short, proper-name, numeric and mixed input can stay inconclusive.
+- lang_check._LATIN's legacy À-ɏ range already covers Polish letters, including ł. Leave it unchanged. 02 reports inconclusive text for nl/pl with a neutral review warning, rather than treating lack of mismatch as language confirmation. Audio mismatch uses the existing detected-language evidence and user switch; no extra recogniser pass proposed.
+- subs_align already uses Unicode Latin share and scoped tokenisation. Script share alone accepts other Latin languages. 02 rejects a lexical mismatch for nl/pl before correction; inconclusive text still proceeds through existing word-alignment trust rules so a one-word name cue is not rejected as proven wrong. This is a residual limit: short/ambiguous wrong-language subtitles cannot reliably be detected by these word lists. Add tests for English/German vs Dutch and Dutch/German/English vs Polish long texts, short valid cues, all-diacritic Polish and mixed scripts. No automatic case stemming.
+- dub_long onSubPicked has an ASCII client-side Latin count: the proposed new-source-only branch uses Unicode Script=Latin so letters such as ł are not lost. Preserve the old six count exactly. app.js's ASCII-looking safety regex recognises paths/errors; it is not transcript-language evidence, so leave it. ASCII encoding of a two-letter source code in cache keys is safe. Opaque ids and English regex branches stay unchanged.
+- Re-run the enabled eight-source unit/lifecycle/UI/API tests and unchanged-output proof in an isolated integration checkout. Test upload, stored code, transcription arguments, mismatch/switch, subtitle cleaning/alignment, translation/listening/context, shorten, clone language, corrections, redo/reload, old/missing/unknown/cased source, API enums and result labels. No paid/unit calls; actual consented audio and native review remain separate release checks. Compare copied-voice behavior without promising a native accent.
+- At 1440/1180/1024/768/390/320 widths in both interface locales, verify all eight badges, no overlap/overflow, correct labels, selectors outside upload buttons, saved-choice restoration, keyboard focus, and reduced motion. The fourth badge per side adds room; these are proposed, not screenshots tested here. Remove stale six-card measured claims rather than reusing them for eight cards.
+- Existing six-only fixture assertions stay untouched in this delivery. The activation patch extends production enumerations and adapts release-state tests; the frozen baseline still compares only original six records/text/prompt/subtitle results. No pricing, clone-count, credits, SQL or config changes.
+
+### Safety claims
+
+| Claim | Status | Evidence / limit |
+| --- | --- | --- |
+| Existing six frozen records, 2,754 full returned text structures, 72 prompt/context outputs, original subtitle outputs identical | Proven on captured test inputs | test_lang_job17_legacy.py; not a proof over every possible string. |
+| nl/pl cannot be accepted by public registry/short saved-code setter today | Proven | StagedRegistryTests; get/names default en, validate rejects. Metadata-only get_record is deliberately available. |
+| Old/missing/garbage code resolves to English; case/space supported codes normalise | Proven | Existing + new registry and saved-job tests. Malicious or corrupted manually inserted staged jobs default en; no real staged job should exist before release. |
+| Consumers listed use enabled lookups; no protected engine/page/API file edited by this job | Documented | Inventory/current hashes; concurrent work was detected and retained, not overwritten. |
+| Timing ratio/rates and lexical thresholds are calibrated | Not claimed; estimated/unmeasured | Ratio1.0; rate None; curated screen, no probabilities. |
+| New speech/translation/Arabic accent quality | Unmeasured | No live trial; all provisional Arabic/source wording needs native check. |
+| Prepared wiring will work after activation | Likely, requires integration checks | Exact patches parse offline; full engine/UI runtime and eight-badge visual verification not performed as a release. |

@@ -37,7 +37,7 @@ class LongLifecycleTests(unittest.TestCase):
         return job
 
     def test_source_persists_at_creation_and_public_view(self):
-        for code in ('en','es','fr','pt','it','de'):
+        for code in ('en','es','fr','pt','it','de','nl','pl'):
             job=self.make(code)
             self.assertEqual(job['source_language'],code)
             self.assertEqual(self.scope['public_view'](job)['source_language'],code)
@@ -50,7 +50,7 @@ class LongLifecycleTests(unittest.TestCase):
         self.assertEqual(job,before)
 
     def test_redo_inherits_source_and_legacy_defaults(self):
-        for code in ('en','es','fr','pt','it','de',None):
+        for code in ('en','es','fr','pt','it','de','nl','pl',None):
             job=self.make(code); job['status']='done'
             if code is None: job.pop('source_language',None)
             ok,new=self.scope['redo_project'](job,'invented-owner')
@@ -99,7 +99,7 @@ class DownstreamLanguageTests(unittest.TestCase):
         import inworld_service
         scope=capture.source_namespace('longdub_service.py',('_clone_with_retry',))
         scope.update(INWORLD_API_KEY='offline',time=Mock())
-        for code in ('es','fr','pt','it','de'):
+        for code in ('es','fr','pt','it','de','nl','pl'):
             with patch.object(inworld_service,'clone_voice_from_file',side_effect=ValueError('language refused')) as call, \
                  patch.object(inworld_service,'_http_error_detail',return_value='language refused'):
                 result,error=scope['_clone_with_retry']('invented',Path('invented.wav'),code)
@@ -113,7 +113,7 @@ class DownstreamLanguageTests(unittest.TestCase):
         node.decorator_list=[]
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)
-            for code in ('en','es','fr','pt','it','de'):
+            for code in ('en','es','fr','pt','it','de','nl','pl'):
                 wav=root/'invented.wav'; wav.write_bytes(b'local test reference')
                 job={'id':'invented','source_language':code}
                 event=Mock(); clone=Mock(return_value=('invented-voice',None))

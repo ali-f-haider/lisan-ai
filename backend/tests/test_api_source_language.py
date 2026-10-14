@@ -35,7 +35,7 @@ class ApiSourceLanguageTests(Base):
         self.assertEqual(result.json()['source_language'],'en')
 
     def test_each_source_is_visible_in_poll_and_list_and_does_not_change_the_fee(self):
-        for code in ('en','es','fr','pt','it','de'):
+        for code in ('en','es','fr','pt','it','de','nl','pl'):
             result = self.create(source_language=code)
             self.assertEqual(result.status_code,201,result.text)
             jid = result.json()['id']
@@ -43,7 +43,7 @@ class ApiSourceLanguageTests(Base):
             self.assertEqual(self.get('/jobs/'+jid).json()['source_language'],code)
             self.upload(jid)
             self.assertEqual(self.quote(jid,'estimate')['quoted_credits'],3)
-        self.assertEqual({j['source_language'] for j in self.get('/jobs').json()['jobs']}, {'en','es','fr','pt','it','de'})
+        self.assertEqual({j['source_language'] for j in self.get('/jobs').json()['jobs']}, {'en','es','fr','pt','it','de','nl','pl'})
         self.assertEqual(self.ld.credits,1000)
 
     def test_unknown_source_cannot_start_a_job(self):

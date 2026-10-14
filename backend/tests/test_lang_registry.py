@@ -7,7 +7,7 @@ import languages as L
 
 class LanguageRegistryTests(unittest.TestCase):
     def test_records_and_names(self):
-        self.assertEqual(tuple(r.code for r in L.supported()), ('en','es','fr','pt','it','de'))
+        self.assertEqual(tuple(r.code for r in L.supported()), ('en','es','fr','pt','it','de','nl','pl'))
         for r in L.supported():
             with self.subTest(code=r.code):
                 self.assertEqual(r.whisper_code,r.code)
@@ -43,7 +43,7 @@ class LanguageRegistryTests(unittest.TestCase):
 
     def test_estimates_not_measurements(self):
         for r in L.supported():
-            self.assertEqual(r.speech_rate.status,'estimated')
+            self.assertEqual(r.speech_rate.status, 'unmeasured' if r.code in ('nl','pl') else 'estimated')
             self.assertIn('estimated',r.timing_status)
             self.assertIn('not a measured top-40',' '.join(r.native_check))
             self.assertEqual(L.arabic_word_budget(r),(2.0,2.5))

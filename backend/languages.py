@@ -85,6 +85,20 @@ _DATA = (
      "der die das ein eine einer eines einem einen und oder aber wenn dann von zu in auf an bei für mit aus ist sind war waren sein ich du er sie es wir ihr mich dich ihm uns euch mein dein nicht dass".split(),
      ("A digit followed by a dot may be an ordinal. Do not split inside decimal numbers or spaced abbreviations.",),
      "cited: German spelling dictionary; function words curated, not frequency-ranked"),
+    ("nl", "Dutch", "Nederlands", "الهولندية", "", ("m", "z", "d", "zo"),
+     ("dhr.", "mw.", "mevr.", "mr.", "drs.", "dr.", "ir.", "prof.", "bijv.", "enz.", "o.a.", "m.b.t.", "d.w.z.", "t.o.v.", "a.u.b.", "nr.", "blz.", "m.i.", "bv.", "etc."),
+     ("muziek", "zucht", "lacht", "geluid", "applaus"),
+     "de het een en of maar want dat die dit deze is zijn was waren ben bent ik jij je u hij zij we wij jullie ze mij jou ons in op aan met voor van naar bij niet als".split(),
+     ("IJ stays i+j, never Y; compounds are not decomposed. Leading and internal apostrophes preserve original offsets.",
+      "Decimal comma; thousands dot/space. Ordinals 1e/1ste/2de. Terminal etc./enz. are context-sensitive punctuation hints, not syntax proof."),
+     "cited: Dutch Language Union spelling/advice and timed-text guide; function words curated, not frequency-ranked"),
+    ("pl", "Polish", "Polski", "البولندية", "", (),
+     ("p.", "dr", "dr.", "prof.", "inż.", "mgr", "mgr.", "ks.", "ul.", "godz.", "np.", "itd.", "itp.", "tzn.", "tj.", "m.in.", "ok.", "r.", "w.", "ww.", "por.", "zob.", "tys.", "zł"),
+     ("muzyka", "wzdycha", "śmiech", "hałas", "oklaski"),
+     "i a ale lub czy że gdy jeśli bo nie tak to jest są był była byli były ja ty on ona ono my wy oni one mnie mi ci mu się ten ta te z do na w o dla po przy bez za".split(),
+     ("Dot after an integer may be an ordinal; year+r. and terminal abbreviations are ambiguous. Decimal comma; grouped numbers retain their source separators.",
+      "Names inflect: matching does not stem or equate Marek/Marka/Markiem. Fold ł only for Polish matching; original spelling never changes."),
+     "cited: Polish Language Council 2026 rules, Polish Academy dictionary paradigms and timed-text guide; function words curated, not frequency-ranked"),
 )
 
 
@@ -93,19 +107,21 @@ def _record(row):
     # Estimated 6 syllables/second is descriptive only. No paper's reading-task
     # rate is treated as a verified rate for arbitrary uploaded dialogue.
     return Language(code, code, en, native, ar, "latin", ".!?…", inverted,
-                    _QUOTES + ((("„", "“"), ("»", "«")) if code == "de" else ()),
+                    _QUOTES + ((("„", "“"), ("»", "«")) if code == "de" else (("„", "”"),) if code in ("nl", "pl") else ()),
                     "'’‘", elisions, abbr, _DASHES,
                     ("leading dialogue dash", "different leading speaker labels",
                      "guillemets quote speech but alone do not prove a speaker change"),
                     tuple(r"(?i)\b" + word + r"\b" for word in sound), "♪♫♩",
                     _LABEL, spacing, tuple(words[:40]), provenance,
+                    SpeechRate(None, "syllables/second", "unmeasured", "no source-language dubbing rate measured") if code in ("nl", "pl") else
                     SpeechRate(6.0, "syllables/second", "estimated",
                                "placeholder only; no local or per-language dubbing rate measured"),
-                    1.0, "estimated: retain the current Arabic target budget until calibrated",
+                    1.0, "estimated" if code in ("nl", "pl") else "estimated: retain the current Arabic target budget until calibrated",
                     ("docs/languages/sources.md#" + code,),
                     ("Subtitle sound descriptions and speaker-label conventions need a native check.",
                      "Abbreviations at the end of a real sentence remain ambiguous.",
                      "The 40 function words are curated evidence, not a measured top-40 ranking.")
+                    + (("New-source conventions, abbreviations and Arabic expectations need a native check before enablement.",) if code in ("nl", "pl") else ())
                     + (("Hr. and Fr. are cited spellings; their frequency in subtitles needs a native check.",) if code == "de" else ())
                     + (("St/Ste, Dr/Dre and Pr/Pre have no abbreviation dot in the cited Canadian practice. Dotted Dr./Prof. are compatibility candidates needing a native check for regional subtitles.",) if code == "fr" else ()))
 
@@ -113,22 +129,40 @@ def _record(row):
 _REGISTRY = tuple(_record(row) for row in _DATA)
 _BY_CODE = {record.code: record for record in _REGISTRY}
 NEW_LANGUAGES = ("es", "fr", "pt", "it", "de")
+STAGED_LANGUAGES = ("nl", "pl")
+# Claude changes only this switch after engine/UI wiring and release approval.
+ENABLED_LANGUAGES = ("en",) + NEW_LANGUAGES + STAGED_LANGUAGES
 
 
-def get(code=None):
-    """Unknown, absent or malformed codes safely fall back to English internally."""
+def get_record(code=None):
+    """Development metadata, including staged records; does not authorize jobs."""
     if isinstance(code, Language):
         code = code.code
     return _BY_CODE.get(code.strip().lower(), _REGISTRY[0]) if isinstance(code, str) else _REGISTRY[0]
 
 
-def supported():
-    """Data records supported by the integrated source-language workflows."""
+def get(code=None):
+    """Enabled saved-job lookup; staged, unknown and malformed codes stay English."""
+    record = get_record(code)
+    return record if record.code in ENABLED_LANGUAGES else _REGISTRY[0]
+
+
+def registered():
+    """All data records, including development-only staged languages."""
     return _REGISTRY
 
 
-def is_supported(code):
+def is_registered(code):
     return isinstance(code, str) and code.strip().lower() in _BY_CODE
+
+
+def supported():
+    """Only explicitly enabled source languages for production selectors."""
+    return tuple(record for record in _REGISTRY if record.code in ENABLED_LANGUAGES)
+
+
+def is_supported(code):
+    return isinstance(code, str) and code.strip().lower() in ENABLED_LANGUAGES
 
 
 def names(code=None, ui_language="en"):
@@ -139,7 +173,7 @@ def names(code=None, ui_language="en"):
 @dataclass(frozen=True)
 class LanguagePolicy:
     """Ali's settings; the lead owns persistence and UI wiring."""
-    enabled_languages: tuple = ("en",) + NEW_LANGUAGES
+    enabled_languages: tuple = ENABLED_LANGUAGES
     beta_languages: tuple = ()
     price_policy: str = "same_as_english"
     auto_detect: bool = False
@@ -150,9 +184,9 @@ class LanguagePolicy:
 
     def timing_ratio(self, code):
         for key, value in self.timing_overrides:
-            if key == get(code).code and type(value) in (int, float) and math.isfinite(value) and 0.5 <= value <= 2.0:
+            if key == get_record(code).code and type(value) in (int, float) and math.isfinite(value) and 0.5 <= value <= 2.0:
                 return float(value)
-        return get(code).timing_ratio_to_english
+        return get_record(code).timing_ratio_to_english
 
 
 def arabic_word_budget(code=None, policy=None):

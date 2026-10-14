@@ -28,9 +28,9 @@ function setup() {
     vm.runInContext(registry,context);context.LisanSource=context.window.LisanSource;
     return {context,elements,element};
 }
-test('all six original languages have consistent neutral English and Arabic names',()=>{
+test('all eight original languages have consistent neutral English and Arabic names',()=>{
     const {context:c}=setup();
-    assert.deepEqual(Array.from(c.LisanSource.entries,e=>e.code),['en','es','fr','pt','it','de']);
+    assert.deepEqual(Array.from(c.LisanSource.entries,e=>e.code),['en','es','fr','pt','it','de','nl','pl']);
     for(const entry of c.LisanSource.entries){
         assert.equal(c.LisanSource.name(entry.code,'en'),entry.en);
         assert.equal(c.LisanSource.name(entry.code,'ar'),entry.ar);
@@ -49,7 +49,7 @@ test('changing the interface language keeps the project choice and mounts only o
     c.LisanSource.mount(target,'ar');
     assert.equal(target.children.length,1);
     assert.equal(elements.get('sourceLanguage').value,'de');
-    assert.equal(elements.get('sourceLanguage').children.length,6);
+    assert.equal(elements.get('sourceLanguage').children.length,8);
     assert.equal(elements.get('sourceLanguageLabel').textContent,'لغة الفيديو الأصلية');
     c.LisanSource.mount(target,'en');
     assert.equal(elements.get('sourceLanguage').value,'de');
@@ -88,7 +88,7 @@ test('foreign original timing uses measured slots and keeps the English timing c
     const {context:c}=setup();vm.runInContext(fn('sourceLineDuration'),c);
     const row={text:'123456789012345',start:4,end:9};
     assert.equal(c.sourceLineDuration(row),1);
-    for(const code of ['es','fr','pt','it','de']){
+    for(const code of ['es','fr','pt','it','de','nl','pl']){
         c.currentSourceLanguage=code;assert.equal(c.sourceLineDuration(row),5);
     }
 });

@@ -1,0 +1,36 @@
+--- a/backend/lang_check.py
++++ b/backend/lang_check.py
+@@ -164,6 +164,8 @@
+     A line counts when more than half of its letters are not Latin."""
+     if languages.get(source_language).code != "en":
+         verdict, evidence = lang_text.looks_like(" ".join(str(r.get("text") or "") for r in (rows or [])), source_language)
++        if languages.get(source_language).code in ("nl", "pl") and verdict == "inconclusive":
++            return "We could not confirm the text's language. Please review the original lines.", str(evidence)
+         return ("Please check that the original lines match the language of your video." if verdict == "mismatch" else None), str(evidence)
+     try:
+         rows = [r for r in (rows or []) if (r.get("text") or "").strip()]
+--- a/backend/subs_align.py
++++ b/backend/subs_align.py
+@@ -84,6 +84,11 @@
+         return False, "arabic"
+     if languages.get(source_language).code != "en" and lang_text.latin_share(" ".join(t for c in cues for t, _ in c["lines"])) < 0.5:
+         return False, "language"
++    if languages.get(source_language).code in ("nl", "pl"):
++        original = " ".join(t for c in cues for t, _ in c["lines"])
++        verdict, _ = lang_text.looks_like(original, source_language)
++        if verdict == "mismatch":
++            return False, "language"
+     return True, len(cues)
+ 
+ 
+--- a/backend/dub_long.html
++++ b/backend/dub_long.html
+@@ -1203,6 +1203,8 @@
+   LisanDialog.readSubtitle(file).then(function (text) {
+     if (!looksLikeSub(text)) { alertMsg(T.subNotSub); return; }
+     var ar = (text.match(/[\u0600-\u06FF]/g) || []).length, la = (text.match(/[A-Za-z]/g) || []).length;
++    var originalCode = forJob && cur ? LisanSource.normalise(cur.source_language) : LisanSource.normalise($("sourceLanguage") && $("sourceLanguage").value);
++    if (originalCode === "nl" || originalCode === "pl") la = (text.match(/\p{Script=Latin}/gu) || []).length;
+     if (ar > la) { alertMsg(T.subArabic); return; }
+     return Promise.resolve({ mode: "auto", add_missed: true }).then(function (choice) {      // always the "Smart" way, no question asked (the choice box is still in dialogs.js)
+       var payload = { text: text, filename: file.name, mode: choice.mode, add_missed: choice.add_missed };

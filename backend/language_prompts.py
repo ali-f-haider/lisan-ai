@@ -126,14 +126,16 @@ _NOTES = {
     'pt': 'Read tu/você/o senhor/a senhora/vocês from context; third-person grammar with você still addresses someone. Brazil and Portugal differ in address and vocabulary. Adjectives and participles may show gender/number. Resolve pretender (intend) and idioms by meaning.',
     'it': 'Distinguish tu/Lei/voi: capitalised Lei may be respectful singular, not a female third-person referent. Infer Arabic agreement from the real addressee and evidence. Adjectives and participles may show gender/number. Resolve eventualmente (possibly), camera (room), and idioms by meaning. Recognise elisions.',
     'de': 'Distinguish du/ihr/Sie: capitalised Sie may be respectful singular or plural, while sie may mean she or they. Use context, not grammatical noun gender, to infer a person\'s gender. Preserve compound meaning. Resolve bekommen (receive), eventuell (possibly), and idioms by meaning.',
+    'nl': "Read u/uw as respectful address and je/jij/jou as informal or generic according to context; gij/ge is also used in Belgium and does not by itself prove formal address. Preserve politeness and the actual singular/plural addressee in Arabic; a formal pronoun is not automatically a plural. Dutch verb/adjective forms do not identify the speaker's natural gender; hij/zij/ze and zijn/haar, names, titles and explicit context refer to the person concerned, not necessarily the speaker. Zij/ze can also be plural. Never infer male/female from de/het or a job noun alone. Mr. is a Dutch legal title, not English Mister. Keep long compounds whole; keep the complete meaning of separable verbs such as bel ... op and verb-final subordinate clauses; a subtitle line break is not a sentence or speaker boundary. Resolve half drie as 02:30/14:30, kwart over drie as 03:15/15:15 and kwart voor drie as 02:45/14:45; do not invent AM/PM. Eventueel means possibly/if needed, actueel means current, and brutaal often means cheeky, not automatically violent. Translate gezellig, mooi and lekker in their actual context, not using one fixed equivalent. Keep IJ names distinct from Y spellings.",
+    'pl': "Polish commonly omits subject pronouns and has no articles: preserve the actual subject and negation from context. Past forms such as zrobiłem/zrobiłam and byłem/byłam can identify a self-referential speaker's gender; zrobiłeś/zrobiłaś and byłeś/byłaś identify the addressee, while poszedł/poszła identify their third-person subject. Quoted or reported words do not prove the current speaker's gender; mobile person endings and conditional forms require context. Oni/poszli mark masculine-personal plural; one/poszły include women, nonhuman groups and objects, so do not automatically translate every non-virile plural as women. Choose Arabic human/nonhuman agreement and gender/number from the actual referents. Ty/wy are informal singular/plural; polite pan/pani/państwo commonly use third-person grammar but may directly address one man, one woman or a group. Render that respectful address as the actual Arabic addressee (for example سيدي/سيدتي when appropriate), not mechanically he/she; państwo may also mean a state. A woman can have a masculine-form job noun such as pani doktor. Names inflect through cases: do Marka and z Markiem can refer to Marek; retain that person's identity and transliterate rather than translate or create three people, using context/glossary rather than guessing by suffix alone. Never claim the matching tokenizer stems or unifies those forms. Preserve numbers, decimal commas, dates and units; 1. can be an ordinal and a period after an abbreviation can end a sentence. Keep Arabic tense and gender cues accurate without inventing a subject.",
 }
 
 
 def language_notes(source_language=None):
-    code = languages.get(source_language).code
+    code = languages.get_record(source_language).code
     if code == 'en':
         return ''
-    return ('SOURCE LANGUAGE: ' + languages.names(code) + '. ' + _NOTES[code] + '\n'
+    return ('SOURCE LANGUAGE: ' + languages.get_record(code).english_name + '. ' + _NOTES[code] + '\n'
             'Keep the same facts, names, titles, numbers, dates and units. When the task requests Arabic translation, '
             'render person/place names consistently in Arabic script and use the supplied glossary when present. '
             'Retain identity rather than translate a person\'s surname literally. Preserve respectful tone without inventing gender, number or new facts. '
@@ -143,7 +145,7 @@ def language_notes(source_language=None):
 
 def gender_rules(speakers, source_language=None):
     rules = GENDER_RULES_EN
-    if languages.get(source_language).code != 'en':
+    if languages.get_record(source_language).code != 'en':
         rules = rules.replace('English does not', 'the source language marks them differently')
         rules = language_notes(source_language) + rules
     return rules.replace('{speakers}', json.dumps(speakers or {}, ensure_ascii=False))
@@ -151,7 +153,7 @@ def gender_rules(speakers, source_language=None):
 
 def glossary_block(glossary, source_language=None):
     result = _glossary_block_en(glossary)
-    if languages.get(source_language).code != 'en':
+    if languages.get_record(source_language).code != 'en':
         # Replace static heading only, never user terms or JSON values.
         head, sep, data = result.partition('\n')
         return head.replace('English text','source text') + sep + data
@@ -195,7 +197,7 @@ def translation_prompt(segments, source_language=None, *, glossary=None, paces=N
                          if gender else '{"segment_id": "...", "arabic_text": "Arabic text with Tashkeel", "emotion": "neutral"}'),
         'segments_json':json.dumps(items,ensure_ascii=False),
     }
-    language = languages.get(source_language)
+    language = languages.get_record(source_language)
     pieces = []
     for kind, value in _TRANSLATION_PARTS:
         if kind == 'value':
@@ -215,22 +217,22 @@ def translation_prompt(segments, source_language=None, *, glossary=None, paces=N
 
 
 def emotion_prompt(scene_hint='', source_language=None):
-    code = languages.get(source_language).code
+    code = languages.get_record(source_language).code
     result = _emotion_prompt_en(scene_hint)
     if code == 'en':
         return result
     heading, sep, data = result.partition('\nScene context: ')
-    return heading.replace('isolated English voices','isolated '+languages.names(code)+' voices') + '\n' + language_notes(code) + sep + data
+    return heading.replace('isolated English voices','isolated '+languages.get_record(code).english_name+' voices') + '\n' + language_notes(code) + sep + data
 
 
 def scene_prompt(duration, has_frames=False, source_language=None):
     result = _scene_prompt_en(duration,has_frames)
-    return result if languages.get(source_language).code == 'en' else language_notes(source_language)+result
+    return result if languages.get_record(source_language).code == 'en' else language_notes(source_language)+result
 
 
 def speaker_prompt(kind, rows, source_language=None):
     result = _speaker_prompt_en(kind,rows)
-    if languages.get(source_language).code == 'en':
+    if languages.get_record(source_language).code == 'en':
         return result
     head,sep,data = result.partition('\n\nLINES:\n')
     return head+'\n'+language_notes(source_language)+sep+data
@@ -238,7 +240,7 @@ def speaker_prompt(kind, rows, source_language=None):
 
 def line_planner_prompt(window, before=(), after=(), source_language=None):
     result = _planner_prompt_en(window,before,after)
-    if languages.get(source_language).code == 'en':
+    if languages.get_record(source_language).code == 'en':
         return result
     head,sep,data = result.partition('\nLines:\n')
     return head+'\n'+language_notes(source_language)+sep+data
@@ -247,7 +249,7 @@ def line_planner_prompt(window, before=(), after=(), source_language=None):
 def gender_context(rows_all, ids, genders, source_language=None, *, roles=None):
     """Exact context shape for every source; english is a legacy data key."""
     context = _gender_context_en(rows_all,ids,genders,roles)
-    if languages.get(source_language).code != 'en':
+    if languages.get_record(source_language).code != 'en':
         # English-specific honorific cues are not evidence for another language.
         for value in context.values():
             value.pop('addressee_is', None)
@@ -287,7 +289,7 @@ PEOPLE_PROMPT = 'Read this dialogue transcript. Every line is: speaker | text.\n
 
 def people_rules(source_language=None):
     """Rules paragraph used before speaker list and transcript data."""
-    if languages.get(source_language).code == 'en':
+    if languages.get_record(source_language).code == 'en':
         return PEOPLE_PROMPT
     return language_notes(source_language) + PEOPLE_PROMPT.replace(
         'Mr., Mrs., Ms., Miss, Madam, Sir, a clearly feminine or masculine first name, "Judge Roberta"',

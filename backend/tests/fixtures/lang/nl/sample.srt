@@ -1,0 +1,43 @@
+1
+00:00:00,000 --> 00:00:02,500
+[muziek]
+
+2
+00:00:03,000 --> 00:00:05,500
+ANNA: Waar is de sleutel?
+BAS: Ik heb hem.
+
+3
+00:00:06,000 --> 00:00:08,500
+- Kom je mee?
+- Ik blijf hier.
+
+4
+00:00:09,000 --> 00:00:11,500
+(zucht) Ik wacht nog.
+
+5
+00:00:12,000 --> 00:00:14,500
+♪ Een klein lied ♪
+
+6
+00:00:15,000 --> 00:00:17,500
+<i>IJsselmeer is mooi.</i>
+
+7
+00:00:18,000 --> 00:00:20,500
+[applaus]
+
+8
+00:00:21,000 --> 00:00:23,500
+'s Avonds kom ik.
+M'n jas ligt hier.
+
+9
+00:00:24,000 --> 00:00:26,500
+(een onbekende notitie) Dit is dialoog.
+
+10
+00:00:27,000 --> 00:00:29,500
+« Dat zei zij. »
+“Dat zei hij.”

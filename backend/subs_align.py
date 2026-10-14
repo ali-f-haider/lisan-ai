@@ -84,6 +84,11 @@ def check_file(text, filename="", source_language="en"):
         return False, "arabic"
     if languages.get(source_language).code != "en" and lang_text.latin_share(" ".join(t for c in cues for t, _ in c["lines"])) < 0.5:
         return False, "language"
+    if languages.get(source_language).code in ("nl", "pl"):
+        original = " ".join(t for c in cues for t, _ in c["lines"])
+        verdict, _ = lang_text.looks_like(original, source_language)
+        if verdict == "mismatch":
+            return False, "language"
     return True, len(cues)
 
 

@@ -1,0 +1,100 @@
+{
+  "origin": "invented",
+  "native_review": "needs a native check",
+  "cues": [
+    {
+      "lines": [
+        "[muzyka]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "ANNA: Gdzie jest klucz?",
+        "MAREK: Mam go."
+      ],
+      "cleaned": [
+        "Gdzie jest klucz?",
+        "Mam go."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "- Idziesz ze mną?",
+        "- Zostaję tutaj."
+      ],
+      "cleaned": [
+        "Idziesz ze mną?",
+        "Zostaję tutaj."
+      ],
+      "speaker_changes": [
+        1
+      ]
+    },
+    {
+      "lines": [
+        "(wzdycha) Jeszcze czekam."
+      ],
+      "cleaned": [
+        "Jeszcze czekam."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "♪ Krótka piosenka ♪"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "<i>Łukasz jedzie do Łodzi.</i>"
+      ],
+      "cleaned": [
+        "Łukasz jedzie do Łodzi."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "[oklaski]"
+      ],
+      "cleaned": [],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(śmiech) To dobry pomysł."
+      ],
+      "cleaned": [
+        "To dobry pomysł."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "(nieznana uwaga) To jest dialog."
+      ],
+      "cleaned": [
+        "(nieznana uwaga) To jest dialog."
+      ],
+      "speaker_changes": []
+    },
+    {
+      "lines": [
+        "„Tak powiedziała.”",
+        "«Tak powiedział.»"
+      ],
+      "cleaned": [
+        "„Tak powiedziała.”",
+        "«Tak powiedział.»"
+      ],
+      "speaker_changes": []
+    }
+  ]
+}

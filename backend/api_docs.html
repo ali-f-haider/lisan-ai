@@ -111,7 +111,7 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 </table></div>
 
 <h3>Original language</h3>
-<p>When creating a job, you may include <code>source_language</code>: <code>en</code> (English), <code>es</code> (Spanish), <code>fr</code> (French), <code>pt</code> (Portuguese), <code>it</code> (Italian) or <code>de</code> (German). If omitted, it is English. The result is Arabic and the same prices apply. The example tool below starts English projects; use the request field for the other languages. Any subtitle you attach on the website should match the original language.</p>
+<p>When creating a job, you may include <code>source_language</code>: <code>en</code> (English), <code>es</code> (Spanish), <code>fr</code> (French), <code>pt</code> (Portuguese), <code>it</code> (Italian), <code>de</code> (German), <code>nl</code> (Dutch) or <code>pl</code> (Polish). If omitted, it is English. The result is Arabic and the same prices apply. The example tool below starts English projects; use the request field for the other languages. Any subtitle you attach on the website should match the original language.</p>
 <p>If polling returns <code>status: "language_mismatch"</code>, the analysis is paused for your choice. The optional <code>language_mismatch.detected_language</code> is a suggested supported language; it can be <code>null</code> when the speech appears to be outside the supported list. After checking your file, send your choice to <code>POST /v1/jobs/{id}/source-language</code> with the usual authorization and a new <code>Idempotency-Key</code>. The body is, for example, <code>{"source_language":"fr"}</code>. Poll the same job afterward. This resumes its existing analysis and does not start another payment.</p>
 
 <h2>7. Errors</h2>

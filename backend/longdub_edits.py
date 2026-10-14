@@ -374,7 +374,7 @@ def run(job):
             voice = job.get('correction_voices', {}).get(row['speaker_id']) or voice_map.get(row['speaker_id'])
             _later = sorted(r['start'] for r in rows(parent) if r['segment_id'] != sid and r['start'] >= row['end'] - 0.05)
             gap = (_later[0] - row['end']) if _later else 99.0       # silence after the line: a long one is a real stop
-            audio, err = ld._tts_with_retry(voice, inworld_service.instruction_tag(row.get('emotion')) + row['arabic_text'].strip(), row.get('waqf'), gap)
+            audio, err = ld._tts_with_retry(voice, inworld_service.instruction_tag(row.get('emotion')) + row['arabic_text'].strip(), row.get('waqf'), gap, parent.get('delivery_mode'))
             if audio is None:
                 # A deleted provider voice cannot be recovered by reusing its old ID. Next quote includes a clone.
                 if '404' in str(err):

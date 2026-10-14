@@ -198,7 +198,7 @@ class ShortWorkerTests(unittest.TestCase):
             self.assertEqual(result['source_language'], code)
             ids = [r['segment_id'] for r in result['segments']]
             self.assertEqual(len(ids),len(set(ids)))
-        self.assertEqual(self.scope['_transcribe_queue'].release.call_count,6)
+        self.assertEqual(self.scope['_transcribe_queue'].release.call_count,len(CODES))
 
     def setUpModel(self):
         words = [NS(word=w,start=float(i),end=i+.8) for i,w in enumerate(['Hola.','Otra','frase.'])]

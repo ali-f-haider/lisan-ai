@@ -18,6 +18,8 @@ if str(ROOT) not in sys.path:
 import languages
 import language_prompts
 
+TRIAL_LANGUAGES = languages.NEW_LANGUAGES + languages.STAGED_LANGUAGES
+
 _TASHKEEL=re.compile('[\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06ed]')
 
 
@@ -75,8 +77,8 @@ def run(codes,dry=False,limit=25,input_price=None,output_price=None,fixtures=Non
             'cost_scope':'Returned usage only; thoughts priced as output. Missing usage/retry charges cannot be estimated.',
             'native_review':'All expectations require native review before using percentages as quality evidence.'}
     for code in codes:
-        if code not in languages.NEW_LANGUAGES:
-            raise ValueError('Select es, fr, pt, it or de.')
+        if code not in TRIAL_LANGUAGES:
+            raise ValueError('Select es, fr, pt, it, de, nl or pl for a development text trial.')
         data=json.loads((gold/(code+'.json')).read_text(encoding='utf-8'))
         total={'prepared':0,'attempted':0,'passed':0,'failed':0,'input':0,'output':0,'thoughts':0,
                'reported_cost_usd':0.0,'missing_usage':0,'pass_percent':None}
@@ -127,7 +129,7 @@ def run(codes,dry=False,limit=25,input_price=None,output_price=None,fixtures=Non
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description='Lisan AI source-language text trial; --dry makes no paid requests.')
-    parser.add_argument('--languages',nargs='+',choices=languages.NEW_LANGUAGES,default=list(languages.NEW_LANGUAGES))
+    parser.add_argument('--languages',nargs='+',choices=TRIAL_LANGUAGES,default=list(languages.NEW_LANGUAGES))
     parser.add_argument('--dry',action='store_true')
     parser.add_argument('--limit',type=int,default=25)
     parser.add_argument('--input-usd-per-million',type=float)

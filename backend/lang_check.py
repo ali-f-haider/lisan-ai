@@ -164,6 +164,8 @@ def text_check(rows, source_language="en"):
     A line counts when more than half of its letters are not Latin."""
     if languages.get(source_language).code != "en":
         verdict, evidence = lang_text.looks_like(" ".join(str(r.get("text") or "") for r in (rows or [])), source_language)
+        if languages.get(source_language).code in ("nl", "pl") and verdict == "inconclusive":
+            return "We could not confirm the text's language. Please review the original lines.", str(evidence)
         return ("Please check that the original lines match the language of your video." if verdict == "mismatch" else None), str(evidence)
     try:
         rows = [r for r in (rows or []) if (r.get("text") or "").strip()]

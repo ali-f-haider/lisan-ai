@@ -223,7 +223,7 @@ class HelperKeepsUpTests(unittest.TestCase):
         finally:
             a.BASE_DIR = old[0]
             a._kb.update(old[1])
-        self.assertLessEqual(len(full), 21000)               # the cap no longer cuts the end of the page
+        self.assertLessEqual(len(full), 24000)               # the cap no longer cuts the end of the page
         self.assertIn("Are my uploaded files and generated videos saved on your servers?", text)
         self.assertNotIn("/api-docs", text)
         self.assertIn("Finish corrections", text)

@@ -7,7 +7,9 @@
         {code: "fr", en: "French", ar: "الفرنسية"},
         {code: "pt", en: "Portuguese", ar: "البرتغالية"},
         {code: "it", en: "Italian", ar: "الإيطالية"},
-        {code: "de", en: "German", ar: "الألمانية"}
+        {code: "de", en: "German", ar: "الألمانية"},
+        {code: "nl", en: "Dutch", ar: "الهولندية"},
+        {code: "pl", en: "Polish", ar: "البولندية"}
     ];
     function normalise(value) {
         var code = typeof value === "string" ? value.trim().toLowerCase() : "en";

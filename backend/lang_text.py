@@ -15,7 +15,7 @@ TIDY = "tidy"          # line_tidy and line_planner
 SUBTITLE = "subtitle"  # subs_align and subtitle import
 _TIDY_END = re.compile(r"[.!?؟…][\"'”’)\]]*\s*$")
 _SUB_END = re.compile(r"(?<![.…])[.!?؟][\"'”’)\]]*$")
-_EN_ABBR = frozenset(languages.get("en").abbreviations)
+_EN_ABBR = frozenset(languages.get_record("en").abbreviations)
 _LATIN_LEGACY = re.compile(r"[A-Za-zÀ-ɏ]")
 _LETTER_LEGACY = re.compile(r"[^\W\d_]", re.UNICODE)
 _CLOSERS = '\"\'”’)]}»“'
@@ -25,9 +25,12 @@ def _text(value):
     return value if isinstance(value, str) else ""
 
 
-def fold_accents(text):
+def fold_accents(text, lang=None):
     """Matching only: strip combining accents and expand common Latin ligatures."""
-    text = _text(text).replace("œ", "oe").replace("Œ", "OE").replace("æ", "ae").replace("Æ", "AE")
+    text = _text(text)
+    if languages.get_record(lang).code == "pl":
+        text = text.translate(str.maketrans({"ł": "l", "Ł": "L"}))
+    text = text.replace("œ", "oe").replace("Œ", "OE").replace("æ", "ae").replace("Æ", "AE")
     return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
 
@@ -61,7 +64,7 @@ def legacy_clean_line(text):
     s = re.sub(r"\([^)]*\)", " ", s)
     s = s.strip()
     dash = False
-    m = re.match(r"^[" + languages.get("en").dialogue_dashes + r"]+\s*", s)
+    m = re.match(r"^[" + languages.get_record("en").dialogue_dashes + r"]+\s*", s)
     if m:
         dash = True
         s = s[m.end():]
@@ -72,7 +75,7 @@ def legacy_clean_line(text):
 
 def ends_sentence(text, lang=None, *, profile=TIDY):
     text = _text(text)
-    language = languages.get(lang)
+    language = languages.get_record(lang)
     if language.code == "en":
         if profile == SUBTITLE:
             # Deliberately no rstrip: the existing subtitle helper rejects it.
@@ -84,17 +87,22 @@ def ends_sentence(text, lang=None, *, profile=TIDY):
         return False
     if profile == SUBTITLE and (t.endswith("...") or t.endswith("…")):
         return False
-    folded = fold_accents(t).casefold()
+    folded = fold_accents(t, language).casefold()
+    # These enumeration endings may supply the sentence stop themselves. New
+    # sources only: old-language punctuation remains byte-compatible.
+    terminal = ("etc.", "enz.") if language.code == "nl" else ("itd.", "itp.") if language.code == "pl" else ()
+    if any(re.search(r"(?<!\w)" + re.escape(a) + r"$", folded) for a in terminal) and len(t.split()) > 1:
+        return True
     for abbreviation in language.abbreviations:
         # A timed word arrives before the remainder of a multiword abbreviation.
         # Its registered prefixes are conservative non-stops too (e.g. z. -> z. B.).
         pieces = abbreviation.split()
         for count in range(1, len(pieces) + 1):
             prefix = " ".join(pieces[:count])
-            pat = re.escape(fold_accents(prefix).casefold()).replace(r"\ ", r"\s*")
+            pat = re.escape(fold_accents(prefix, language).casefold()).replace(r"\ ", r"\s*")
             if re.search(r"(?<!\w)" + pat + r"$", folded):
                 return False
-    if language.code == "de" and re.search(r"(?<![\w.,])\d+\.$", t):
+    if language.code in ("de", "pl") and re.search(r"(?<![\w.,])\d+\.$", t):
         return False  # conservative ordinal ambiguity; documented, needs review
     return True
 
@@ -102,10 +110,10 @@ def ends_sentence(text, lang=None, *, profile=TIDY):
 def starts_sentence(text, lang=None):
     """Capital/inverted-mark hint only, not proof of a new speaker."""
     text = _text(text).lstrip()
-    if languages.get(lang).code == "en":
+    if languages.get_record(lang).code == "en":
         # Mirrors the first-character case test at line_tidy.flag_doubtful_cuts.
         return bool(text) and text[0].isalpha() and not text[0].islower()
-    marks = languages.get(lang).inverted_marks
+    marks = languages.get_record(lang).inverted_marks
     if marks and text.startswith(tuple(marks)):
         return True
     text = text.lstrip('"\'“‘«„»([{ ')
@@ -117,10 +125,16 @@ def _protected_dots(text, language):
     for abbreviation in language.abbreviations:
         pat = re.escape(abbreviation).replace(r"\ ", r"\s*")
         for m in re.finditer(r"(?<!\w)" + pat + r"(?!\w)", text, re.I):
-            protected.update(i for i in range(m.start(),m.end()) if text[i] == ".")
+            dots = [i for i in range(m.start(),m.end()) if text[i] == "."]
+            terminal = ("etc.", "enz.") if language.code == "nl" else ("itd.", "itp.") if language.code == "pl" else ()
+            if abbreviation in terminal and dots:
+                tail = text[m.end():].lstrip(_CLOSERS).lstrip()
+                if not tail or tail[0].isupper():
+                    dots.pop()
+            protected.update(dots)
     for m in re.finditer(r"\d[.,]\d", text):
         protected.add(m.start()+1)
-    if language.code == "de":
+    if language.code in ("de", "pl"):
         for m in re.finditer(r"(?<![\w.,])\d+\.(?!\d)", text):
             protected.add(m.end()-1)
     return protected
@@ -136,7 +150,7 @@ def split_sentences(text, lang=None, *, profile=TIDY):
     text = _text(text)
     if not text:
         return []
-    language = languages.get(lang)
+    language = languages.get_record(lang)
     if language.code == "en":
         cuts = []
         for m in re.finditer(r"\S+\s*", text):
@@ -201,7 +215,7 @@ def tokenize(text, lang=None):
     text = _text(text)
     if not text:
         return []
-    language = languages.get(lang)
+    language = languages.get_record(lang)
     if language.code == "en":
         return [Token(m.group(), legacy_norm(m.group()) if not m.group().isspace() else "",
                       m.start(), m.end(), "gap" if m.group().isspace() else "word")
@@ -218,12 +232,12 @@ def tokenize(text, lang=None):
                     i += 1
                 elif c in ".," and text[i-1].isdigit() and i+1<len(text) and text[i+1].isdigit():
                     i += 1
-                elif c in language.apostrophes and i+1<len(text) and text[i+1].isalpha() and fold_accents(text[start:i]).casefold() not in language.elisions:
+                elif c in language.apostrophes and i+1<len(text) and text[i+1].isalpha() and fold_accents(text[start:i], language).casefold() not in language.elisions:
                     i += 1
                 else:
                     break
             original = text[start:i]
-            matching = fold_accents(original).casefold().replace("’", "'").replace("‘", "'")
+            matching = fold_accents(original, language).casefold().replace("’", "'").replace("‘", "'")
             out.append(Token(original, matching, start, i, "word"))
         else:
             i += 1
@@ -236,7 +250,7 @@ def normalise_for_match(text, lang=None):
 
 
 def _label(text):
-    m = re.match(languages.get("fr").speaker_label, text)
+    m = re.match(languages.get_record("fr").speaker_label, text)
     if m:
         value = m.group().split(":",1)[0].strip()
         if any(c.isalpha() for c in value) and value == value.upper():
@@ -245,9 +259,9 @@ def _label(text):
 
 
 def clean_subtitle_line(text, lang=None):
-    if languages.get(lang).code == "en":
+    if languages.get_record(lang).code == "en":
         return legacy_clean_line(text)
-    language = languages.get(lang)
+    language = languages.get_record(lang)
     s = html.unescape(_text(text))
     s = re.sub(r"<[^>]*>|\{[^}]*\}", "", s)
     s = s.translate({ord(c): None for c in "\u200e\u200f\u202a\u202b\u202c\u202d\u202e"})
@@ -286,7 +300,7 @@ def speaker_change_in_cue(cue_lines, lang=None, *, has_previous=False):
         if not text:
             continue
         label, _ = _label(_text(raw).lstrip(' -–—'))
-        if spoken and (dash or (languages.get(lang).code != "en" and label and last_label and label != last_label)):
+        if spoken and (dash or (languages.get_record(lang).code != "en" and label and last_label and label != last_label)):
             out.append(i)
         spoken = True
         if label:
@@ -309,10 +323,10 @@ def latin_share(text):
 
 def looks_like(text, lang=None):
     text = _text(text)
-    language = languages.get(lang)
+    language = languages.get_record(lang)
     tokens = [t.matching for t in tokenize(text,language) if t.matching]
-    stop = {fold_accents(w).casefold() for w in language.stopwords}
-    hits = [t for t in tokens if fold_accents(t).casefold() in stop]
+    stop = {fold_accents(w, language).casefold() for w in language.stopwords}
+    hits = [t for t in tokens if fold_accents(t, language).casefold() in stop]
     letters = [c for c in text if unicodedata.category(c).startswith("L")]
     share = latin_share(text)
     evidence = {"language":language.code,"letters":len(letters),"latin_share":share,
@@ -330,6 +344,29 @@ def looks_like(text, lang=None):
         return "inconclusive",evidence
     if share < 0.5:
         return "mismatch", evidence
+    if language.code in ("nl", "pl"):
+        # Staged-source screen only. Legacy sources retain their exact evidence
+        # and verdicts. Scores are curated lexical hints, not probabilities.
+        rivals = {}
+        own = set(hits)
+        other_words = set()
+        for record in languages.registered():
+            if record.code == language.code:
+                continue
+            words = {fold_accents(w, language).casefold() for w in record.stopwords}
+            rivals[record.code] = len(set(tokens) & words)
+            other_words.update(words)
+        distinct = len(own - other_words)
+        strongest = max(rivals.values(), default=0)
+        evidence.update(competing_distinct_hits=rivals, distinctive_hits=distinct,
+                        thresholds="estimated lexical screen; no calibrated accuracy")
+        if share < 0.8 or len(tokens) < 4:
+            return "inconclusive", evidence
+        if strongest >= 3 and strongest >= len(own) + 2:
+            return "mismatch", evidence
+        if len(own) < 3 or distinct < 2 or len(own) <= strongest:
+            return "inconclusive", evidence
+        return "compatible", evidence
     if share < 0.8 or len(tokens)<4 or len(set(hits))<2:
         return "inconclusive", evidence
     return "compatible", evidence

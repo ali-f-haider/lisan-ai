@@ -18,7 +18,7 @@ class ApiLanguageProposalTests(unittest.TestCase):
     def test_real_validator_optional_enums_defaults_and_unknowns(self):
         body={'kind':'long','filename':'invented.mp4','size_bytes':100,'rights_confirmed':True,'terms_version':'1'}
         self.assertIsNone(api_schema.validate_body('CreateJob',body))
-        for code in ('en','es','fr','pt','it','de'):
+        for code in ('en','es','fr','pt','it','de','nl','pl'):
             self.assertIsNone(api_schema.validate_body('CreateJob',dict(body,source_language=code)))
         for code in ('ES','','xx',None,{},4):
             self.assertIsNotNone(api_schema.validate_body('CreateJob',dict(body,source_language=code)))

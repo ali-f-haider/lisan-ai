@@ -3,7 +3,7 @@
   "info": {
     "title": "Lisan AI API",
     "version": "1.0.0-draft",
-    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. Dubbing English, Spanish, French, Portuguese, Italian and German into Arabic using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
+    "description": "PROPOSED CONTRACT: requires server integration; these routes are not yet deployed. Dubbing English, Spanish, French, Portuguese, Italian, German, Dutch and Polish into Arabic using the website workflow, account and prices. Polling only. Bearer keys are server-side secrets. Every mutation requires Idempotency-Key; every paid step requires explicit quote acceptance. No credentials in URLs. Validation/HTTP failures use Error, never an HTML login redirect."
   },
   "servers": [
     {
@@ -1520,7 +1520,7 @@
         "properties": {
           "source_language": {
             "type": "string",
-            "enum": ["en", "es", "fr", "pt", "it", "de"],
+            "enum": ["en", "es", "fr", "pt", "it", "de", "nl", "pl"],
             "default": "en"
           },
           "kind": {
@@ -1827,7 +1827,7 @@
         "properties": {
           "source_language": {
             "type": "string",
-            "enum": ["en", "es", "fr", "pt", "it", "de"],
+            "enum": ["en", "es", "fr", "pt", "it", "de", "nl", "pl"],
             "default": "en"
           },
           "id": {
@@ -1902,7 +1902,7 @@
           "media_present": {
             "type": "boolean"
           },
-          "language_mismatch": {"type": ["object", "null"], "properties": {"detected_language": {"type": ["string", "null"], "enum": ["en", "es", "fr", "pt", "it", "de", null]}, "switch_available": {"type": "boolean"}}, "additionalProperties": false},
+          "language_mismatch": {"type": ["object", "null"], "properties": {"detected_language": {"type": ["string", "null"], "enum": ["en", "es", "fr", "pt", "it", "de", "nl", "pl", null]}, "switch_available": {"type": "boolean"}}, "additionalProperties": false},
           "result_available": {
             "type": "boolean"
           },

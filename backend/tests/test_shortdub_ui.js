@@ -121,7 +121,7 @@ test('Arabic regeneration success reports the actual charge', async () => {
 test('invalid project JSON is described as a file problem and does not replace the current project', () => {
     const notifications = [];
     const current = [{ segment_id: 'existing' }];
-    const c = vm.createContext({ window: { currentLang: 'en' }, currentSourceLanguage: 'en', LisanSource: {normalise: value => ['en','es','fr','pt','it','de'].includes(value) ? value : 'en'}, segmentsData: current,
+    const c = vm.createContext({ window: { currentLang: 'en' }, currentSourceLanguage: 'en', LisanSource: {normalise: value => ['en','es','fr','pt','it','de','nl','pl'].includes(value) ? value : 'en'}, segmentsData: current,
         notify(type, text) { notifications.push(text); },
         subsText(en, ar) { return c.window.currentLang === "ar" ? ar : en; },
         FileReader: class { readAsText() { this.result = '{bad json'; this.onload(); } }
@@ -438,7 +438,7 @@ test('saved source survives short-project loading and older projects default to 
     vm.runInContext(excerpt(app, 'function saveProject(', '// Cloned/custom voices'), c);
     c.FileReader = class { readAsText() { this.result = JSON.stringify(saved); this.onload(); } };
     c.renderTable = c.renderSpeakerVoices = c.validateClonedVoicesAfterLoad = c.showMediaBanner = () => {};
-    for (const code of ['en','es','fr','pt','it','de']) {
+    for (const code of ['en','es','fr','pt','it','de','nl','pl']) {
         c.currentSourceLanguage = code; c.saveProject();
         assert.equal(saved.source_language, code);
         c.currentSourceLanguage = 'en';

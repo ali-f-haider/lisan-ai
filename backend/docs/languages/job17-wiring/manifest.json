@@ -1,0 +1,477 @@
+{
+  "status": "UNAPPLIED proposals; not release-tested",
+  "source_date": "2026-10-14",
+  "patches": [
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "source_language.js",
+      "sha256_before": "8806f9e2723672d56ee0769f62723b42580716a71a42ff3ee3a4c7f3c220c6e5",
+      "changes": 1
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "api_schema.py",
+      "sha256_before": "3e3e08498978542e3d54bb04833a1a114264e9aa832a637b294c95da132d42cf",
+      "changes": 2
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "docs/api/openapi.yaml",
+      "sha256_before": "2f9a7883f22f9c7f7ce8813f254f1b06834346855e9b674e405edd62b65128c1",
+      "changes": 4
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "api_docs.html",
+      "sha256_before": "f2c7f7b9a6fbce6778fdb7242c84d19d64e25bff4fd6530d08afa7e679bc2d29",
+      "changes": 1
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "assistant_service.py",
+      "sha256_before": "8b68cf027be4aaf5c254e1312b0b8e9ad4884251246b7c21bcf07cb623d47f3e",
+      "changes": 3
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "help.html",
+      "sha256_before": "da65068e8cbb1a1928dbc339ad666f7f0b311a78523f1b89df68e078bf9136b4",
+      "changes": 6
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "landing.html",
+      "sha256_before": "1a2fcbce8fb6237dd478fca2ab6825ecad2eb04ec9e034aea0223cae75f605e1",
+      "changes": 18
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "pricing.html",
+      "sha256_before": "15bf232ae219a627767d987c600faf824ef75c99d17192e53ab4c08d6a726ce9",
+      "changes": 1
+    },
+    {
+      "patch": "01-api-and-interface.patch",
+      "file": "LANDING_LANGUAGE_BADGES.md",
+      "sha256_before": "593ed5f0f6d995acc490dbcb2d11294f48e58f0627b9e5c84ccd5ed221cb000a",
+      "changes": 4
+    },
+    {
+      "patch": "02-new-source-safety.patch",
+      "file": "lang_check.py",
+      "sha256_before": "394df2b8d7daed0ec93b390427bcb3796530cdec692f52fdc4edea90f75ab33f",
+      "changes": 1
+    },
+    {
+      "patch": "02-new-source-safety.patch",
+      "file": "subs_align.py",
+      "sha256_before": "61d79938ab840f3441e0d45d2d25adc11955d4c8a1c009bba44a9519c1903aca",
+      "changes": 1
+    },
+    {
+      "patch": "02-new-source-safety.patch",
+      "file": "dub_long.html",
+      "sha256_before": "7e47a552255284c5ee27da5796f5c6fc6689f3a9aee2bff8c6dcd6c9890d48e7",
+      "changes": 1
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "languages.py",
+      "sha256_before": "90331b81267ca8398c6e95874254b1e1d86c218bdf826f873ead8013d3e4f5d3",
+      "changes": 1
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_api_language_proposal.py",
+      "sha256_before": "1f3db22cf860c80202e82bbcfd15c1be645652413792e183d7b5a621d46cacc4",
+      "changes": 1
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_api_source_language.py",
+      "sha256_before": "bacc2b86e0fcca9c136e4390fa01c4673248b35639eb72f69f790b8bc179119f",
+      "changes": 2
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_source_language_lifecycle.py",
+      "sha256_before": "ae687f9faa153a06b17075c15f53532955da17a10ed756463220d9b949b75746",
+      "changes": 4
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_shortdub_ui.js",
+      "sha256_before": "bca5007655ecf4f5ed6f0df439bf70d66575ed17f709bb4d111b08332ad93412",
+      "changes": 2
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_source_language_ui.js",
+      "sha256_before": "df9365fa9dba11fdf29acadd1bfc6373e0cf784ee5ed71e8ea858b2558b56625",
+      "changes": 4
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_lang_registry.py",
+      "sha256_before": "25cac539594749de72bb815f9d2f8d51dcc7f36cf3058a17541e154266e93916",
+      "changes": 2
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_lang_job17_legacy.py",
+      "sha256_before": "cc2f1b739fdd41d6ef674ea2b432bea0a3d7c74c1ff76c90a29edecf0f291aa2",
+      "changes": 1
+    },
+    {
+      "patch": "03-activate-last.patch",
+      "file": "tests/test_lang_staged.py",
+      "sha256_before": "6016691e63f565b596734da410d95c20221ed22e14665374c7c46703cc875e22",
+      "changes": 1
+    }
+  ],
+  "exact_replacements": [
+    {
+      "file": "source_language.js",
+      "old": "{code: \"de\", en: \"German\", ar: \"الألمانية\"}",
+      "new": "{code: \"de\", en: \"German\", ar: \"الألمانية\"},\r\n        {code: \"nl\", en: \"Dutch\", ar: \"الهولندية\"},\r\n        {code: \"pl\", en: \"Polish\", ar: \"البولندية\"}",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "api_schema.py",
+      "old": "\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\"",
+      "new": "\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "count": 2,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "docs/api/openapi.yaml",
+      "old": "\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\"",
+      "new": "\"en\", \"es\", \"fr\", \"pt\", \"it\", \"de\", \"nl\", \"pl\"",
+      "count": 3,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "docs/api/openapi.yaml",
+      "old": "English, Spanish, French, Portuguese, Italian and German",
+      "new": "English, Spanish, French, Portuguese, Italian, German, Dutch and Polish",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "api_docs.html",
+      "old": "<code>it</code> (Italian) or <code>de</code> (German)",
+      "new": "<code>it</code> (Italian), <code>de</code> (German), <code>nl</code> (Dutch) or <code>pl</code> (Polish)",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "assistant_service.py",
+      "old": "English, Spanish, French, Portuguese, Italian and German",
+      "new": "English, Spanish, French, Portuguese, Italian, German, Dutch and Polish",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "assistant_service.py",
+      "old": "Spanish, French, Portuguese, Italian or German",
+      "new": "Spanish, French, Portuguese, Italian, German, Dutch or Polish",
+      "count": 2,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "help.html",
+      "old": "Spanish, French, Portuguese, Italian or German",
+      "new": "Spanish, French, Portuguese, Italian, German, Dutch or Polish",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "help.html",
+      "old": "الإيطالية أو الألمانية قد",
+      "new": "الإيطالية أو الألمانية أو الهولندية أو البولندية قد",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "help.html",
+      "old": "transcribes the English speech",
+      "new": "transcribes the original speech",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "help.html",
+      "old": "made from the right English",
+      "new": "made from the corrected original text",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "help.html",
+      "old": "in Arabic, in English, or both together",
+      "new": "in Arabic, in the original language, or both together",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "help.html",
+      "old": "fix the English or the Arabic",
+      "new": "fix the original text or the Arabic",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "English, Spanish, French, Portuguese, Italian and German",
+      "new": "English, Spanish, French, Portuguese, Italian, German, Dutch and Polish",
+      "count": 2,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "native-quality Modern Standard Arabic",
+      "new": "Modern Standard Arabic",
+      "count": 4,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "Six original languages",
+      "new": "Eight original languages",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "والإيطالية والألمانية إلى العربية الفصحى",
+      "new": "والإيطالية والألمانية والهولندية والبولندية إلى العربية الفصحى",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "<span class=\"hl\">native-quality Arabic.</span>",
+      "new": "<span class=\"hl\">Modern Standard Arabic.</span>",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "بعربية فصحى أصيلة.",
+      "new": "بالعربية الفصحى.",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "<title>Lisan AI — AI Dubbing into Arabic &amp; Voice Cloning</title>",
+      "new": "<title>Lisan AI — Video Dubbing into Arabic &amp; Voice Cloning</title>",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": ".hero-intro{position:relative;padding-inline:180px}",
+      "new": ".hero-intro{position:relative;padding-inline:180px;min-height:440px}",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": ".hero-intro{padding-inline:0}",
+      "new": ".hero-intro{padding-inline:0;min-height:0}",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "--y:118px",
+      "new": "--y:94px",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "--y:222px",
+      "new": "--y:198px",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "--y:326px",
+      "new": "--y:302px",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "min-height:440px",
+      "new": "min-height:490px",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "landing.html",
+      "old": "    </ul> (language-orbit closing only)",
+      "new": "      <li class=\"language-card\" data-source-language=\"nl\" style=\"--y:406px;--delay:-7s\">\n        <span class=\"language-flag\" aria-hidden=\"true\"><svg viewBox=\"0 0 36 36\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"36\" height=\"12\" fill=\"#ae2438\"/><rect y=\"12\" width=\"36\" height=\"12\" fill=\"#f6f5f0\"/><rect y=\"24\" width=\"36\" height=\"12\" fill=\"#21468b\"/></svg></span>\n        <span class=\"language-name\"><span class=\"en\">Dutch</span><span class=\"ar\" lang=\"ar\">الهولندية</span><span class=\"language-code\" aria-hidden=\"true\">NL</span></span>\n      </li>\n      <li class=\"language-card\" data-source-language=\"pl\" style=\"--y:406px;--delay:-8s\">\n        <span class=\"language-flag\" aria-hidden=\"true\"><svg viewBox=\"0 0 36 36\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"36\" height=\"18\" fill=\"#f6f5f0\"/><rect y=\"18\" width=\"36\" height=\"18\" fill=\"#dc143c\"/></svg></span>\n        <span class=\"language-name\"><span class=\"en\">Polish</span><span class=\"ar\" lang=\"ar\">البولندية</span><span class=\"language-code\" aria-hidden=\"true\">PL</span></span>\n      </li>\n",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "pricing.html",
+      "old": "<h1><span class=\"en\">Pricing</span><span class=\"ar\">الأسعار</span></h1>",
+      "new": "<h1><span class=\"en\">Pricing</span><span class=\"ar\">الأسعار</span></h1>\r\n    <p><span class=\"en\">Dub English, Spanish, French, Portuguese, Italian, German, Dutch and Polish video into Modern Standard Arabic. The same prices apply to all supported original languages.</span><span class=\"ar\">دبلج الفيديو من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية والهولندية والبولندية إلى العربية الفصحى. تُطبَّق الأسعار نفسها على جميع لغات الفيديو الأصلية المدعومة.</span></p>",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "LANDING_LANGUAGE_BADGES.md",
+      "old": "six compact cards",
+      "new": "eight compact cards",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "LANDING_LANGUAGE_BADGES.md",
+      "old": "English, Spanish, French, Portuguese, Italian and German",
+      "new": "English, Spanish, French, Portuguese, Italian, German, Dutch and Polish",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "LANDING_LANGUAGE_BADGES.md",
+      "old": "three cards float gently on each side",
+      "new": "four cards float gently on each side",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "LANDING_LANGUAGE_BADGES.md",
+      "old": "The three new unit tests pass. A headless browser loaded the real local page and scripts with mocked read-only APIs and external requests blocked. All twelve combinations of English/Arabic and widths 1440, 1180, 1024, 768, 390 and 320 pixels passed: all six cards are visible, no horizontal overflow, no badge-to-badge overlap and no badge overlap with the headline, description or actions. Names switch with the interface, reduced motion disables animation and no page script errors were reported. Desktop and mobile previews were visually inspected. These are local page checks, not a live deployment check.",
+      "new": "The former six-card checks are historical. The eight-card proposal requires a fresh local visual check at widths 1440, 1180, 1024, 768, 390 and 320 pixels, in English/Arabic and reduced motion, before release. No eight-card visual result is claimed here.",
+      "count": 1,
+      "group": "01-api-and-interface"
+    },
+    {
+      "file": "lang_check.py",
+      "old": "        return (\"Please check that the original lines match the language of your video.\" if verdict == \"mismatch\" else None), str(evidence)",
+      "new": "        if languages.get(source_language).code in (\"nl\", \"pl\") and verdict == \"inconclusive\":\n            return \"We could not confirm the text's language. Please review the original lines.\", str(evidence)\n        return (\"Please check that the original lines match the language of your video.\" if verdict == \"mismatch\" else None), str(evidence)",
+      "count": 1,
+      "group": "02-new-source-safety"
+    },
+    {
+      "file": "subs_align.py",
+      "old": "    return True, len(cues)",
+      "new": "    if languages.get(source_language).code in (\"nl\", \"pl\"):\r\n        original = \" \".join(t for c in cues for t, _ in c[\"lines\"])\r\n        verdict, _ = lang_text.looks_like(original, source_language)\r\n        if verdict == \"mismatch\":\r\n            return False, \"language\"\r\n    return True, len(cues)",
+      "count": 1,
+      "group": "02-new-source-safety"
+    },
+    {
+      "file": "dub_long.html",
+      "old": "    var ar = (text.match(/[\\u0600-\\u06FF]/g) || []).length, la = (text.match(/[A-Za-z]/g) || []).length;",
+      "new": "    var ar = (text.match(/[\\u0600-\\u06FF]/g) || []).length, la = (text.match(/[A-Za-z]/g) || []).length;\r\n    var originalCode = forJob && cur ? LisanSource.normalise(cur.source_language) : LisanSource.normalise($(\"sourceLanguage\") && $(\"sourceLanguage\").value);\r\n    if (originalCode === \"nl\" || originalCode === \"pl\") la = (text.match(/\\p{Script=Latin}/gu) || []).length;",
+      "count": 1,
+      "group": "02-new-source-safety"
+    },
+    {
+      "file": "languages.py",
+      "old": "ENABLED_LANGUAGES = (\"en\",) + NEW_LANGUAGES",
+      "new": "ENABLED_LANGUAGES = (\"en\",) + NEW_LANGUAGES + STAGED_LANGUAGES",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_api_language_proposal.py",
+      "old": "'en','es','fr','pt','it','de'",
+      "new": "'en','es','fr','pt','it','de','nl','pl'",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_api_source_language.py",
+      "old": "'en','es','fr','pt','it','de'",
+      "new": "'en','es','fr','pt','it','de','nl','pl'",
+      "count": 2,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_source_language_lifecycle.py",
+      "old": "'en','es','fr','pt','it','de'",
+      "new": "'en','es','fr','pt','it','de','nl','pl'",
+      "count": 3,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_source_language_lifecycle.py",
+      "old": "('es','fr','pt','it','de')",
+      "new": "('es','fr','pt','it','de','nl','pl')",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_shortdub_ui.js",
+      "old": "'en','es','fr','pt','it','de'",
+      "new": "'en','es','fr','pt','it','de','nl','pl'",
+      "count": 2,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_source_language_ui.js",
+      "old": "all six original languages",
+      "new": "all eight original languages",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_source_language_ui.js",
+      "old": "'en','es','fr','pt','it','de'",
+      "new": "'en','es','fr','pt','it','de','nl','pl'",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_source_language_ui.js",
+      "old": "children.length,6",
+      "new": "children.length,8",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_source_language_ui.js",
+      "old": "['es','fr','pt','it','de']",
+      "new": "['es','fr','pt','it','de','nl','pl']",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "old": "('en','es','fr','pt','it','de')",
+      "new": "('en','es','fr','pt','it','de','nl','pl')",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_lang_registry.py",
+      "old": "self.assertEqual(r.speech_rate.status,'estimated')",
+      "new": "self.assertEqual(r.speech_rate.status, 'unmeasured' if r.code in ('nl','pl') else 'estimated')",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_lang_job17_legacy.py",
+      "old": "[dataclasses.asdict(r) for r in L.supported()]",
+      "new": "[dataclasses.asdict(L.get_record(r['code'])) for r in self.before['records']]",
+      "count": 1,
+      "group": "03-activate-last"
+    },
+    {
+      "file": "tests/test_lang_staged.py",
+      "old": "    def test_default_and_all_public_lookups_stay_six(self):\n        old = ('en', 'es', 'fr', 'pt', 'it', 'de')\n        self.assertEqual(tuple(r.code for r in L.supported()), old)\n        self.assertEqual(L.LanguagePolicy().enabled_languages, old)\n        self.assertEqual(L.STAGED_LANGUAGES, ('nl', 'pl'))\n        self.assertEqual(len(L.registered()), 8)\n        for code in ('nl', 'pl', ' NL ', 'PL'):\n            self.assertFalse(L.is_supported(code))\n            self.assertTrue(L.is_registered(code))\n            self.assertEqual(L.get(code).code, 'en')\n            self.assertEqual(L.names(code), 'English')\n            self.assertIn(L.get_record(code).code, ('nl', 'pl'))\n            with self.assertRaises(ValueError):\n                source_jobs.validate(code)\n\n    def test_old_and_staged_saved_jobs_do_not_adopt_new_sources(self):\n        with tempfile.TemporaryDirectory() as d:\n            job = '12345678-1234-1234-1234-123456789abc'\n            self.assertEqual(source_jobs.language(d, job), 'en')\n            source_jobs.set_language(d, job, ' DE ')\n            self.assertEqual(source_jobs.language(d, job), 'de')\n            for code in ('nl', 'pl'):\n                with self.assertRaises(ValueError):\n                    source_jobs.set_language(d, job, code)\n                self.assertEqual(source_jobs.language(d, job), 'de')\n\n",
+      "new": "    def test_enabled_public_lookups_are_eight(self):\n        self.assertEqual(tuple(r.code for r in L.supported()), ('en','es','fr','pt','it','de','nl','pl'))\n        self.assertEqual(L.LanguagePolicy().enabled_languages, L.ENABLED_LANGUAGES)\n        for code in ('nl','pl',' NL ','PL'):\n            self.assertTrue(L.is_supported(code))\n            self.assertEqual(L.get(code).code, code.strip().lower())\n            self.assertEqual(source_jobs.validate(code), code.strip().lower())\n\n    def test_old_and_new_saved_jobs_keep_their_original_source(self):\n        with tempfile.TemporaryDirectory() as d:\n            job = '12345678-1234-1234-1234-123456789abc'\n            self.assertEqual(source_jobs.language(d, job), 'en')\n            for code in L.ENABLED_LANGUAGES:\n                source_jobs.set_language(d, job, code)\n                self.assertEqual(source_jobs.language(d, job), code)\n\n",
+      "count": 1,
+      "group": "03-activate-last"
+    }
+  ]
+}

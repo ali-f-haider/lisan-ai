@@ -51,3 +51,27 @@ The C09 service description does not replace the existing rights, quality, reten
 Use C03 for subtitle notices in app.js, dub_long.html, dialogs.js, help and subtitle API messages. Use C04 for editor/source/timeline text, C05 for source/bilingual subtitle downloads and glossary instructions, C07 for landing/pricing metadata/footer claims, C08 for knowledge/help/FAQ/background explanations, and C09 for privacy/terms descriptions. Admin stage captions use “Is the speech in the selected language?”, “Original transcript with word timing.” and “Original speech removed from the background.” Arabic drafts: «هل الكلام باللغة المختارة؟» — needs native check; «النص الأصلي مع توقيت الكلمات.» — needs native check; «أُزيل الكلام الأصلي من الخلفية.» — needs native check.
 
 The actual English demonstration must remain labelled English. English/Arabic tutorial versions refer to **interface/narration language**, not source language; do not relabel those media. Unrelated help, rights/consent, email receipt and billing text do not require a language change. If an email names the source language, read it from the stored job and the recipient's UI locale; do not infer it from the filename.
+
+## Dutch and Polish
+
+Job17 **drafts only**, for use after activation and Ali's approval. No Beta labels (Ali's decision). Interface remains English/Arabic; these are original-video languages, always dubbed into Arabic. Every Arabic sentence below **needs native check**, including short labels. No vendor, model, native-quality or native-accent claim.
+
+| Place | English draft | Arabic draft — needs native check |
+| --- | --- | --- |
+| Selector | Dutch; Polish | الهولندية؛ البولندية |
+| Native labels, developer data | Nederlands; Polski | الهولندية؛ البولندية |
+| Landing title | Lisan AI — Video Dubbing into Arabic | Lisan AI — دبلجة الفيديو إلى العربية |
+| Landing description / pricing / help | Dub English, Spanish, French, Portuguese, Italian, German, Dutch and Polish video into Modern Standard Arabic. | دبلج الفيديو من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية والهولندية والبولندية إلى العربية الفصحى. |
+| Landing small heading | Eight original languages to Modern Standard Arabic | من ثماني لغات أصلية إلى العربية الفصحى |
+| New badges | Dutch · NL; Polish · PL | الهولندية · NL؛ البولندية · PL |
+| Helper system sentence | You are the Lisan AI helper, assisting visitors with dubbing English, Spanish, French, Portuguese, Italian, German, Dutch and Polish video and audio into Arabic. | أنت مساعد Lisan AI، تساعد الزوار في دبلجة الفيديو والصوت من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية والهولندية والبولندية إلى العربية. |
+| API description | Choose the original video's language. If omitted, English is used. The result is Arabic. | اختر لغة الفيديو الأصلية. عند عدم اختيارها تُستخدم الإنجليزية. تكون النتيجة بالعربية. |
+| Mismatch | The speech appears to be in Dutch. Switch the video's language to Dutch to continue. | يبدو أن الكلام بالهولندية. اختر الهولندية لغةً للفيديو للمتابعة. |
+| Mismatch | The speech appears to be in Polish. Switch the video's language to Polish to continue. | يبدو أن الكلام بالبولندية. اختر البولندية لغةً للفيديو للمتابعة. |
+| Switch button | Switch to Dutch; Switch to Polish | التبديل إلى الهولندية؛ التبديل إلى البولندية |
+| Subtitle mismatch | Choose a subtitle in the same language as your video, then try again. Nothing was changed. | اختر ملف ترجمة نصية بلغة الفيديو نفسها، ثم حاول مجددًا. لم يتغير شيء. |
+| Uncertain text | We could not confirm the text's language. Please review the original lines. | لم نتمكن من تأكيد لغة النص. يرجى مراجعة السطور الأصلية. |
+| Pricing note | The same prices apply to all supported original languages. | تُطبَّق الأسعار نفسها على جميع لغات الفيديو الأصلية المدعومة. |
+| Accent caveat | A copied voice may retain features of its original language. If the accent matters, try a short clip first. | قد يحتفظ الصوت المنسوخ بخصائص لغته الأصلية. إن كانت اللكنة تهمك، فجرّب مقطعًا قصيرًا أولًا. |
+
+Preserve the existing detailed help answer about non-English copied voices; append Dutch/Polish to its examples without removing its caveat. New badges describe languages, not a guarantee for every regional accent. Source language must remain independent of the English/Arabic page toggle. Prices, plans, legal rights and voice retention do not change.

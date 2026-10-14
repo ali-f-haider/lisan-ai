@@ -6,11 +6,11 @@
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#06080d">
 <title>Lisan AI — AI Dubbing into Arabic &amp; Voice Cloning</title>
-<meta name="description" content="Lisan AI dubs English, Spanish, French, Portuguese, Italian and German video into native-quality Modern Standard Arabic. Voice cloning, 30+ speaking styles, full tashkeel, a visual timeline for fine-tuning, and long-video dubbing. Pay as you go or subscribe monthly.">
+<meta name="description" content="Lisan AI dubs English, Spanish, French, Portuguese, Italian, German, Dutch and Polish video into native-quality Modern Standard Arabic. Voice cloning, 30+ speaking styles, full tashkeel, a visual timeline for fine-tuning, and long-video dubbing. Pay as you go or subscribe monthly.">
 <link rel="canonical" href="https://lisanai.org/">
 <meta name="robots" content="index,follow,max-image-preview:large,max-video-preview:-1">
 <meta property="og:site_name" content="Lisan AI">
-<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://lisanai.org/#org", "name": "Lisan AI", "alternateName": ["LisanAI", "Lisan AI Dubbing"], "url": "https://lisanai.org/", "logo": "https://lisanai.org/logo.png", "email": "contact@lisanai.org", "description": "Lisan AI is an video dubbing service into Arabic: voice cloning, Modern Standard Arabic with full tashkeel, and long-video dubbing."}, {"@type": "WebSite", "@id": "https://lisanai.org/#site", "url": "https://lisanai.org/", "name": "Lisan AI", "alternateName": "LisanAI", "inLanguage": ["en", "ar"], "publisher": {"@id": "https://lisanai.org/#org"}}, {"@type": "SoftwareApplication", "name": "Lisan AI", "url": "https://lisanai.org/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Dub English, Spanish, French, Portuguese, Italian and German video into native-quality Modern Standard Arabic with voice cloning and a visual timeline for fine-tuning.", "publisher": {"@id": "https://lisanai.org/#org"}}]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "Organization", "@id": "https://lisanai.org/#org", "name": "Lisan AI", "alternateName": ["LisanAI", "Lisan AI Dubbing"], "url": "https://lisanai.org/", "logo": "https://lisanai.org/logo.png", "email": "contact@lisanai.org", "description": "Lisan AI is an video dubbing service into Arabic: voice cloning, Modern Standard Arabic with full tashkeel, and long-video dubbing."}, {"@type": "WebSite", "@id": "https://lisanai.org/#site", "url": "https://lisanai.org/", "name": "Lisan AI", "alternateName": "LisanAI", "inLanguage": ["en", "ar"], "publisher": {"@id": "https://lisanai.org/#org"}}, {"@type": "SoftwareApplication", "name": "Lisan AI", "url": "https://lisanai.org/", "applicationCategory": "MultimediaApplication", "operatingSystem": "Web", "description": "Dub English, Spanish, French, Portuguese, Italian, German, Dutch and Polish video into native-quality Modern Standard Arabic with voice cloning and a visual timeline for fine-tuning.", "publisher": {"@id": "https://lisanai.org/#org"}}]}</script>
 <link rel="icon" type="image/png" href="/logo.png">
 <!-- Open Graph / social share preview (Facebook, LinkedIn, WhatsApp, Slack, etc.) -->
 <meta property="og:type" content="website">
@@ -121,7 +121,7 @@ html[data-lang="ar"] .hero h1{max-width:17ch;line-height:1.3;font-size:clamp(36p
 .hero .sub{max-width:660px;margin:26px auto 0;font-size:clamp(16.5px,2vw,19.5px);color:var(--muted)}
 .cta-row{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;margin-top:36px}
 /* Source languages: quiet floating cards around the hero, a compact grid on smaller screens. */
-.hero-intro{position:relative;padding-inline:180px}
+.hero-intro{position:relative;padding-inline:180px;min-height:490px}
 .language-title{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .language-orbit{position:absolute;inset:0;list-style:none;margin:0;padding:0;pointer-events:none;direction:ltr}
 .language-card{position:absolute;top:var(--y);display:flex;align-items:center;gap:12px;width:166px;min-height:68px;padding:12px 14px;text-align:start;border:1px solid rgba(98,199,255,.22);border-radius:18px;background:linear-gradient(135deg,rgba(23,36,54,.96),rgba(12,18,29,.96));box-shadow:0 16px 40px -18px rgba(0,0,0,.8),inset 0 1px 0 rgba(255,255,255,.07);pointer-events:auto;animation:language-float 7s ease-in-out infinite;animation-delay:var(--delay)}
@@ -135,7 +135,7 @@ html[data-lang="ar"] .hero h1{max-width:17ch;line-height:1.3;font-size:clamp(36p
 .hero-intro:hover .language-card{animation-play-state:paused}
 @keyframes language-float{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-9px) rotate(1deg)}}
 @media (max-width:1100px){
-  .hero-intro{padding-inline:0}
+  .hero-intro{padding-inline:0;min-height:0}
   .language-orbit{position:static;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 12px;max-width:660px;margin:40px auto 0}
   .language-card{position:relative;top:auto;left:auto!important;right:auto!important;width:auto;justify-content:center}
 }
@@ -399,8 +399,8 @@ html.js .rv.in{opacity:1;transform:none}
   <div class="wrap">
     <div class="hero-intro">
     <div class="pill"><i></i>
-      <span class="en">AI dubbing · Six original languages to Modern Standard Arabic</span>
-      <span class="ar">دبلجة بالذكاء الاصطناعي · من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية إلى العربية الفصحى</span>
+      <span class="en">AI dubbing · Eight original languages to Modern Standard Arabic</span>
+      <span class="ar">دبلجة بالذكاء الاصطناعي · من الإنجليزية والإسبانية والفرنسية والبرتغالية والإيطالية والألمانية والهولندية والبولندية إلى العربية الفصحى</span>
     </div>
     <h1>
       <span class="en">Dub your video into <span class="hl">native-quality Arabic.</span></span>
@@ -427,7 +427,7 @@ html.js .rv.in{opacity:1;transform:none}
         <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="36" fill="#18396b"/><path d="M0 0l36 36M36 0L0 36" stroke="#fff" stroke-width="8"/><path d="M0 0l36 36M36 0L0 36" stroke="#cb3442" stroke-width="3"/><path d="M18 0v36M0 18h36" stroke="#fff" stroke-width="12"/><path d="M18 0v36M0 18h36" stroke="#cb3442" stroke-width="7"/></svg></span>
         <span class="language-name"><span class="en">English</span><span class="ar" lang="ar">الإنجليزية</span><span class="language-code" aria-hidden="true">EN</span></span>
       </li>
-      <li class="language-card" data-source-language="es" style="--y:118px;--delay:-2s">
+      <li class="language-card" data-source-language="es" style="--y:94px;--delay:-2s">
         <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="36" fill="#aa2438"/><path d="M0 9h36v18H0z" fill="#f7c64b"/><rect x="10" y="14" width="6" height="8" rx="1" fill="#aa2438"/><path d="M9 13h8M10 23h6" stroke="#fff0c2" stroke-width="1.5"/></svg></span>
         <span class="language-name"><span class="en">Spanish</span><span class="ar" lang="ar">الإسبانية</span><span class="language-code" aria-hidden="true">ES</span></span>
       </li>
@@ -435,7 +435,7 @@ html.js .rv.in{opacity:1;transform:none}
         <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="12" height="36" fill="#234a89"/><rect x="12" width="12" height="36" fill="#f6f5f0"/><rect x="24" width="12" height="36" fill="#cc3b48"/></svg></span>
         <span class="language-name"><span class="en">French</span><span class="ar" lang="ar">الفرنسية</span><span class="language-code" aria-hidden="true">FR</span></span>
       </li>
-      <li class="language-card" data-source-language="pt" style="--y:222px;--delay:-4s">
+      <li class="language-card" data-source-language="pt" style="--y:198px;--delay:-4s">
         <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="36" fill="#c93b44"/><rect width="14" height="36" fill="#257548"/><circle cx="14" cy="18" r="7" fill="none" stroke="#edc551" stroke-width="2"/><path d="M11 14h6v7l-3 2-3-2z" fill="#f6f5f0"/><path d="M12.5 16h3v4l-1.5 1-1.5-1z" fill="#c93b44"/></svg></span>
         <span class="language-name"><span class="en">Portuguese</span><span class="ar" lang="ar">البرتغالية</span><span class="language-code" aria-hidden="true">PT</span></span>
       </li>
@@ -443,9 +443,17 @@ html.js .rv.in{opacity:1;transform:none}
         <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="12" height="36" fill="#328262"/><rect x="12" width="12" height="36" fill="#f6f5f0"/><rect x="24" width="12" height="36" fill="#cb3d4b"/></svg></span>
         <span class="language-name"><span class="en">Italian</span><span class="ar" lang="ar">الإيطالية</span><span class="language-code" aria-hidden="true">IT</span></span>
       </li>
-      <li class="language-card" data-source-language="de" style="--y:326px;--delay:-6s">
+      <li class="language-card" data-source-language="de" style="--y:302px;--delay:-6s">
         <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="12" fill="#20242c"/><rect y="12" width="36" height="12" fill="#cb3a45"/><rect y="24" width="36" height="12" fill="#f2c34e"/></svg></span>
         <span class="language-name"><span class="en">German</span><span class="ar" lang="ar">الألمانية</span><span class="language-code" aria-hidden="true">DE</span></span>
+      </li>
+      <li class="language-card" data-source-language="nl" style="--y:406px;--delay:-7s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="12" fill="#ae2438"/><rect y="12" width="36" height="12" fill="#f6f5f0"/><rect y="24" width="36" height="12" fill="#21468b"/></svg></span>
+        <span class="language-name"><span class="en">Dutch</span><span class="ar" lang="ar">الهولندية</span><span class="language-code" aria-hidden="true">NL</span></span>
+      </li>
+      <li class="language-card" data-source-language="pl" style="--y:406px;--delay:-8s">
+        <span class="language-flag" aria-hidden="true"><svg viewBox="0 0 36 36" focusable="false" xmlns="http://www.w3.org/2000/svg"><rect width="36" height="18" fill="#f6f5f0"/><rect y="18" width="36" height="18" fill="#dc143c"/></svg></span>
+        <span class="language-name"><span class="en">Polish</span><span class="ar" lang="ar">البولندية</span><span class="language-code" aria-hidden="true">PL</span></span>
       </li>
     </ul>
     </div>

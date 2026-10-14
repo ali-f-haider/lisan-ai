@@ -1,0 +1,532 @@
+{
+  "language": "nl",
+  "origin": "invented; no film/customer dialogue",
+  "native_review": "All source naturalness, Arabic proposals and screens need a native check; no accent claim.",
+  "cases": [
+    {
+      "id": "nl_half_three",
+      "text": "We spreken af om half drie.",
+      "duration": 6.0,
+      "context_lines": [
+        "Noon has just passed; the meeting is this afternoon."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:14:30|١٤:٣٠|الثانية والنصف)",
+          "mode": "strip_tashkeel",
+          "reason": "Half three means 14:30 here, not 15:30.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "نلتقي في الثانية والنصف.",
+      "screen_counterexample": "الساعة الثالثة والنصف",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_quarter_after",
+      "text": "De trein vertrekt om kwart over drie.",
+      "duration": 6.0,
+      "context_lines": [
+        "The departure is in the afternoon."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:15:15|١٥:١٥|الثالثة والربع)",
+          "mode": "strip_tashkeel",
+          "reason": "Quarter past three is 15:15.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "يغادر القطار في الثالثة والربع.",
+      "screen_counterexample": "يغادر في الثالثة إلا ربعًا.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_quarter_before",
+      "text": "Kom om kwart voor drie.",
+      "duration": 6.0,
+      "context_lines": [
+        "This afternoon, before three."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:14:45|١٤:٤٥|الثالثة إلا ربع)",
+          "mode": "strip_tashkeel",
+          "reason": "Quarter to three is 14:45.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "تعال في الثالثة إلا ربعًا.",
+      "screen_counterexample": "تعال في الثالثة والربع.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_possibly",
+      "text": "Eventueel kunnen we morgen gaan.",
+      "duration": 6.0,
+      "context_lines": [
+        "Going tomorrow is an option, not an inevitable outcome."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:ربما|يمكن|ممكن|احتمال)",
+          "mode": "strip_tashkeel",
+          "reason": "Optional/possible, not eventually.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "ربما نذهب غدًا.",
+      "screen_counterexample": "سنذهب في نهاية المطاف.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_current",
+      "text": "Dit is de actuele planning.",
+      "duration": 6.0,
+      "context_lines": [
+        "A current schedule, not a contrast with an imaginary one."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:الحالي|حالي|الراهن)",
+          "mode": "strip_tashkeel",
+          "reason": "Actueel means current.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هذا هو الجدول الحالي.",
+      "screen_counterexample": "هذا هو الجدول الحقيقي.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_cheeky",
+      "text": "Die opmerking was brutaal.",
+      "duration": 6.0,
+      "context_lines": [
+        "A child made an impudent remark; no violence occurred."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:وقح|وقاحة|قلة أدب)",
+          "mode": "strip_tashkeel",
+          "reason": "Brutaal here is impudent.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كان ذلك التعليق وقحًا.",
+      "screen_counterexample": "كان ذلك التعليق عنيفًا.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_cosy",
+      "text": "Het was gezellig bij jullie.",
+      "duration": 6.0,
+      "context_lines": [
+        "A pleasant relaxed visit with friends."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:لطيف|ممتع|مريح|أمتع)",
+          "mode": "strip_tashkeel",
+          "reason": "Contextual pleasant company, not a fixed literal noun.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كان الوقت معكم ممتعًا.",
+      "screen_counterexample": "كان المكان خطيرًا.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_nice",
+      "text": "Dat is een mooie oplossing.",
+      "duration": 6.0,
+      "context_lines": [
+        "Praise for a useful solution."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:جيد|جميل|رائع|موفق)",
+          "mode": "strip_tashkeel",
+          "reason": "Mooi praises a solution in context.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هذا حل رائع.",
+      "screen_counterexample": "هذا حل قبيح.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_tasty",
+      "text": "De soep is lekker.",
+      "duration": 6.0,
+      "context_lines": [
+        "They are tasting soup."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:لذيذ|شهي)",
+          "mode": "strip_tashkeel",
+          "reason": "Lekker about food means tasty.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "الحساء لذيذ.",
+      "screen_counterexample": "الحساء مزعج.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_comfortable",
+      "text": "Ik zit hier lekker.",
+      "duration": 6.0,
+      "context_lines": [
+        "A comfortable chair, not eating."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:راحة|مريح|مرتاح)",
+          "mode": "strip_tashkeel",
+          "reason": "Lekker need not mean delicious.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "أجلس هنا براحة.",
+      "screen_counterexample": "أجلس هنا بلذة الطعام.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_legal_title",
+      "text": "Mr. Bos bespreekt het contract.",
+      "duration": 6.0,
+      "context_lines": [
+        "Bos is a lawyer with the Dutch legal title."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:محامي|أستاذ|مستر).*?بوس",
+          "mode": "strip_tashkeel",
+          "reason": "Preserve legal role/title; Arabic rendering needs review.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "المحامي بوس يناقش العقد.",
+      "screen_counterexample": "بوش يناقش العقد.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_ij_name",
+      "text": "IJsselmeer ligt daar.",
+      "duration": 6.0,
+      "context_lines": [
+        "A lake is named; do not replace IJ with Y in matching."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:آيسل|إيسل|ايسل|إي?سل).*?مير",
+          "mode": "strip_tashkeel",
+          "reason": "Transliteration candidate, never translate the name.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "تقع بحيرة آيسلمير هناك.",
+      "screen_counterexample": "تقع بحيرة مجهولة هناك.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_compound",
+      "text": "De bedrijfsaansprakelijkheidsverzekering is geldig.",
+      "duration": 6.0,
+      "context_lines": [
+        "A company liability insurance policy."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تأمين).*?(?:مسؤولية|المسؤولية)",
+          "mode": "strip_tashkeel",
+          "reason": "Long compound meaning retained.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "تأمين مسؤولية الشركة ساري المفعول.",
+      "screen_counterexample": "الشركة سارية المفعول.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_separable",
+      "text": "Ik bel je morgen op.",
+      "duration": 6.0,
+      "context_lines": [
+        "A telephone call, not physically lifting someone."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:أتصل|اتصل).*?غدا",
+          "mode": "strip_tashkeel",
+          "reason": "Complete bel ... op meaning and tomorrow.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "سأتصل بك غدًا.",
+      "screen_counterexample": "سأرفعك غدًا.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_subordinate",
+      "text": "Ik weet dat zij morgen komt.",
+      "duration": 6.0,
+      "context_lines": [
+        "A woman is the third-person visitor."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تأتي|ستأتي|قادمة).*?غدا|غدا.*?(?:تأتي|ستأتي|قادمة)",
+          "mode": "strip_tashkeel",
+          "reason": "Verb-final clause retained.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "أعرف أنها ستأتي غدًا.",
+      "screen_counterexample": "أعرف أنه سيأتي أمس.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_formal_female",
+      "text": "Wilt u hier wachten?",
+      "duration": 6.0,
+      "context_lines": [
+        "The speaker politely addresses one woman."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تنتظري|انتظري|سيدتي)",
+          "mode": "strip_tashkeel",
+          "reason": "Formal singular female address, not automatic plural.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هل تنتظرين هنا، سيدتي؟",
+      "screen_counterexample": "هل تنتظرون هنا يا سادة؟",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_formal_group",
+      "text": "Wilt u allemaal binnenkomen?",
+      "duration": 6.0,
+      "context_lines": [
+        "A mixed group is respectfully invited."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تدخلوا|ادخلوا|تفضلوا)",
+          "mode": "strip_tashkeel",
+          "reason": "U with allemaal and context is a group.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "تفضلوا بالدخول جميعًا.",
+      "screen_counterexample": "تفضلي وحدك.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_informal_female",
+      "text": "Ben jij klaar?",
+      "duration": 6.0,
+      "context_lines": [
+        "The addressee is one woman, explicitly known in context."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مستعدة|جاهزة)",
+          "mode": "strip_tashkeel",
+          "reason": "Jij does not itself encode gender.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هل أنت مستعدة؟",
+      "screen_counterexample": "هل أنت مستعد؟",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_generic",
+      "text": "Je leert door te oefenen.",
+      "duration": 6.0,
+      "context_lines": [
+        "General advice to people, not one identified woman."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تتعلم|يتعلم|نتعلم).*?(?:تمرين|ممارسة|تدريب)",
+          "mode": "strip_tashkeel",
+          "reason": "Generic je is not forced into feminine singular.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "يتعلم المرء بالممارسة.",
+      "screen_counterexample": "أنت وحدك تتعلمين.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_female_self",
+      "text": "Ik ben moe.",
+      "duration": 6.0,
+      "context_lines": [
+        "The speaker is a woman identified in the preceding line."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:متعبة|مرهقة)",
+          "mode": "strip_tashkeel",
+          "reason": "Dutch predicate does not encode speaker sex; context does.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "أنا متعبة.",
+      "screen_counterexample": "أنا متعب.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_plural_they",
+      "text": "Ze zijn klaar.",
+      "duration": 6.0,
+      "context_lines": [
+        "Two women have finished preparing."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مستعدتان|جاهزتان|مستعدات|جاهزات)",
+          "mode": "strip_tashkeel",
+          "reason": "Ze can be plural; actual referents decide number.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هما مستعدتان.",
+      "screen_counterexample": "هو مستعد.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_decimal",
+      "text": "De plank is 3,5 meter lang.",
+      "duration": 6.0,
+      "context_lines": [
+        "Measurement, not two separate numbers."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:3[,.]5|٣[٫،,.]٥|ثلاثة أمتار ونصف).*?(?:متر|أمتار)?",
+          "mode": "strip_tashkeel",
+          "reason": "Decimal and unit retained.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "طول اللوح ثلاثة أمتار ونصف.",
+      "screen_counterexample": "طول اللوح خمسة أمتار.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_date",
+      "text": "De afspraak is op 5 mei 2026.",
+      "duration": 6.0,
+      "context_lines": [
+        "Calendar date."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:5|٥|الخامس).*?مايو.*?(?:2026|٢٠٢٦)",
+          "mode": "strip_tashkeel",
+          "reason": "Date retained.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "الموعد في الخامس من مايو 2026.",
+      "screen_counterexample": "الموعد في يونيو.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_negative",
+      "text": "Ik had dat niet verwacht.",
+      "duration": 6.0,
+      "context_lines": [
+        "Past negative expectation."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:لم|ما).*?(?:أتوقع|اتوقع|توقع)",
+          "mode": "strip_tashkeel",
+          "reason": "Past negation must survive.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "لم أتوقع ذلك.",
+      "screen_counterexample": "أتوقع ذلك.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "nl_elision",
+      "text": "Zo’n jas heb ik niet.",
+      "duration": 6.0,
+      "context_lines": [
+        "The speaker does not own that kind of coat."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:ليس|لا|لم).*?(?:معطف)|معطف.*?(?:ليس|لا|لم)",
+          "mode": "strip_tashkeel",
+          "reason": "Clitic and negation are meaning, not a speaker boundary.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "ليس لدي معطف كهذا.",
+      "screen_counterexample": "لدي هذا المعطف.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    }
+  ]
+}

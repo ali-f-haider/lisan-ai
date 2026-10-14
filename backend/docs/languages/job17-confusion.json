@@ -1,0 +1,1677 @@
+{
+  "definition": "Counts of compatible verdicts; 20 paragraphs per actual source. Off-diagonal legacy matches are findings, not failures.",
+  "compatible": {
+    "en": {
+      "en": 20,
+      "es": 0,
+      "fr": 0,
+      "pt": 0,
+      "it": 5,
+      "de": 0,
+      "nl": 0,
+      "pl": 0
+    },
+    "es": {
+      "en": 20,
+      "es": 20,
+      "fr": 11,
+      "pt": 4,
+      "it": 8,
+      "de": 0,
+      "nl": 0,
+      "pl": 0
+    },
+    "fr": {
+      "en": 20,
+      "es": 10,
+      "fr": 20,
+      "pt": 6,
+      "it": 17,
+      "de": 0,
+      "nl": 0,
+      "pl": 0
+    },
+    "pt": {
+      "en": 20,
+      "es": 14,
+      "fr": 6,
+      "pt": 20,
+      "it": 9,
+      "de": 0,
+      "nl": 0,
+      "pl": 0
+    },
+    "it": {
+      "en": 20,
+      "es": 9,
+      "fr": 8,
+      "pt": 3,
+      "it": 20,
+      "de": 0,
+      "nl": 0,
+      "pl": 0
+    },
+    "de": {
+      "en": 20,
+      "es": 0,
+      "fr": 0,
+      "pt": 0,
+      "it": 0,
+      "de": 20,
+      "nl": 0,
+      "pl": 0
+    },
+    "nl": {
+      "en": 20,
+      "es": 0,
+      "fr": 0,
+      "pt": 0,
+      "it": 0,
+      "de": 3,
+      "nl": 20,
+      "pl": 0
+    },
+    "pl": {
+      "en": 20,
+      "es": 1,
+      "fr": 1,
+      "pt": 4,
+      "it": 6,
+      "de": 0,
+      "nl": 0,
+      "pl": 20
+    }
+  },
+  "false_matches": [
+    {
+      "paragraph_id": "en_08",
+      "source": "en",
+      "accepted_as": "it",
+      "text": "The letter is from my sister.\nShe is in a new house.\nI will visit her."
+    },
+    {
+      "paragraph_id": "en_09",
+      "source": "en",
+      "accepted_as": "it",
+      "text": "We have a meeting today.\nIt is in our office.\nThey are coming too."
+    },
+    {
+      "paragraph_id": "en_13",
+      "source": "en",
+      "accepted_as": "it",
+      "text": "I need a ticket.\nYou have the money.\nWe can buy it here."
+    },
+    {
+      "paragraph_id": "en_14",
+      "source": "en",
+      "accepted_as": "it",
+      "text": "She has a blue coat.\nIt is in her bag.\nI will bring it to her."
+    },
+    {
+      "paragraph_id": "en_18",
+      "source": "en",
+      "accepted_as": "it",
+      "text": "We are making a cake.\nIt is for our friend.\nThey will come tonight."
+    },
+    {
+      "paragraph_id": "es_01",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Tengo la llave.\nTú puedes abrir la puerta.\nNosotros estamos aquí."
+    },
+    {
+      "paragraph_id": "es_01",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Tengo la llave.\nTú puedes abrir la puerta.\nNosotros estamos aquí."
+    },
+    {
+      "paragraph_id": "es_01",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "Tengo la llave.\nTú puedes abrir la puerta.\nNosotros estamos aquí."
+    },
+    {
+      "paragraph_id": "es_02",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Ella está en la estación.\nSu tren llega tarde.\nEllos nos esperan allí."
+    },
+    {
+      "paragraph_id": "es_02",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Ella está en la estación.\nSu tren llega tarde.\nEllos nos esperan allí."
+    },
+    {
+      "paragraph_id": "es_03",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "La sopa está en la mesa.\nÉl la hizo para ti.\nNosotros podemos comer ahora."
+    },
+    {
+      "paragraph_id": "es_03",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "La sopa está en la mesa.\nÉl la hizo para ti.\nNosotros podemos comer ahora."
+    },
+    {
+      "paragraph_id": "es_04",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Nuestro profesor tiene un mapa.\nEs para la clase.\nTú puedes mirarlo."
+    },
+    {
+      "paragraph_id": "es_04",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Nuestro profesor tiene un mapa.\nEs para la clase.\nTú puedes mirarlo."
+    },
+    {
+      "paragraph_id": "es_04",
+      "source": "es",
+      "accepted_as": "pt",
+      "text": "Nuestro profesor tiene un mapa.\nEs para la clase.\nTú puedes mirarlo."
+    },
+    {
+      "paragraph_id": "es_04",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "Nuestro profesor tiene un mapa.\nEs para la clase.\nTú puedes mirarlo."
+    },
+    {
+      "paragraph_id": "es_05",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Ellos están en el jardín.\nNosotros queremos sentarnos con ellos.\nAquí no hay ruido."
+    },
+    {
+      "paragraph_id": "es_06",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Yo estaba en la tienda.\nEl pan era fresco.\nElla pagó por él."
+    },
+    {
+      "paragraph_id": "es_06",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Yo estaba en la tienda.\nEl pan era fresco.\nElla pagó por él."
+    },
+    {
+      "paragraph_id": "es_07",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Tú no estás solo.\nNosotros estamos contigo.\nÉl puede ayudarnos."
+    },
+    {
+      "paragraph_id": "es_07",
+      "source": "es",
+      "accepted_as": "pt",
+      "text": "Tú no estás solo.\nNosotros estamos contigo.\nÉl puede ayudarnos."
+    },
+    {
+      "paragraph_id": "es_08",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "La carta es de mi hermana.\nElla vive en una casa nueva.\nYo voy a visitarla."
+    },
+    {
+      "paragraph_id": "es_08",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "La carta es de mi hermana.\nElla vive en una casa nueva.\nYo voy a visitarla."
+    },
+    {
+      "paragraph_id": "es_08",
+      "source": "es",
+      "accepted_as": "pt",
+      "text": "La carta es de mi hermana.\nElla vive en una casa nueva.\nYo voy a visitarla."
+    },
+    {
+      "paragraph_id": "es_08",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "La carta es de mi hermana.\nElla vive en una casa nueva.\nYo voy a visitarla."
+    },
+    {
+      "paragraph_id": "es_09",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Tenemos una reunión hoy.\nEs en nuestra oficina.\nEllos también vienen."
+    },
+    {
+      "paragraph_id": "es_10",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Él tiene una barca.\nNosotros podemos ir con él.\nEl agua está tranquila."
+    },
+    {
+      "paragraph_id": "es_10",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "Él tiene una barca.\nNosotros podemos ir con él.\nEl agua está tranquila."
+    },
+    {
+      "paragraph_id": "es_11",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "La lámpara está en mi mesa.\nYo la uso por la noche.\nEs muy clara."
+    },
+    {
+      "paragraph_id": "es_11",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "La lámpara está en mi mesa.\nYo la uso por la noche.\nEs muy clara."
+    },
+    {
+      "paragraph_id": "es_12",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Nuestro perro está en el patio.\nÉl nos espera.\nNosotros debemos salir."
+    },
+    {
+      "paragraph_id": "es_13",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Yo necesito un billete.\nTú tienes el dinero.\nNosotros podemos comprarlo aquí."
+    },
+    {
+      "paragraph_id": "es_13",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Yo necesito un billete.\nTú tienes el dinero.\nNosotros podemos comprarlo aquí."
+    },
+    {
+      "paragraph_id": "es_13",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "Yo necesito un billete.\nTú tienes el dinero.\nNosotros podemos comprarlo aquí."
+    },
+    {
+      "paragraph_id": "es_14",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Ella tiene un abrigo azul.\nEstá en su bolsa.\nYo se lo llevaré."
+    },
+    {
+      "paragraph_id": "es_14",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Ella tiene un abrigo azul.\nEstá en su bolsa.\nYo se lo llevaré."
+    },
+    {
+      "paragraph_id": "es_14",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "Ella tiene un abrigo azul.\nEstá en su bolsa.\nYo se lo llevaré."
+    },
+    {
+      "paragraph_id": "es_15",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Ellos leen el libro.\nEs sobre nuestra ciudad.\nNosotros conocemos al escritor."
+    },
+    {
+      "paragraph_id": "es_16",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "El autobús está junto al puente.\nNosotros llegamos a tiempo.\nTú puedes sentarte conmigo."
+    },
+    {
+      "paragraph_id": "es_16",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "El autobús está junto al puente.\nNosotros llegamos a tiempo.\nTú puedes sentarte conmigo."
+    },
+    {
+      "paragraph_id": "es_16",
+      "source": "es",
+      "accepted_as": "pt",
+      "text": "El autobús está junto al puente.\nNosotros llegamos a tiempo.\nTú puedes sentarte conmigo."
+    },
+    {
+      "paragraph_id": "es_16",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "El autobús está junto al puente.\nNosotros llegamos a tiempo.\nTú puedes sentarte conmigo."
+    },
+    {
+      "paragraph_id": "es_17",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Él estuvo aquí antes.\nYo no estaba con él.\nElla sabe dónde fue."
+    },
+    {
+      "paragraph_id": "es_18",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Nosotros hacemos un pastel.\nEs para un amigo.\nEllos vienen esta noche."
+    },
+    {
+      "paragraph_id": "es_19",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "Tú puedes tomar la silla.\nYo estoy en el suelo.\nNosotros tenemos espacio."
+    },
+    {
+      "paragraph_id": "es_19",
+      "source": "es",
+      "accepted_as": "fr",
+      "text": "Tú puedes tomar la silla.\nYo estoy en el suelo.\nNosotros tenemos espacio."
+    },
+    {
+      "paragraph_id": "es_19",
+      "source": "es",
+      "accepted_as": "it",
+      "text": "Tú puedes tomar la silla.\nYo estoy en el suelo.\nNosotros tenemos espacio."
+    },
+    {
+      "paragraph_id": "es_20",
+      "source": "es",
+      "accepted_as": "en",
+      "text": "La música suena suave.\nElla toca para nosotros.\nNosotros la escuchamos."
+    },
+    {
+      "paragraph_id": "fr_01",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "J'ai la clé.\nTu peux ouvrir la porte.\nNous sommes ici."
+    },
+    {
+      "paragraph_id": "fr_01",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "J'ai la clé.\nTu peux ouvrir la porte.\nNous sommes ici."
+    },
+    {
+      "paragraph_id": "fr_01",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "J'ai la clé.\nTu peux ouvrir la porte.\nNous sommes ici."
+    },
+    {
+      "paragraph_id": "fr_02",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Elle est à la gare.\nSon train est en retard.\nIls nous attendent là."
+    },
+    {
+      "paragraph_id": "fr_02",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Elle est à la gare.\nSon train est en retard.\nIls nous attendent là."
+    },
+    {
+      "paragraph_id": "fr_02",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Elle est à la gare.\nSon train est en retard.\nIls nous attendent là."
+    },
+    {
+      "paragraph_id": "fr_03",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "La soupe est sur la table.\nIl l'a faite pour toi.\nNous pouvons manger maintenant."
+    },
+    {
+      "paragraph_id": "fr_03",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "La soupe est sur la table.\nIl l'a faite pour toi.\nNous pouvons manger maintenant."
+    },
+    {
+      "paragraph_id": "fr_04",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Notre professeur a une carte.\nElle est pour la classe.\nTu peux la regarder."
+    },
+    {
+      "paragraph_id": "fr_04",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Notre professeur a une carte.\nElle est pour la classe.\nTu peux la regarder."
+    },
+    {
+      "paragraph_id": "fr_04",
+      "source": "fr",
+      "accepted_as": "pt",
+      "text": "Notre professeur a une carte.\nElle est pour la classe.\nTu peux la regarder."
+    },
+    {
+      "paragraph_id": "fr_04",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Notre professeur a une carte.\nElle est pour la classe.\nTu peux la regarder."
+    },
+    {
+      "paragraph_id": "fr_05",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Ils sont dans le jardin.\nNous voulons être avec eux.\nIl n'y a pas de bruit."
+    },
+    {
+      "paragraph_id": "fr_05",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Ils sont dans le jardin.\nNous voulons être avec eux.\nIl n'y a pas de bruit."
+    },
+    {
+      "paragraph_id": "fr_05",
+      "source": "fr",
+      "accepted_as": "pt",
+      "text": "Ils sont dans le jardin.\nNous voulons être avec eux.\nIl n'y a pas de bruit."
+    },
+    {
+      "paragraph_id": "fr_05",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Ils sont dans le jardin.\nNous voulons être avec eux.\nIl n'y a pas de bruit."
+    },
+    {
+      "paragraph_id": "fr_06",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "J'étais dans le magasin.\nLe pain était frais.\nElle l'a payé."
+    },
+    {
+      "paragraph_id": "fr_06",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "J'étais dans le magasin.\nLe pain était frais.\nElle l'a payé."
+    },
+    {
+      "paragraph_id": "fr_07",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Tu n'es pas seul.\nNous sommes avec toi.\nIl peut nous aider."
+    },
+    {
+      "paragraph_id": "fr_07",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Tu n'es pas seul.\nNous sommes avec toi.\nIl peut nous aider."
+    },
+    {
+      "paragraph_id": "fr_08",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "La lettre est de ma sœur.\nElle a une nouvelle maison.\nJe vais la voir."
+    },
+    {
+      "paragraph_id": "fr_08",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "La lettre est de ma sœur.\nElle a une nouvelle maison.\nJe vais la voir."
+    },
+    {
+      "paragraph_id": "fr_08",
+      "source": "fr",
+      "accepted_as": "pt",
+      "text": "La lettre est de ma sœur.\nElle a une nouvelle maison.\nJe vais la voir."
+    },
+    {
+      "paragraph_id": "fr_08",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "La lettre est de ma sœur.\nElle a une nouvelle maison.\nJe vais la voir."
+    },
+    {
+      "paragraph_id": "fr_09",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Nous avons une réunion.\nElle est dans notre bureau.\nIls viennent aussi."
+    },
+    {
+      "paragraph_id": "fr_10",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Il a un petit bateau.\nNous pouvons aller avec lui.\nL'eau est calme."
+    },
+    {
+      "paragraph_id": "fr_10",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Il a un petit bateau.\nNous pouvons aller avec lui.\nL'eau est calme."
+    },
+    {
+      "paragraph_id": "fr_10",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Il a un petit bateau.\nNous pouvons aller avec lui.\nL'eau est calme."
+    },
+    {
+      "paragraph_id": "fr_11",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "La lampe est sur mon bureau.\nJe l'utilise la nuit.\nElle est très claire."
+    },
+    {
+      "paragraph_id": "fr_12",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Notre chien est dans la cour.\nIl nous attend.\nNous devons sortir."
+    },
+    {
+      "paragraph_id": "fr_12",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Notre chien est dans la cour.\nIl nous attend.\nNous devons sortir."
+    },
+    {
+      "paragraph_id": "fr_13",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Je veux un billet.\nTu as l'argent.\nNous pouvons l'acheter ici."
+    },
+    {
+      "paragraph_id": "fr_13",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Je veux un billet.\nTu as l'argent.\nNous pouvons l'acheter ici."
+    },
+    {
+      "paragraph_id": "fr_13",
+      "source": "fr",
+      "accepted_as": "pt",
+      "text": "Je veux un billet.\nTu as l'argent.\nNous pouvons l'acheter ici."
+    },
+    {
+      "paragraph_id": "fr_13",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Je veux un billet.\nTu as l'argent.\nNous pouvons l'acheter ici."
+    },
+    {
+      "paragraph_id": "fr_14",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Elle a un manteau bleu.\nIl est dans son sac.\nJe vais le lui apporter."
+    },
+    {
+      "paragraph_id": "fr_14",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Elle a un manteau bleu.\nIl est dans son sac.\nJe vais le lui apporter."
+    },
+    {
+      "paragraph_id": "fr_14",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Elle a un manteau bleu.\nIl est dans son sac.\nJe vais le lui apporter."
+    },
+    {
+      "paragraph_id": "fr_15",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Ils lisent le livre.\nIl parle de notre ville.\nNous connaissons l'auteur."
+    },
+    {
+      "paragraph_id": "fr_15",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Ils lisent le livre.\nIl parle de notre ville.\nNous connaissons l'auteur."
+    },
+    {
+      "paragraph_id": "fr_16",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Le bus est près du pont.\nNous sommes à l'heure.\nTu peux t'asseoir avec moi."
+    },
+    {
+      "paragraph_id": "fr_16",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Le bus est près du pont.\nNous sommes à l'heure.\nTu peux t'asseoir avec moi."
+    },
+    {
+      "paragraph_id": "fr_16",
+      "source": "fr",
+      "accepted_as": "pt",
+      "text": "Le bus est près du pont.\nNous sommes à l'heure.\nTu peux t'asseoir avec moi."
+    },
+    {
+      "paragraph_id": "fr_16",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Le bus est près du pont.\nNous sommes à l'heure.\nTu peux t'asseoir avec moi."
+    },
+    {
+      "paragraph_id": "fr_17",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Il était ici avant.\nJe n'étais pas avec lui.\nElle sait où il est allé."
+    },
+    {
+      "paragraph_id": "fr_17",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Il était ici avant.\nJe n'étais pas avec lui.\nElle sait où il est allé."
+    },
+    {
+      "paragraph_id": "fr_18",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Nous faisons un gâteau.\nIl est pour notre ami.\nIls viennent ce soir."
+    },
+    {
+      "paragraph_id": "fr_18",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Nous faisons un gâteau.\nIl est pour notre ami.\nIls viennent ce soir."
+    },
+    {
+      "paragraph_id": "fr_19",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "Tu peux prendre la chaise.\nJe suis par terre.\nNous avons de la place."
+    },
+    {
+      "paragraph_id": "fr_19",
+      "source": "fr",
+      "accepted_as": "es",
+      "text": "Tu peux prendre la chaise.\nJe suis par terre.\nNous avons de la place."
+    },
+    {
+      "paragraph_id": "fr_19",
+      "source": "fr",
+      "accepted_as": "pt",
+      "text": "Tu peux prendre la chaise.\nJe suis par terre.\nNous avons de la place."
+    },
+    {
+      "paragraph_id": "fr_19",
+      "source": "fr",
+      "accepted_as": "it",
+      "text": "Tu peux prendre la chaise.\nJe suis par terre.\nNous avons de la place."
+    },
+    {
+      "paragraph_id": "fr_20",
+      "source": "fr",
+      "accepted_as": "en",
+      "text": "La musique est douce.\nElle joue pour nous.\nNous l'écoutons."
+    },
+    {
+      "paragraph_id": "pt_01",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Eu tenho a chave.\nTu podes abrir a porta.\nNós estamos aqui."
+    },
+    {
+      "paragraph_id": "pt_01",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Eu tenho a chave.\nTu podes abrir a porta.\nNós estamos aqui."
+    },
+    {
+      "paragraph_id": "pt_01",
+      "source": "pt",
+      "accepted_as": "fr",
+      "text": "Eu tenho a chave.\nTu podes abrir a porta.\nNós estamos aqui."
+    },
+    {
+      "paragraph_id": "pt_01",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "Eu tenho a chave.\nTu podes abrir a porta.\nNós estamos aqui."
+    },
+    {
+      "paragraph_id": "pt_02",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Ela está na estação.\nO seu comboio está atrasado.\nEles esperam por nós."
+    },
+    {
+      "paragraph_id": "pt_02",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Ela está na estação.\nO seu comboio está atrasado.\nEles esperam por nós."
+    },
+    {
+      "paragraph_id": "pt_03",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "A sopa está na mesa.\nEle fez a sopa para ti.\nNós podemos comer agora."
+    },
+    {
+      "paragraph_id": "pt_03",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "A sopa está na mesa.\nEle fez a sopa para ti.\nNós podemos comer agora."
+    },
+    {
+      "paragraph_id": "pt_04",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "O nosso professor tem um mapa.\nÉ para a turma.\nTu podes olhar para ele."
+    },
+    {
+      "paragraph_id": "pt_04",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "O nosso professor tem um mapa.\nÉ para a turma.\nTu podes olhar para ele."
+    },
+    {
+      "paragraph_id": "pt_04",
+      "source": "pt",
+      "accepted_as": "fr",
+      "text": "O nosso professor tem um mapa.\nÉ para a turma.\nTu podes olhar para ele."
+    },
+    {
+      "paragraph_id": "pt_04",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "O nosso professor tem um mapa.\nÉ para a turma.\nTu podes olhar para ele."
+    },
+    {
+      "paragraph_id": "pt_05",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Eles estão no jardim.\nNós queremos ficar com eles.\nNão há barulho aqui."
+    },
+    {
+      "paragraph_id": "pt_06",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Eu estava na loja.\nO pão era fresco.\nEla pagou por ele."
+    },
+    {
+      "paragraph_id": "pt_06",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Eu estava na loja.\nO pão era fresco.\nEla pagou por ele."
+    },
+    {
+      "paragraph_id": "pt_07",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Tu não estás sozinho.\nNós estamos contigo.\nEle pode ajudar-nos."
+    },
+    {
+      "paragraph_id": "pt_08",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "A carta é da minha irmã.\nEla tem uma casa nova.\nEu vou visitá-la."
+    },
+    {
+      "paragraph_id": "pt_08",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "A carta é da minha irmã.\nEla tem uma casa nova.\nEu vou visitá-la."
+    },
+    {
+      "paragraph_id": "pt_08",
+      "source": "pt",
+      "accepted_as": "fr",
+      "text": "A carta é da minha irmã.\nEla tem uma casa nova.\nEu vou visitá-la."
+    },
+    {
+      "paragraph_id": "pt_08",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "A carta é da minha irmã.\nEla tem uma casa nova.\nEu vou visitá-la."
+    },
+    {
+      "paragraph_id": "pt_09",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Nós temos uma reunião.\nÉ no nosso escritório.\nEles vêm também."
+    },
+    {
+      "paragraph_id": "pt_10",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Ele tem um barco pequeno.\nNós podemos ir com ele.\nA água está calma."
+    },
+    {
+      "paragraph_id": "pt_11",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "A luz está na minha mesa.\nEu uso-a à noite.\nEla é muito clara."
+    },
+    {
+      "paragraph_id": "pt_11",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "A luz está na minha mesa.\nEu uso-a à noite.\nEla é muito clara."
+    },
+    {
+      "paragraph_id": "pt_12",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "O nosso cão está no pátio.\nEle espera por nós.\nNós devemos sair."
+    },
+    {
+      "paragraph_id": "pt_12",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "O nosso cão está no pátio.\nEle espera por nós.\nNós devemos sair."
+    },
+    {
+      "paragraph_id": "pt_13",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Eu preciso de um bilhete.\nTu tens o dinheiro.\nNós podemos comprar aqui."
+    },
+    {
+      "paragraph_id": "pt_13",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Eu preciso de um bilhete.\nTu tens o dinheiro.\nNós podemos comprar aqui."
+    },
+    {
+      "paragraph_id": "pt_13",
+      "source": "pt",
+      "accepted_as": "fr",
+      "text": "Eu preciso de um bilhete.\nTu tens o dinheiro.\nNós podemos comprar aqui."
+    },
+    {
+      "paragraph_id": "pt_13",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "Eu preciso de um bilhete.\nTu tens o dinheiro.\nNós podemos comprar aqui."
+    },
+    {
+      "paragraph_id": "pt_14",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Ela tem um casaco azul.\nEstá na sua mala.\nEu vou levar o casaco para ela."
+    },
+    {
+      "paragraph_id": "pt_14",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Ela tem um casaco azul.\nEstá na sua mala.\nEu vou levar o casaco para ela."
+    },
+    {
+      "paragraph_id": "pt_15",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Eles leem o livro.\nÉ sobre a nossa cidade.\nNós conhecemos o autor."
+    },
+    {
+      "paragraph_id": "pt_15",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Eles leem o livro.\nÉ sobre a nossa cidade.\nNós conhecemos o autor."
+    },
+    {
+      "paragraph_id": "pt_15",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "Eles leem o livro.\nÉ sobre a nossa cidade.\nNós conhecemos o autor."
+    },
+    {
+      "paragraph_id": "pt_16",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "O autocarro está junto à ponte.\nNós estamos a horas.\nTu podes sentar-te comigo."
+    },
+    {
+      "paragraph_id": "pt_16",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "O autocarro está junto à ponte.\nNós estamos a horas.\nTu podes sentar-te comigo."
+    },
+    {
+      "paragraph_id": "pt_16",
+      "source": "pt",
+      "accepted_as": "fr",
+      "text": "O autocarro está junto à ponte.\nNós estamos a horas.\nTu podes sentar-te comigo."
+    },
+    {
+      "paragraph_id": "pt_16",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "O autocarro está junto à ponte.\nNós estamos a horas.\nTu podes sentar-te comigo."
+    },
+    {
+      "paragraph_id": "pt_17",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Ele esteve aqui antes.\nEu não estava com ele.\nEla sabe onde ele foi."
+    },
+    {
+      "paragraph_id": "pt_18",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Nós fazemos um bolo.\nÉ para o nosso amigo.\nEles vêm esta noite."
+    },
+    {
+      "paragraph_id": "pt_18",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Nós fazemos um bolo.\nÉ para o nosso amigo.\nEles vêm esta noite."
+    },
+    {
+      "paragraph_id": "pt_18",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "Nós fazemos um bolo.\nÉ para o nosso amigo.\nEles vêm esta noite."
+    },
+    {
+      "paragraph_id": "pt_19",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "Tu podes levar a cadeira.\nEu estou no chão.\nNós temos espaço."
+    },
+    {
+      "paragraph_id": "pt_19",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "Tu podes levar a cadeira.\nEu estou no chão.\nNós temos espaço."
+    },
+    {
+      "paragraph_id": "pt_19",
+      "source": "pt",
+      "accepted_as": "fr",
+      "text": "Tu podes levar a cadeira.\nEu estou no chão.\nNós temos espaço."
+    },
+    {
+      "paragraph_id": "pt_19",
+      "source": "pt",
+      "accepted_as": "it",
+      "text": "Tu podes levar a cadeira.\nEu estou no chão.\nNós temos espaço."
+    },
+    {
+      "paragraph_id": "pt_20",
+      "source": "pt",
+      "accepted_as": "en",
+      "text": "A música está suave.\nEla toca para nós.\nNós estamos a ouvir."
+    },
+    {
+      "paragraph_id": "pt_20",
+      "source": "pt",
+      "accepted_as": "es",
+      "text": "A música está suave.\nEla toca para nós.\nNós estamos a ouvir."
+    },
+    {
+      "paragraph_id": "it_01",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Io ho la chiave.\nTu puoi aprire la porta.\nNoi siamo qui."
+    },
+    {
+      "paragraph_id": "it_01",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Io ho la chiave.\nTu puoi aprire la porta.\nNoi siamo qui."
+    },
+    {
+      "paragraph_id": "it_01",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "Io ho la chiave.\nTu puoi aprire la porta.\nNoi siamo qui."
+    },
+    {
+      "paragraph_id": "it_02",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Lei è alla stazione.\nIl suo treno è in ritardo.\nLoro ci aspettano."
+    },
+    {
+      "paragraph_id": "it_03",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "La zuppa è sulla tavola.\nLui l'ha fatta per te.\nNoi possiamo mangiare ora."
+    },
+    {
+      "paragraph_id": "it_03",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "La zuppa è sulla tavola.\nLui l'ha fatta per te.\nNoi possiamo mangiare ora."
+    },
+    {
+      "paragraph_id": "it_04",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Il nostro professore ha una mappa.\nÈ per la classe.\nTu puoi guardarla."
+    },
+    {
+      "paragraph_id": "it_04",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Il nostro professore ha una mappa.\nÈ per la classe.\nTu puoi guardarla."
+    },
+    {
+      "paragraph_id": "it_04",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "Il nostro professore ha una mappa.\nÈ per la classe.\nTu puoi guardarla."
+    },
+    {
+      "paragraph_id": "it_04",
+      "source": "it",
+      "accepted_as": "pt",
+      "text": "Il nostro professore ha una mappa.\nÈ per la classe.\nTu puoi guardarla."
+    },
+    {
+      "paragraph_id": "it_05",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Loro sono nel giardino.\nNoi vogliamo stare con loro.\nNon c'è rumore qui."
+    },
+    {
+      "paragraph_id": "it_06",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Io ero nel negozio.\nIl pane era fresco.\nLei lo ha pagato."
+    },
+    {
+      "paragraph_id": "it_07",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Tu non sei solo.\nNoi siamo con te.\nLui può aiutarci."
+    },
+    {
+      "paragraph_id": "it_07",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Tu non sei solo.\nNoi siamo con te.\nLui può aiutarci."
+    },
+    {
+      "paragraph_id": "it_07",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "Tu non sei solo.\nNoi siamo con te.\nLui può aiutarci."
+    },
+    {
+      "paragraph_id": "it_08",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "La lettera è di mia sorella.\nLei ha una casa nuova.\nIo vado a trovarla."
+    },
+    {
+      "paragraph_id": "it_08",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "La lettera è di mia sorella.\nLei ha una casa nuova.\nIo vado a trovarla."
+    },
+    {
+      "paragraph_id": "it_08",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "La lettera è di mia sorella.\nLei ha una casa nuova.\nIo vado a trovarla."
+    },
+    {
+      "paragraph_id": "it_08",
+      "source": "it",
+      "accepted_as": "pt",
+      "text": "La lettera è di mia sorella.\nLei ha una casa nuova.\nIo vado a trovarla."
+    },
+    {
+      "paragraph_id": "it_09",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Noi abbiamo una riunione.\nÈ nel nostro ufficio.\nLoro vengono anche."
+    },
+    {
+      "paragraph_id": "it_10",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Lui ha una piccola barca.\nNoi possiamo andare con lui.\nL'acqua è calma."
+    },
+    {
+      "paragraph_id": "it_10",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Lui ha una piccola barca.\nNoi possiamo andare con lui.\nL'acqua è calma."
+    },
+    {
+      "paragraph_id": "it_11",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "La lampada è sulla mia scrivania.\nIo la uso di notte.\nÈ molto luminosa."
+    },
+    {
+      "paragraph_id": "it_12",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Il nostro cane è nel cortile.\nLui ci aspetta.\nNoi dobbiamo uscire."
+    },
+    {
+      "paragraph_id": "it_13",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Io voglio un biglietto.\nTu hai i soldi.\nNoi possiamo comprarlo qui."
+    },
+    {
+      "paragraph_id": "it_13",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Io voglio un biglietto.\nTu hai i soldi.\nNoi possiamo comprarlo qui."
+    },
+    {
+      "paragraph_id": "it_13",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "Io voglio un biglietto.\nTu hai i soldi.\nNoi possiamo comprarlo qui."
+    },
+    {
+      "paragraph_id": "it_14",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Lei ha un cappotto blu.\nÈ nella sua borsa.\nIo glielo porterò."
+    },
+    {
+      "paragraph_id": "it_15",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Loro leggono il libro.\nÈ sulla nostra città.\nNoi conosciamo lo scrittore."
+    },
+    {
+      "paragraph_id": "it_16",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "L'autobus è vicino al ponte.\nNoi siamo in orario.\nTu puoi sederti con me."
+    },
+    {
+      "paragraph_id": "it_16",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "L'autobus è vicino al ponte.\nNoi siamo in orario.\nTu puoi sederti con me."
+    },
+    {
+      "paragraph_id": "it_16",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "L'autobus è vicino al ponte.\nNoi siamo in orario.\nTu puoi sederti con me."
+    },
+    {
+      "paragraph_id": "it_16",
+      "source": "it",
+      "accepted_as": "pt",
+      "text": "L'autobus è vicino al ponte.\nNoi siamo in orario.\nTu puoi sederti con me."
+    },
+    {
+      "paragraph_id": "it_17",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Lui era qui prima.\nIo non ero con lui.\nLei sa dove è andato."
+    },
+    {
+      "paragraph_id": "it_18",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Noi facciamo una torta.\nÈ per un nostro amico.\nLoro vengono stasera."
+    },
+    {
+      "paragraph_id": "it_18",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Noi facciamo una torta.\nÈ per un nostro amico.\nLoro vengono stasera."
+    },
+    {
+      "paragraph_id": "it_19",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "Tu puoi prendere la sedia.\nIo sono sul pavimento.\nNoi abbiamo spazio."
+    },
+    {
+      "paragraph_id": "it_19",
+      "source": "it",
+      "accepted_as": "es",
+      "text": "Tu puoi prendere la sedia.\nIo sono sul pavimento.\nNoi abbiamo spazio."
+    },
+    {
+      "paragraph_id": "it_19",
+      "source": "it",
+      "accepted_as": "fr",
+      "text": "Tu puoi prendere la sedia.\nIo sono sul pavimento.\nNoi abbiamo spazio."
+    },
+    {
+      "paragraph_id": "it_20",
+      "source": "it",
+      "accepted_as": "en",
+      "text": "La musica è dolce.\nLei suona per noi.\nNoi la ascoltiamo."
+    },
+    {
+      "paragraph_id": "de_01",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Ich habe den Schlüssel.\nDu kannst die Tür öffnen.\nWir sind hier."
+    },
+    {
+      "paragraph_id": "de_02",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Sie ist am Bahnhof.\nIhr Zug ist verspätet.\nSie warten auf uns."
+    },
+    {
+      "paragraph_id": "de_03",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Die Suppe steht auf dem Tisch.\nEr hat sie für dich gemacht.\nWir essen jetzt."
+    },
+    {
+      "paragraph_id": "de_04",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Unser Lehrer hat eine Karte.\nSie ist für die Klasse.\nDu kannst sie ansehen."
+    },
+    {
+      "paragraph_id": "de_05",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Sie sind im Garten.\nWir wollen bei ihnen sitzen.\nHier ist es ruhig."
+    },
+    {
+      "paragraph_id": "de_06",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Ich war im Laden.\nDas Brot war frisch.\nSie hat es bezahlt."
+    },
+    {
+      "paragraph_id": "de_07",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Du bist nicht allein.\nWir sind bei dir.\nEr kann uns helfen."
+    },
+    {
+      "paragraph_id": "de_08",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Der Brief ist von meiner Schwester.\nSie hat ein neues Haus.\nIch besuche sie."
+    },
+    {
+      "paragraph_id": "de_09",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Wir haben eine Besprechung.\nSie ist in unserem Büro.\nSie kommen auch."
+    },
+    {
+      "paragraph_id": "de_10",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Er hat ein kleines Boot.\nWir können mit ihm fahren.\nDas Wasser ist ruhig."
+    },
+    {
+      "paragraph_id": "de_11",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Die Lampe steht auf meinem Tisch.\nIch nutze sie am Abend.\nSie ist sehr hell."
+    },
+    {
+      "paragraph_id": "de_12",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Unser Hund ist im Hof.\nEr wartet auf uns.\nWir müssen hinausgehen."
+    },
+    {
+      "paragraph_id": "de_13",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Ich brauche eine Karte.\nDu hast das Geld.\nWir können sie hier kaufen."
+    },
+    {
+      "paragraph_id": "de_14",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Sie hat einen blauen Mantel.\nEr ist in ihrer Tasche.\nIch bringe ihn ihr."
+    },
+    {
+      "paragraph_id": "de_15",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Sie lesen das Buch.\nEs handelt von unserer Stadt.\nWir kennen den Autor."
+    },
+    {
+      "paragraph_id": "de_16",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Der Bus steht an der Brücke.\nWir sind pünktlich.\nDu kannst bei mir sitzen."
+    },
+    {
+      "paragraph_id": "de_17",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Er war vorher hier.\nIch war nicht bei ihm.\nSie weiß wohin er ging."
+    },
+    {
+      "paragraph_id": "de_18",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Wir backen einen Kuchen.\nEr ist für unseren Freund.\nSie kommen heute Abend."
+    },
+    {
+      "paragraph_id": "de_19",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Du kannst den Stuhl nehmen.\nIch sitze auf dem Boden.\nWir haben Platz."
+    },
+    {
+      "paragraph_id": "de_20",
+      "source": "de",
+      "accepted_as": "en",
+      "text": "Die Musik ist leise.\nSie spielt für uns.\nWir hören ihr zu."
+    },
+    {
+      "paragraph_id": "nl_01",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Ik heb de sleutel.\nJij kunt de deur openen.\nWij wachten hier."
+    },
+    {
+      "paragraph_id": "nl_02",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Zij is op het station.\nHaar trein is te laat.\nWij wachten op haar."
+    },
+    {
+      "paragraph_id": "nl_03",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "De soep staat op de tafel.\nHij heeft die voor jou gemaakt.\nWij eten nu."
+    },
+    {
+      "paragraph_id": "nl_04",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Onze leraar heeft een kaart.\nDie is voor de klas.\nJij kunt die bekijken."
+    },
+    {
+      "paragraph_id": "nl_05",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Zij zijn in de tuin.\nWij willen bij hen zitten.\nHet is hier rustig."
+    },
+    {
+      "paragraph_id": "nl_06",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Ik was in de winkel.\nHet brood was vers.\nZij heeft het betaald."
+    },
+    {
+      "paragraph_id": "nl_07",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Jij bent niet alleen.\nWij zijn bij jou.\nHij kan ons helpen."
+    },
+    {
+      "paragraph_id": "nl_08",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "De brief is van mijn zus.\nZij heeft een nieuw huis.\nIk bezoek haar."
+    },
+    {
+      "paragraph_id": "nl_09",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Wij hebben een vergadering.\nDie is in ons kantoor.\nZij komen ook."
+    },
+    {
+      "paragraph_id": "nl_09",
+      "source": "nl",
+      "accepted_as": "de",
+      "text": "Wij hebben een vergadering.\nDie is in ons kantoor.\nZij komen ook."
+    },
+    {
+      "paragraph_id": "nl_10",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Hij heeft een kleine boot.\nWij kunnen met hem varen.\nHet water is rustig."
+    },
+    {
+      "paragraph_id": "nl_11",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "De lamp staat op mijn tafel.\nIk gebruik die in de avond.\nZij is erg helder."
+    },
+    {
+      "paragraph_id": "nl_11",
+      "source": "nl",
+      "accepted_as": "de",
+      "text": "De lamp staat op mijn tafel.\nIk gebruik die in de avond.\nZij is erg helder."
+    },
+    {
+      "paragraph_id": "nl_12",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Onze hond is op de binnenplaats.\nHij wacht op ons.\nWij moeten naar buiten."
+    },
+    {
+      "paragraph_id": "nl_13",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Ik wil een kaartje.\nJij hebt het geld.\nWij kunnen het hier kopen."
+    },
+    {
+      "paragraph_id": "nl_14",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Zij heeft een blauwe jas.\nDie is in haar tas.\nIk breng die naar haar."
+    },
+    {
+      "paragraph_id": "nl_14",
+      "source": "nl",
+      "accepted_as": "de",
+      "text": "Zij heeft een blauwe jas.\nDie is in haar tas.\nIk breng die naar haar."
+    },
+    {
+      "paragraph_id": "nl_15",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Zij lezen het boek.\nHet gaat over onze stad.\nWij kennen de schrijver."
+    },
+    {
+      "paragraph_id": "nl_16",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "De bus staat bij de brug.\nWij zijn op tijd.\nJij kunt bij mij zitten."
+    },
+    {
+      "paragraph_id": "nl_17",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Hij was eerder hier.\nIk was niet bij hem.\nZij weet waar hij heen ging."
+    },
+    {
+      "paragraph_id": "nl_18",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Wij maken een taart.\nDie is voor onze vriend.\nZij komen vanavond."
+    },
+    {
+      "paragraph_id": "nl_19",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "Jij kunt de stoel nemen.\nIk zit op de vloer.\nWij hebben genoeg ruimte."
+    },
+    {
+      "paragraph_id": "nl_20",
+      "source": "nl",
+      "accepted_as": "en",
+      "text": "De muziek is zacht.\nZij speelt voor ons.\nWij luisteren naar haar."
+    },
+    {
+      "paragraph_id": "pl_01",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Mam klucz i czekam.\nTy możesz otworzyć drzwi.\nMy jesteśmy tu, a ona tam."
+    },
+    {
+      "paragraph_id": "pl_01",
+      "source": "pl",
+      "accepted_as": "es",
+      "text": "Mam klucz i czekam.\nTy możesz otworzyć drzwi.\nMy jesteśmy tu, a ona tam."
+    },
+    {
+      "paragraph_id": "pl_01",
+      "source": "pl",
+      "accepted_as": "fr",
+      "text": "Mam klucz i czekam.\nTy możesz otworzyć drzwi.\nMy jesteśmy tu, a ona tam."
+    },
+    {
+      "paragraph_id": "pl_01",
+      "source": "pl",
+      "accepted_as": "pt",
+      "text": "Mam klucz i czekam.\nTy możesz otworzyć drzwi.\nMy jesteśmy tu, a ona tam."
+    },
+    {
+      "paragraph_id": "pl_01",
+      "source": "pl",
+      "accepted_as": "it",
+      "text": "Mam klucz i czekam.\nTy możesz otworzyć drzwi.\nMy jesteśmy tu, a ona tam."
+    },
+    {
+      "paragraph_id": "pl_02",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Ona jest na stacji.\nJej pociąg jest spóźniony.\nMy czekamy na nią i nie wychodzimy."
+    },
+    {
+      "paragraph_id": "pl_03",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Zupa jest na stole.\nOn zrobił ją dla ciebie.\nMy jemy, a ona nie chce."
+    },
+    {
+      "paragraph_id": "pl_03",
+      "source": "pl",
+      "accepted_as": "pt",
+      "text": "Zupa jest na stole.\nOn zrobił ją dla ciebie.\nMy jemy, a ona nie chce."
+    },
+    {
+      "paragraph_id": "pl_04",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Nasz nauczyciel ma mapę.\nTo jest dla klasy.\nTy możesz ją obejrzeć, ale nie teraz."
+    },
+    {
+      "paragraph_id": "pl_05",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Oni są w ogrodzie.\nMy chcemy być z nimi.\nTu jest cicho i nie ma hałasu."
+    },
+    {
+      "paragraph_id": "pl_05",
+      "source": "pl",
+      "accepted_as": "it",
+      "text": "Oni są w ogrodzie.\nMy chcemy być z nimi.\nTu jest cicho i nie ma hałasu."
+    },
+    {
+      "paragraph_id": "pl_06",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Byłam w sklepie.\nChleb był świeży.\nOna za niego zapłaciła, a ja nie."
+    },
+    {
+      "paragraph_id": "pl_07",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Ty nie jesteś sam.\nMy jesteśmy z tobą.\nOn może nam pomóc, bo jest tu."
+    },
+    {
+      "paragraph_id": "pl_08",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "List jest od siostry.\nOna ma nowy dom.\nJa chcę ją odwiedzić i być z nią."
+    },
+    {
+      "paragraph_id": "pl_08",
+      "source": "pl",
+      "accepted_as": "it",
+      "text": "List jest od siostry.\nOna ma nowy dom.\nJa chcę ją odwiedzić i być z nią."
+    },
+    {
+      "paragraph_id": "pl_09",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "My mamy spotkanie.\nTo jest w naszym biurze.\nOni też przyjdą, ale nie dziś."
+    },
+    {
+      "paragraph_id": "pl_10",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "On ma małą łódź.\nMy możemy z nim płynąć.\nWoda jest spokojna i nie wieje."
+    },
+    {
+      "paragraph_id": "pl_10",
+      "source": "pl",
+      "accepted_as": "it",
+      "text": "On ma małą łódź.\nMy możemy z nim płynąć.\nWoda jest spokojna i nie wieje."
+    },
+    {
+      "paragraph_id": "pl_11",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Lampa jest na moim biurku.\nJa używam jej w nocy.\nOna jest jasna, ale nie duża."
+    },
+    {
+      "paragraph_id": "pl_12",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Nasz pies jest na podwórku.\nOn na nas czeka.\nMy musimy wyjść, bo jest późno."
+    },
+    {
+      "paragraph_id": "pl_12",
+      "source": "pl",
+      "accepted_as": "pt",
+      "text": "Nasz pies jest na podwórku.\nOn na nas czeka.\nMy musimy wyjść, bo jest późno."
+    },
+    {
+      "paragraph_id": "pl_13",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Ja chcę bilet.\nTy masz pieniądze.\nMy możemy go kupić, jeśli sklep jest otwarty."
+    },
+    {
+      "paragraph_id": "pl_14",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Ona ma niebieski płaszcz.\nTo jest w jej torbie.\nJa jej go przyniosę, ale nie teraz."
+    },
+    {
+      "paragraph_id": "pl_15",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Oni czytają książkę.\nTo jest o naszym mieście.\nMy znamy autora i jego siostrę."
+    },
+    {
+      "paragraph_id": "pl_15",
+      "source": "pl",
+      "accepted_as": "it",
+      "text": "Oni czytają książkę.\nTo jest o naszym mieście.\nMy znamy autora i jego siostrę."
+    },
+    {
+      "paragraph_id": "pl_16",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Autobus jest przy moście.\nMy jesteśmy na czas.\nTy możesz być ze mną, a ona z nim."
+    },
+    {
+      "paragraph_id": "pl_16",
+      "source": "pl",
+      "accepted_as": "pt",
+      "text": "Autobus jest przy moście.\nMy jesteśmy na czas.\nTy możesz być ze mną, a ona z nim."
+    },
+    {
+      "paragraph_id": "pl_17",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "On był tu wcześniej.\nJa nie byłam z nim.\nOna wie, gdzie był i co robił."
+    },
+    {
+      "paragraph_id": "pl_17",
+      "source": "pl",
+      "accepted_as": "it",
+      "text": "On był tu wcześniej.\nJa nie byłam z nim.\nOna wie, gdzie był i co robił."
+    },
+    {
+      "paragraph_id": "pl_18",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "My robimy ciasto.\nTo jest dla przyjaciela.\nOni przyjdą, gdy będzie gotowe."
+    },
+    {
+      "paragraph_id": "pl_19",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Ty możesz wziąć krzesło.\nJa siedzę na podłodze.\nMy mamy miejsce, ale nie dużo."
+    },
+    {
+      "paragraph_id": "pl_20",
+      "source": "pl",
+      "accepted_as": "en",
+      "text": "Muzyka jest cicha.\nOna gra dla nas.\nMy jej słuchamy i nie rozmawiamy."
+    }
+  ]
+}

@@ -133,6 +133,8 @@ LOCALIZE_WINDOW_S = 62.0
 # every line generated while it is set, so to compare modes: set it, generate
 # one scene, listen, then change or clear it. Railway restarts the server when
 # a variable changes, so a new value takes effect once that redeploy is done.
+# A customer can also choose a mode for one dub (long dub, price step); that choice wins over the variable, and "balanced" in
+# the page means nothing is chosen (the variable, then Inworld's default, applies).
 DELIVERY_MODES = ("STABLE", "BALANCED", "CREATIVE")
 _delivery_notes = set()          # what has already been printed, so a long dub does not repeat it for every line
 
@@ -151,6 +153,15 @@ def delivery_mode():
         _delivery_notes.add("bad:" + raw)
         print(f"[inworld-tts] INWORLD_DELIVERY_MODE={raw!r} is not one of {', '.join(DELIVERY_MODES)}: ignored")
     return None
+
+
+def choose_delivery_mode(requested=None):
+    """The mode for one request. A customer's choice for this dub (stable, balanced or creative, any capitals) wins; empty or
+    anything else falls back to the server-wide variable, which sends nothing when it is empty."""
+    raw = str(requested or "").strip().upper()
+    if raw in DELIVERY_MODES:
+        return raw
+    return delivery_mode()
 
 
 # Maps this app's canonical emotion/style vocabulary (config.
@@ -523,7 +534,7 @@ def gemini_chooser(job_id):
     return choose
 
 
-def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_LANGUAGE, model_id: str = DEFAULT_MODEL_ID) -> bytes:
+def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_LANGUAGE, model_id: str = DEFAULT_MODEL_ID, delivery: str = None) -> bytes:
     """Given a cloned voiceId and plain text, returns generated audio bytes
     (MP3). Raises on failure -- same convention as eleven_client.
     text_to_speech.convert() in eleven_service.py, so the callers there
@@ -538,7 +549,7 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
         "language": language,
         "audioConfig": {"audioEncoding": "MP3"},
     }
-    mode = delivery_mode() if model_id == DEFAULT_MODEL_ID else None       # only inworld-tts-2 takes it
+    mode = choose_delivery_mode(delivery) if model_id == DEFAULT_MODEL_ID else None       # only inworld-tts-2 takes it
     if mode:
         body["deliveryMode"] = mode
     data = _request("POST", "/tts/v1/voice", api_key, body, timeout=60)

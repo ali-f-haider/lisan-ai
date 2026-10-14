@@ -363,6 +363,14 @@ var T = {
     priceTime: function (a, b, lip) { return "⏱ Dubbing " + (lip ? "with lip-sync " : "") + "takes about " + a + "–" + b + " minutes; we email you when the file is ready."; },
     priceNoArabic: function (n) { return "⚠️ " + n + " line(s) have original text but no Arabic. They will be left silent in the dubbed file."; },
     priceSpeakers: "Speakers that will be cloned:",
+    deliveryLabel: "Voice style:",
+    deliveryBalanced: "Balanced (default)",
+    deliveryStable: "Stable: steady and exact",
+    deliveryCreative: "Creative: more expressive",
+    deliveryBalancedNote: "The usual mix: natural, with the feeling each line asks for. A good choice for most videos.",
+    deliveryStableNote: "Calmer and more even from line to line, and it follows your text closely. Less emotion and fewer surprises. Best for news, narration, courtrooms, lectures and anything serious.",
+    deliveryCreativeNote: "More lively and varied, with a wider range of feeling. Lines can differ more from each other and are less predictable. Best for drama, stories and animation. Listen to the result before you publish it.",
+    deliveryNote: "This only changes how the voice speaks, never the words or the price. It applies to this dub, including later corrections.",
     roomLabel: "Room sound:",
     roomAuto: "Match the original (recommended)",
     roomLighter: "A little lighter",
@@ -610,6 +618,14 @@ var T = {
     priceTime: function (a, b, lip) { return "⏱ تستغرق الدبلجة " + (lip ? "مع مزامنة الشفاه " : "") + "نحو " + a + "–" + b + " دقيقة؛ سنراسلك عندما يجهز الملف."; },
     priceNoArabic: function (n) { return "⚠️ " + n + " سطر فيه إنجليزي بلا عربي. سيُترك صامتاً في الملف المدبلج."; },
     priceSpeakers: "المتحدثون الذين ستُستنسخ أصواتهم:",
+    deliveryLabel: "أسلوب الأداء الصوتي:",
+    deliveryBalanced: "متوازن (الافتراضي)",
+    deliveryStable: "ثابت: هادئ ودقيق",
+    deliveryCreative: "تعبيري: أكثر حيوية",
+    deliveryBalancedNote: "المزيج المعتاد: أداء طبيعي يعبّر عن المشاعر التي يطلبها كل سطر. اختيار مناسب لمعظم الفيديوهات.",
+    deliveryStableNote: "أداء أهدأ وأكثر اتساقاً من سطر إلى آخر، ويلتزم بالنص عن قرب. انفعال أقل ومفاجآت أقل. مناسب للأخبار والتعليق الصوتي والمحاكم والمحاضرات وكل ما هو جاد.",
+    deliveryCreativeNote: "أداء أكثر حيوية وتنوعاً، بمدى أوسع من المشاعر. قد تختلف الأسطر عن بعضها أكثر ويصعب توقعها. مناسب للدراما والقصص والرسوم المتحركة. استمع إلى النتيجة قبل نشرها.",
+    deliveryNote: "هذا الخيار يغيّر طريقة نطق الصوت فقط، لا الكلمات ولا السعر. ويسري على هذه الدبلجة، بما فيها التصحيحات اللاحقة.",
     roomLabel: "صوت المكان:",
     roomAuto: "مطابقة الأصل (موصى به)",
     roomLighter: "أخفّ قليلاً",
@@ -1187,6 +1203,8 @@ function onSubPicked(file) {
   LisanDialog.readSubtitle(file).then(function (text) {
     if (!looksLikeSub(text)) { alertMsg(T.subNotSub); return; }
     var ar = (text.match(/[\u0600-\u06FF]/g) || []).length, la = (text.match(/[A-Za-z]/g) || []).length;
+    var originalCode = forJob && cur ? LisanSource.normalise(cur.source_language) : LisanSource.normalise($("sourceLanguage") && $("sourceLanguage").value);
+    if (originalCode === "nl" || originalCode === "pl") la = (text.match(/\p{Script=Latin}/gu) || []).length;
     if (ar > la) { alertMsg(T.subArabic); return; }
     return Promise.resolve({ mode: "auto", add_missed: true }).then(function (choice) {      // always the "Smart" way, no question asked (the choice box is still in dialogs.js)
       var payload = { text: text, filename: file.name, mode: choice.mode, add_missed: choice.add_missed };
@@ -2177,6 +2195,8 @@ window.addEventListener("beforeunload", function (e) { if (uploading) { e.preven
 
 // ---- confirm step
 var roomPref = "auto";
+var deliveryPref = "";   // how the voice speaks ("" = balanced, the way it always was; "stable"; "creative")
+function deliveryDescFor(v) { return v === "stable" ? T.deliveryStableNote : v === "creative" ? T.deliveryCreativeNote : T.deliveryBalancedNote; }
 var musicPref = true;       // keep the music under the original voices (confirm step)
 function renderConfirm() {
   var a = $("confirmArea"); if (!a) return;
@@ -2209,6 +2229,11 @@ function renderConfirm() {
          [["auto", T.roomAuto], ["lighter", T.roomLighter], ["much_lighter", T.roomMuch], ["off", T.roomNone]].map(function (o) {
            return '<option value="' + o[0] + '"' + (roomPref === o[0] ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") +
          "</select>" + q(esc(T.roomNote)) + "</div>";
+    h += '<div class="ld-room"><label for="deliveryPref">' + esc(T.deliveryLabel) + '</label><select id="deliveryPref">' +
+         [["", T.deliveryBalanced], ["stable", T.deliveryStable], ["creative", T.deliveryCreative]].map(function (o) {
+           return '<option value="' + o[0] + '"' + (deliveryPref === o[0] ? " selected" : "") + ">" + esc(o[1]) + "</option>"; }).join("") +
+         "</select>" + q([esc(T.deliveryBalancedNote), esc(T.deliveryStableNote), esc(T.deliveryCreativeNote), esc(T.deliveryNote)]) +
+         "<p class='note' id='deliveryDesc'>" + esc(deliveryDescFor(deliveryPref)) + "</p></div>";
     var musicTip = [esc(T.musicAskNote)];
     if (cfg && cfg.music_fill && cfg.music_fill.available && cfg.music_fill.credits > 0) musicTip.push(esc(T.musicFillNote.replace("{n}", cfg.music_fill.credits)));
     if (p.music && p.music.max_credits) musicTip.push(esc(LANG === "ar" ? "إصلاح الموسيقى: بحد أقصى " + p.music.max_credits + " رصيداً؛ تدفع فقط عن الإصلاحات الناجحة." : "Music repair: up to " + p.music.max_credits + " additional credits; only successful repairs are charged."));
@@ -2227,6 +2252,7 @@ function renderConfirm() {
   var b;
   if ((b = $("btnPrice"))) b.onclick = loadPrice;
   var rp = $("roomPref"); if (rp) rp.onchange = function () { roomPref = rp.value; };
+  var dp = $("deliveryPref"); if (dp) dp.onchange = function () { deliveryPref = dp.value; var dd = $("deliveryDesc"); if (dd) dd.textContent = deliveryDescFor(deliveryPref); };
   var mb = $("musicBox"); if (mb) mb.onchange = function () { musicPref = mb.checked; renderConfirm(); };
   var tb = $("tracksBox"); if (tb) tb.onchange = function () { tracksPref = tb.checked; };
   var pr = $("priceLipRes"); if (pr) pr.onchange = function () { changeLipRes(pr, function () { loadPrice(true); }); };
@@ -2266,7 +2292,7 @@ function doConfirm() {
     if (!yes) return;
     var b = $("btnConfirm"); if (b) b.disabled = true;
     busyShow(T.busyDub);
-    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, tracks: tracksPref, keep_music: musicPref, music_budget: musicMax }); }).then(function (r) {
+    flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/confirm", { expected_due: p.due, room: roomPref, delivery_mode: deliveryPref, tracks: tracksPref, keep_music: musicPref, music_budget: musicMax }); }).then(function (r) {
       busyHide();
       if (!r.ok) {
         lastErr = r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr);

@@ -1,0 +1,319 @@
+{
+  "origin": "invented; no film or customer data",
+  "native_review": "needs a native check",
+  "profile": "tidy",
+  "lines": [
+    {
+      "id": "nl_00",
+      "speaker": "A",
+      "text": "Waar is de sleutel?",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Waar is de sleutel?"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_01",
+      "speaker": "B",
+      "text": "Ik heb hem gevonden!",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Ik heb hem gevonden!"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_02",
+      "speaker": "A",
+      "text": "Dhr. Jansen komt morgen.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Dhr. Jansen komt morgen."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_03",
+      "speaker": "B",
+      "text": "Mw. De Vries wacht hier.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Mw. De Vries wacht hier."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_04",
+      "speaker": "A",
+      "text": "Mr. Bos leest het contract.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Mr. Bos leest het contract."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_05",
+      "speaker": "B",
+      "text": "Drs. Smit spreekt om 10:00.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Drs. Smit spreekt om 10:00."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_06",
+      "speaker": "A",
+      "text": "We meten 3,5 meter. Daarna gaan we.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "We meten 3,5 meter. ",
+        "Daarna gaan we."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_07",
+      "speaker": "B",
+      "text": "De 1e deur is open.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "De 1e deur is open."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_08",
+      "speaker": "A",
+      "text": "'t Is vandaag koud.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "'t Is vandaag koud."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_09",
+      "speaker": "B",
+      "text": "'s Avonds bel ik je op.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "'s Avonds bel ik je op."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_10",
+      "speaker": "A",
+      "text": "M'n fiets staat naast z'n auto.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "M'n fiets staat naast z'n auto."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_11",
+      "speaker": "B",
+      "text": "D'r jas ligt op de stoel.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "D'r jas ligt op de stoel."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_12",
+      "speaker": "A",
+      "text": "Zo'n idee helpt ons.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Zo'n idee helpt ons."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_13",
+      "speaker": "B",
+      "text": "IJsselmeer begint met IJ.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "IJsselmeer begint met IJ."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_14",
+      "speaker": "A",
+      "text": "De bedrijfsaansprakelijkheidsverzekering is geldig.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "De bedrijfsaansprakelijkheidsverzekering is geldig."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_15",
+      "speaker": "B",
+      "text": "Hij zei: „Ik kom.” Daarna vertrok hij.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Hij zei: „Ik kom.” ",
+        "Daarna vertrok hij."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_16",
+      "speaker": "A",
+      "text": "Kom je echt?!",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Kom je echt?!"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_17",
+      "speaker": "B",
+      "text": "Ik wacht…",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Ik wacht…"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_18",
+      "speaker": "A",
+      "text": "Maar ik dacht—",
+      "expected_ends_sentence": false,
+      "expected_splits": [
+        "Maar ik dacht—"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_19",
+      "speaker": "B",
+      "text": "Als je morgen",
+      "expected_ends_sentence": false,
+      "expected_splits": [
+        "Als je morgen"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_20",
+      "speaker": "A",
+      "text": "We kopen brood, melk, etc.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "We kopen brood, melk, etc."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_21",
+      "speaker": "B",
+      "text": "We kopen fruit, enz. Daarna vertrekken we.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "We kopen fruit, enz. ",
+        "Daarna vertrekken we."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_22",
+      "speaker": "A",
+      "text": "We lezen bijv. het tweede hoofdstuk.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "We lezen bijv. het tweede hoofdstuk."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_23",
+      "speaker": "B",
+      "text": "Dit gaat o.a. over vervoer.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Dit gaat o.a. over vervoer."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_24",
+      "speaker": "A",
+      "text": "Dat is de afspraak m.b.t. de levering.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Dat is de afspraak m.b.t. de levering."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_25",
+      "speaker": "B",
+      "text": "Ik kom om half drie.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Ik kom om half drie."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_26",
+      "speaker": "A",
+      "text": "Wilt u hier wachten?",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Wilt u hier wachten?"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_27",
+      "speaker": "B",
+      "text": "Gij kunt morgen komen.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Gij kunt morgen komen."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_28",
+      "speaker": "A",
+      "text": "Ik bel je morgen op.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Ik bel je morgen op."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "nl_29",
+      "speaker": "B",
+      "text": "Ze zegt dat zij morgen komt.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Ze zegt dat zij morgen komt."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    }
+  ],
+  "shared_cue": {
+    "lines": [
+      "- Kom je mee?",
+      "- Ik blijf hier."
+    ],
+    "expected_speaker_changes": [
+      1
+    ]
+  }
+}

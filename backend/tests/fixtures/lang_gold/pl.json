@@ -1,0 +1,532 @@
+{
+  "language": "pl",
+  "origin": "invented; no film/customer dialogue",
+  "native_review": "All source naturalness, Arabic proposals and screens need a native check; no accent claim.",
+  "cases": [
+    {
+      "id": "pl_tired_male",
+      "text": "Byłem zmęczony.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمتعب\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت متعب.",
+      "screen_counterexample": "كنت متعبة.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_tired_female",
+      "text": "Byłam zmęczona.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمتعبة\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت متعبة.",
+      "screen_counterexample": "كنت متعب.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_ready_male",
+      "text": "Byłem gotowy.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمستعد\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت مستعد.",
+      "screen_counterexample": "كنت مستعدة.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_ready_female",
+      "text": "Byłam gotowa.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمستعدة\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت مستعدة.",
+      "screen_counterexample": "كنت مستعد.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_busy_male",
+      "text": "Byłem zajęty.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمشغول\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت مشغول.",
+      "screen_counterexample": "كنت مشغولة.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_busy_female",
+      "text": "Byłam zajęta.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمشغولة\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت مشغولة.",
+      "screen_counterexample": "كنت مشغول.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_surprised_male",
+      "text": "Byłem zaskoczony.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمتفاجئ\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت متفاجئ.",
+      "screen_counterexample": "كنت متفاجئة.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_surprised_female",
+      "text": "Byłam zaskoczona.",
+      "duration": 6.0,
+      "context_lines": [
+        "Self-report; no quotation. Speaker gender metadata intentionally unknown."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bمتفاجئة\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Past first-person form and predicate establish speaker agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كنت متفاجئة.",
+      "screen_counterexample": "كنت متفاجئ.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_addressee_female",
+      "text": "Byłaś tutaj wczoraj.",
+      "duration": 6.0,
+      "context_lines": [
+        "A direct statement to one woman, not quoted words."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:كنتِ|كُنْتِ)",
+          "mode": "raw",
+          "reason": "Past second-person gender must remain in tashkeel.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كُنْتِ هُنَا أَمْسِ.",
+      "screen_counterexample": "كُنْتَ هُنَا أَمْسِ.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_addressee_male",
+      "text": "Byłeś tutaj wczoraj.",
+      "duration": 6.0,
+      "context_lines": [
+        "A direct statement to one man, not quoted words."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:كنتَ|كُنْتَ)",
+          "mode": "raw",
+          "reason": "Past second-person gender must remain in tashkeel.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كُنْتَ هُنَا أَمْسِ.",
+      "screen_counterexample": "كُنْتِ هُنَا أَمْسِ.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_third_female",
+      "text": "Poszła do domu.",
+      "duration": 6.0,
+      "context_lines": [
+        "The subject is a woman, not the speaker."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:ذهبت|عادت).*?(?:بيت|منزل)",
+          "mode": "strip_tashkeel",
+          "reason": "Past third-person female subject.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "ذهبت إلى المنزل.",
+      "screen_counterexample": "ذهب إلى المنزل.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_third_male",
+      "text": "Poszedł do domu.",
+      "duration": 6.0,
+      "context_lines": [
+        "The subject is a man, not the speaker."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:ذهب|عاد).*?(?:بيت|منزل)",
+          "mode": "strip_tashkeel",
+          "reason": "Past third-person male subject.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "ذهب إلى المنزل.",
+      "screen_counterexample": "سوف يذهب إلى العمل.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_quoted",
+      "text": "Powiedziała: „Zrobiłem to”.",
+      "duration": 6.0,
+      "context_lines": [
+        "A woman quotes a man; quoted masculine past is not her gender."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:قالت).*?(?:فعلت|عملت)",
+          "mode": "strip_tashkeel",
+          "reason": "Distinguish reporting woman from quoted male self-reference.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "قالت: فعلت ذلك.",
+      "screen_counterexample": "قال: سأفعل ذلك.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_female_doctor",
+      "text": "Pani doktor była zmęczona.",
+      "duration": 6.0,
+      "context_lines": [
+        "An actual female doctor, despite masculine job noun doktor."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:طبيبة|دكتورة).*?(?:متعبة|مرهقة)",
+          "mode": "strip_tashkeel",
+          "reason": "Job noun grammatical gender is not person sex.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كانت الطبيبة متعبة.",
+      "screen_counterexample": "كان الطبيب متعبًا.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_formal_female",
+      "text": "Czy pani może poczekać?",
+      "duration": 6.0,
+      "context_lines": [
+        "Direct polite singular address to a woman."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تنتظري|انتظري|سيدتي)",
+          "mode": "strip_tashkeel",
+          "reason": "Third-person grammar still addresses a woman.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هل تنتظرين، سيدتي؟",
+      "screen_counterexample": "هل يمكنها أن تنتظر؟",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_formal_male",
+      "text": "Czy pan może poczekać?",
+      "duration": 6.0,
+      "context_lines": [
+        "Direct polite singular address to a man."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "\\bسيدي\\b",
+          "mode": "strip_tashkeel",
+          "reason": "Third-person grammar still addresses a man; this provisional screen requires the respectful title.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هل تنتظر هنا، سيدي؟",
+      "screen_counterexample": "هل يمكنها أن تنتظر؟",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_formal_group",
+      "text": "Czy państwo chcą wejść?",
+      "duration": 6.0,
+      "context_lines": [
+        "Polite address to a mixed group, not a state."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:تدخلوا|ادخلوا|تفضلوا|ترغبون)",
+          "mode": "strip_tashkeel",
+          "reason": "Formal group address.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "هل ترغبون في الدخول؟",
+      "screen_counterexample": "هل تريد الدولة الدخول؟",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_state",
+      "text": "Państwo chroni obywateli.",
+      "duration": 6.0,
+      "context_lines": [
+        "A state protects citizens; no direct address."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:الدولة).*?(?:تحمي|حماية)",
+          "mode": "strip_tashkeel",
+          "reason": "Państwo can mean state.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "الدولة تحمي المواطنين.",
+      "screen_counterexample": "تفضلوا بالدخول.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_women_plural",
+      "text": "One były gotowe.",
+      "duration": 6.0,
+      "context_lines": [
+        "A group consisting only of women."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مستعدات|جاهزات)",
+          "mode": "strip_tashkeel",
+          "reason": "Nonvirile plural with actual women.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كن مستعدات.",
+      "screen_counterexample": "كانوا مستعدين.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_objects_plural",
+      "text": "Krzesła były nowe.",
+      "duration": 6.0,
+      "context_lines": [
+        "Nonhuman plural chairs, not women."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:كراس|كراسي).*?جديدة",
+          "mode": "strip_tashkeel",
+          "reason": "Nonvirile source does not imply women; Arabic nonhuman agreement.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "كانت الكراسي جديدة.",
+      "screen_counterexample": "كن مستعدات.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_inflected_name",
+      "text": "Rozmawiam z Markiem o Marku.",
+      "duration": 6.0,
+      "context_lines": [
+        "Both inflected forms refer to the same Marek."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:مارك|ماريك)",
+          "mode": "strip_tashkeel",
+          "reason": "Retain one identity; tokenizer does not stem.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "أتحدث مع ماريك عن ماريك.",
+      "screen_counterexample": "أتحدث مع شخصين مجهولين.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_lodz",
+      "text": "Łukasz jedzie do Łodzi.",
+      "duration": 6.0,
+      "context_lines": [
+        "Łukasz travels to the city Łódź."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:لوكاش|ووكاش).*?(?:لودز|وودج|وودز)",
+          "mode": "strip_tashkeel",
+          "reason": "Person and place retained; transliterations provisional.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "لوكاش يسافر إلى لودز.",
+      "screen_counterexample": "يسافر إلى مدينة مجهولة.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_decimal",
+      "text": "To kosztuje 3,5 zł.",
+      "duration": 6.0,
+      "context_lines": [
+        "Price in Polish currency."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:3[,.]5|٣[٫،,.]٥|ثلاثة ونصف).*?(?:زلوتي|زلوطي)",
+          "mode": "strip_tashkeel",
+          "reason": "Decimal and unit retained.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "ثمنه ثلاثة ونصف زلوتي.",
+      "screen_counterexample": "ثمنه خمسة يورو.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_date",
+      "text": "Spotkanie jest 5 maja 2026 r.",
+      "duration": 6.0,
+      "context_lines": [
+        "Meeting date, r. means year."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:5|٥|الخامس).*?مايو.*?(?:2026|٢٠٢٦)",
+          "mode": "strip_tashkeel",
+          "reason": "Date and year retained.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "الاجتماع في الخامس من مايو 2026.",
+      "screen_counterexample": "الاجتماع في يونيو.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    },
+    {
+      "id": "pl_negation",
+      "text": "Nie zrobiłam tego.",
+      "duration": 6.0,
+      "context_lines": [
+        "A woman denies a completed action."
+      ],
+      "context_language": "en",
+      "speaker_gender": "unknown",
+      "checks": [
+        {
+          "pattern": "(?:لم|ما).*?(?:أفعل|افعل|فعلت)",
+          "mode": "strip_tashkeel",
+          "reason": "Past negation, not a positive future; Arabic first-person verb alone is not sex-marked.",
+          "native_review": "needs a native check"
+        }
+      ],
+      "screen_example": "لم أفعل ذلك.",
+      "screen_counterexample": "سأفعل ذلك.",
+      "native_review": "needs a native check; Arabic proposal and regex are provisional, not a complete quality judgement"
+    }
+  ]
+}

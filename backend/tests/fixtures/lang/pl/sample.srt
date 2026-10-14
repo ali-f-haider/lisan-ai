@@ -1,0 +1,42 @@
+1
+00:00:00,000 --> 00:00:02,500
+[muzyka]
+
+2
+00:00:03,000 --> 00:00:05,500
+ANNA: Gdzie jest klucz?
+MAREK: Mam go.
+
+3
+00:00:06,000 --> 00:00:08,500
+- Idziesz ze mną?
+- Zostaję tutaj.
+
+4
+00:00:09,000 --> 00:00:11,500
+(wzdycha) Jeszcze czekam.
+
+5
+00:00:12,000 --> 00:00:14,500
+♪ Krótka piosenka ♪
+
+6
+00:00:15,000 --> 00:00:17,500
+<i>Łukasz jedzie do Łodzi.</i>
+
+7
+00:00:18,000 --> 00:00:20,500
+[oklaski]
+
+8
+00:00:21,000 --> 00:00:23,500
+(śmiech) To dobry pomysł.
+
+9
+00:00:24,000 --> 00:00:26,500
+(nieznana uwaga) To jest dialog.
+
+10
+00:00:27,000 --> 00:00:29,500
+„Tak powiedziała.”
+«Tak powiedział.»

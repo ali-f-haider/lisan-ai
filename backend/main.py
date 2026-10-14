@@ -6221,6 +6221,7 @@ class LongDubConfirm(BaseModel):
     tracks: bool = False        # also keep the dubbed voices and the music / effects as separate files
     keep_music: bool = True
     music_budget: int = 0  # user-confirmed maximum; charge only successful repairs
+    delivery_mode: str = ""    # how the voice speaks: "", stable, balanced or creative (anything else counts as "")
 
 
 @app.post("/api/longdub/{job_id}/confirm")
@@ -6239,7 +6240,7 @@ def longdub_confirm(job_id: str, body: LongDubConfirm, request: Request):
     permitted, reason, status = _ld_capacity(job, _need)
     if not permitted:
         return JSONResponse({"error": customer_message(reason)}, status_code=status)
-    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks, body.keep_music, body.music_budget)
+    ok, e = longdub_service.confirm(job, uid, body.expected_due, body.room, body.tracks, body.keep_music, body.music_budget, body.delivery_mode)
     if not ok:
         extra = {}
         if e[1] == 409 and job.get("status") == "editing":

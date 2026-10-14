@@ -1,0 +1,320 @@
+{
+  "origin": "invented; no film or customer data",
+  "native_review": "needs a native check",
+  "profile": "tidy",
+  "lines": [
+    {
+      "id": "pl_00",
+      "speaker": "A",
+      "text": "Gdzie jest klucz?",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Gdzie jest klucz?"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_01",
+      "speaker": "B",
+      "text": "Znalazłam go!",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Znalazłam go!"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_02",
+      "speaker": "A",
+      "text": "P. Nowak czeka w biurze.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "P. Nowak czeka w biurze."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_03",
+      "speaker": "B",
+      "text": "Prof. Zieliński mówi dziś.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Prof. Zieliński mówi dziś."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_04",
+      "speaker": "A",
+      "text": "Inż. Kowalska sprawdza plan.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Inż. Kowalska sprawdza plan."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_05",
+      "speaker": "B",
+      "text": "Dr Nowak przyjdzie jutro.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Dr Nowak przyjdzie jutro."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_06",
+      "speaker": "A",
+      "text": "Rozmawiam z dr. Nowakiem.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Rozmawiam z dr. Nowakiem."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_07",
+      "speaker": "B",
+      "text": "Mgr Lis mieszka przy ul. Długiej.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Mgr Lis mieszka przy ul. Długiej."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_08",
+      "speaker": "A",
+      "text": "Mamy 3,5 metra. Potem wracamy.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Mamy 3,5 metra. ",
+        "Potem wracamy."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_09",
+      "speaker": "B",
+      "text": "To jest 1. próba. Teraz druga.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "To jest 1. próba. ",
+        "Teraz druga."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_10",
+      "speaker": "A",
+      "text": "Spotkanie jest 5 maja 2026 r.",
+      "expected_ends_sentence": false,
+      "expected_splits": [
+        "Spotkanie jest 5 maja 2026 r."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_11",
+      "speaker": "B",
+      "text": "Lista zawiera np. papier i tusz.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Lista zawiera np. papier i tusz."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_12",
+      "speaker": "A",
+      "text": "Zajęcia są m.in. we wtorek.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Zajęcia są m.in. we wtorek."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_13",
+      "speaker": "B",
+      "text": "Spotkanie zaczyna się o godz. 9.",
+      "expected_ends_sentence": false,
+      "expected_splits": [
+        "Spotkanie zaczyna się o godz. 9."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_14",
+      "speaker": "A",
+      "text": "Kupiliśmy chleb, mleko itd.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Kupiliśmy chleb, mleko itd."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_15",
+      "speaker": "B",
+      "text": "Mamy zeszyty itp. Potem wychodzimy.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Mamy zeszyty itp. ",
+        "Potem wychodzimy."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_16",
+      "speaker": "A",
+      "text": "On powiedział: „Wracam.” Potem wyszedł.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "On powiedział: „Wracam.” ",
+        "Potem wyszedł."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_17",
+      "speaker": "B",
+      "text": "Naprawdę?!",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Naprawdę?!"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_18",
+      "speaker": "A",
+      "text": "Jeszcze czekam…",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Jeszcze czekam…"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_19",
+      "speaker": "B",
+      "text": "Ale ja chciałam—",
+      "expected_ends_sentence": false,
+      "expected_splits": [
+        "Ale ja chciałam—"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_20",
+      "speaker": "A",
+      "text": "Jeśli jutro",
+      "expected_ends_sentence": false,
+      "expected_splits": [
+        "Jeśli jutro"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_21",
+      "speaker": "B",
+      "text": "Idę do Marka.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Idę do Marka."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_22",
+      "speaker": "A",
+      "text": "Rozmawiam z Markiem.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Rozmawiam z Markiem."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_23",
+      "speaker": "B",
+      "text": "Łukasz jedzie do Łodzi.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Łukasz jedzie do Łodzi."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_24",
+      "speaker": "A",
+      "text": "Wąż ma żółtą skórę.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Wąż ma żółtą skórę."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_25",
+      "speaker": "B",
+      "text": "Widzisz żółć?",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Widzisz żółć?"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_26",
+      "speaker": "A",
+      "text": "Czy pani jest gotowa?",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Czy pani jest gotowa?"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_27",
+      "speaker": "B",
+      "text": "Czy państwo chcą wejść?",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Czy państwo chcą wejść?"
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_28",
+      "speaker": "A",
+      "text": "Byłam zmęczona.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Byłam zmęczona."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    },
+    {
+      "id": "pl_29",
+      "speaker": "B",
+      "text": "Byłeś tutaj wczoraj.",
+      "expected_ends_sentence": true,
+      "expected_splits": [
+        "Byłeś tutaj wczoraj."
+      ],
+      "note": "Independently authored punctuation expectation; source naturalness needs a native check."
+    }
+  ],
+  "shared_cue": {
+    "lines": [
+      "- Idziesz ze mną?",
+      "- Zostaję tutaj."
+    ],
+    "expected_speaker_changes": [
+      1
+    ]
+  }
+}
