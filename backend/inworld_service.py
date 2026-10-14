@@ -122,6 +122,36 @@ except ValueError:
     LOCALIZE_STARTS_PER_MINUTE = 2
 LOCALIZE_WINDOW_S = 62.0
 
+# How much the voice model may vary from one generation of a line to the next
+# (Inworld's `deliveryMode`, available on inworld-tts-2 only):
+#   STABLE   - consistent, predictable delivery (Inworld: for audio that must match the text closely)
+#   BALANCED - Inworld's own default, what is used when nothing is sent
+#   CREATIVE - more varied delivery with a wider emotional range
+# OFF unless the Railway variable INWORLD_DELIVERY_MODE is set to one of the
+# three words (any capital letters). Left empty, nothing is sent and Inworld's
+# default applies, exactly as before. Anything else is ignored. It applies to
+# every line generated while it is set, so to compare modes: set it, generate
+# one scene, listen, then change or clear it. Railway restarts the server when
+# a variable changes, so a new value takes effect once that redeploy is done.
+DELIVERY_MODES = ("STABLE", "BALANCED", "CREATIVE")
+_delivery_notes = set()          # what has already been printed, so a long dub does not repeat it for every line
+
+
+def delivery_mode():
+    """The delivery mode to send, or None to send nothing."""
+    raw = (os.environ.get("INWORLD_DELIVERY_MODE") or "").strip().upper()
+    if not raw:
+        return None
+    if raw in DELIVERY_MODES:
+        if raw not in _delivery_notes:
+            _delivery_notes.add(raw)
+            print(f"[inworld-tts] deliveryMode {raw} is on (INWORLD_DELIVERY_MODE)")
+        return raw
+    if "bad:" + raw not in _delivery_notes:
+        _delivery_notes.add("bad:" + raw)
+        print(f"[inworld-tts] INWORLD_DELIVERY_MODE={raw!r} is not one of {', '.join(DELIVERY_MODES)}: ignored")
+    return None
+
 
 # Maps this app's canonical emotion/style vocabulary (config.
 # CANONICAL_EMOTIONS) onto Inworld's natural-language instruction-tag
@@ -508,6 +538,9 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
         "language": language,
         "audioConfig": {"audioEncoding": "MP3"},
     }
+    mode = delivery_mode() if model_id == DEFAULT_MODEL_ID else None       # only inworld-tts-2 takes it
+    if mode:
+        body["deliveryMode"] = mode
     data = _request("POST", "/tts/v1/voice", api_key, body, timeout=60)
     audio_b64 = data.get("audioContent")
     if not audio_b64:
