@@ -827,6 +827,20 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
       </div>
 
       <div class="card">
+        <h3>🏠 Home Page Design</h3>
+        <p class="muted" style="margin-bottom:16px;">The design of the public site: the home page, Login, Pricing, Help, Terms and Privacy (the workspace at /app is not affected). Only the look changes: the text, languages, prices and buttons are the same in both. Takes effect on the next page load, no redeploy needed. The preview links show the home page in either design without switching it for visitors.</p>
+        <div class="form-group">
+          <label style="display:block;margin-bottom:6px;">Design shown to visitors</label>
+          <select id="landingStyle" style="max-width:320px;">
+            <option value="classic">Classic (the current design)</option>
+            <option value="studio">Studio (serif headlines, square corners, dub timeline)</option>
+          </select>
+          <span class="muted"><a href="/?look=classic" target="_blank" rel="noopener">Preview Classic</a> &middot; <a href="/?look=studio" target="_blank" rel="noopener">Preview Studio</a></span>
+        </div>
+        <button class="btn" onclick="savePricing()">💾 Save Home Page Design</button>
+      </div>
+
+      <div class="card">
         <h3>📊 Analytics</h3>
         <div class="form-group">
           <label>Google Analytics 4 Measurement ID</label>
@@ -1441,6 +1455,7 @@ async function loadPricing() {
   if (_dae) _dae.checked = r.data.diskAlertsEnabled !== false;
   document.getElementById('voiceEngine').value = (r.data.voiceEngine === 'inworld') ? 'inworld' : 'elevenlabs';
   document.getElementById('uiStyle').value = (r.data.uiStyle === 'new') ? 'new' : 'classic';
+  document.getElementById('landingStyle').value = (r.data.landingStyle === 'studio') ? 'studio' : 'classic';
   updateEngineFieldVisibility();
   let html = '';
   r.data.packs.forEach((p, i) => {
@@ -1579,7 +1594,8 @@ async function savePricing() {
     railwayAlertsEnabled: document.getElementById('railwayAlertsEnabled')?.checked ?? true,
     diskAlertsEnabled: document.getElementById('diskAlertsEnabled')?.checked ?? true,
     voiceEngine: document.getElementById('voiceEngine')?.value === 'inworld' ? 'inworld' : 'elevenlabs',
-    uiStyle: document.getElementById('uiStyle')?.value === 'new' ? 'new' : 'classic'
+    uiStyle: document.getElementById('uiStyle')?.value === 'new' ? 'new' : 'classic',
+    landingStyle: document.getElementById('landingStyle')?.value === 'studio' ? 'studio' : 'classic'
   };
 
   console.log('Saving pricing:', update);

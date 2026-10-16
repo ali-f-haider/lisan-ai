@@ -1,0 +1,90 @@
+@import url("https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Young+Serif&display=swap");
+/* Lisan AI, Studio design for the shared public pages (Login, Pricing, Help, Terms, Privacy).
+   The server adds this file after site.css when Admin > Home Page Design is set to Studio (see landing_look.py).
+   It only restyles: serif headings, mono labels, square corners, flat gold buttons, a fine grid instead of glows.
+   Page files are not changed, so every rule here wins over a page's own <style> by starting with "body.site".
+   Keep it in step with the Studio stylesheet of landing.html (same colours, fonts, corners). */
+:root{
+  --bg:#08090a; --bg2:#0c0e10; --card:#0d1012; --card2:#111417;
+  --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.18);
+  --text:#ecebe6; --body:#c3c6cb; --muted:#a2a7ae; --dim:#7a8087;
+  --gold:#e6b85c; --gold2:#f1cf86; --cyan:#79bfe3;
+  --fill:rgba(255,255,255,.04); --fill2:rgba(255,255,255,.09); --fill3:rgba(255,255,255,.12);
+  --shadow:none; --navbg:rgba(8,9,10,.94);
+  --serif:"Young Serif","Amiri",Georgia,"Times New Roman",serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans","IBM Plex Sans Arabic",system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+}
+html{background:#08090a}
+html.light{
+  background:#f4f2ec;
+  --bg:#f4f2ec; --bg2:#ffffff; --card:#ffffff; --card2:#f0ede5;
+  --line:rgba(21,19,14,.12); --line2:rgba(21,19,14,.22);
+  --text:#15130e; --body:#3a382f; --muted:#5a574c; --dim:#6b685c;
+  --gold:#8a5a00; --gold2:#6f4700; --cyan:#0b6f9e;
+  --fill:rgba(21,19,14,.04); --fill2:rgba(21,19,14,.08); --fill3:rgba(21,19,14,.09);
+  --shadow:none; --navbg:rgba(244,242,236,.94);
+}
+html[data-lang="ar"]{--sans:"IBM Plex Sans Arabic","IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;--serif:"Amiri","Young Serif",Georgia,serif}
+
+body.site{font-family:var(--sans)}
+body.site::before{background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:64px 64px;background-position:-1px -1px;background-color:transparent}
+html.light body.site::before{background-image:linear-gradient(rgba(21,19,14,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(21,19,14,.05) 1px,transparent 1px)}
+
+/* headings */
+body.site h1,body.site h2{font-family:var(--serif);font-weight:400;letter-spacing:-.01em;line-height:1.08;text-wrap:balance}
+html[data-lang="ar"] body.site h1,html[data-lang="ar"] body.site h2{font-weight:700;line-height:1.35;letter-spacing:0}
+body.site h1{font-size:clamp(34px,5vw,52px)}
+body.site h3{font-family:var(--sans)}
+body.site .sub,body.site .updated{font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase}
+html[data-lang="ar"] body.site .sub,html[data-lang="ar"] body.site .updated{font-family:var(--sans);font-size:14px;letter-spacing:0;text-transform:none}
+body.site code{border-radius:0;font-family:var(--mono)}
+body.site :focus-visible{border-radius:0}
+
+/* top bar */
+body.site .site-brand{font-family:var(--mono);font-weight:600;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
+.site-brand img{border-radius:4px}
+body.site .site-nav .back,body.site .site-nav .links{font-family:var(--mono);font-size:12.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase}
+body.site .site-nav .links a{font-size:12.5px}
+html[data-lang="ar"] body.site .site-brand,html[data-lang="ar"] body.site .site-nav .back,html[data-lang="ar"] body.site .site-nav .links{font-family:var(--sans);letter-spacing:0;text-transform:none;font-size:14.5px}
+html[data-lang="ar"] body.site .site-nav .links a{font-size:14.5px}
+body.site .site-lang,body.site .langs{border-radius:0}
+body.site .site-lang button,body.site .langs button{border-radius:0}
+body.site .site-lang button[aria-pressed="true"],body.site .langs button.on{background:var(--gold);color:#150f02}
+html.light body.site .site-lang button[aria-pressed="true"],html.light body.site .langs button.on{color:#fff}
+
+/* help page cards, legal pages */
+body.site .page .card{border-radius:0;background:var(--card)}
+body.site .page .card h3{color:var(--gold);font-weight:600}
+body.site .doc h2{border-bottom-color:var(--line2)}
+
+/* login */
+body.site .card{border-radius:0;box-shadow:none;border-color:var(--line2)}
+body.site .card img{border-radius:6px}
+body.site .card h1{font-size:30px}
+body.site input{border-radius:0;font-family:var(--sans)}
+body.site input:focus{border-color:var(--gold);box-shadow:none}
+body.site button.social,body.site button.secondary,body.site button.primary{border-radius:0;font-family:var(--mono);font-size:13.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+html[data-lang="ar"] body.site button.social,html[data-lang="ar"] body.site button.secondary,html[data-lang="ar"] body.site button.primary{font-family:var(--sans);font-size:15px;letter-spacing:0;text-transform:none}
+body.site .primary{background:var(--gold);color:#150f02;border-color:var(--gold);box-shadow:none}
+html.light body.site .primary{color:#fff}
+body.site .primary:hover{background:var(--gold2);transform:none;box-shadow:none}
+body.site .terms-row input{accent-color:var(--gold)}
+
+/* pricing */
+body.site .plan-card{border-radius:0;font-family:var(--sans)}
+body.site .plan-card:hover:not(:disabled){transform:none;box-shadow:none}
+body.site .pbadge{background:var(--gold);color:#150f02;border-radius:0;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase}
+html.light body.site .pbadge{color:#fff}
+html[data-lang="ar"] body.site .pbadge{font-family:var(--sans);letter-spacing:0;text-transform:none}
+body.site .pname{color:var(--gold);font-weight:700}
+body.site .pprice{font-family:var(--serif);font-weight:400;color:var(--text)}
+html[data-lang="ar"] body.site .pprice{font-weight:700}
+body.site .p-foot img{border-radius:4px}
+
+/* narrow screens: keep the top bar on one line */
+@media (max-width:600px){
+  body.site .site-brand{font-size:13px;letter-spacing:.04em;white-space:nowrap;gap:8px}
+  body.site .site-nav .back,body.site .site-nav .links,body.site .site-nav .links a{font-size:11px;letter-spacing:.02em;white-space:nowrap}
+  body.site .site-nav .links{gap:10px}
+}

@@ -48,6 +48,7 @@ import disk_guard
 import railway_monitor
 import resource_meter
 import assistant_service
+import landing_look
 import service_usage_monitor
 import site_gate
 import pricing_cache
@@ -3705,7 +3706,7 @@ def _gemini_text(prompt: str):
 # ==================== STATIC FILES ====================
 
 @app.get("/")
-def landing():
+def landing(request: Request):
     # If a GA4 Measurement ID is set in the admin panel, inject Google's
     # own standard gtag.js snippet directly into <head> server-side, on
     # the raw HTML -- not via a client-side fetch-then-inject like the
@@ -3719,7 +3720,11 @@ def landing():
     # reliably detectable.
     html = (BASE_DIR / "landing.html").read_text(encoding="utf-8")
     import re as _re
-    ga_id = (_get_pricing_config().get("gaMeasurementId") or "").strip()
+    _cfg = _get_pricing_config()
+    # Which design of the home page is shown (admin panel > Home Page Design). ?look=classic or ?look=studio
+    # shows the other design for one visit without changing the setting, to compare them.
+    html = landing_look.apply_look(html, landing_look.choose_look(_cfg.get("landingStyle"), request.query_params.get("look")))
+    ga_id = (_cfg.get("gaMeasurementId") or "").strip()
     # Only accept a well-formed GA4 ID (e.g. "G-NBWB2VYYE4") -- this value
     # gets embedded directly into raw HTML/JS below with no escaping, so
     # validating the shape here (rather than trusting whatever is in the
@@ -3851,6 +3856,17 @@ def site_js():
 
 @app.get("/site.css")
 def site_css():
+    """The shared stylesheet of Login, Pricing, Help, Terms and Privacy. With Studio chosen as the home page design (admin panel),
+    site_studio.css is added after it, so those pages change look together with the home page. Any problem reading the setting
+    or the extra file gives the normal stylesheet."""
+    try:
+        base = (BASE_DIR / "site.css").read_text(encoding="utf-8")
+        look = landing_look.choose_look((_get_pricing_config() or {}).get("landingStyle"))
+        if look == "studio":
+            css = landing_look.site_css_for(look, base, (BASE_DIR / "site_studio.css").read_text(encoding="utf-8"))
+            return Response(css, media_type="text/css", headers=_NO_CACHE_HEADERS)
+    except Exception as ex:
+        print(f"[site.css] studio design not applied: {ex}")
     return FileResponse(BASE_DIR / "site.css", media_type="text/css", headers=_NO_CACHE_HEADERS)
 
 @app.get("/chat.js")
@@ -6997,6 +7013,9 @@ def _get_pricing_config():
         # panel's "App Appearance" card -- takes effect on next page load,
         # no redeploy needed.
         "uiStyle": "classic",
+        # Which design of the public home page visitors see: "classic" (the original) or "studio" (serif, square corners).
+        # Switched in the admin panel's "Home Page Design" card; see landing_look.py. Stored in pricing_config.landing_style.
+        "landingStyle": "classic",
         # Dub Long Video (longdub_service.py): longest video allowed, in
         # minutes, and the per-minute charge for transcribing + speaker
         # detection + translating it. Both editable in the admin panel.
@@ -7078,6 +7097,8 @@ def _get_pricing_config():
                 # column simply isn't present in `row` and .get() returns
                 # None, falling back to "classic" -- safe either way.
                 "uiStyle": row.get("ui_style") or defaults["uiStyle"],
+                # Unknown or missing (column not added yet, untouched row) means the classic design.
+                "landingStyle": landing_look.clean_look(row.get("landing_style")) or defaults["landingStyle"],
                 "longDubMaxMin": row.get("long_dub_max_min") or defaults["longDubMaxMin"],
                 "longDubAnalysisPerMin": defaults["longDubAnalysisPerMin"] if row.get("long_dub_analysis_per_min") is None else row.get("long_dub_analysis_per_min"),
                 "longDubFlatCredits": defaults["longDubFlatCredits"] if row.get("long_dub_flat_credits") is None else row.get("long_dub_flat_credits"),
@@ -7326,6 +7347,18 @@ def _save_pricing_config(config):
         except Exception as _ll_ex:
             print(f"[admin] long-dub lip-sync limit not saved (has the long_dub_lipsync_max_min SQL been run?): {_ll_ex}")
             failed_settings.append("lip-sync length limit: " + _http_error_detail(_ll_ex))
+        # The home page design in its own request too, and only when it changed: its column (landing_style) may not exist
+        # yet, and then only choosing a different design fails (with the SQL to run), not every other admin save.
+        try:
+            if "landingStyle" in config:
+                _want_look = landing_look.clean_look(config.get("landingStyle")) or landing_look.DEFAULT_LOOK
+                if _want_look != (_get_pricing_config().get("landingStyle") or landing_look.DEFAULT_LOOK):
+                    _lk_body = json.dumps({"id": "singleton", "landing_style": _want_look}).encode("utf-8")
+                    with _ur.urlopen(_ur.Request(url, data=_lk_body, headers=hdrs, method="POST"), timeout=10):
+                        pass
+        except Exception as _lk_ex:
+            print(f"[admin] home page design not saved (has landing_style been added to pricing_config?): {_lk_ex}")
+            failed_settings.append("home page design: " + _http_error_detail(_lk_ex) + " (run once in Supabase: ALTER TABLE pricing_config ADD COLUMN IF NOT EXISTS landing_style text;)")
         if failed_settings:
             return False, "Some settings were saved, but these could not be saved: " + "; ".join(failed_settings) + ". Review and save again."
         return True, None
