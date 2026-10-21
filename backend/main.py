@@ -368,6 +368,9 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 #     sb_access_token text,
 #     created_at timestamptz DEFAULT now()
 #   );
+# From 30 October 2026 Supabase no longer gives a new table API access by itself: this grant is part of creating it
+# (without it the server gets "permission denied"). Only service_role, because only this server reads and writes it.
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_sessions TO service_role;
 # Written to (best-effort, background thread) whenever a session is created;
 # read from only as a fallback when the in-memory set doesn't recognize a
 # cookie -- normally that means "this process restarted since you logged
@@ -2610,6 +2613,9 @@ def _is_final_output(path):
 #     uid uuid,
 #     notified_at timestamptz DEFAULT now()
 #   );
+# From 30 October 2026 Supabase no longer gives a new table API access by itself: this grant is part of creating it
+# (without it the server gets "permission denied"). Only service_role, because only this server reads and writes it.
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON public.expiry_notices TO service_role;
 # This is what makes the "only email once per job" de-dup survive a
 # Railway restart -- an in-memory set would re-send every warning after
 # every redeploy.
@@ -3385,6 +3391,10 @@ def _mark_notified(job_id, uid):
 #     consent_text text,
 #     created_at timestamptz DEFAULT now()
 #   );
+# From 30 October 2026 Supabase no longer gives a new table API access by itself: this grant is part of creating it
+# (without it the server gets "permission denied"). Only service_role, because only this server reads and writes it.
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON public.consent_records TO service_role;
+#   GRANT USAGE, SELECT ON SEQUENCE public.consent_records_id_seq TO service_role;   -- the id counter (bigserial) needs its own grant
 # Enforcement itself already happened by the time this runs (/api/transcribe
 # rejects the upload outright if voice_consent wasn't sent) -- this is only
 # the paper trail of who certified what, for if it's ever needed later. Runs
@@ -6827,6 +6837,9 @@ ADMIN_TOKEN_TTL = 4 * 3600  # 4 hours
 #     token text PRIMARY KEY,
 #     created_at timestamptz DEFAULT now()
 #   );
+# From 30 October 2026 Supabase no longer gives a new table API access by itself: this grant is part of creating it
+# (without it the server gets "permission denied"). Only service_role, because only this server reads and writes it.
+#   GRANT SELECT, INSERT, UPDATE, DELETE ON public.admin_sessions TO service_role;
 def _persist_admin_session(token):
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY or not token:
         return
