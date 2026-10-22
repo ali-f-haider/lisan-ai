@@ -2082,8 +2082,13 @@ async function loadRailwayMemory() {
     document.getElementById('rmLimit').textContent = '—';
     document.getElementById('rmPercent').textContent = '—';
     document.getElementById('rmBar').style.width = '0%';
-    document.getElementById('rmNote').textContent = 'Unavailable: ' + (d.error || 'unknown error') +
-      '. Set RAILWAY_API_TOKEN in Railway env vars to enable this (see railway_monitor.py).';
+    const rmErr = d.error || 'unknown error';
+    document.getElementById('rmNote').textContent = 'Unavailable: ' + rmErr +
+      (/not set/i.test(rmErr)
+        ? '. Set RAILWAY_API_TOKEN in Railway env vars to enable this (see railway_monitor.py).'
+        : /Not Authorized/i.test(rmErr)
+          ? '. Railway rejected the token: use an account token created with "No workspace" (see railway_monitor.py).'
+          : '. Railway did not answer properly (often a short problem on their side); the server tries again every few minutes by itself.');
     return;
   }
   document.getElementById('rmUsed').textContent = d.used_gb + ' GB';

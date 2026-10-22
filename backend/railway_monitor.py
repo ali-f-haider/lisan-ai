@@ -71,6 +71,21 @@ query metrics($environmentId: String!, $serviceId: String, $startDate: DateTime!
 }
 """
 
+# Pauses (seconds) between attempts inside ONE poll when Railway answers with
+# a temporary error (5xx / 429 / dropped connection). 3 pauses = 4 attempts.
+_RETRY_PAUSES_SECONDS = [2, 6, 15]
+
+# After a failed poll, look again after this many minutes instead of waiting
+# the full MONITOR_INTERVAL_MIN, so one bad moment on Railway's side does not
+# leave the admin page empty for 20 minutes. ~20 calls/hour at most, far
+# under Railway's 1,000/hour limit.
+RETRY_AFTER_FAILURE_MIN = 3
+
+
+def _is_transient_status(code):
+    return code == 429 or code >= 500
+
+
 # In-process cache of the last poll result -- what the admin dashboard
 # actually reads from. Refreshed every MONITOR_INTERVAL_MIN.
 _latest = {"ok": False, "error": "not polled yet", "used_gb": None, "limit_gb": None, "percent": None, "ts": None}
@@ -103,42 +118,50 @@ def fetch_memory_usage():
         variables["serviceId"] = RAILWAY_SERVICE_ID
 
     payload = json.dumps({"query": _MEMORY_QUERY, "variables": variables}).encode("utf-8")
-    try:
-        req = urllib.request.Request(
-            RAILWAY_GRAPHQL_URL,
-            data=payload,
-            headers={
-                "Authorization": f"Bearer {RAILWAY_API_TOKEN}",
-                "Content-Type": "application/json",
-                # Railway's API sits behind Cloudflare, same as Resend's --
-                # see _send_expiry_email in main.py for the identical fix.
-                # Python's default urllib User-Agent ("Python-urllib/3.x")
-                # gets blocked as a bot signature before the request ever
-                # reaches Railway's own auth/GraphQL logic, which surfaces
-                # as a bare "403 Forbidden" with no GraphQL error body --
-                # exactly what a bad/missing token would also look like,
-                # so this was easy to misdiagnose as a token problem.
-                "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            body = json.load(r)
-    except urllib.error.HTTPError as ex:
-        # Capture the response body (Cloudflare/WAF blocks usually explain
-        # themselves in plain text here) so a future failure is diagnosable
-        # from the admin panel's error message alone, without another
-        # round trip of guessing.
+    headers = {
+        "Authorization": f"Bearer {RAILWAY_API_TOKEN}",
+        "Content-Type": "application/json",
+        # Railway's API sits behind Cloudflare, same as Resend's --
+        # see _send_expiry_email in main.py for the identical fix.
+        # Python's default urllib User-Agent ("Python-urllib/3.x")
+        # gets blocked as a bot signature before the request ever
+        # reaches Railway's own auth/GraphQL logic, which surfaces
+        # as a bare "403 Forbidden" with no GraphQL error body --
+        # exactly what a bad/missing token would also look like,
+        # so this was easy to misdiagnose as a token problem.
+        "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)",
+    }
+    body = None
+    last_error = "unknown error"
+    # Railway's edge now and then answers a read with a short-lived 502/503
+    # ("upstream connect error ... connection termination") or drops the
+    # connection. A read has no side effects, so retry a few times with a
+    # growing pause (Railway's own guidance for queries) before giving up.
+    for attempt, pause in enumerate(_RETRY_PAUSES_SECONDS + [None]):
         try:
-            detail = ex.read().decode("utf-8", errors="replace")[:300].strip()
-        except Exception:
-            detail = ""
-        msg = f"HTTP {ex.code} {ex.reason}"
-        if detail:
-            msg += f" -- {detail}"
-        return {"ok": False, "error": msg}
-    except Exception as ex:
-        return {"ok": False, "error": f"request failed: {ex}"}
+            req = urllib.request.Request(RAILWAY_GRAPHQL_URL, data=payload, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=15) as r:
+                body = json.load(r)
+            break
+        except urllib.error.HTTPError as ex:
+            # Capture the response body (Cloudflare/WAF blocks usually explain
+            # themselves in plain text here) so a future failure is diagnosable
+            # from the admin panel's error message alone, without another
+            # round trip of guessing.
+            try:
+                detail = ex.read().decode("utf-8", errors="replace")[:300].strip()
+            except Exception:
+                detail = ""
+            last_error = f"HTTP {ex.code} {ex.reason}"
+            if detail:
+                last_error += f" -- {detail}"
+            if not _is_transient_status(ex.code):
+                return {"ok": False, "error": last_error}
+        except Exception as ex:
+            last_error = f"request failed: {ex}"
+        if pause is None:
+            return {"ok": False, "error": last_error + f" (tried {attempt + 1} times)"}
+        _time.sleep(pause)
 
     if body.get("errors"):
         return {"ok": False, "error": f"Railway API error: {body['errors']}"}
@@ -244,7 +267,7 @@ def _poll_once():
 
     if not result.get("ok"):
         print(f"[railway-monitor] poll failed: {result.get('error')}")
-        return
+        return result
 
     used_gb = result["used_gb"]
     limit_gb = result.get("limit_gb")
@@ -260,6 +283,15 @@ def _poll_once():
         _alert_active = True
     else:
         _alert_active = False
+    return result
+
+
+def _next_sleep_seconds(result):
+    """Normal interval after a good poll; a short one after a failed poll
+    (except 'token not set', which retrying cannot fix)."""
+    if result and not result.get("ok") and result.get("error") != "RAILWAY_API_TOKEN not set":
+        return RETRY_AFTER_FAILURE_MIN * 60
+    return MONITOR_INTERVAL_MIN * 60
 
 
 def _worker():
@@ -268,14 +300,15 @@ def _worker():
     # deploy instead of showing "not polled yet" for 20 minutes.
     _time.sleep(30)
     while True:
+        result = None
         try:
-            _poll_once()
+            result = _poll_once()
         except Exception as ex:
             # Must never let a bad response, a schema change, or a network
             # blip kill this thread -- if it dies, monitoring silently
             # stops until the next deploy restarts the process.
             print(f"[railway-monitor] worker error: {ex}")
-        _time.sleep(MONITOR_INTERVAL_MIN * 60)
+        _time.sleep(_next_sleep_seconds(result))
 
 
 def start():
