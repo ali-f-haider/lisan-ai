@@ -167,6 +167,12 @@
     </div>
     <div id="myJobsList"><p style="color:#6b7280;" id="loadingText">Loading…</p></div>
   </div>
+  <div class="card" id="eraseCard">
+    <h3 id="eraseHeading">🔒 Your files and your privacy</h3>
+    <p id="eraseNote" class="note">We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Dub Long Video projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.</p>
+    <button id="eraseAllBtn" class="btn-danger" onclick="eraseAllMyFiles()">🗑️ Delete all my files now</button>
+    <p id="eraseResult" class="note" style="display:none;" role="status"></p>
+  </div>
 </div>
 
 <div class="acct-panel" id="panel-purchases" role="tabpanel" aria-labelledby="tabPurchases">
@@ -320,6 +326,13 @@ var T = {
     del: "🗑️ Delete", deduction: "deduction",
     confirmDelete: "Delete this file permanently? This can't be undone.",
     deleteFailed: "Couldn't delete this file. Please try again.",
+    eraseHeading: "🔒 Your files and your privacy",
+    eraseNote: "We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Dub Long Video projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.",
+    eraseBtn: "🗑️ Delete all my files now",
+    eraseConfirm: "Delete ALL your finished files, working files and Dub Long Video projects now? This can't be undone. Your account, credits and purchase history stay.",
+    eraseDone: function (f, p) { return "Done. Finished files removed: " + f + ". Long dub projects removed: " + p + "."; },
+    eraseSkipped: function (n) { return "Still being processed, so kept for now: " + n + ". Try again when they finish."; },
+    eraseFailed: "Couldn't delete your files right now. Please try again in a moment.",
     dangerZoneHeading: "⚠️ Danger Zone",
     dangerZoneNote: "Deleting your account permanently removes your data and cannot be undone.",
     deleteAccountBtn: "Delete Account",
@@ -394,6 +407,13 @@ var T = {
     del: "🗑️ حذف", deduction: "خصم",
     confirmDelete: "حذف هذا الملف نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.",
     deleteFailed: "تعذّر حذف هذا الملف. حاول مرة أخرى.",
+    eraseHeading: "🔒 ملفاتك وخصوصيتك",
+    eraseNote: "لا نستخدم فيديوهاتك ولا تسجيلاتك الصوتية لتدريب نماذج الذكاء الاصطناعي. يحذف زر «احذف كل ملفاتي» ملفاتك الجاهزة وأي ملفات عمل ومشاريع «دبلجة فيديو طويل» من خوادمنا ومن نسخنا الاحتياطية. وللأصوات المحفوظة زر حذف خاص بها في تبويب «الأصوات المحفوظة». أما حسابك ورصيدك وسجل مشترياتك فيبقى كما هو.",
+    eraseBtn: "🗑️ احذف كل ملفاتي الآن",
+    eraseConfirm: "هل تريد حذف جميع ملفاتك الجاهزة وملفات العمل ومشاريع «دبلجة فيديو طويل» الآن؟ لا يمكن التراجع عن ذلك. يبقى حسابك ورصيدك وسجل مشترياتك.",
+    eraseDone: function (f, p) { return "تم الحذف. الملفات الجاهزة المحذوفة: " + f + ". مشاريع الدبلجة الطويلة المحذوفة: " + p + "."; },
+    eraseSkipped: function (n) { return "عناصر قيد المعالجة بقيت كما هي الآن: " + n + ". أعد المحاولة بعد أن تنتهي."; },
+    eraseFailed: "تعذّر حذف ملفاتك الآن. حاول مرة أخرى بعد قليل.",
     dangerZoneHeading: "⚠️ منطقة الخطر",
     dangerZoneNote: "حذف حسابك يزيل بياناتك نهائيًا ولا يمكن التراجع عن ذلك.",
     deleteAccountBtn: "حذف الحساب",
@@ -479,6 +499,9 @@ function accountResponse(response, expected) {
   document.getElementById("dangerZoneHeading").textContent = T.dangerZoneHeading;
   document.getElementById("dangerZoneNote").textContent = T.dangerZoneNote;
   document.getElementById("deleteAccountBtn").textContent = T.deleteAccountBtn;
+  document.getElementById("eraseHeading").textContent = T.eraseHeading;
+  document.getElementById("eraseNote").textContent = T.eraseNote;
+  document.getElementById("eraseAllBtn").textContent = T.eraseBtn;
   document.getElementById("delModalTitle").textContent = T.delModalTitle;
   document.getElementById("delModalWarning").textContent = T.delModalWarning;
   document.getElementById("delModalCancelBtn").textContent = T.delModalCancel;
@@ -771,6 +794,25 @@ function deleteMyJob(jobId) {
         list.innerHTML = '<p style="color:#6b7280;">' + T.nothingYet(window._subActive) + '</p>';
       }
     }).catch(function(e){ LisanDialog.alert(safeMsg(e.message), { type: "error" }); });
+  });
+}
+
+function eraseAllMyFiles() {
+  LisanDialog.confirm(T.eraseConfirm, { okText: T.deleteVoiceBtn ? T.deleteVoiceBtn.replace(/^\S+\s*/, "") : undefined, danger: true }).then(function (ok) {
+    if (!ok) return;
+    var btn = document.getElementById("eraseAllBtn");
+    btn.disabled = true;
+    fetch("/api/account/delete_files", { method: "POST" }).then(function (r) { return accountResponse(r, "success"); }).then(function (res) {
+      var msg = T.eraseDone(res.files_removed || 0, res.projects_removed || 0);
+      if (res.skipped_busy) msg += " " + T.eraseSkipped(res.skipped_busy);
+      var box = document.getElementById("eraseResult");
+      box.textContent = msg;
+      box.style.display = "";
+      if (res.storage) renderStorage(res.storage);
+      loadMyJobs();
+    }).catch(function (e) {
+      LisanDialog.alert(safeMsg(e && e.message) || T.eraseFailed, { type: "error" });
+    }).then(function () { btn.disabled = false; });
   });
 }
 

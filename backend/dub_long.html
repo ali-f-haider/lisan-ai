@@ -80,6 +80,7 @@
       <span id="dropHint" class="note" style="display:inline-block;border:none;background:none;padding:0;margin:0;"></span>
     </div>
     <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg" class="hidden">
+    <p class="note" id="ldNoTrain" style="margin-top:8px;"></p>
     <div id="uploadError" class="ld-err hidden"></div>
   </div>
 
@@ -238,6 +239,7 @@ var T = {
     lipResName: function (r) { return r.replace("P", "p"); },
     lipAudio: "Lip-sync needs a video file. Choose \"Without lip-sync\" for audio files.",
     dropTitle: "Choose a video or audio file (or drop it here)",
+    noTrain: "🔒 We never use your media to train AI models. You can delete your files any time from your Account page.",
     dropHint: function (maxMin, maxMb) { return "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A · " + maxMin + " minutes max · up to " + maxMb + " MB"; },
     tooBig: function (mb, maxMb) { return "This file is " + mb + " MB. The limit is " + maxMb + " MB."; },
     jobHeading: "Your video",
@@ -493,6 +495,7 @@ var T = {
     lipResName: function (r) { return r.replace("P", "p"); },
     lipAudio: "تحتاج مزامنة الشفاه إلى ملف فيديو. اختر «بدون مزامنة الشفاه» للملفات الصوتية.",
     dropTitle: "اختر ملف فيديو أو صوت (أو أفلته هنا)",
+    noTrain: "🔒 لا نستخدم وسائطك لتدريب نماذج الذكاء الاصطناعي. ويمكنك حذف ملفاتك في أي وقت من صفحة الحساب.",
     dropHint: function (maxMin, maxMb) { return "MP4 وMOV وMKV وWEBM وAVI وMP3 وWAV وM4A · حتى " + maxMin + " دقائق · حتى " + maxMb + " ميغابايت"; },
     tooBig: function (mb, maxMb) { return "حجم الملف " + mb + " ميغابايت. الحد الأقصى " + maxMb + " ميغابايت."; },
     jobHeading: "الفيديو الخاص بك",
@@ -769,6 +772,7 @@ function applyConfigText() {
   $("introText").textContent = T.introText(maxMin, lim.short_max_sec || 30, lim.short_lipsync_max_sec || 15);
   $("introSteps").innerHTML = T.introSteps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
   $("dropHint").textContent = T.dropHint(maxMin, cfg ? cfg.max_upload_mb : 2048);
+  $("ldNoTrain").textContent = T.noTrain;
   $("spkCount").max = cfg ? cfg.max_speakers : 8;
   var lc = (cfg && cfg.lipsync) || { available: false, per_sec: 0, max_min: 0 };
   if (lc.available) {
