@@ -102,7 +102,17 @@ body.site .p-sec h2{text-align:center;margin:0 0 8px;padding:0;border:0}
       <span><span class="en">🔒 Login-protected purchases</span><span class="ar">🔒 عمليات شراء محمية بتسجيل الدخول</span></span>
       <span><span class="en">⏳ One-time: 48h file storage (100 MB) · Monthly: 30 days, storage size by plan</span><span class="ar">⏳ لمرة واحدة: تخزين 48 ساعة (100 ميغابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
       <span><span class="en">💳 Secure payments by Stripe</span><span class="ar">💳 مدفوعات آمنة عبر Stripe</span></span>
+      <span><span class="en">🛡️ We never train AI on your media</span><span class="ar">🛡️ لا ندرّب الذكاء الاصطناعي على وسائطك</span></span>
+      <span><span class="en">🗑️ Delete your files any time</span><span class="ar">🗑️ احذف ملفاتك متى شئت</span></span>
     </div>
+  </div>
+</section>
+
+<section class="p-sec" id="realCost" style="display:none">
+  <div class="wrap">
+    <h2><span class="en">What a finished minute really costs</span><span class="ar">كم تكلّف الدقيقة المنتهية فعلًا</span></h2>
+    <p class="section-note" id="realCostMain"></p>
+    <p class="section-note fine" id="realCostFine"></p>
   </div>
 </section>
 
@@ -342,6 +352,23 @@ Promise.all([
   document.getElementById("subCards").innerHTML = '<p class="loading-note"><span class="en">Could not load plans right now.</span><span class="ar">تعذّر تحميل الخطط الآن.</span></p>';
   document.getElementById("packCards").innerHTML = '<p class="loading-note"><span class="en">Could not load packs right now.</span><span class="ar">تعذّر تحميل الباقات الآن.</span></p>';
 });
+
+// "What a finished minute really costs": the typical credits for one finished minute over the last 90 days, from
+// the real credit history (the server hides it until there is enough data, so a failure here just leaves it hidden).
+fetch("/api/cost_per_minute").then(function (r) { return r.json(); }).then(function (d) {
+  if (!d || !d.ok || !(d.median > 0)) return;
+  function n(x) { return Number(x).toLocaleString("en-US", { maximumFractionDigits: 1 }); }
+  function usd(x) { return "$" + Number(x).toFixed(2); }
+  var money = typeof d.usd_low === "number" && typeof d.usd_high === "number";
+  var rangeUsd = money ? (d.usd_low === d.usd_high ? usd(d.usd_low) : usd(d.usd_low) + "–" + usd(d.usd_high)) : "";
+  var en = "Over the last " + d.days + " days, a typical project used about <strong>" + n(d.median) + " credits per finished minute</strong> of dubbed video. That counts everything spent on the project: the voices, any lip-sync, every line correction, minus refunds. Most projects landed between " + n(d.low) + " and " + n(d.high) + " credits per minute" +
+    (money ? ", which is roughly " + rangeUsd + " a minute depending on the pack or plan you buy your credits with" : "") + ".";
+  var ar = "خلال آخر " + d.days + " يومًا، استهلك المشروع المعتاد نحو <strong>" + n(d.median) + " رصيدًا لكل دقيقة منتهية</strong> من الفيديو المدبلج. ويشمل هذا كل ما صُرف على المشروع: الأصوات وتزامن الشفاه وكل تصحيح للأسطر، بعد خصم المبالغ المستردة. وقعت معظم المشاريع بين " + n(d.low) + " و" + n(d.high) + " رصيدًا للدقيقة" +
+    (money ? "، أي ما يقارب " + rangeUsd.replace(/\$/g, "") + " دولارًا للدقيقة بحسب الباقة أو الاشتراك الذي تشتري منه رصيدك" : "") + ".";
+  document.getElementById("realCostMain").innerHTML = '<span class="en">' + en + '</span><span class="ar">' + ar + '</span>';
+  document.getElementById("realCostFine").innerHTML = '<span class="en">Real numbers from ' + d.projects + ' finished projects, not a promise. Your own price depends on how many speakers there are, whether you add lip-sync, and how many lines you correct.</span><span class="ar">أرقام فعلية من ' + d.projects + ' مشروعًا منتهيًا، وليست وعدًا. يتوقف سعرك على عدد المتحدثين، وعلى إضافة تزامن الشفاه، وعلى عدد الأسطر التي تصحّحها.</span>';
+  document.getElementById("realCost").style.display = "";
+}).catch(function () {});
 </script>
 <script src="/chat.js"></script>
 </body>

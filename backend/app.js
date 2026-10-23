@@ -395,7 +395,14 @@ async function fetchUsage() {
         const used = Number(u.credits_charged);
         if (!isFinite(used) || used <= 0) { box.classList.add("hidden"); return; }
         box.classList.remove("hidden");
-        box.innerHTML = `Credits used for this dubbing: <strong>${used.toLocaleString()}</strong>`;
+        const perMin = Number(u.credits_per_minute);
+        const perMinText = (isFinite(perMin) && perMin > 0)
+            ? (window.currentLang === "ar"
+                ? ` (نحو ${perMin.toLocaleString()} رصيدًا لكل دقيقة منتهية)`
+                : ` (about ${perMin.toLocaleString()} per finished minute)`)
+            : "";
+        box.innerHTML = (window.currentLang === "ar" ? "الرصيد المستخدم في هذه الدبلجة: " : "Credits used for this dubbing: ")
+            + `<strong>${used.toLocaleString()}</strong>${perMinText}`;
     } catch (e) { box.classList.add("hidden"); }
 }
 
@@ -5535,6 +5542,10 @@ window.cleanOldClones = function () {
         resultSavedBanner: {
             en: '✅ This result is saved to your <a href="/account" style="color:#92400e;">Account</a> page — 30 days with an active <a href="/account#subscription" style="color:#92400e;">subscription</a>, or 48 hours otherwise. Your uploaded source file is still temporary — download or keep editing before you close this session.',
             ar: '✅ تم حفظ هذه النتيجة في صفحة <a href="/account" style="color:#92400e;">حسابك</a> — 30 يومًا مع <a href="/account#subscription" style="color:#92400e;">اشتراك</a> فعّال، أو 48 ساعة بخلاف ذلك. ملفك المصدر المرفوع لا يزال مؤقتًا — نزّله أو استمر في التحرير قبل إغلاق هذه الجلسة.'
+        },
+        noTrainNote: {
+            en: '🔒 We never use your media to train AI models, and you can delete your files any time from your <a href="/account">Account</a> page.',
+            ar: '🔒 لا نستخدم وسائطك لتدريب نماذج الذكاء الاصطناعي، ويمكنك حذف ملفاتك في أي وقت من صفحة <a href="/account">الحساب</a>.'
         },
         step1SupportsNote: {
             // Text updated for the lip-sync duration split (v1.7.0) -- this

@@ -49,6 +49,7 @@ import railway_monitor
 import resource_meter
 import assistant_service
 import landing_look
+import cost_per_minute
 import service_usage_monitor
 import site_gate
 import pricing_cache
@@ -619,7 +620,7 @@ PUBLIC_PATHS = frozenset([
     "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
     "/api/maintenance", "/api/limits", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
-    "/api/account/delete"
+    "/api/account/delete", "/api/cost_per_minute"
 , "/help.html", "/admin", "/api-docs"])
 
 # Security review (2026-09-30): upload endpoints used to accept a body of ANY
@@ -2207,6 +2208,7 @@ def _delete_account_run(request: Request, response: Response, uid):
                         p.unlink()
                 except Exception:
                     pass
+                _drop_backup_copy(f"{job_id}{suffix}")
     except Exception as e:
         print(f"[delete-account] file cleanup failed for {uid}: {e}")
 
@@ -6715,11 +6717,139 @@ def delete_my_job(job_id: str, request: Request):
                 removed += 1
         except Exception:
             pass
+        _drop_backup_copy(f"{job_id}{suffix}")      # "delete" means the off-site backup copy too, not only the server's file
     try:
         sm = _storage_summary(uid)
     except Exception:
         sm = None
     return {"status": "success", "removed": removed, "storage": sm}
+
+
+def _drop_backup_copy(name):
+    """Remove the off-site (R2) backup copy of one finished file. Best effort: when it cannot be done now, the
+    automatic age limit in r2_backup.py removes the copy later. Never raises."""
+    try:
+        r2_backup.delete_final_output(name)
+    except Exception as ex:
+        print(f"[erase] backup copy of {name} could not be removed now: {ex}")
+
+
+# What "Delete all my files now" may remove of a short dub besides the finished files: the original upload, the
+# line audio and drafts, and the separated tracks. Never the small JSON receipts and lip-sync records next to them:
+# those are what stops a charge or a refund being repeated, so they are not media and are never touched here.
+_ERASE_MEDIA_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi", ".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".pcm")
+
+
+def _short_job_busy(job_id):
+    """True while any step of this short dub is running or a lip-sync is still recorded as active."""
+    for key in (job_id, f"merge_{job_id}", f"emotions_{job_id}", f"generate_{job_id}", f"lipsync_{job_id}"):
+        progress = jobs_progress.get(key)
+        if isinstance(progress, dict) and progress.get("status") == "processing":
+            return True
+    if operation_active(job_id):
+        return True
+    for folder in (OUTPUT_DIR, UPLOAD_DIR):
+        if (folder / f"{job_id}_lipsync_active.json").exists():
+            return True
+    return False
+
+
+def _erase_short_job(job_id):
+    """Everything media this server keeps of one short dub (finished files and their backup copies, line audio and
+    drafts, the original upload, the separated tracks). Returns how many finished files were removed, or None when
+    the job was left alone because it is still being worked on."""
+    jid = str(job_id or "")
+    if not _JOB_ID_RE.fullmatch(jid):
+        return 0
+    if _short_job_busy(jid):
+        return None
+    import glob as _glob
+    removed = 0
+    for suffix in _MY_JOB_FILE_SUFFIXES.values():
+        p = OUTPUT_DIR / f"{jid}{suffix}"
+        try:
+            if p.exists():
+                p.unlink()
+                removed += 1
+        except Exception:
+            pass
+        _drop_backup_copy(f"{jid}{suffix}")
+    for folder, pattern in ((OUTPUT_DIR, _glob.escape(jid) + "_*"), (UPLOAD_DIR, _glob.escape(jid) + "*")):
+        try:
+            found = list(folder.glob(pattern))
+        except Exception:
+            continue
+        for p in found:
+            try:
+                if p.is_symlink():
+                    continue
+                if p.is_dir():
+                    if p.name == f"{jid}_separated":
+                        shutil.rmtree(p, ignore_errors=True)
+                elif p.suffix.lower() in _ERASE_MEDIA_EXTS:
+                    p.unlink()
+            except Exception:
+                pass
+    return removed
+
+
+def _may_still_have_files(last_seen, days=35):
+    """False only when the job's newest history entry is clearly older than the longest time any file or backup
+    copy is kept (30 days, plus the backup's own one-day margin). Anything unreadable counts as recent."""
+    try:
+        import datetime as _dt
+        when = _dt.datetime.fromisoformat(str(last_seen).replace("Z", "+00:00"))
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=_dt.timezone.utc)
+        return (_dt.datetime.now(_dt.timezone.utc) - when).total_seconds() < days * 86400
+    except Exception:
+        return True
+
+
+@app.post("/api/account/delete_files")
+def delete_all_my_files(request: Request):
+    """Account page: "Delete all my files now". Removes this user's finished files (and their off-site backup
+    copies), short-dub working files and uploads, and Dub Long Video projects. Keeps the account, credits, purchase
+    history and saved voices. Anything still being processed is left alone and reported, never deleted half-way."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "erase_files", 5, 600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    jobs = _user_job_ids(uid)
+    if jobs is None:
+        return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
+    projects_removed, skipped, long_ids = 0, 0, set()
+    with longdub_service.account_lock(uid):
+        for project in longdub_service.list_jobs_for_uid(uid):
+            jid = project.get("id")
+            long_ids.add(jid)
+            try:
+                ok, _err = longdub_service.delete_job(project, uid)
+            except Exception as ex:
+                print(f"[erase] long dub project {jid} could not be deleted now: {ex}")
+                ok = False
+            if ok:
+                projects_removed += 1
+            else:
+                skipped += 1
+    files_removed = 0
+    for jid, last_seen in jobs.items():
+        if jid in long_ids:
+            continue                         # a long dub project's own files went with the project (or it is busy and stays)
+        if not _may_still_have_files(last_seen):
+            continue                         # older than every retention limit: nothing of it is left to find, and no backup copy either
+        result = _erase_short_job(jid)
+        if result is None:
+            skipped += 1
+        else:
+            files_removed += result
+    try:
+        sm = _storage_summary(uid)
+    except Exception:
+        sm = None
+    return {"status": "success", "files_removed": files_removed, "projects_removed": projects_removed,
+            "skipped_busy": skipped, "storage": sm}
 
 
 def account_summary_diag(request: Request):
@@ -8399,6 +8529,52 @@ def billing_packs_dynamic():
         },
         "subscriptionPlans": _plans_for_public_display(cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS),
     }, headers={"Cache-Control": "no-cache"})
+
+# ==================== WHAT A FINISHED MINUTE COSTS (Pricing page) ====================
+# The typical credits for one finished minute over the last 90 days, from the real credit history (see
+# cost_per_minute.py for exactly what counts). Public on purpose: it is a total, never a name, id or date. Hidden
+# until there are enough projects and customers; SHOW_COST_PER_MINUTE=0 in Railway hides it at any time.
+def _cpm_enabled():
+    return os.environ.get("SHOW_COST_PER_MINUTE", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _cpm_read_meta(job_id):
+    """Length and 'which project does this correction belong to' of one long-dub project file. Read and forgotten."""
+    if not longdub_service._valid_id(job_id):
+        return None
+    path = longdub_service.job_dir(job_id) / "job.json"
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8") as stream:
+        job = json.load(stream)
+    return {"duration": job.get("duration"), "edit_of": job.get("edit_of")}
+
+
+def _cpm_refresh():
+    return cost_per_minute.compute(SUPABASE_URL, SUPABASE_SERVICE_KEY, _cpm_read_meta)
+
+
+@app.get("/api/cost_per_minute")
+def cost_per_minute_public():
+    headers = {"Cache-Control": "public, max-age=600"}
+    if not _cpm_enabled():
+        return JSONResponse({"ok": False}, headers=headers)
+    summary = cost_per_minute.cached(_cpm_refresh)
+    cfg = _get_pricing_config()
+    return JSONResponse(cost_per_minute.public_figure(
+        summary, cfg.get("packs") or DEFAULT_PACKS, cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS), headers=headers)
+
+
+def _cpm_warm_up():
+    # First figure a minute or two after start, so the first visitor to /pricing does not find it empty.
+    time.sleep(120)
+    try:
+        cost_per_minute.cached(_cpm_refresh, start_thread=False)
+    except Exception:
+        pass
+
+
+threading.Thread(target=_cpm_warm_up, daemon=True, name="cost-per-minute-warm-up").start()
 
 # ==================== AI HELPER (chat box) ====================
 # The chat widget (chat.js) posts here. The model only ever receives: the Help page text, the facts in
