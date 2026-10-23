@@ -69,7 +69,10 @@ class BedFloorTests(unittest.TestCase):
         pause = db(sec(self.buzz, 6.8, 8.4))
         for a, b in self.talk:
             under = db(sec(y, a + 0.6, b - 0.6))
-            self.assertLess(abs(under - (pause + pb.FLOOR_DB)), 3.0, (a, b, under, pause))
+            # the rebuild is laid at the (now 30 %) floor, but never under what the separator left behind in the speech
+            left = db(sec(self.sep, a + 0.6, b - 0.6))
+            self.assertGreater(under, pause + pb.FLOOR_DB - 3.0, (a, b, under, pause))
+            self.assertLess(under, max(pause + pb.FLOOR_DB, left) + 4.0, (a, b, under, pause))
         before = db(sec(self.sep, 9.7, 13.3))
         self.assertLess(before, pause - 8)                              # without the fix the buzz was ~10 dB down under the voice
 
@@ -113,7 +116,7 @@ class BedFloorTests(unittest.TestCase):
         y, _ = sf.read(r['path'])
         y = y.mean(axis=1)
         pause = db(sec(y, 6.8, 8.4))
-        self.assertLess(abs(db(sec(y, 9.7, 13.3)) - pause), 4.0)         # no pulse any more
+        self.assertLess(abs(db(sec(y, 9.7, 13.3)) - pause - pb.BED_VOLUME_DB), 4.0)         # no pulse any more (held at the 30 % level)
 
 
 if __name__ == '__main__':

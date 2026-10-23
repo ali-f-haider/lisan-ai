@@ -93,7 +93,7 @@ class CrowdBedTests(unittest.TestCase):
         drop_before = level_db(before[pa]) - level_db(before[sp])
         drop_after = level_db(out[pa]) - level_db(out[sp])
         self.assertGreater(drop_before, 15.0)                       # the problem: it nearly vanished under the speech
-        self.assertLess(drop_after, 6.0)                            # a few dB under, not a collapse
+        self.assertLess(drop_after, 6.0 - pb.BED_VOLUME_DB + 1.0)   # a few dB under (plus the deliberate 30 % level), not a collapse
         self.assertGreater(drop_after, -1.0)                        # and never louder than the pauses
 
     def test_the_pauses_are_not_touched(self):

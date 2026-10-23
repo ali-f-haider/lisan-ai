@@ -32,9 +32,17 @@ CONSISTENT_DB = 12.0             # the original may be this much louder than the
 DIRTY_SHARE = 0.5                # the separated voices are "dirty" when they sound like voice in more than this share of the time nobody speaks
 DIRTY_GAP_DB = 10.0               # ...and what the voices hold in those stretches is at least this much quieter than in the speech
 DIRTY_STEADY_MAX_DB = 4.5        # a crowd / a restaurant murmurs (about 3 dB of variation); music with a beat is 10 and more
-FLOOR_DB = float(os.environ.get('DUB_BG_FLOOR_DB', '-4'))   # under the speech the steady background is at least this far under its pause level
+# Everything put back under the speech (pieces of the original's own pauses, a steady floor, a recorded bed) is a rebuild, not the
+# original sound, and it was audible as something foreign. It is laid at this share of the level it would have had (amplitude:
+# 0.3 is about -10.5 dB). env DUB_BED_VOLUME, 0.05 to 1 (1 = the old level). Clean pauses are never touched.
+try:
+    BED_VOLUME = min(1.0, max(0.05, float(os.environ.get('DUB_BED_VOLUME') or 0.3)))
+except ValueError:
+    BED_VOLUME = 0.3
+BED_VOLUME_DB = 20.0 * float(np.log10(BED_VOLUME))
+FLOOR_DB = BED_VOLUME_DB + float(os.environ.get('DUB_BG_FLOOR_DB', '-4'))   # under the speech the steady background is at least this far under its pause level
 BED_MIN_POOL_SEC = 1.2
-CROWD_BED_DB = float(os.environ.get('DUB_CROWD_BED_DB', '-3'))   # a place with life in it (restaurant, street): under speech it is held this far under its pause level
+CROWD_BED_DB = BED_VOLUME_DB + float(os.environ.get('DUB_CROWD_BED_DB', '-3'))   # a place with life in it (restaurant, street): under speech it is held this far under its pause level
 CROWD_POOL_MAX_SEC = 300.0       # real sound of the pauses that may be laid under the speech (every piece is used once before any is repeated)
 CROWD_GRAIN_SEC = 2.0
 CROWD_FADE_SEC = 0.4
@@ -387,7 +395,7 @@ def _crowd_bed(mt, o, speech, free, n, out_path, part, info, log=None):
     info['ok'] = True
     info['crowd_bed'] = {'sec_laid': round(float(need_sec), 1), 'sec_real': round(float(pieces.seconds()), 1), 'repeats': round(float(need_sec / max(1.0, pieces.seconds())), 2)}
     info['added_db'] = round(float(10.0 * np.log10(np.mean(added) * pieces.power + 1e-20)), 1) if added else 0.0
-    info['reason'] = (f"a place with life in it: real pieces of its own pauses ({pieces.seconds():.0f} s) are held {abs(CROWD_BED_DB):g} dB under the pause level "
+    info['reason'] = (f"a place with life in it: real pieces of its own pauses ({pieces.seconds():.0f} s) are held {abs(CROWD_BED_DB):.1f} dB under the pause level "
                       f"while people speak ({need_sec:.0f} s laid, nothing made up)")
     return info
 

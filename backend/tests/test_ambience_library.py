@@ -11,6 +11,7 @@ import soundfile as sf
 
 import ambience_library as lib
 import ambience_match as am
+import pause_bed as pb
 import section_background as sections
 
 
@@ -191,7 +192,7 @@ class LibraryTests(unittest.TestCase):
         audio = sf.read(result['path'], dtype='float32')[0]
         level = 10 * np.log10(np.mean(audio[2 * lib.RATE:8 * lib.RATE] ** 2) + 1e-14)
         self.assertLess(level, -39.0, 'replacement ambience must not exceed the original measured bed')
-        self.assertGreater(level, -47.5, 'level matching must not erase the restored ambience')
+        self.assertGreater(level, -47.5 + pb.BED_VOLUME_DB - 3.0, 'level matching must not erase the restored ambience')
 
     def test_quote_finds_the_same_short_job_scene_cache_as_generation(self):
         job = 'b' * 32

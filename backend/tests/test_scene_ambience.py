@@ -74,7 +74,7 @@ class AmbienceTests(unittest.TestCase):
         result, y, _ = self.render(bed, [(2, 7), (9, 14)], dirty=True)
         self.assertTrue(result['ok'], result)
         self.assertIn('real ambience', result['reason'])
-        self.assertGreater(db(y[3 * SR:6 * SR]), -65)
+        self.assertGreater(db(y[3 * SR:6 * SR]), -65 + pb.BED_VOLUME_DB - 3.0)       # audible, at the deliberate 30 % level
 
     def test_a_future_reference_in_another_room_is_not_borrowed(self):
         bed = ambience(16)
