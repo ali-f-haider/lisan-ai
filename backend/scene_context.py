@@ -10,7 +10,9 @@ loud a believable room tail can be (SETTINGS below). room_acoustics.make_plan th
 inside that stretch to that ceiling. The context is only ever a ceiling:
   * it never adds reverb to something that was measured dry (a courtroom can be recorded with close microphones),
   * it never raises a measurement,
-  * a stretch Gemini is not confident about, or does not know, is not limited at all.
+  * a stretch Gemini is not confident about gets the limit of the next size of place up (see limit_for), and a stretch it
+    does not know gets the limit of the loudest place there is, so even a blind measurement cannot go beyond what any room
+    can have (before this, an unsure stretch had no limit at all: a film dinner scene measured as a church).
 So the measurement stays the source of truth, and the context only stops it from going far beyond what is plausible.
 
 Cost: one Gemini call per dub, recorded the same way the other Gemini calls are. The result is cached next to the job, so
@@ -50,6 +52,13 @@ SETTINGS = {
     "huge_space":    ("cathedral, mosque, stadium, arena, airport or station hall, large auditorium, big cave",  3.50, -11.0),
 }
 UNKNOWN = "unknown"
+
+# Sizes of place from the quietest believable tail to the loudest. When the scene check is NOT sure (or knows nothing),
+# the limit of the guessed place is relaxed by one size, and with no guess at all the loudest believable tail of any
+# place applies. A measurement beyond that is a fault of the measurement (laughter, music, crowd noise), not a room.
+SIZE_LADDER = ("studio", "small_room", "medium_room", "large_room", "huge_space")
+_SIZE_OF = {"outdoors": 0, "vehicle": 0, "studio": 0, "small_room": 1, "tiled_room": 2, "medium_room": 2, "large_room": 3, "huge_space": 4}
+ANY_PLACE_LIMIT = (SETTINGS["huge_space"][1], SETTINGS["huge_space"][2])
 
 
 def _fmt_t(t):
@@ -104,18 +113,20 @@ def scene_at(scenes, t):
 
 
 def limit_for(scene):
-    """-> (rt_max, wet_max) for a confident, known stretch, else None (no limit)."""
-    if not scene or scene.get("conf") != "high" or scene.get("key") not in SETTINGS:
-        return None
+    """-> (rt_max, wet_max). A confident, known stretch gets the limit of its kind of place. A guess the check was not
+    sure about gets the limit of the next size of place up. No usable stretch gets the limit of any place at all
+    (ANY_PLACE_LIMIT): the loudest tail a real room can have."""
+    if not scene or scene.get("key") not in SETTINGS:
+        return ANY_PLACE_LIMIT
     _label, rt_max, wet_max = SETTINGS[scene["key"]]
+    if scene.get("conf") != "high":
+        _label, rt_max, wet_max = SETTINGS[SIZE_LADDER[min(_SIZE_OF[scene["key"]] + 1, len(SIZE_LADDER) - 1)]]
     return rt_max, wet_max
 
 
 def apply_limit(rt, wet_db, scene):
     """-> (rt, wet_db, changed). Only ever lowers."""
     lim = limit_for(scene)
-    if lim is None:
-        return rt, wet_db, False
     rt2, wet2 = min(float(rt), lim[0]), min(float(wet_db), lim[1])
     return rt2, wet2, (rt2 < float(rt) - 1e-6 or wet2 < float(wet_db) - 1e-6)
 

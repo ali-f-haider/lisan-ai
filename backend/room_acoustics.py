@@ -582,11 +582,11 @@ def make_plan(profile, settings, lines):
         limited = []
         for sc, ws in by_scene.values():
             rt, wet = float(gi["rt60"]), float(gi["wet_db"])
-            if sc:
-                import scene_context
-                rt, wet, changed = scene_context.apply_limit(rt, wet, sc)
-                if changed:
-                    limited.append(f"{sc['place'] or sc['key']} ({len(ws)} lines): {gi['rt60']:g} s / {gi['wet_db']:g} dB limited to {rt:g} s / {wet:g} dB")
+            import scene_context
+            rt, wet, changed = scene_context.apply_limit(rt, wet, sc)      # with no usable scene it is still limited to what any place can have
+            if changed:
+                name = ((sc.get("place") or sc.get("key")) + ("" if sc.get("conf") == "high" else ", not sure")) if sc else "place unknown"
+                limited.append(f"{name} ({len(ws)} lines): {gi['rt60']:g} s / {gi['wet_db']:g} dB limited to {rt:g} s / {wet:g} dB")
             plan.append({"rt60": rt, "wet_db": float(np.clip(wet + trim, WET_MIN_DB, WET_MAX_DB)) + RENDER_TRIM_DB + 20.0 * float(np.log10(strength)), "windows": ws})
         parts.append(f"room {g + 1}: {gi['label']}, {gi['rt60']:g} s, {gi['wet_db'] + trim:g} dB"
                      + (f" (measured {gi['wet_db']:g} dB, you set {trim:+g} dB)" if trim else "") + f" ({len(wins)} lines"
