@@ -97,5 +97,34 @@ class Plan(unittest.TestCase):
         self.assertAlmostEqual(plan[0]["wet_db"], -5.0 + ra.RENDER_TRIM_DB)
 
 
+class Coverage(unittest.TestCase):
+    def raw(self, *items):
+        return [{"t0": a, "t1": b, "setting": k, "confidence": c, "place": "p"} for a, b, k, c in items]
+
+    def test_a_short_answer_is_stretched_over_the_whole_video(self):
+        out = sc._clean_scenes(self.raw((0, 1, "medium_room", "low")), 83.0)
+        self.assertEqual((out[0]["t0"], out[0]["t1"]), (0.0, 83.0))
+        self.assertIsNotNone(sc.scene_at(out, 60.0))
+
+    def test_gaps_are_shared_and_ends_reach_the_edges(self):
+        out = sc._clean_scenes(self.raw((5, 20, "small_room", "high"), (40, 60, "huge_space", "high")), 100.0)
+        self.assertEqual(out[0]["t0"], 0.0)
+        self.assertEqual(out[0]["t1"], out[1]["t0"])
+        self.assertAlmostEqual(out[0]["t1"], 30.0)
+        self.assertEqual(out[1]["t1"], 100.0)
+
+    def test_a_good_answer_and_an_empty_one_are_left_alone(self):
+        good = sc._clean_scenes(self.raw((0, 30, "small_room", "high"), (30, 83, "outdoors", "high")), 83.0)
+        self.assertEqual([(s["t0"], s["t1"]) for s in good], [(0.0, 30.0), (30.0, 83.0)])
+        self.assertEqual(sc._clean_scenes([], 83.0), [])
+        self.assertEqual(sc._cover([], 83.0), [])
+
+    def test_the_limit_now_follows_the_lines_of_the_whole_dub(self):
+        out = sc._clean_scenes(self.raw((0, 1, "medium_room", "low")), 83.0)
+        plan, why = plan_for(0.71, -4.4, out)
+        self.assertAlmostEqual(plan[0]["wet_db"], -14.0 - 4.0 + ra.RENDER_TRIM_DB)
+        self.assertNotIn("place unknown", why)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -95,7 +95,23 @@ def _clean_scenes(raw, duration):
             s["t0"] = fixed[-1]["t1"]
         if s["t1"] > s["t0"]:
             fixed.append(s)
-    return fixed
+    return _cover(fixed, duration)
+
+
+def _cover(scenes, duration):
+    """The stretches must cover the whole video: the first starts at 0, the last ends at the end, and a gap between two
+    stretches is shared between them. (One answer named a dining room for 0:00-0:01 of an 83 second scene, so every line
+    of the dub then had no place at all.)"""
+    if not scenes or not duration:
+        return scenes
+    out = [dict(s) for s in scenes]
+    out[0]["t0"] = 0.0
+    out[-1]["t1"] = float(duration)
+    for a, b in zip(out, out[1:]):
+        if b["t0"] > a["t1"]:
+            mid = (a["t1"] + b["t0"]) / 2.0
+            a["t1"], b["t0"] = mid, mid
+    return out
 
 
 def scene_at(scenes, t):
@@ -241,7 +257,8 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
             if cache.exists():
                 c = json.loads(cache.read_text(encoding="utf-8"))
                 if c.get("key") == key and isinstance(c.get("scenes"), list):
-                    return {"scenes": c["scenes"], "cost_usd": 0.0, "reused": True, "summary": _summary(c["scenes"], 0.0, True)}
+                    covered = _cover(c["scenes"], duration)          # an answer saved before the stretches were made to cover the video
+                    return {"scenes": covered, "cost_usd": 0.0, "reused": True, "summary": _summary(covered, 0.0, True)}
         except Exception:
             pass
         import gemini_service
