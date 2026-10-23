@@ -40,6 +40,7 @@ import lipsync_service
 import longdub_service
 import subs_align
 import subs_export
+import publish_pack
 import watermark
 import r2_backup
 import business_metrics
@@ -6328,6 +6329,96 @@ def longdub_subtitles(job_id: str, request: Request, lang: str = "ar", fmt: str 
         content=("\ufeff" + text).encode("utf-8"),
         media_type=("text/vtt" if fmt == "vtt" else "application/x-subrip") + "; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{_q(fname)}"})
+
+
+class LongDubPublishPack(BaseModel):
+    title: str = ""
+    description: str = ""
+    keywords: str = ""
+
+
+def _publish_pack_view(record):
+    """What the page needs to show a saved pack (the pack and the words it was made from)."""
+    return {"saved": True, "input": record.get("input") or {}, "pack": record.get("pack") or {}}
+
+
+@app.get("/api/longdub/{job_id}/publish_pack")
+def longdub_publish_pack_get(job_id: str, request: Request):
+    """The YouTube publishing pack saved for this project, if one was made."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    record = publish_pack.load(longdub_service.job_dir(job["id"]))
+    return _publish_pack_view(record) if record else {"saved": False}
+
+
+@app.post("/api/longdub/{job_id}/publish_pack")
+def longdub_publish_pack_make(job_id: str, body: LongDubPublishPack, request: Request):
+    """Write the Arabic YouTube title, description, tags, hashtags and chapters from the dubbed lines. Free: one small
+    text request, no credits. The result is checked against YouTube's limits and saved with the project."""
+    if _rate_limited(request, "publish_pack", 6, 600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    if job.get("status") != "done":
+        return JSONResponse({"error": "The publishing pack is available once your dub is finished."}, status_code=409)
+    inp = publish_pack.clean_input(body.title, body.description, body.keywords)
+    if not inp:
+        return JSONResponse({"error": "Type the title of your original video first."}, status_code=400)
+    try:
+        duration = longdub_service._total_secs(job)
+    except Exception:
+        duration = float(job.get("duration") or 0)
+    source_name = languages.get(job.get("source_language")).english_name
+    pack, why = publish_pack.generate(job["id"], inp, longdub_service.read_segments(job), duration, source_name, GEMINI_API_KEY)
+    if not pack:
+        message = {
+            "no_lines": "There are no dubbed lines to write from yet.",
+            "bad_answer": "The writing helper did not give a usable answer this time. Please try again.",
+        }.get(why, "The writing helper is busy right now. Please try again in a minute.")
+        return JSONResponse({"error": message}, status_code=409 if why == "no_lines" else 503)
+    record = {"input": inp, "pack": pack, "made_at": int(_time.time())}
+    try:
+        publish_pack.save(longdub_service.job_dir(job["id"]), record)
+    except OSError:
+        return JSONResponse({"error": "We couldn't find that project."}, status_code=404)
+    return _publish_pack_view(record)
+
+
+@app.get("/api/longdub/{job_id}/publish_pack.zip")
+def longdub_publish_pack_zip(job_id: str, request: Request):
+    """One .zip: the texts, the Arabic subtitles and the dubbed audio as an audio-only file (what YouTube's 'Add dub' asks for)."""
+    if _rate_limited(request, "publish_pack_zip", 10, 600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    record = publish_pack.load(longdub_service.job_dir(job["id"]))
+    if not record:
+        return JSONResponse({"error": "Make the publishing texts first."}, status_code=404)
+    from starlette.background import BackgroundTask
+    import tempfile
+    work = Path(tempfile.mkdtemp(prefix="lisan-pack-"))
+    try:
+        rows = longdub_service.read_segments(job)
+        srt, _n = subs_export.export(rows, "ar", "srt")
+        vtt, _m = subs_export.export(rows, "ar", "vtt")
+        result = longdub_service.result_file(job) if job.get("status") == "done" else None
+        if result is None:
+            audio_path, audio_name, audio_note = None, None, "The dubbed file has expired or was deleted, so it is not in this pack."
+        else:
+            audio_path, audio_name, audio_note = publish_pack.prepare_audio(result, work, ffmpeg_utils.run_ffmpeg)
+        dest = work / "publishing_pack.zip"
+        publish_pack.build_zip(dest, record["pack"], record.get("input") or {}, srt if _n else "", vtt if _m else "",
+                               audio_path, audio_name, audio_note)
+    except Exception:
+        shutil.rmtree(work, ignore_errors=True)
+        return JSONResponse({"error": "We couldn't build the pack. Please try again."}, status_code=500)
+    base = Path(job.get("filename") or "video").stem[:60] or "video"
+    ascii_base = "".join(c if (c.isascii() and c.isalnum()) else "_" for c in base) or "video"
+    return FileResponse(str(dest), media_type="application/zip", filename=f"{ascii_base}_youtube_pack.zip",
+                        background=BackgroundTask(lambda: shutil.rmtree(work, ignore_errors=True)))
 
 
 class LongDubGlossary(BaseModel):
