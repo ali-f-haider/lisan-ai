@@ -374,7 +374,7 @@ def _ffprobe_json(path, entries):
 PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "message", "duration",
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
-                 "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
+                 "stated_speakers", "speakers_chosen", "detected_speakers", "speaker_list", "lipsync", "name", "description",
                  "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary", "edit_of", "restore_for_edits", "speaker_count_ask")
 
 
@@ -617,7 +617,7 @@ def _fingerprint(path):
     return {"size": size, "sha1": h.hexdigest()}
 
 
-def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None, source_language="en"):
+def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None, source_language="en", speakers_chosen=True):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -668,7 +668,7 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", descrip
         "percent": 0, "message": "Uploading...", "received": [], "total_chunks": total_chunks,
         "chunk_bytes": CHUNK_BYTES, "duration": 0.0, "has_video": ext in VIDEO_EXTS,
         "estimate": None, "paid": {"fee": 0, "analysis": 0, "dub": 0}, "error": "",
-        "n_segments": 0, "speakers": [], "warnings": [], "stated_speakers": speakers,
+        "n_segments": 0, "speakers": [], "warnings": [], "stated_speakers": speakers, "speakers_chosen": bool(speakers_chosen),
         "speaker_list": [], "detected_speakers": 0,
         "lipsync": {"wanted": lipsync, "resolution": _lip_res(lip_res)},
     }
@@ -676,7 +676,7 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", descrip
         _JOBS[job_id] = job
     _save(job)
     _ev(job, "language_set", "ok", job["source_language"])
-    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers} lipsync={'yes ' + _lip_res(lip_res) if lipsync else 'no'}")
+    _ev(job, "upload_started", "ok", f"file={job['filename']} size={size} stated_speakers={speakers if speakers_chosen else 'none (left empty; 2 is only used for the price)'} lipsync={'yes ' + _lip_res(lip_res) if lipsync else 'no'}")
     return job, None
 
 
@@ -987,7 +987,7 @@ def redo_project(job, uid, for_edits=False):
             "chunk_bytes": CHUNK_BYTES, "duration": job.get("duration") or 0.0, "has_video": bool(job.get("has_video")),
             "estimate": json.loads(json.dumps(job.get("estimate"))), "paid": {"fee": 0, "analysis": 0, "dub": 0},
             "error": "", "n_segments": len(rows), "speakers": list(job.get("speakers") or []),
-            "warnings": [], "stated_speakers": job.get("stated_speakers", 2),
+            "warnings": [], "stated_speakers": job.get("stated_speakers", 2), "speakers_chosen": job.get("speakers_chosen", True),
             "speaker_list": json.loads(json.dumps(job.get("speaker_list") or [])),
             "detected_speakers": job.get("detected_speakers", 0),
             "lipsync": (json.loads(json.dumps(job.get("lipsync") or {"wanted": False})) if lipsync_available() else {"wanted": False}),
@@ -1587,17 +1587,17 @@ def _review_speakers(job, rows, turns, label_map, vote=None):
             if q["speaker_confidence"] == "low":
                 for why in q["speaker_reasons"]:
                     reasons[why] = reasons.get(why, 0) + 1
-        review = speaker_quality.count_mismatch(turns, job.get("stated_speakers"))
+        review = speaker_quality.count_mismatch(turns, _stated_count(job) or None)
         used = len({r.get("speaker") for r in rows})
         if voted:       # after the vote the number to compare is the speakers that really have lines
             try:
-                stated_n = int(job.get("stated_speakers"))
+                stated_n = _stated_count(job)
                 review = {"stated": stated_n, "detected": used, "needs_review": stated_n != used} if stated_n >= 1 else None
             except (TypeError, ValueError):
                 review = None
         detail = (f"{len(rows)} lines: {counts['low']} to check, {counts['medium']} medium, {counts['high']} sure; "
                   f"{len({t.get('speaker') for t in turns})} speakers detected, {used} with lines, "
-                  f"{job.get('stated_speakers')} stated by the user")
+                  f"{_stated_count(job) or 'no number'} stated by the user")
         if reasons:
             detail += "; why: " + ", ".join(f"{k} {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:6])
         job["speaker_count_review"] = review
@@ -1669,10 +1669,7 @@ def _find_voices(job, wd, vocals_all, slot):
     import speaker_count
     if not HF_TOKEN:
         return "skipped", [], False
-    try:
-        stated = int(job.get("stated_speakers") or 0)
-    except (TypeError, ValueError):
-        stated = 0
+    stated = _stated_count(job)       # 0 when the person left the box empty: the detector then decides alone and nothing is asked
     free_path = Path(wd) / "turns_free.json"
     free = None
     if free_path.exists():
@@ -1745,13 +1742,23 @@ def choose_speaker_count(job, count):
 SPEAKER_COUNT_ASK = os.environ.get("LONGDUB_ASK_SPEAKER_COUNT", "1") != "0"       # LONGDUB_ASK_SPEAKER_COUNT=0: never pause to ask
 
 
-def _stated_people(job):
-    """The number of speakers the user gave at upload (1 to MAX_SPEAKERS), or None when there is none. It is taken as fact."""
+def _stated_count(job):
+    """The number of speakers the person really typed at upload (1 to MAX_SPEAKERS), or 0. The upload form sends 2 when the box is left
+    empty, only so the price estimate has a number; that 2 is not something they said, so it is never taken as fact. Jobs from before
+    this flag existed count as typed."""
+    if job.get("speakers_chosen") is False:
+        return 0
     try:
         n = int(job.get("stated_speakers") or 0)
     except (TypeError, ValueError):
-        return None
-    return n if 1 <= n <= MAX_SPEAKERS else None
+        return 0
+    return n if 1 <= n <= MAX_SPEAKERS else 0
+
+
+def _stated_people(job):
+    """The number of speakers the user gave at upload (1 to MAX_SPEAKERS), or None when there is none. It is taken as fact."""
+    n = _stated_count(job)
+    return n if n >= 1 else None
 
 
 def _vote_speakers(job, rows, wd, vocals_all):
@@ -1980,7 +1987,9 @@ def _run_analysis(job):
                 for t in turns:
                     secs[t["speaker"]] = secs.get(t["speaker"], 0.0) + max(0.0, t["end"] - t["start"])
                 _ev(job, "speaker_detection", "ok",
-                    f"{len(secs)} speakers, {len(turns)} turns ({'exactly' if exact else 'at least'} {job.get('stated_speakers')} asked for); seconds each: "
+                    f"{len(secs)} speakers, {len(turns)} turns ("
+                    + (f"{'exactly' if exact else 'at least'} {_stated_count(job)} asked for" if _stated_count(job) else "no number given by the user, the detector decided")
+                    + "); seconds each: "
                     + ", ".join(f"{k} {v:.0f}" for k, v in sorted(secs.items(), key=lambda kv: -kv[1])))
             else:
                 _ev(job, "speaker_detection", "failed", "no speaker turns returned")
@@ -2102,7 +2111,7 @@ def _run_analysis(job):
         _review_speakers(job, rows, turns, label_map, vote=vote)
         _write_segments(job, rows)
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
-                                           f"{job.get('stated_speakers')} stated by the user; "
+                                           f"{_stated_count(job) or 'no number'} stated by the user; "
                                            f"{len(silences)} pauses of {PAUSE_MIN_SEC:g}s+ measured")
 
         # Is the speech really English? A warning only: the transcription is fixed to English, so another
@@ -3283,7 +3292,7 @@ def _init_speakers(job, rows):
     for r in rows:
         r["speaker_id"] = by_name[r["speaker"]]
     detected = len(lst)
-    stated = max(1, min(MAX_SPEAKERS, int(job.get("stated_speakers") or detected)))
+    stated = max(1, min(MAX_SPEAKERS, _stated_count(job) or detected))
     k = len(lst)
     while len(lst) < stated:
         k += 1

@@ -5819,6 +5819,7 @@ class LongDubInit(BaseModel):
     filename: str = ""
     size: int = 0
     speakers: int = 2
+    speakers_chosen: bool = True     # False: the person left the box empty, so the 2 above is only a default for the price estimate
     lipsync: bool = False
     lip_res: str = ""            # "480P" / "720P" / "1080P"; empty = 720P
     name: str = ""
@@ -5844,7 +5845,8 @@ def longdub_init(body: LongDubInit, request: Request):
     if not _dg_ok:
         return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE), "capacity": True}, status_code=503)
     job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
-                                            body.name, body.description, body.lip_res, source_language=body.source_language)
+                                            body.name, body.description, body.lip_res, source_language=body.source_language,
+                                            speakers_chosen=body.speakers_chosen)
     if err:
         return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
     return customer_payload(longdub_service.public_view(job))

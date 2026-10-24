@@ -172,6 +172,49 @@ class FindVoices(unittest.TestCase):
         self.assertEqual(self.run_find(free=[])[0], "failed")
 
 
+class NumberLeftEmpty(unittest.TestCase):
+    """The upload form sends 2 when the box is empty (only so the price estimate has a number). That 2 was never said by the person:
+    nothing is asked, nothing is forced, the detector and the checks decide alone."""
+
+    def test_only_a_typed_number_counts(self):
+        self.assertEqual(ld._stated_count({"stated_speakers": 2, "speakers_chosen": True}), 2)
+        self.assertEqual(ld._stated_count({"stated_speakers": 2}), 2)                     # jobs from before the flag
+        self.assertEqual(ld._stated_count({"stated_speakers": 2, "speakers_chosen": False}), 0)
+        self.assertEqual(ld._stated_count({"stated_speakers": 99, "speakers_chosen": True}), 0)
+        self.assertEqual(ld._stated_count({"stated_speakers": "x"}), 0)
+        self.assertIsNone(ld._stated_people({"stated_speakers": 2, "speakers_chosen": False}))
+        self.assertEqual(ld._stated_people({"stated_speakers": 3, "speakers_chosen": True}), 3)
+
+    def test_nothing_is_asked_and_the_detector_runs_free(self):
+        t = FindVoices("run_find")
+        t.setUp()
+        try:
+            t.job["speakers_chosen"] = False
+            state, tr, exact = t.run_find()
+            self.assertEqual((state, tr, exact), ("ok", DUTCH, False))
+            self.assertEqual(t.calls, [(0, 0)])                                          # no minimum, no exact number
+            self.assertNotIn("speaker_count_ask", t.job)
+            self.assertEqual(t.job["status"], "analyzing")
+        finally:
+            t.tearDown()
+
+    def test_the_form_and_the_server_carry_the_flag(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertIn("speakers_chosen: bool = True", main)
+        self.assertIn("speakers_chosen=body.speakers_chosen", main)
+        page = (ROOT / "dub_long.html").read_text(encoding="utf-8")
+        self.assertIn('id="spkCount" min="1" max="8" value=""', page)
+        self.assertIn("speakers_chosen: spChosen", page)
+        self.assertIn('rawSp !== ""', page)
+        svc = (ROOT / "longdub_service.py").read_text(encoding="utf-8")
+        self.assertIn('"speakers_chosen": bool(speakers_chosen)', svc)
+        self.assertIn('"speakers_chosen"', svc[svc.index("PUBLIC_FIELDS"):svc.index("PUBLIC_FIELDS") + 600])
+
+    def test_a_job_started_without_a_number_pads_nothing(self):
+        src = (ROOT / "longdub_service.py").read_text(encoding="utf-8").replace("\r\n", "\n")
+        self.assertIn("stated = max(1, min(MAX_SPEAKERS, _stated_count(job) or detected))", src)
+
+
 class RunDetection(unittest.TestCase):
     def run_it(self, exact_n, min_n, behaviour):
         fake = mock.MagicMock()

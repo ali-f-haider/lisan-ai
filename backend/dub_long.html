@@ -69,7 +69,7 @@
     </div>
     <div class="ld-spkask">
       <label for="spkCount" id="spkAskLabel">How many people speak in this video?</label>
-      <input type="number" id="spkCount" min="1" max="8" value="2">
+      <input type="number" id="spkCount" min="1" max="8" value="" inputmode="numeric">
     </div>
     <p class="note" id="spkAskNote"></p>
     <div class="ld-lipask" id="lipAsk">
@@ -189,8 +189,9 @@ var T = {
     redoAsk: function (name) { return "Make a new project from \"" + name + "\"?\n\nIt starts with exactly the same lines, translations, speakers and options, so there is nothing to edit. Nothing is charged now: you attach your original file again, see the exact price, and decide whether to go ahead. The finished file of the old project stays as it is."; },
     redoNote: "This is a redo of an earlier project. All the lines, translations and speakers are already filled in, so you don't need to edit anything. Attach your original file again, check the price below and confirm. Nothing is charged until you confirm.",
     redoFail: "We couldn't create the new project. Please try again.",
-    spkAskLabel: "How many people speak in this video?",
-    spkAskNote: "Lisan AI also detects the speakers itself after the analysis; you will name them and check every line before anything is dubbed. This number is used for the estimate (each speaker's voice is cloned separately).",
+    spkAskLabel: "How many people speak in this video? (optional)",
+    spkAskHolder: "Not sure",
+    spkAskNote: "Leave it empty if you're not sure: Lisan AI then finds the speakers itself (the price estimate starts from 2). If you enter a number, we take it as certain, and if we find more voices than that we ask you before going on. You name the speakers and check every line before anything is dubbed.",
     spkBad: function (max) { return "Enter a number of speakers between 1 and " + max + "."; },
     packHeading: "Publish on YouTube",
     packNote: "Type the title of your original video (and its description, if you like). We write an Arabic title, description, search tags, hashtags and chapters from your dubbed lines, and put them in one .zip with the Arabic subtitles and the dubbed audio file that YouTube asks for. Free. Please read the texts once before you publish.",
@@ -373,7 +374,7 @@ var T = {
     emoHint: function (n) { return "Pick up to 3 styles (" + n + " of 3)"; }, emoMax: "You can pick up to 3 styles. Untick one first.",
     chars: function (n) { return n + " characters"; },
     spkHeading: "Speakers",
-    spkSummary: function (stated, detected) { return "You told us " + stated + " speaker" + (stated === 1 ? "" : "s") + " · Lisan AI detected " + detected + ". Name each speaker, add or remove speakers, then assign every line below."; },
+    spkSummary: function (stated, detected) { if (!stated) return "Lisan AI detected " + detected + " speaker" + (detected === 1 ? "" : "s") + ". Name each speaker, add or remove speakers, then assign every line below."; return "You told us " + stated + " speaker" + (stated === 1 ? "" : "s") + " · Lisan AI detected " + detected + ". Name each speaker, add or remove speakers, then assign every line below."; },
     spkLines: function (n) { return n + " line" + (n === 1 ? "" : "s"); },
     spkAdd: "+ Add a speaker", spkRemove: "Remove", spkNamePh: "Speaker name",
     spkRemoveBlocked: "Move this speaker's lines to another speaker first.",
@@ -460,8 +461,9 @@ var T = {
     redoAsk: function (name) { return "هل تريد إنشاء مشروع جديد من «" + name + "»؟\n\nيبدأ بنفس السطور والترجمات والمتحدثين والخيارات تمامًا، فلا حاجة إلى أي تعديل. لن يُخصم أي رصيد الآن: ستُرفق ملفك الأصلي مرة أخرى، وتطّلع على السعر الدقيق، ثم تقرر المتابعة. يبقى الملف المنتهي في المشروع القديم كما هو."; },
     redoNote: "هذه إعادة لمشروع سابق. جميع السطور والترجمات والمتحدثين مُعبّأة مسبقًا، فلا حاجة إلى أي تعديل. أرفق ملفك الأصلي مرة أخرى، وتحقق من السعر أدناه ثم أكّد. لن يُخصم أي رصيد قبل التأكيد.",
     redoFail: "تعذّر إنشاء المشروع الجديد. حاول مرة أخرى.",
-    spkAskLabel: "كم شخصاً يتحدث في هذا الفيديو؟",
-    spkAskNote: "يكتشف لسان AI المتحدثين بنفسه بعد التحليل أيضاً؛ وستسمّيهم وتراجع كل سطر قبل أي دبلجة. يُستخدم هذا الرقم في التقدير (يُستنسخ صوت كل متحدث على حدة).",
+    spkAskLabel: "كم شخصاً يتحدث في هذا الفيديو؟ (اختياري)",
+    spkAskHolder: "لست متأكداً",
+    spkAskNote: "اتركه فارغاً إذا لم تكن متأكداً: سيكتشف لسان AI المتحدثين بنفسه ويبدأ التقدير من متحدثَين اثنين. وإذا أدخلت رقماً فسنعتمده كحقيقة، وإذا وجدنا أصواتاً أكثر منه فسنسألك قبل المتابعة. وستسمّي المتحدثين وتراجع كل سطر قبل أي دبلجة.",
     spkBad: function (max) { return "أدخل عدد متحدثين بين 1 و" + max + "."; },
     packHeading: "انشر على يوتيوب",
     packNote: "اكتب عنوان فيديوك الأصلي (ووصفه إن أحببت). نكتب لك عنواناً ووصفاً وكلمات بحث ووسوماً وفصولاً بالعربية من أسطر الدبلجة، ونضعها في ملف مضغوط واحد مع الترجمة العربية وملف الصوت المدبلج الذي يطلبه يوتيوب. مجاناً. يُرجى قراءة النصوص مرة قبل النشر.",
@@ -644,7 +646,7 @@ var T = {
     emoHint: function (n) { return "اختر حتى 3 أساليب (" + n + " من 3)"; }, emoMax: "يمكنك اختيار 3 أساليب كحدٍّ أقصى. ألغِ أحدها أولاً.",
     chars: function (n) { return n + " حرفاً"; },
     spkHeading: "المتحدثون",
-    spkSummary: function (stated, detected) { return "أخبرتنا بوجود " + stated + " متحدثين · واكتشف لسان AI " + detected + ". سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; },
+    spkSummary: function (stated, detected) { if (!stated) return "اكتشف لسان AI " + detected + " متحدثين. سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; return "أخبرتنا بوجود " + stated + " متحدثين · واكتشف لسان AI " + detected + ". سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; },
     spkLines: function (n) { return n + " سطر"; },
     spkAdd: "+ أضف متحدثاً", spkRemove: "حذف", spkNamePh: "اسم المتحدث",
     spkRemoveBlocked: "انقل أسطر هذا المتحدث إلى متحدث آخر أولاً.",
@@ -792,6 +794,7 @@ function applyStaticText() {
   $("projNameLabel").textContent = T.projNameLabel; $("projName").placeholder = T.projNamePh;
   $("projDescLabel").textContent = T.projDescLabel; $("projDesc").placeholder = T.projDescPh;
   $("spkAskLabel").textContent = T.spkAskLabel;
+  $("spkCount").placeholder = T.spkAskHolder;
   $("spkAskNote").textContent = T.spkAskNote;
   $("lipAskLabel").textContent = T.lipAskLabel;
   $("lipNoText").textContent = T.lipNoText;
@@ -1548,12 +1551,15 @@ function onFilePicked(file) {
   var maxMb = cfg ? cfg.max_upload_mb : 2048;
   if (file.size > maxMb * 1048576) { showUploadError(T.tooBig(Math.round(file.size / 1048576), maxMb)); return; }
   var maxSp = cfg ? cfg.max_speakers : 8;
-  var nsp = parseInt($("spkCount").value, 10);
+  // An empty box means "not sure": the server then detects the speakers on its own and never asks "you said N". The 2 sent along is
+  // only the number the price estimate starts from.
+  var rawSp = String($("spkCount").value || "").trim(), spChosen = rawSp !== "";
+  var nsp = spChosen ? parseInt(rawSp, 10) : 2;
   if (!(nsp >= 1 && nsp <= maxSp)) { showUploadError(T.spkBad(maxSp)); return; }
   var wantLip = !!($("lipYes") && $("lipYes").checked && !$("lipYes").disabled);
   if (wantLip && /\.(mp3|wav|m4a|aac|flac|ogg)$/i.test(file.name)) { showUploadError(T.lipAudio); return; }
   busyShow(T.busyFile);
-  api("POST", "/api/longdub/init", { filename: file.name, size: file.size, source_language: LisanSource.normalise($("sourceLanguage") && $("sourceLanguage").value), speakers: nsp, lipsync: wantLip, lip_res: wantLip ? ($("lipRes").value || "720P") : "",
+  api("POST", "/api/longdub/init", { filename: file.name, size: file.size, source_language: LisanSource.normalise($("sourceLanguage") && $("sourceLanguage").value), speakers: nsp, speakers_chosen: spChosen, lipsync: wantLip, lip_res: wantLip ? ($("lipRes").value || "720P") : "",
                                         name: $("projName").value.trim(), description: $("projDesc").value.trim() }).then(function (r) {
     busyHide();
     if (!r.ok) { showUploadError(r.data.storage_full ? storageMsg(r.data) : safeErr(r.data.error, T.genericErr)); return; }
@@ -1813,7 +1819,7 @@ function redoForGender(spId) {
 function renderSpeakers() {
   var p = $("spkPanel"); if (!p) return;
   var max = cfg ? cfg.max_speakers : 8;
-  var h = "<h4>" + esc(T.spkHeading) + q(esc(T.spkSummary(cur.stated_speakers || spk.length, cur.detected_speakers || spk.length))) + "</h4>";
+  var h = "<h4>" + esc(T.spkHeading) + q(esc(T.spkSummary(cur.speakers_chosen === false ? 0 : (cur.stated_speakers || spk.length), cur.detected_speakers || spk.length))) + "</h4>";
   spk.forEach(function (s, i) {
     var n = linesOf(s.id);
     h += '<div class="ld-spkrow"><input type="text" data-spk="' + i + '" maxlength="40" value="' + esc(s.name) + '" placeholder="' + esc(T.spkNamePh) + '">' +
