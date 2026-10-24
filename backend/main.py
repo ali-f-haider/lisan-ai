@@ -5861,6 +5861,18 @@ def long_switch_language(job_id: str, body: dict, request: Request):
     return customer_payload(longdub_service.public_view(job))
 
 
+@app.post("/api/longdub/{job_id}/speaker-count")
+def long_set_speaker_count(job_id: str, body: dict, request: Request):
+    """The answer to "you said N, we found M": keep N or take M. Resumes the paused analysis."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, problem = longdub_service.choose_speaker_count(job, body.get("count"))
+    if not ok:
+        return JSONResponse({"error": problem[0]}, status_code=problem[1])
+    return customer_payload(longdub_service.public_view(job))
+
+
 @app.put("/api/longdub/{job_id}/chunk")
 async def longdub_chunk(job_id: str, index: int, request: Request):
     uid, job, err = _ld_job(request, job_id)

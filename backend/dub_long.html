@@ -319,6 +319,10 @@ var T = {
     confirmDeleteAny: "Delete this project? This cannot be undone.",
     deleteBtn: "Delete", openBtn: "Open",
     analyzingHeading: "2. We are working on it",
+    spkCountText: function (n, m) { return "You said " + n + (n === 1 ? " speaker" : " speakers") + ", but we found " + m + " different voices with real speech in this video. Do you want to change the number of speakers to " + m + "?"; },
+    spkCountNote: "Your choice is used from now on: every line is assigned to one of that many speakers, and no other speaker is added. You can still correct single lines in the editor.",
+    spkCountKeep: function (n) { return "Keep " + n; },
+    spkCountUse: function (m) { return "Change to " + m; },
     analyzingNote: "This takes several times the length of your video. You can close this page and come back later — your text will be waiting here for you to review.",
     dubbingHeading: "4. Dubbing in progress",
     dubbingNote: "We are dubbing your video. You can close this page — we will email you when the finished file is ready.",
@@ -407,7 +411,7 @@ var T = {
     confirmAsk: function (n, bal) { return "Charge " + n + " credits and start the dubbing? (Your balance: " + bal + ")\n\nCloned voices are retained for {voice_period} after last use, or until you finish corrections."; },
     priceChanged: "The price changed. Please check the new price.",
     listHeading: "My long dubs",
-    st: { uploading: "Uploading", estimated: "Waiting for your approval", accepted: "Queued", analyzing: "Analysing",
+    st: { uploading: "Uploading", estimated: "Waiting for your approval", accepted: "Queued", analyzing: "Analysing", speaker_count: "Waiting for your answer",
       editing: "Ready to review", confirmed: "Queued for dubbing", dubbing: "Dubbing", done: "Finished", failed: "Failed",
       cancelled: "Cancelled", expired: "Expired" },
     minShort: "min", loading: "Loading…", genericErr: "Something went wrong. Please try again.",
@@ -586,6 +590,10 @@ var T = {
     confirmDeleteAny: "حذف هذا المشروع؟ لا يمكن التراجع.",
     deleteBtn: "حذف", openBtn: "فتح",
     analyzingHeading: "٢. نعمل على الفيديو",
+    spkCountText: function (n, m) { return "ذكرتَ " + arSpeakers(n) + "، لكننا وجدنا " + m + " أصوات مختلفة فيها كلام حقيقي في هذا الفيديو. هل تريد تغيير عدد المتحدثين إلى " + m + "؟"; },
+    spkCountNote: "سنعتمد اختيارك من الآن: يُنسب كل سطر إلى أحد هذا العدد من المتحدثين ولا يُضاف متحدث آخر. ويمكنك تصحيح أي سطر في المحرر.",
+    spkCountKeep: function (n) { return "إبقاء " + n; },
+    spkCountUse: function (m) { return "التغيير إلى " + m; },
     analyzingNote: "يستغرق هذا عدة أضعاف مدة الفيديو. يمكنك إغلاق الصفحة والعودة لاحقاً — سيكون النص بانتظارك هنا للمراجعة.",
     dubbingHeading: "٤. الدبلجة قيد التنفيذ",
     dubbingNote: "نقوم بدبلجة الفيديو. يمكنك إغلاق الصفحة — سنراسلك عندما يجهز الملف النهائي.",
@@ -674,7 +682,7 @@ var T = {
     confirmAsk: function (n, bal) { return "خصم " + n + " رصيد وبدء الدبلجة؟ (رصيدك: " + bal + ")\n\nتُحفظ الأصوات المستنسخة {voice_period} بعد آخر استخدام، أو حتى إنهاء التصحيحات."; },
     priceChanged: "تغيّر السعر. يرجى مراجعة السعر الجديد.",
     listHeading: "دبلجاتي الطويلة",
-    st: { uploading: "قيد الرفع", estimated: "بانتظار موافقتك", accepted: "في الانتظار", analyzing: "قيد التحليل",
+    st: { uploading: "قيد الرفع", estimated: "بانتظار موافقتك", accepted: "في الانتظار", analyzing: "قيد التحليل", speaker_count: "بانتظار إجابتك",
       editing: "جاهز للمراجعة", confirmed: "بانتظار الدبلجة", dubbing: "قيد الدبلجة", done: "اكتمل", failed: "فشل",
       cancelled: "أُلغي", expired: "انتهت صلاحيته" },
     minShort: "د", loading: "جارٍ التحميل…", genericErr: "حدث خطأ ما. حاول مرة أخرى.",
@@ -855,6 +863,9 @@ function changeLipRes(sel, after) {
 // ------------------------------------------------------------------ jobs
 
 function isOpen(st) { return ["done", "failed", "cancelled", "expired"].indexOf(st) < 0; }
+function arSpeakers(n) {      // "متحدث واحد", "متحدثين اثنين", "3 متحدثين" ... (counts are at most 8)
+  return n === 1 ? "متحدثًا واحدًا" : (n === 2 ? "متحدثَين اثنين" : n + " متحدثين");
+}
 function isWorking(st) { return ["accepted", "analyzing", "confirmed", "dubbing"].indexOf(st) >= 0; }
 
 function loadList() {
@@ -978,7 +989,7 @@ function renderJob() {
   var heading = T.jobHeading;
   if (j.status === "estimated") heading = T.estHeading;
   else if (j.restoring) heading = T.restoringHeading;
-  else if (j.status === "accepted" || j.status === "analyzing") heading = T.analyzingHeading;
+  else if (j.status === "accepted" || j.status === "analyzing" || j.status === "speaker_count") heading = T.analyzingHeading;
   else if (j.status === "confirmed" || j.status === "dubbing") heading = T.dubbingHeading;
   else if (j.status === "failed") heading = T.failedHeading;
   else if (j.status === "done") heading = T.doneHeading;
@@ -1000,6 +1011,10 @@ function renderJob() {
     h += '<div class="ld-row-btns"><button class="btn-plain" id="btnDelete">' + esc(T.cancelUpload) + "</button></div>";
   } else if (j.status === "language_mismatch") {
     h += name + '<p>' + esc(LANG === "ar" ? "يبدو أن الكلام بلغة أخرى. اختر لغة الفيديو للمتابعة." : "The speech appears to be in a different language. Choose the video's language to continue.") + '</p><div class="ld-row-btns"><select id="mismatchLanguage"></select><button id="switchSourceLanguage"></button></div>';
+  } else if (j.status === "speaker_count") {
+    var spk = j.speaker_count_ask || {};
+    h += name + "<p>" + esc(T.spkCountText(spk.stated, spk.found)) + "</p><p class='note'>" + esc(T.spkCountNote) + "</p>" +
+      '<div class="ld-row-btns"><button class="btn-plain" id="spkKeep">' + esc(T.spkCountKeep(spk.stated)) + '</button><button class="green" id="spkUse">' + esc(T.spkCountUse(spk.found)) + "</button></div>";
   } else if (j.status === "estimated") {
     h += name + renderEstimate(j);
   } else if (isWorking(j.status)) {
@@ -1054,6 +1069,20 @@ function renderJob() {
   }
   if (lastErr) h += '<div class="ld-err">' + esc(lastErr) + "</div>";
   $("jobBody").innerHTML = h;
+  if (j.status === "speaker_count") {
+    var spkAsk = j.speaker_count_ask || {};
+    [["spkKeep", spkAsk.stated], ["spkUse", spkAsk.found]].forEach(function (pair) {
+      var b = $(pair[0]);
+      if (!b) return;
+      b.onclick = function () {
+        $("spkKeep").disabled = true; $("spkUse").disabled = true;
+        api("POST", "/api/longdub/" + j.id + "/speaker-count", {count: pair[1]}).then(function (r) {
+          if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); $("spkKeep").disabled = false; $("spkUse").disabled = false; return; }
+          cur = r.data; render(); startPoll();
+        }, function () { $("spkKeep").disabled = false; $("spkUse").disabled = false; alertMsg(T.genericErr); });
+      };
+    });
+  }
   if (j.status === "language_mismatch") {
     var chooser = $("mismatchLanguage"), switchButton = $("switchSourceLanguage"), mismatch = j.language_mismatch || {};
     chooser.setAttribute("aria-label", LANG === "ar" ? "لغة الفيديو الأصلية" : "Original video language");

@@ -375,7 +375,7 @@ PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "messag
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
                  "stated_speakers", "detected_speakers", "speaker_list", "lipsync", "name", "description",
-                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary", "edit_of", "restore_for_edits")
+                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary", "edit_of", "restore_for_edits", "speaker_count_ask")
 
 
 def result_file(job):
@@ -1601,12 +1601,8 @@ def _review_speakers(job, rows, turns, label_map, vote=None):
         if reasons:
             detail += "; why: " + ", ".join(f"{k} {v}" for k, v in sorted(reasons.items(), key=lambda kv: -kv[1])[:6])
         job["speaker_count_review"] = review
-        if voted and vote.get("new_speakers"):
-            job.setdefault("warnings", []).append(speaker_vote_live.ADDED_SPEAKER_MESSAGE)
-        elif review and review.get("needs_review"):
-            job.setdefault("warnings", []).append(
-                f"We found {review['detected']} speaker{'s' if review['detected'] != 1 else ''} in this video, but you said "
-                f"{review['stated']}. Please check who says each line, and merge or add speakers if needed.")
+        # The number of speakers the user gave is a fact, so there is no "we found N, you said M" warning and no "another speaker was
+        # found" message; the figures stay in the log line below and in speaker_count_review.
         _ev(job, "speaker_check", "partial" if counts["low"] else "ok", detail)
         return counts["low"]
     except Exception as ex:
@@ -1633,6 +1629,124 @@ def _speaker_check_refund(job, why):
     return 0
 
 
+def _run_detection(slot, vocals_all, exact_n=0, min_n=0):
+    """One run of the voice detector over the whole vocals track. exact_n >= 1: exactly that many voices (falls back to "at least"
+    and then to no hint when that fails, e.g. on very little speech); else min_n as a minimum. Returns the turns (a list, maybe empty),
+    or None when the detector could not run at all. Always gives the processing slot and the model memory back."""
+    import whisper_service
+    slot.take()
+    try:
+        try:
+            if exact_n >= 1:
+                return whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, exact_n)
+            return whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0, min_speakers=min_n)
+        except Exception as ex_first:
+            print(f"[longdub] speaker detection ({'exactly ' + str(exact_n) if exact_n >= 1 else 'at least ' + str(min_n)}) failed ({ex_first}); retrying")
+            try:
+                if exact_n >= 1:
+                    return whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0, min_speakers=exact_n)
+                return whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0)
+            except Exception as ex_second:
+                print(f"[longdub] speaker detection retry failed ({ex_second}); trying without a hint")
+                return whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0)
+    except Exception as ex:
+        print(f"[longdub] speaker detection failed: {ex}")
+        return None
+    finally:
+        try:
+            whisper_service._release_diarization_pipeline(HF_TOKEN)
+        except Exception:
+            pass
+        slot.drop()
+
+
+def _find_voices(job, wd, vocals_all, slot):
+    """Step 4 of the analysis. The detector first runs with the stated number of speakers as a minimum. If it finds more real voices
+    than the user said, the job pauses and asks (status "speaker_count"; the answer arrives in choose_speaker_count and the job
+    resumes here). The number the user ends up with is a fact: the turns used from then on come from a detection with exactly that many
+    voices (the first run is reused when it already has exactly that many). Returns (state, turns, exact): state is "ok", "skipped"
+    (no speaker model), "failed" (nothing found) or "asked" (paused)."""
+    import speaker_count
+    if not HF_TOKEN:
+        return "skipped", [], False
+    try:
+        stated = int(job.get("stated_speakers") or 0)
+    except (TypeError, ValueError):
+        stated = 0
+    free_path = Path(wd) / "turns_free.json"
+    free = None
+    if free_path.exists():
+        try:
+            free = json.loads(free_path.read_text(encoding="utf-8"))
+        except Exception:
+            free = None
+    if free is None:
+        _mark(job, "speakers", 46, "Detecting who is speaking...")
+        free = _run_detection(slot, vocals_all, 0, stated)
+        if free is None:
+            job.setdefault("warnings", []).append("We couldn't tell the speakers apart, so every line was assigned to Speaker 1.")
+            return "failed", [], False
+        free_path.write_text(json.dumps(free), encoding="utf-8")
+    if not free:
+        return "failed", [], False
+    ask = speaker_count.ask_for(free, stated)
+    choice = job.get("speaker_count_choice")
+    if ask and choice is None and SPEAKER_COUNT_ASK:
+        job["speaker_count_ask"] = ask
+        job["status"] = "speaker_count"
+        job["message"] = "Waiting for your answer about the number of speakers."
+        _save(job)
+        _ev(job, "speaker_count_asked", "partial",
+            f"you said {ask['stated']}, the detector found {ask['found']} voices with real speech (seconds each: {', '.join(str(s) for s in ask['seconds'])})")
+        return "asked", free, False
+    k = int(choice) if choice else stated
+    if choice and k != stated:
+        job["stated_speakers_asked"] = stated
+        job["stated_speakers"] = k
+        _save(job)
+    if k >= 1 and speaker_count.clusters(free) != k:
+        _mark(job, "speakers", 48, f"Detecting who is speaking, with exactly {k} voices...")
+        fixed = _run_detection(slot, vocals_all, k, 0)
+        if fixed:
+            return "ok", fixed, speaker_count.clusters(fixed) == k
+    return "ok", free, k >= 1 and speaker_count.clusters(free) == k
+
+
+def choose_speaker_count(job, count):
+    """The user's answer to "you said N, we found M": keep N or take M. Resumes the paused analysis. Returns (True, None) or (False, (message, status))."""
+    import speaker_count
+    with _LOCK:
+        if job["id"] in _RUNNING:
+            return False, ("Please wait a moment for the analysis to pause, then try again.", 409)
+    with _lock_for(job["id"]):
+        if job.get("status") != "speaker_count":
+            return False, ("The number of speakers can only be chosen while the analysis is waiting for it.", 409)
+        ask = job.get("speaker_count_ask") or {}
+        k = speaker_count.valid_choice(count, ask)
+        if k is None:
+            return False, ("Choose one of the two numbers shown.", 400)
+        job["speaker_count_choice"] = k
+        job.pop("speaker_count_ask", None)
+        job["status"] = "accepted"
+        job["message"] = ""
+        _save(job)
+        _ev(job, "speaker_count_chosen", "ok", f"you said {ask.get('stated')}, found {ask.get('found')}; the job continues with {k}")
+        start_worker(job["id"])
+    return True, None
+
+
+SPEAKER_COUNT_ASK = os.environ.get("LONGDUB_ASK_SPEAKER_COUNT", "1") != "0"       # LONGDUB_ASK_SPEAKER_COUNT=0: never pause to ask
+
+
+def _stated_people(job):
+    """The number of speakers the user gave at upload (1 to MAX_SPEAKERS), or None when there is none. It is taken as fact."""
+    try:
+        n = int(job.get("stated_speakers") or 0)
+    except (TypeError, ValueError):
+        return None
+    return n if 1 <= n <= MAX_SPEAKERS else None
+
+
 def _vote_speakers(job, rows, wd, vocals_all):
     """Who says each line, decided by a vote (speaker_vote.py): the dialogue, the voices and the app's own detector.
     Changes row["speaker"] (and may add a new speaker); returns a summary dict whose "status" is "ok" only when the vote acted.
@@ -1645,8 +1759,9 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _ev(job, "speaker_vote", "skipped", f"video of {dur / 60:.1f} min is outside the check's limit")
         else:
             _mark(job, "speakers", 88, "Checking who says each line...")
-            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
-            summary = speaker_vote_live.apply(rows, votes)
+            people = _stated_people(job)       # the user's number of speakers is a fact: the checks are told it and may not add another speaker
+            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, people=people, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
+            summary = speaker_vote_live.apply(rows, votes, allow_new=people is None)
             usage = votes.get("usage") or {}
             summary["rename"] = speaker_vote_live.compact_names(rows) if summary["status"] == "ok" else {}
             an["speaker_vote"] = {k: summary.get(k) for k in ("status", "changed", "badged", "merged", "voters")}
@@ -1845,39 +1960,20 @@ def _run_analysis(job):
         # 4. speaker detection over the whole vocals track ---------------
         turns_path = wd / "turns.json"
         if not an.get("diarized"):
-            turns = []
-            if HF_TOKEN:
-                import whisper_service
-                _mark(job, "speakers", 46, "Detecting who is speaking...")
-                slot.take()
-                try:
-                    stated = int(job.get("stated_speakers") or 0)
-                    try:
-                        turns = whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0, min_speakers=stated)
-                    except Exception as ex_min:
-                        print(f"[longdub] speaker detection with at least {stated} speakers failed ({ex_min}); retrying without that hint")
-                        turns = whisper_service.get_speaker_turns(str(vocals_all), HF_TOKEN, 0)
-                except Exception as ex:
-                    print(f"[longdub] speaker detection failed: {ex}")
-                    job.setdefault("warnings", []).append("We couldn't tell the speakers apart, so every line was assigned to Speaker 1.")
-                    turns = []
-                finally:
-                    try:
-                        whisper_service._release_diarization_pipeline(HF_TOKEN)
-                    except Exception:
-                        pass
-                    slot.drop()
+            _found, turns, exact = _find_voices(job, wd, vocals_all, slot)
+            if _found == "asked":
+                return       # paused: the user is asked whether to change the number of speakers (choose_speaker_count resumes the job)
             turns_path.write_text(json.dumps(turns), encoding="utf-8")
             an["diarized"] = True
             _save(job)
-            if not HF_TOKEN:
+            if _found == "skipped":
                 _ev(job, "speaker_detection", "skipped", "no HF_TOKEN configured")
             elif turns:
                 secs = {}
                 for t in turns:
                     secs[t["speaker"]] = secs.get(t["speaker"], 0.0) + max(0.0, t["end"] - t["start"])
                 _ev(job, "speaker_detection", "ok",
-                    f"{len(secs)} speakers, {len(turns)} turns (at least {job.get('stated_speakers')} asked for); seconds each: "
+                    f"{len(secs)} speakers, {len(turns)} turns ({'exactly' if exact else 'at least'} {job.get('stated_speakers')} asked for); seconds each: "
                     + ", ".join(f"{k} {v:.0f}" for k, v in sorted(secs.items(), key=lambda kv: -kv[1])))
             else:
                 _ev(job, "speaker_detection", "failed", "no speaker turns returned")
