@@ -64,12 +64,11 @@ class ReviewTests(unittest.TestCase):
     def test_the_short_limit_is_the_measured_one(self):
         self.assertEqual(ld.SPEAKER_CHECK_SHORT_SECONDS, 1.0)
 
-    def test_count_mismatch_makes_one_plain_warning_and_no_change_to_the_count(self):
-        job, _, _ = self.run_review([row(0, 0, 3)], stated=3)
-        self.assertEqual(job["speaker_count_review"], {"stated": 3, "detected": 2, "needs_review": True})
-        self.assertEqual(len(job["warnings"]), 1)
-        self.assertIn("2 speakers", job["warnings"][0])
-        self.assertIn("you said 3", job["warnings"][0])
+    def test_the_stated_count_is_a_fact_so_a_mismatch_makes_no_warning_and_no_change_to_the_count(self):
+        job, events, _ = self.run_review([row(0, 0, 3)], stated=3)
+        self.assertEqual(job["speaker_count_review"], {"stated": 3, "detected": 2, "needs_review": True})     # kept for the log
+        self.assertFalse(job.get("warnings"))
+        self.assertIn("3 stated by the user", events[0][2])
 
     def test_matching_count_adds_no_warning(self):
         job, _, _ = self.run_review([row(0, 0, 3)], stated=2)

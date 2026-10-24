@@ -52,9 +52,29 @@ def transcript(rows):
     return "\n".join(_row_json(r) for r in rows)
 
 
-def prompt_for(kind, rows, source_language="en"):
+def exact_people(prompt, people):
+    """The user's number of speakers is a fact: tell the check exactly how many people speak (instead of "several"), so it does not
+    invent more or fold two together. people=None (no number given) leaves the wording as it was."""
+    try:
+        n = int(people)
+    except (TypeError, ValueError):
+        return prompt
+    if n < 1:
+        return prompt
+    who = "person" if n == 1 else "people"
+    out = prompt.replace("Several different people speak. ", f"Exactly {n} different {who} speak{'s' if n == 1 else ''}. ")
+    out = out.replace("Do not invent extra people unless clearly needed.",
+                      f"Do not invent extra people: exactly {n} {who} speak{'s' if n == 1 else ''}, so use only {n} letter{'' if n == 1 else 's'}.")
+    return out.replace('{"people": 3,', f'{{"people": {n},')
+
+
+def prompt_for(kind, rows, source_language="en", people=None):
     if languages.get(source_language).code != "en":
-        return language_prompts.speaker_prompt(kind, rows, source_language)
+        return exact_people(language_prompts.speaker_prompt(kind, rows, source_language), people)
+    return exact_people(_prompt_en(kind, rows), people)
+
+
+def _prompt_en(kind, rows):
     audio = kind == "audio"
     head = ("Below is the transcript of a scene from a film, one line per row, with start and end seconds. Several different people speak. ")
     if audio:
@@ -75,11 +95,11 @@ def _limit(n_lines, retry=False):
     return min(65536, 24576 + 40 * max(1, int(n_lines)))
 
 
-def _payload(kind, rows, audio_b64, retry=False, source_language="en"):
+def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=None):
     parts = []
     if kind == "audio":
         parts.append({"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}})
-    parts.append({"text": prompt_for(kind, rows, source_language=source_language)})
+    parts.append({"text": prompt_for(kind, rows, source_language=source_language, people=people)})
     # "medium" thinking is what the test clip was measured with (an 8,192-token budget maps to it in gemini_service)
     return {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": _limit(len(rows), retry),
@@ -99,14 +119,14 @@ def _default_ask(api_key, payload, timeout):
     return gemini_service.call_gemini(api_key, payload, timeout=timeout)
 
 
-def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en"):
+def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en", people=None):
     """One listening request, with one more try (and more output room) when the answer is missing or unusable.
     Returns {segment_id: label} or None. Never raises."""
     ids = [r["segment_id"] for r in rows]
     parse = speaker_vote.parse_audio_answer if kind == "audio" else speaker_vote.parse_dialogue_answer
     for attempt in range(2):
         try:
-            data, _err = ask(api_key, _payload(kind, rows, audio_b64, retry=attempt > 0, source_language=source_language), 600)
+            data, _err = ask(api_key, _payload(kind, rows, audio_b64, retry=attempt > 0, source_language=source_language, people=people), 600)
         except Exception as ex:      # a failing request is an unavailable voter, not a failing job
             print(f"[speaker_vote] {kind} request failed: {type(ex).__name__}")
             data = None
@@ -175,11 +195,13 @@ def _save_state(path, state):
     os.replace(tmp, path)
 
 
-def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_language="en"):
+def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_language="en", people=None):
     """Returns {"dialogue": map|None, "audio": map|None, "usage": {...}, "reused": bool}.
     Answers are saved in work_dir so a restart reuses them (no second request, no second cost)."""
     ask = ask or _default_ask
     fp = fingerprint(rows)
+    if people:      # answers given for another number of speakers are not reused
+        fp = hashlib.sha256((fp + f"|people={int(people)}").encode("ascii")).hexdigest()
     if languages.get(source_language).code != "en":
         fp = hashlib.sha256((fp + languages.get(source_language).code).encode("ascii")).hexdigest()
     state_path = Path(work_dir) / STATE_FILE
@@ -203,7 +225,7 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
 
     def run(kind):
         u = {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}
-        res = _one_voter(kind, job_id, rows, audio_b64, api_key, ask, u, source_language=source_language)
+        res = _one_voter(kind, job_id, rows, audio_b64, api_key, ask, u, source_language=source_language, people=people)
         with locks:
             results[kind] = res
             for k in usage:
@@ -227,14 +249,16 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes):
-    """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them.
+def apply(rows, votes, allow_new=True):
+    """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
+    known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
     Returns a summary: status ('ok' or why the vote did not act), counts and the names of new speakers.
     Rows are changed only when status == 'ok'."""
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
     try:
         lines = [{"segment_id": r["segment_id"], "speaker": r["speaker"]} for r in rows]
-        res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None})
+        res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None},
+                                  None if allow_new else {"allow_new": False})
     except Exception as ex:
         summary["status"] = "error_" + type(ex).__name__
         return summary
