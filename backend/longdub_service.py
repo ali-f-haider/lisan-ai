@@ -5191,6 +5191,15 @@ def _run_dubbing(job):
         if cut or fast:
             _ev(job, "timing_report", "partial",
                 f"cut short at {cut[:12]}; sped up to 1.2x or more at {fast[:12]}")
+        # The same, line by line (what was asked, what was played, how much later or earlier than the original). Report only.
+        try:
+            import timing_log
+            _t_sum, _t_status, _t_rows = timing_log.report(kept, dub.get("rephrased") or {})
+            _ev(job, "timing_summary", _t_status, _t_sum)
+            for _t_row in _t_rows:
+                _ev(job, "timing_lines", "info", _t_row)
+        except Exception as ex_t:
+            print(f"[longdub] timing report skipped: {ex_t}")
 
         # 3b. optional lip-sync ---------------------------------------------------
         lip_video = None
