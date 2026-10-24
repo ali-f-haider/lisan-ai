@@ -140,6 +140,23 @@ def limit_for(scene):
     return rt_max, wet_max
 
 
+PRESET_RT_SCALE = float(os.environ.get("LONGDUB_ROOM_PRESET_RT", "0.7") or 0.7)       # a fallback room lasts this share of the place's longest believable decay...
+PRESET_WET_DB = float(os.environ.get("LONGDUB_ROOM_PRESET_DB", "-1.5") or -1.5)       # ...and its tail is this many dB under the loudest believable tail
+PRESET_MIN_RT = 0.5                                                                   # places whose ceiling is shorter than this (outdoors, car, studio) are dry: no preset
+
+
+def preset_for(scene):
+    """-> (rt, wet_db) for a cautious room when the original's room could not be measured, or None.
+    Only for a stretch the scene check is SURE about, and only for places that really ring (a room, a hall, a cathedral; never
+    outdoors, a car or a close-microphone studio). It sits under the place's own ceiling (limit_for), never at it."""
+    if not scene or scene.get("key") not in SETTINGS or scene.get("conf") != "high":
+        return None
+    _label, rt_max, wet_max = SETTINGS[scene["key"]]
+    if rt_max < PRESET_MIN_RT:
+        return None
+    return round(rt_max * PRESET_RT_SCALE, 2), round(wet_max + PRESET_WET_DB, 1)
+
+
 def apply_limit(rt, wet_db, scene):
     """-> (rt, wet_db, changed). Only ever lowers."""
     lim = limit_for(scene)

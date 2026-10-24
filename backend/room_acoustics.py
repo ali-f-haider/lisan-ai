@@ -522,6 +522,51 @@ def profile_for_job(job_id, cache_dir, vocals=None, spans_file=None):
     return prof
 
 
+THIN_SCENE_SHARE = 0.7             # a thinly measured room is used (softly) when the scene check is sure of the place for this share of its lines
+
+
+def _scene_sure(scenes, mids):
+    """True when the scene check is sure of the kind of place for most of these moments of the original."""
+    if not scenes or not mids:
+        return False
+    import scene_context
+    ok = 0
+    for m in mids:
+        sc = scene_context.scene_at(scenes, float(m))
+        if sc and sc.get("key") in scene_context.SETTINGS and sc.get("conf") == "high":
+            ok += 1
+    return ok >= THIN_SCENE_SHARE * len(mids)
+
+
+def _scene_fallback(settings, lines, trim):
+    """-> (plan, assignment, why). The original's room could not be measured at all (a very short clip, speech without pauses): when
+    the scene check is SURE what kind of place it is, every line gets a cautious room for that place (scene_context.preset_for)
+    instead of a bone-dry voice. Places that do not ring (outdoors, car, studio) and unsure stretches get nothing."""
+    s = settings or {}
+    scenes = s.get("scenes")
+    if not (s.get("scene_fallback") and scenes and lines):
+        return [], {}, ""
+    import scene_context
+    per, assign, names = {}, {}, {}
+    for l in lines:
+        sc = scene_context.scene_at(scenes, float(l["orig_mid"]))
+        p = scene_context.preset_for(sc)
+        if p is None:
+            continue
+        per.setdefault(p, []).append((float(l["t0"]), float(l["t1"])))
+        names[p] = (sc.get("place") or sc.get("key") or "").strip()
+    if not per:
+        return [], {}, "scene fallback: no stretch with a sure place that rings, nothing added"
+    plan, parts = [], []
+    for k, ((rt, wet), wins) in enumerate(sorted(per.items())):
+        plan.append({"rt60": rt, "wet_db": float(np.clip(wet + trim, WET_MIN_DB, WET_MAX_DB)) + RENDER_TRIM_DB, "windows": wins})
+        parts.append(f"{names[(rt, wet)] or 'place'}: {rt:g} s / {wet + trim:g} dB on {len(wins)} lines")
+        for l in lines:
+            if (float(l["t0"]), float(l["t1"])) in wins:
+                assign[l["sid"]] = k
+    return plan, assign, "scene fallback (nothing measurable, the scene check is sure of the place): " + "; ".join(parts)
+
+
 def make_plan(profile, settings, lines):
     """-> (plan, assignment, why).
     plan = groups to render [{"rt60","wet_db","windows"}]; assignment = {sid: room number};
@@ -542,13 +587,17 @@ def make_plan(profile, settings, lines):
                 f"manual: reverb {rt:g} s, amount {wd:g} dB on every line"
         except Exception:
             mode = "auto"
-    if not profile or not profile.get("ok") or not profile.get("groups"):
-        return [], {}, "auto: " + str((profile or {}).get("note") or "room could not be measured")
-    groups = profile["groups"]
     try:      # "Match original" with a correction: the user found the measured amount too strong / too weak
         trim = float(np.clip(float((settings or {}).get("trim_db") or 0.0), -12.0, 12.0))
     except (TypeError, ValueError):
         trim = 0.0
+    if not profile or not profile.get("ok") or not profile.get("groups"):
+        base = "auto: " + str((profile or {}).get("note") or "room could not be measured")
+        fb_plan, fb_assign, fb_why = _scene_fallback(settings, lines, trim)
+        if fb_plan:
+            return fb_plan, fb_assign, base + " -- " + fb_why
+        return [], {}, base + (" -- " + fb_why if fb_why else "")
+    groups = profile["groups"]
     scenes = (settings or {}).get("scenes") or None      # what kind of place each stretch is (scene_context.py): only ever a ceiling
     assignment, per_group, mids = {}, {}, {}
     for l in lines:
@@ -567,8 +616,11 @@ def make_plan(profile, settings, lines):
             parts.append(f"room {g + 1}: dry ({len(wins)} lines)")
             continue
         if (settings or {}).get("require_ok") and gi["confidence"] != "ok":
-            parts.append(f"room {g + 1}: only {gi['n']} phrase(s) measured, too few to be sure ({len(wins)} lines)")
-            continue
+            if (settings or {}).get("thin_ok") and _scene_sure(scenes, mids.get(g) or []):
+                parts.append(f"room {g + 1}: only {gi['n']} phrase(s) measured, but the scene check is sure of the place, so the reading is used softly")
+            else:
+                parts.append(f"room {g + 1}: only {gi['n']} phrase(s) measured, too few to be sure ({len(wins)} lines)")
+                continue
         strength = 1.0 if gi["confidence"] == "ok" else 0.75
         # lines of this room are split by the kind of place they are in: a measurement far beyond what that place can
         # have is brought down to the limit of the place (never raised)

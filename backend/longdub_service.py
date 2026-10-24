@@ -4193,6 +4193,7 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
 # kept (the measurement is an estimate from separated voices and can read a little strong on recordings with laughter,
 # music or crowd noise, so the default already takes a few dB off), or none at all.
 ROOM_TRIM_DEFAULT = float(os.environ.get("LONGDUB_ROOM_TRIM_DB", "-4"))
+ROOM_FALLBACK = os.environ.get("LONGDUB_ROOM_FALLBACK", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: a room measured on too few phrases is left out, as before
 ROOM_CHOICES = {"auto": ROOM_TRIM_DEFAULT, "lighter": ROOM_TRIM_DEFAULT - 4.0, "much_lighter": ROOM_TRIM_DEFAULT - 8.0, "off": None}
 
 
@@ -5271,6 +5272,20 @@ def _run_dubbing(job):
         got = ffmpeg_utils.get_media_duration(dub_full)
         if abs(got - total) > 0.25:
             raise Exception(f"dubbed track length {got:.2f}s does not match the video ({total:.2f}s)")
+        # Tone match (tone_match.py): the dubbed voices get the tonal colour of the original recording (a gentle, limited match of the
+        # speech spectrum; no delay, no length change). Before the room sound, so the room is added to the matched voice. Never fails the dub.
+        try:
+            import tone_match
+            if tone_match.ENABLED:
+                _mark(job, "mix", 85, "Matching the tone of the voices to the original...")
+                _tone_out = d / "dub_full_tone.wav"
+                _tm = tone_match.run(wd / "vocals_mono.wav", dub_full, _tone_out, kept)
+                if _tm.get("applied") and _tone_out.exists() and _tone_out.stat().st_size > 1000:
+                    os.replace(_tone_out, dub_full)
+                _ev(job, "tone_match", "ok" if _tm.get("applied") else "info", str(_tm.get("why") or "")[:560])
+        except Exception as ex_tm:
+            print(f"[longdub] tone match skipped: {ex_tm}")
+            _ev(job, "tone_match", "info", f"skipped ({ex_tm})"[:300])
         # Room sound: every dubbed line gets the room it was spoken in (measured phrase by phrase from the original's
         # separated voices, grouped into rooms, one reverb per room). Never fails the dub: on any problem the dry voice stays.
         try:
@@ -5282,7 +5297,8 @@ def _run_dubbing(job):
                         "orig_mid": (float(it.get("orig_start", it["start"])) + float(it["end"])) / 2.0} for it in kept]
                 _room_out = d / "dub_full_room.wav"
                 _pref = job.get("room_pref") if job.get("room_pref") in ROOM_CHOICES else "auto"
-                _room_set = {"mode": "off" if _pref == "off" else "auto", "require_ok": True, "trim_db": ROOM_CHOICES[_pref] or 0.0}
+                _room_set = {"mode": "off" if _pref == "off" else "auto", "require_ok": True, "trim_db": ROOM_CHOICES[_pref] or 0.0,
+                             "thin_ok": ROOM_FALLBACK, "scene_fallback": ROOM_FALLBACK}      # a thinly measured or unmeasurable room is helped by the scene check (never without it)
                 try:     # what kind of place is each stretch? (one Gemini call, cached; only ever limits the measurement)
                     import scene_context
                     if scene_context.ENABLED and _pref != "off":
