@@ -1073,3 +1073,32 @@ body button.tl-play:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(99
 #timelinePlayhead .tl-ph-handle:hover::before { transform: scale(1.18); }
 #timelineWrap.tl-dragging, #timelineWrap.tl-dragging * { cursor: grabbing !important; user-select: none; }
 #timelineWrap.tl-dragging #timelinePlayhead .tl-ph-handle::before { transform: scale(1.25); }
+
+/* ===== Short clip | Full video switch (drawn by mode_switch.js under the top bar of the app and of Long Dub) =====
+   Everything is in the theme variables, so Classic, Studio and dark mode all follow. The anchor selectors repeat the body
+   prefixes for the same reason a.btn-logout does above: "body a" link colours would otherwise win. */
+.mode-switch {
+    display: flex; gap: 4px; max-width: 560px; width: calc(100% - 32px); margin: 14px auto 0; padding: 4px;
+    background: var(--muted-surface); border: 1px solid var(--border); border-radius: 14px;
+}
+.mode-switch .ms-tab {
+    flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 10px;
+    text-decoration: none; color: var(--text-muted); line-height: 1.25; cursor: pointer; transition: background 0.2s, color 0.2s;
+}
+.mode-switch .ms-tab.on { background: var(--primary); color: #fff; box-shadow: var(--shadow); cursor: default; }
+.mode-switch .ms-ico { font-size: 20px; flex: 0 0 auto; }
+.mode-switch .ms-txt { display: flex; flex-direction: column; min-width: 0; }
+.mode-switch .ms-txt b { font-size: 15px; font-weight: 700; }
+.mode-switch .ms-txt small { font-size: 12px; font-weight: 500; opacity: 0.85; }
+body a.ms-tab, body.dark a.ms-tab, body.ui-new a.ms-tab, body.dark.ui-new a.ms-tab { color: var(--text-muted); text-decoration: none; }
+body a.ms-tab:hover, body.dark a.ms-tab:hover, body.ui-new a.ms-tab:hover, body.dark.ui-new a.ms-tab:hover {
+    background: var(--logout-hover-bg); color: var(--text); text-decoration: none;
+}
+.mode-switch .ms-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 520px) {
+    .mode-switch .ms-tab { padding: 8px 10px; gap: 7px; }
+    .mode-switch .ms-ico { font-size: 17px; }
+    .mode-switch .ms-txt b { font-size: 14px; }
+    .mode-switch .ms-txt small { font-size: 11px; }
+}
+

@@ -3842,6 +3842,12 @@ def admin_voice_controls_js():
     return FileResponse(BASE_DIR / "admin_voice_controls.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
+@app.get("/mode_switch.js")
+def mode_switch_js():
+    """The Short clip | Full video switch shown under the top bar of the app and of Long Dub."""
+    return FileResponse(BASE_DIR / "mode_switch.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
 @app.get("/background_review.js")
 def background_review_js():
     return FileResponse(BASE_DIR / "background_review.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
