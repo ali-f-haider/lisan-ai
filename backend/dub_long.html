@@ -946,7 +946,7 @@ function badgeFor(j) {
 
 function statusBadge(st) {
   var cls = (st === "done" || st === "editing") ? "ok" : (st === "failed" || st === "cancelled" || st === "expired") ? "bad" : "";
-  return '<span class="ld-status ' + cls + '">' + esc(T.st[st] || st) + "</span>";
+  return '<span class="ld-status ' + cls + '">' + esc(T.st[st] || String(st || "").replace(/_/g, " ")) + "</span>";
 }
 
 var roOpen = {};       // job id -> the read-only lines of a finished project are shown

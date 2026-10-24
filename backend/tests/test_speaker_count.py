@@ -246,9 +246,49 @@ class Choose(unittest.TestCase):
         self.assertEqual((ok, err[1]), (False, 409))
 
     def test_refused_while_a_worker_is_still_running(self):
-        with mock.patch.object(ld, "_RUNNING", {"j"}):
+        with mock.patch.object(ld, "_RUNNING", {"j"}), mock.patch.object(ld.time, "sleep", lambda s: None):
             (ok, err), started = self.run_choose(self.job(), 4)
         self.assertEqual((ok, err[1]), (False, 409))
+
+    def test_a_worker_that_is_just_finishing_is_waited_for(self):
+        """The question is saved a moment before the paused worker thread lets go; a quick click must not be refused."""
+        running = {"j"}
+        calls = []
+
+        def sleep(s):
+            calls.append(s)
+            if len(calls) == 3:
+                running.discard("j")
+        job = self.job()
+        with mock.patch.object(ld, "_RUNNING", running), mock.patch.object(ld.time, "sleep", sleep):
+            (ok, err), started = self.run_choose(job, 4)
+        self.assertTrue(ok)
+        self.assertEqual(started, ["j"])
+        self.assertEqual(job["status"], "accepted")
+
+
+class WhatThePageGets(unittest.TestCase):
+    """The paused job as the page receives it, and as the public API reports it."""
+
+    def test_the_question_survives_the_customer_view(self):
+        import user_errors
+        job = {"id": "j", "uid": "u", "status": "speaker_count", "source_language": "nl",
+               "speaker_count_ask": {"stated": 2, "found": 4, "seconds": [40, 12, 11, 8]}, "message": "Waiting for your answer about the number of speakers."}
+        with mock.patch.object(ld, "has_media", lambda j: True):
+            seen = user_errors.customer_payload(ld.public_view(job))
+        self.assertEqual(seen["status"], "speaker_count")
+        self.assertEqual(seen["speaker_count_ask"], {"stated": 2, "found": 4, "seconds": [40, 12, 11, 8]})
+
+    def test_the_public_api_calls_a_paused_job_running_not_finished(self):
+        import api_jobs
+        self.assertIn("speaker_count", api_jobs.STATUSES)
+        job = {"status": "speaker_count", "stage": "speakers", "api": {"op": {"id": "o", "quote_id": "q", "step": "analysis", "maximum_credits": 0}}}
+        self.assertEqual(api_jobs.status_stage(job)[0], "speaker_count")
+        self.assertEqual(api_jobs.operation_view(job)["state"], "running")
+
+    def test_an_unknown_status_never_shows_as_a_raw_key_on_the_page(self):
+        h = (ROOT / "dub_long.html").read_text(encoding="utf-8")
+        self.assertIn('T.st[st] || String(st || "").replace(/_/g, " ")', h)
 
 
 class Wiring(unittest.TestCase):

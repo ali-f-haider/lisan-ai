@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 import api_errors
 
-STATUSES = ("uploading", "estimated", "accepted", "analyzing", "language_mismatch", "editing", "confirmed", "dubbing", "payment_pending", "done", "failed")
+STATUSES = ("uploading", "estimated", "accepted", "analyzing", "language_mismatch", "speaker_count", "editing", "confirmed", "dubbing", "payment_pending", "done", "failed")
 STAGES = ("upload", "estimate", "queued", "extract", "plan", "separate", "speakers", "transcribe", "build", "translate",
           "review", "clone", "speak", "mix", "finish", "done", "failed")
 _STAGE_ALIASES = {"lipsync": "mix"}
@@ -64,7 +64,7 @@ def operation_view(job):
     elif step == "estimate":
         state = "succeeded" if status not in ("uploading",) else "accepted"
     elif step == "analysis":
-        state = {"accepted": "accepted", "analyzing": "running", "language_mismatch": "running"}.get(status, "succeeded")
+        state = {"accepted": "accepted", "analyzing": "running", "language_mismatch": "running", "speaker_count": "running"}.get(status, "succeeded")
     else:
         state = {"confirmed": "accepted", "dubbing": "running", "done": "succeeded"}.get(status, "accepted")
     debited, refunded = _slot_totals(job, step)

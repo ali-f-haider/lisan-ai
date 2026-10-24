@@ -1715,6 +1715,13 @@ def _find_voices(job, wd, vocals_all, slot):
 def choose_speaker_count(job, count):
     """The user's answer to "you said N, we found M": keep N or take M. Resumes the paused analysis. Returns (True, None) or (False, (message, status))."""
     import speaker_count
+    # The paused worker thread is still finishing (it saved the question a moment ago): give it a few seconds to let go
+    # instead of telling the user to try again.
+    for _ in range(50):
+        with _LOCK:
+            if job["id"] not in _RUNNING:
+                break
+        time.sleep(0.1)
     with _LOCK:
         if job["id"] in _RUNNING:
             return False, ("Please wait a moment for the analysis to pause, then try again.", 409)
