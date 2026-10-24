@@ -269,6 +269,8 @@ def apply(rows, votes, allow_new=True):
         return summary
     by_id = {r["segment_id"]: r for r in res["lines"]}
     before = {r["speaker"] for r in rows}
+    summary["by_line"] = {sid: {"by": list(d.get("voters_for") or []), "support": d.get("support"), "present": d.get("voters_present")}
+                          for sid, d in by_id.items()}      # who backed each line's winner (for the log only)
     for row in rows:
         d = by_id.get(row["segment_id"])
         if not d:

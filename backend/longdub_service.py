@@ -55,6 +55,7 @@ from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
 import subs_align
 import line_tidy
+import speaker_trace
 import line_planner
 import gender_context
 import speaker_vote_live
@@ -1775,9 +1776,14 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _mark(job, "speakers", 88, "Checking who says each line...")
             people = _stated_people(job)       # the user's number of speakers is a fact: the checks are told it and may not add another speaker
             votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, people=people, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
+            _det = speaker_trace.snapshot(rows)       # (for the per-line log) who the detector said, before the check changes anything
             summary = speaker_vote_live.apply(rows, votes, allow_new=people is None)
             usage = votes.get("usage") or {}
             summary["rename"] = speaker_vote_live.compact_names(rows) if summary["status"] == "ok" else {}
+            try:
+                summary["trace"] = speaker_trace.build(rows, _det, summary.get("by_line")) if summary["status"] == "ok" else []
+            except Exception:
+                summary["trace"] = []
             an["speaker_vote"] = {k: summary.get(k) for k in ("status", "changed", "badged", "merged", "voters")}
             an["speaker_vote"]["new_speakers"] = len(summary.get("new_speakers") or [])
             an["speaker_vote"]["usd"] = usage.get("usd")
@@ -2110,6 +2116,13 @@ def _run_analysis(job):
                 print(f"[longdub] line planner skipped: {ex}")
         _review_speakers(job, rows, turns, label_map, vote=vote)
         _write_segments(job, rows)
+        try:      # who said each line at each step, for the job log (reads only; nothing is decided here)
+            _t_sum, _t_rows = speaker_trace.report(rows, vote.get("trace") or [])
+            _ev(job, "speaker_trace", "info", _t_sum)
+            for _t_row in _t_rows:
+                _ev(job, "speaker_trace_lines", "info", _t_row)
+        except Exception as ex:
+            print(f"[longdub] speaker trace skipped: {ex}")
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
                                            f"{_stated_count(job) or 'no number'} stated by the user; "
                                            f"{len(silences)} pauses of {PAUSE_MIN_SEC:g}s+ measured")
