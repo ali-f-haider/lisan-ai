@@ -8,8 +8,12 @@ anything; it only reads rows and never raises.
 Reading a row:
     seg_3 0:17.3-0:20.5 "How's your face?" | detector S2 | check S2 (dialogue+audio+detector, 3/3) | final S2
     seg_4 0:20.5-0:21.0 "Fine." | detector S2 | check S1 <- moved (dialogue+audio, 2/3) | final S1
-A line is marked  <- moved  when the check changed the detector's answer, <- after  when the clean-up changed the check's answer,
-and  split  when the voters did not agree (less than all of them backed the winner). S1, S2 are Speaker 1, Speaker 2.
+A line is marked  <- moved  when the check changed the detector's answer, <- after  when something changed the check's answer
+(the pitch check, pitch_check.py, or the free clean-up that joins split phrases), and  split  when the voters did not agree (less than
+all of them backed the winner). S1, S2 are Speaker 1, Speaker 2.
+When the detector found more voices than the check kept, the check merges the extra one into another speaker and the speakers are
+renumbered. The detector's voice that was merged away is shown as S1* (never as "moved": it is the same person under a new name), and
+the other detector names are carried over to the new numbers, so "detector S2" always means the same person as "final S2".
 """
 import re
 
@@ -24,8 +28,8 @@ _VOTERS = {"app": "detector", "dialogue": "dialogue", "audio": "audio", "voice":
 def short(name):
     """'Speaker 2' -> 'S2'; any other name is shortened to its first 6 characters."""
     s = str(name or "?")
-    m = re.fullmatch(r"Speaker ([0-9]+)", s)
-    return "S" + m.group(1) if m else s[:6]
+    m = re.fullmatch(r"(~?)Speaker ([0-9]+)", s)
+    return "S" + m.group(2) + ("*" if m.group(1) else "") if m else s[:6]
 
 
 def clock(t):
@@ -49,6 +53,21 @@ def _num(v, default=0.0):
 def snapshot(rows):
     """{segment_id: speaker} as the detector left it, taken just before the speaker check runs."""
     return {r.get("segment_id"): r.get("speaker") for r in rows or [] if isinstance(r, dict)}
+
+
+def carry(detector, kept, rename):
+    """The detector's names as they read after the check: a name the check merged away becomes "~name" (shown S1*), the others take
+    the new numbers the renumbering gave them. `detector` is snapshot(); `kept` the names left after the check; `rename` {old: new}."""
+    rename = rename or {}
+    out = {}
+    for sid, name in (detector or {}).items():
+        if name is None:
+            out[sid] = None
+        elif kept is not None and name not in kept:
+            out[sid] = "~" + str(name)
+        else:
+            out[sid] = rename.get(name, name)
+    return out
 
 
 def build(rows, detector, by_line):
@@ -89,7 +108,8 @@ def facts(final_row, stage):
          "text": " ".join(str(final_row.get("text") or "").split()), "final": final,
          "det": e["det"] if e else None, "vote": e["vote"] if e else None, "by": e["by"] if e else [],
          "support": e["support"] if e else None, "present": e["present"] if e else None}
-    f["moved"] = bool(e) and f["det"] is not None and f["det"] != f["vote"]
+    f["merged"] = bool(e) and str(f["det"] or "").startswith("~")
+    f["moved"] = bool(e) and f["det"] is not None and not f["merged"] and f["det"] != f["vote"]
     f["after"] = bool(e) and f["vote"] is not None and f["vote"] != final
     f["split"] = bool(e) and isinstance(f["support"], int) and isinstance(f["present"], int) and f["present"] > 0 and f["support"] < f["present"]
     return f
@@ -135,18 +155,20 @@ def report(final_rows, stage):
         return "no lines", []
     ran = bool(stage)
     moved = sum(1 for f in fs if f["moved"])
+    merged = sum(1 for f in fs if f["merged"])
     after = sum(1 for f in fs if f["after"])
     split = sum(1 for f in fs if f["split"])
-    agree = sum(1 for f in fs if f["det"] is not None and f["det"] == f["final"])
+    agree = sum(1 for f in fs if f["det"] is not None and not f["merged"] and f["det"] == f["final"])
     if ran:
-        summary = ("%d lines; the detector's speaker is the final one on %d; the speaker check moved %d; the clean-up changed %d after the check; "
-                   "%d where the voters were split") % (n, agree, moved, after, split)
+        summary = ("%d lines; the detector's speaker is the final one on %d; the speaker check moved %d%s; "
+                   "changed after the check (pitch check or clean-up) %d; %d where the voters were split") % (
+            n, agree, moved, ("; %d on a detector voice merged into another (S*)" % merged) if merged else "", after, split)
     else:
         summary = "%d lines; the speaker check did not run, so the detector decides (%d lines)" % (n, n)
     if n <= ALL_LINES_UP_TO:
         chosen, how = fs, "a row for every line"
     else:
-        notable = [f for f in fs if f["moved"] or f["after"] or f["split"]][:MAX_ROWS]
+        notable = [f for f in fs if f["moved"] or f["after"] or f["split"] or f["merged"]][:MAX_ROWS]
         chosen, how = notable, "rows for the %d lines where something changed or the voters were split" % len(notable)
     summary += ". " + how + ". Rows are separated by //. Row: line, time, start of the text, detector, check (who backed it, backers/voters), final. S1 = Speaker 1"
     return summary[:1500], pack([row(f) for f in chosen])

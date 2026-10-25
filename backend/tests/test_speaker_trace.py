@@ -94,6 +94,66 @@ class WithTheRealVote(unittest.TestCase):
         self.assertEqual((e["det"], e["vote"]), ("Speaker 1", "Speaker 2"))
 
 
+class RenumberingIsNotAMove(unittest.TestCase):
+    """The detector found 3 voices for 2 people; the check merges one and the speakers are renumbered. Before this was handled the log
+    called almost every line "moved" (the detector's S2 became the final S1) although the check had changed nothing."""
+
+    def scene(self):
+        # detector: Speaker 1 and Speaker 2 are both the man (the detector split him in two), Speaker 3 is the boy
+        det = ["Speaker 2", "Speaker 3", "Speaker 1", "Speaker 3", "Speaker 2", "Speaker 3", "Speaker 1", "Speaker 3", "Speaker 2", "Speaker 3"]
+        rows = [line(i, i * 3.0, i * 3.0 + 2, f"t{i}", d) for i, d in enumerate(det)]
+        truth = {r["segment_id"]: ("A" if d != "Speaker 3" else "B") for r, d in zip(rows, det)}
+        return rows, {r["segment_id"]: r["speaker"] for r in rows}, {"dialogue": dict(truth), "audio": dict(truth)}
+
+    def run_it(self):
+        rows, det, votes = self.scene()
+        summary = live.apply(rows, votes, allow_new=True)
+        kept = {r["speaker"] for r in rows}
+        summary["rename"] = live.compact_names(rows)
+        carried = st.carry(det, kept, summary["rename"])
+        return rows, det, summary, carried
+
+    def test_the_check_merged_one_voice_and_renumbered(self):
+        rows, det, summary, carried = self.run_it()
+        self.assertEqual(summary["status"], "ok")
+        self.assertEqual(sorted({r["speaker"] for r in rows}), ["Speaker 1", "Speaker 2"])
+        self.assertEqual(len({v for v in carried.values() if v.startswith("~")}), 1)      # exactly one detector voice was merged away
+
+    def test_only_the_merged_voice_is_marked_and_nothing_is_called_moved(self):
+        rows, det, summary, carried = self.run_it()
+        stage = st.build(rows, carried, summary["by_line"])
+        sm, events = st.report(rows, stage)
+        text = " // ".join(events)
+        self.assertIn("the speaker check moved 0", sm)
+        self.assertIn("merged into another", sm)
+        self.assertIn("*", text)
+        self.assertNotIn("<- moved", text)
+
+    def test_the_old_way_would_have_called_them_moved(self):
+        rows, det, summary, _ = self.run_it()
+        stage = st.build(rows, det, summary["by_line"])         # the detector's raw names, not carried over
+        sm, _ = st.report(rows, stage)
+        self.assertNotIn("the speaker check moved 0", sm)
+
+    def test_a_real_move_is_still_a_move(self):
+        rows = [line(i, i * 3.0, i * 3.0 + 2, f"t{i}", "Speaker 1" if i % 2 == 0 else "Speaker 2") for i in range(10)]
+        det = {r["segment_id"]: r["speaker"] for r in rows}
+        want = dict(det)
+        want["seg_4"] = "Speaker 2"
+        summary = live.apply(rows, {"dialogue": dict(want), "audio": dict(want)}, allow_new=False)
+        kept = {r["speaker"] for r in rows}
+        carried = st.carry(det, kept, live.compact_names(rows))
+        sm, events = st.report(rows, st.build(rows, carried, summary["by_line"]))
+        self.assertIn("the speaker check moved 1", sm)
+        self.assertEqual(" // ".join(events).count("<- moved"), 1)
+
+    def test_names_and_edge_cases(self):
+        self.assertEqual(st.short("~Speaker 3"), "S3*")
+        self.assertEqual(st.carry({"a": None, "b": "Speaker 2"}, {"Speaker 2"}, {"Speaker 2": "Speaker 1"}), {"a": None, "b": "Speaker 1"})
+        self.assertEqual(st.carry({"a": "Speaker 1"}, {"Speaker 2"}, None), {"a": "~Speaker 1"})
+        self.assertEqual(st.carry(None, None, None), {})
+
+
 class Wiring(unittest.TestCase):
     def test_the_analysis_writes_the_trace_after_the_review(self):
         src = (ROOT / "longdub_service.py").read_text(encoding="utf-8").replace("\r\n", "\n")
@@ -103,7 +163,8 @@ class Wiring(unittest.TestCase):
         self.assertIn('_ev(job, "speaker_trace", "info", _t_sum)', src[j:j + 700])
         self.assertIn('_ev(job, "speaker_trace_lines", "info", _t_row)', src[j:j + 700])
         self.assertIn("_det = speaker_trace.snapshot(rows)", src)
-        self.assertIn('summary["trace"] = speaker_trace.build(rows, _det, summary.get("by_line"))', src)
+        self.assertIn('summary["trace"] = speaker_trace.build(rows, speaker_trace.carry(_det, _kept, summary.get("rename")), summary.get("by_line"))', src)
+        self.assertIn('_kept = {r["speaker"] for r in rows}', src)
 
 
 if __name__ == "__main__":

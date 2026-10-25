@@ -56,6 +56,7 @@ import lang_check
 import subs_align
 import line_tidy
 import speaker_trace
+import pitch_check
 import line_planner
 import gender_context
 import speaker_vote_live
@@ -1583,6 +1584,13 @@ def _review_speakers(job, rows, turns, label_map, vote=None):
                 v = speaker_vote_live.review_from_vote(r)      # lines the vote ruled on: its evidence replaces the detector's
                 if v:
                     q.update(v)
+                    sv = r.get("speaker_vote") if isinstance(r.get("speaker_vote"), dict) else {}
+                    if short and (sv.get("source") in ("vote", "new") or (isinstance(sv.get("support"), int) and isinstance(sv.get("present"), int)
+                                                                       and sv["support"] < sv["present"])):
+                        # a very short line whose speaker the vote CHANGED (or the voters did not all back) stays "check speaker": a one-word reply is
+                        # where the checks are most often wrong together (they lean on who should answer whom), so a majority does not clear it
+                        q["speaker_confidence"] = "low"
+                        q["speaker_reasons"] = list(dict.fromkeys(["short_reply"] + list(q.get("speaker_reasons") or [])))
             r.update(q)
             counts[q["speaker_confidence"]] = counts.get(q["speaker_confidence"], 0) + 1
             if q["speaker_confidence"] == "low":
@@ -1778,10 +1786,11 @@ def _vote_speakers(job, rows, wd, vocals_all):
             votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, people=people, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
             _det = speaker_trace.snapshot(rows)       # (for the per-line log) who the detector said, before the check changes anything
             summary = speaker_vote_live.apply(rows, votes, allow_new=people is None)
+            _kept = {r["speaker"] for r in rows}       # the detector's names that still exist after the check (a merged one is gone)
             usage = votes.get("usage") or {}
             summary["rename"] = speaker_vote_live.compact_names(rows) if summary["status"] == "ok" else {}
             try:
-                summary["trace"] = speaker_trace.build(rows, _det, summary.get("by_line")) if summary["status"] == "ok" else []
+                summary["trace"] = speaker_trace.build(rows, speaker_trace.carry(_det, _kept, summary.get("rename")), summary.get("by_line")) if summary["status"] == "ok" else []
             except Exception:
                 summary["trace"] = []
             an["speaker_vote"] = {k: summary.get(k) for k in ("status", "changed", "badged", "merged", "voters")}
@@ -2102,6 +2111,14 @@ def _run_analysis(job):
         vote = _vote_speakers(job, rows, wd, vocals_all)     # changes who says which line when the checks clearly agree
         if vote.get("rename"):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
+        try:      # the pitch check (pitch_check.py): free, local; moves a line only when the voice's pitch clearly belongs to another speaker
+            if vocals_all.exists():
+                _pc = pitch_check.run(rows, vocals_all)
+            else:
+                _pc = {"status": "skipped", "text": "no voice recording to measure"}
+            _ev(job, "pitch_check", "ok" if _pc["status"] == "ok" else "info", _pc["text"])
+        except Exception as ex:
+            print(f"[longdub] pitch check skipped: {ex}")
         _init_speakers(job, rows)
         try:      # free clean-up at the edges between speakers (line_tidy.py): a split phrase is joined, a stray sentence beginning moves to its speaker
             rows, _tidy = line_tidy.tidy_lines(rows, vocals_all if vocals_all.exists() else None, source_language=source_language)
