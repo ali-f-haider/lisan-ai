@@ -1,0 +1,83 @@
+{
+  "people": [
+    {
+      "id": "A",
+      "gender": "female",
+      "age": "adult",
+      "confidence": "high"
+    },
+    {
+      "id": "B",
+      "gender": "male",
+      "age": "older",
+      "confidence": "high"
+    }
+  ],
+  "lines": [
+    {
+      "id": "l0",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l1",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l2",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l3",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l4",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l5",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l6",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    },
+    {
+      "id": "l7",
+      "speaker": null,
+      "on_screen": false,
+      "confidence": "high",
+      "voice_kind": "unknown",
+      "delivery": "unknown"
+    }
+  ],
+  "screen_text": []
+}

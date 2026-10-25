@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.82.77"
+APP_VERSION = "1.82.78"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -220,6 +220,15 @@ GEMINI_MODELS = [
     "gemini-3.6-flash",
     "gemini-flash-latest",
 ]
+
+# Picture-unit runtime options live in image_unit.py and are read once there.
+# IMAGE_UNIT=0 (OFF until proven; set 1 to turn it on), IMAGE_FPS=2, IMAGE_MEDIA_RESOLUTION=default,
+# IMAGE_CHUNK_SEC=600, IMAGE_MAX_PARALLEL=2 (maximum 3),
+# IMAGE_CLIP_LONG_SIDE=480, IMAGE_CUT_THRESHOLD=.30, IMAGE_PICTURE_WEIGHT=1,
+# IMAGE_GENDER_MODE=flag (or off); no automatic gender/voice change exists.
+# Proposed prices (4 credits flat + 3 per minute of video); they only matter once IMAGE_UNIT=1. Env PICTURE_FLAT_CREDITS / PICTURE_CREDITS_PER_MIN override.
+PICTURE_FLAT_CREDITS = 4
+PICTURE_CREDITS_PER_MIN = 3.0
 
 # --- Emotion handling ---
 # Base emotions/styles (kept exactly as before, nothing removed) plus the

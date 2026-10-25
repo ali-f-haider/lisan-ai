@@ -87,7 +87,7 @@ class SourcePlacementTests(unittest.TestCase):
         env = functions('longdub_service.py', ['set_line_time'], {
             'math': math, '_lock_for': lambda _: threading.RLock(),
             '_total_secs': lambda _: 10, 'read_segments': lambda _: [row],
-            '_time_error': lambda *a: None, '_clear_speaker_review': lambda _: None,
+            '_time_error': lambda *a: None, '_clear_speaker_review': lambda _: None, '_refresh_picture_speakers': lambda *a: False,
             '_by_start': lambda rows: rows, '_write_segments': lambda *a: None, '_ev': lambda *a: None,
         })
         job = {'id': 'job', 'status': 'editing'}

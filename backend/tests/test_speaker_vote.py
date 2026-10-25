@@ -7,7 +7,7 @@ import unittest
 
 import numpy as np
 
-from speaker_vote import (MAX_LABEL, VOTERS, Policy, align_labels, choose_k,
+from speaker_vote import (MAX_LABEL, CORE_VOTERS, Policy, align_labels, choose_k,
                           cluster_voices, decide, parse_audio_answer, parse_dialogue_answer)
 
 
@@ -197,11 +197,11 @@ class VotingTests(unittest.TestCase):
         self.assertEqual(row['support'],4)
 
     def test_missing_each_voter_and_every_pair(self):
-        for missing in VOTERS:
+        for missing in CORE_VOTERS:
             result = self.run_case('without_'+missing)
             self.assertEqual(result['lines'][-1]['changed'],missing!='dialogue')
             self.assertNotIn(missing,result['summary']['voters_used'])
-        for pair in combinations(VOTERS,2):
+        for pair in combinations(CORE_VOTERS,2):
             out = self.run_case('without_'+'_and_'.join(pair))
             self.assertFalse(any(r['changed'] or r['badge'] for r in out['lines']))
 

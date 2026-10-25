@@ -1,0 +1,17 @@
+{
+  "usageMetadata": {
+    "promptTokenCount": 10000,
+    "candidatesTokenCount": 1000,
+    "thoughtsTokenCount": 2000,
+    "promptTokensDetails": [
+      {
+        "modality": "VIDEO",
+        "tokenCount": 9000
+      },
+      {
+        "modality": "TEXT",
+        "tokenCount": 1000
+      }
+    ]
+  }
+}

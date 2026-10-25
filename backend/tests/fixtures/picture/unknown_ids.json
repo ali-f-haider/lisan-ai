@@ -1,0 +1,89 @@
+{
+  "people": [
+    {
+      "id": "A",
+      "gender": "female",
+      "age": "adult",
+      "confidence": "high"
+    },
+    {
+      "id": "B",
+      "gender": "male",
+      "age": "older",
+      "confidence": "high"
+    }
+  ],
+  "lines": [
+    {
+      "id": "outside_l0",
+      "speaker": "A",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l1",
+      "speaker": "A",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l2",
+      "speaker": "A",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l3",
+      "speaker": "A",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l4",
+      "speaker": "B",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l5",
+      "speaker": "B",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l6",
+      "speaker": "B",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    },
+    {
+      "id": "outside_l7",
+      "speaker": "B",
+      "on_screen": true,
+      "confidence": "high",
+      "voice_kind": "on_screen",
+      "delivery": "unknown"
+    }
+  ],
+  "screen_text": [
+    {
+      "t": 1.5,
+      "text": "Oak Laboratory",
+      "kind": "sign"
+    }
+  ]
+}

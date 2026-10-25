@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 
-from speaker_vote import VOTERS
+from speaker_vote import CORE_VOTERS
 from tools.speaker_vote_eval import build_voters, evaluate_clip
 
 
@@ -26,9 +26,9 @@ class VoteEvaluationTests(unittest.TestCase):
 
     def test_all_single_and_pair_ablations_exist_and_weak_runs_do_nothing(self):
         runs = evaluate_clip(self.case())['runs']
-        for name in VOTERS:
+        for name in CORE_VOTERS:
             self.assertIn('without_'+name,runs)
-        for pair in combinations(VOTERS,2):
+        for pair in combinations(CORE_VOTERS,2):
             run = runs['without_'+'_and_'.join(pair)]
             self.assertEqual(run['all_lines']['changed'],0)
             self.assertEqual(run['all_lines']['badged'],0)

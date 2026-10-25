@@ -60,6 +60,7 @@ import pitch_check
 import line_planner
 import gender_context
 import speaker_vote_live
+import image_unit
 import dub_timing
 
 LONG_DIR = DATA_DIR / "longjobs"
@@ -410,7 +411,11 @@ def public_view(job):
     from voice_admin import retention_days
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
     v["voice_retention_days"] = retention_days(DATA_DIR)
+    if "speaker_list" in v and (not image_unit.enabled() or image_unit.GENDER_MODE == "off"):
+        v["speaker_list"] = [{k: val for k, val in s.items() if k not in ("picture_gender_check", "picture_advice")} for s in v["speaker_list"]]
     v["source_language"] = languages.get(job.get("source_language")).code
+    if "picture_option" in job:
+        v["picture_option"] = bool(job["picture_option"])
     if job.get("language_mismatch"):
         v["language_mismatch"] = job["language_mismatch"]
     v["received_count"] = len(job.get("received", []))
@@ -524,7 +529,7 @@ def _lip_rate(cfg, res=None):
     return lipsync_rate(float(cfg.get("lipsync_per_sec", 40)), res)
 
 
-def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None):
+def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None, *, has_video=False, picture=False):
     """Cost of the whole job, shown to the user before anything expensive
     runs. cfg = Hooks.pricing():
       fee               -- small fixed charge for producing this estimate
@@ -555,10 +560,14 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None)
     # the speaker check (two extra listening requests, see speaker_vote_live.py): flat + per minute, only for videos it can run on
     sc_flat, sc_min = max(0, int(cfg.get("speaker_check_flat", 0) or 0)), max(0.0, float(cfg.get("speaker_check_per_min", 0) or 0))
     speaker_check = (sc_flat + int(math.ceil(minutes * sc_min))) if (sc_flat or sc_min) and speaker_vote_live.fits(duration_sec) else 0
-    total = fee + analysis + flat + speaker_check + voice + clones + merge + lip
+    picture_active = bool(picture and has_video and image_unit.enabled() and image_unit.fits(duration_sec))
+    picture_charge = (max(0, int(cfg.get("picture_flat", 0) or 0)) +
+                      int(math.ceil(minutes * max(0.0, float(cfg.get("picture_per_min", 0) or 0))))) if picture_active else 0
+    total = fee + analysis + flat + speaker_check + picture_charge + voice + clones + merge + lip
     return {
         "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "speaker_check": speaker_check, "voice": voice,
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
+        **({"picture": picture_charge} if picture_active else {}),
         "speakers": speakers, "assumed_speakers": speakers,
         "lipsync_wanted": bool(lipsync), "lipsync": lip, "lipsync_per_sec": per_sec if lipsync else 0,
         "lipsync_res": _lip_res(lip_res) if lipsync else None,
@@ -619,7 +628,7 @@ def _fingerprint(path):
     return {"size": size, "sha1": h.hexdigest()}
 
 
-def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None, source_language="en", speakers_chosen=True):
+def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", description="", lip_res=None, source_language="en", speakers_chosen=True, picture=True):
     """Creates the job record + empty part file. Returns (job, None) or
     (None, (error_message, http_status))."""
     ext = Path(filename or "").suffix.lower()
@@ -674,6 +683,8 @@ def init_upload(uid, filename, size, speakers=2, lipsync=False, name="", descrip
         "speaker_list": [], "detected_speakers": 0,
         "lipsync": {"wanted": lipsync, "resolution": _lip_res(lip_res)},
     }
+    if image_unit.enabled() and ext in VIDEO_EXTS:
+        job["picture_option"] = bool(picture)
     with _LOCK:
         _JOBS[job_id] = job
     _save(job)
@@ -798,7 +809,7 @@ def finish_upload(job, uid):
     with _lock_for(job["id"]):
         job["duration"] = round(duration, 3)
         job["has_video"] = "video" in streams and job["ext"] in VIDEO_EXTS
-        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2), lip_wanted, (job.get("lipsync") or {}).get("resolution"))
+        job["estimate"] = compute_estimate(duration, cfg, job.get("stated_speakers", 2), lip_wanted, (job.get("lipsync") or {}).get("resolution"), has_video=job["has_video"], picture=job.get("picture_option") is True)
         if lip_wanted and geo:
             job["lipsync"].update({"fps": str(geo[0]), "w": geo[1], "h": geo[2], "frames": _video_frames(src)})
             if geo_raw:
@@ -849,7 +860,7 @@ def accept(job, uid, agreed=False):
     # refunds and the "already paid" line treat it like the rest of that part.
     # Estimates made before the flat fee existed have no "flat" key (= 0).
     # The speaker check (est["speaker_check"], 0 for older estimates) is paid the same way; it is returned if the check cannot run.
-    need_now = int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0)
+    need_now = int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("picture", 0) or 0)
     bal = Hooks.get_credits(uid)
     # He must be able to cover the whole estimate (minus what he already paid)
     # to proceed -- the exact voice cost is confirmed later after editing.
@@ -870,6 +881,8 @@ def accept(job, uid, agreed=False):
                 return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["analysis"] = need_now
             job["speaker_check_paid"] = int(est.get("speaker_check", 0) or 0)
+            if int(est.get("picture", 0) or 0):
+                job["picture_paid"] = int(est["picture"])
             _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits" + (f" (of which {job['speaker_check_paid']} for the speaker check)" if job["speaker_check_paid"] else ""), need_now)
         job["status"] = "accepted"
         job["stage"] = "queued"
@@ -996,6 +1009,10 @@ def redo_project(job, uid, for_edits=False):
             "media_fp": fp, "analysis": an, "parked_at": _now(), "redo_of": job["id"],
             "terms_accepted": job.get("terms_accepted"),
         }
+        if "picture_option" in job:
+            new["picture_option"] = bool(job["picture_option"])
+            if isinstance(old_an.get("picture_unit"), dict):
+                an["picture_unit"] = json.loads(json.dumps(old_an["picture_unit"]))
         if for_edits:
             new["restore_for_edits"] = job["id"]
         if job.get("glossary"):
@@ -1541,9 +1558,52 @@ SPEAKER_CHECK_PER_MIN = 0.4
 VOTE_FIELDS = ("speaker_vote",)
 
 
+# Shot cuts only bound a line's fitting room when this is on (env IMAGE_CUT_ROOM=1). Off by default: it changes how
+# long a line may play, so it is switched on only after it has been listened to on real videos.
+PICTURE_CUT_ROOM = os.environ.get("IMAGE_CUT_ROOM", "0").strip().lower() in ("1", "true", "yes", "on")
+
+PICTURE_ROW_FIELDS = ("picture_gender_check", "picture_off_mic", "picture_split_suggestions")
+
+
+def _clear_picture_advice(row):
+    """The words, the speaker or the time of this line changed: what the picture said about it no longer describes it.
+    Only the picture's own marks go (the line is remembered as stale so old screen text is not applied to it);
+    the audio-based "check speaker" review is left exactly as it was."""
+    if row.pop("picture_evidence", False):
+        row["picture_stale"] = True
+    for k in PICTURE_ROW_FIELDS:
+        row.pop(k, None)
+
+
+def _refresh_picture_speakers(job, rows):
+    """A speaker keeps its appearance advice only while some line of that speaker still carries it. After the person
+    changed lines, a mark about a voice that no longer has such lines would only mislead. Saves only when it changed
+    something; never raises; never touches a voice, a gender, a text or a time."""
+    try:
+        if job.get("picture_option") is not True:
+            return False
+        flagged = {r.get("speaker") for r in rows if r.get("picture_gender_check")}
+        seen = {r.get("speaker") for r in rows if r.get("picture_evidence")}
+        changed = False
+        for s in job.get("speaker_list") or []:
+            if s.get("picture_gender_check") and s.get("name") not in flagged:
+                s.pop("picture_gender_check", None)
+                changed = True
+            if s.get("picture_advice") and s.get("name") not in seen:
+                s.pop("picture_advice", None)
+                changed = True
+        if changed:
+            _save(job)
+        return changed
+    except Exception as ex:
+        print(f"[longdub] picture speaker refresh skipped: {type(ex).__name__}")
+        return False
+
+
 def _clear_speaker_review(row):
     """The user changed this line's speaker or timing: the saved evidence no longer describes it, so it is dropped
     (a stale "check speaker" badge must never override the user's own correction)."""
+    _clear_picture_advice(row)
     for k in SPEAKER_REVIEW_FIELDS + VOTE_FIELDS + line_tidy.CUT_FIELDS + ("gender_check",):      # (the "check where this line is cut" and "check gender" marks go with them)
         row.pop(k, None)
 
@@ -1617,6 +1677,131 @@ def _review_speakers(job, rows, turns, label_map, vote=None):
     except Exception as ex:
         print(f"[longdub] speaker check skipped: {ex}")
         return 0
+
+
+def set_picture_option(job, uid, wanted):
+    """Free quote change, before the paid analysis is accepted."""
+    with _lock_for(job["id"]):
+        if job.get("uid") != uid or job.get("status") != "estimated":
+            return False, ("This option can only be changed before analysis starts.", 409)
+        if not job.get("has_video") or "picture_option" not in job or not image_unit.enabled():
+            return False, ("Picture analysis is unavailable for this project.", 409)
+        job["picture_option"] = wanted is True
+        lip = job.get("lipsync") or {}
+        job["estimate"] = compute_estimate(job["duration"], _job_pricing(job), job.get("stated_speakers", 2),
+                                           bool(lip.get("wanted")), lip.get("resolution"), has_video=True, picture=wanted is True)
+        _save(job)
+    return True, None
+
+
+def _picture_refund(job, fraction=None):
+    """Freeze one proportional target and use the existing durable refund key.
+
+    Proposed whole-credit policy: ceil in the customer's favour, at most paid.
+    The target never grows on a replay; new work needs a new accepted quote.
+    """
+    try:
+        paid = int(job.get("picture_paid") or 0)
+        if paid <= 0:
+            return 0
+        if "picture_refund_target" not in job:
+            f = image_unit._number(fraction, 0.)
+            target = min(paid, max(0, int(math.ceil(paid * min(1., max(0., f))))))
+            if target <= 0:
+                return 0
+            job["picture_refund_target"] = target
+            _save(job)  # the target precedes the external money operation
+        target = int(job["picture_refund_target"])
+        if target <= 0 or job.get("picture_refund_done"):
+            return 0
+        if _refund(job, job["uid"], target, "analysis", "picture_unused"):
+            job["picture_refund_done"] = True
+            job.pop("picture_refund_pending", None)
+            _save(job)
+            _ev(job, "picture_refunded", "ok", f"{target} credits returned", target)
+            return target
+        job["picture_refund_pending"] = target
+        _save(job)
+    except Exception as ex:
+        print(f"[longdub] picture refund will retry: {type(ex).__name__}")
+    return 0
+
+
+def _run_picture(job, rows, wd):
+    if job.get("picture_option") is not True:
+        return None
+    if not image_unit.enabled() or not job.get("has_video"):
+        _picture_refund(job, 1.)
+        return None
+    _mark(job, "speakers", 87, "Looking at the picture...")
+    result = image_unit.analyse(job["id"], rows, wd / f"src{job['ext']}", wd, GEMINI_API_KEY,
+                                duration=job.get("duration"), source_language=job.get("source_language", "en"),
+                                people=job.get("speaker_vote_people") or _stated_people(job))
+    job.setdefault("analysis", {})["picture_unit"] = result
+    _save(job)
+    _ev(job, "picture_unit", "ok" if result["status"] == "ok" else "partial", result["summary"])
+    _ev(job, "picture_cuts", "info", f"{len(result['cuts'])} shot cuts; suggestions only")
+    items = [item for chunk in result.get("chunks", []) for item in (chunk.get("answer") or {}).get("screen_text", [])]
+    _ev(job, "picture_text", "info", f"{len(image_unit.screen_text_context(items, rows))} possible names or terms")
+    _picture_refund(job, result.get("refund_fraction", 1.))
+    return result
+
+
+def _picture_context(job, rows):
+    if not image_unit.enabled() or not job.get("has_video") or job.get("picture_option") is not True:
+        return ""
+    result = (job.get("analysis") or {}).get("picture_unit") or {}
+    items = [item for chunk in result.get("chunks", []) for item in (chunk.get("answer") or {}).get("screen_text", [])]
+    return image_unit.glossary_block(image_unit.screen_text_context(items, [r for r in rows if not r.get("picture_stale")])) if any(not r.get("picture_stale") for r in rows) else ""
+
+
+def _picture_advice(job, rows, result):
+    if not isinstance(result, dict) or result.get("status") not in ("ok", "partial"):
+        return
+    final = {r["segment_id"]: r["speaker"] for r in rows if not r.get("picture_stale")}
+    attributes = image_unit.person_attributes(result, final)
+    speakers = job.get("speaker_list") or []
+    pitch = {s["name"]: s.get("gender") for s in speakers}
+    chosen = {s["name"]: s.get("gender") for s in speakers if s.get("gender_source") == "chosen"}
+    conflicts = image_unit.gender_conflicts(attributes, pitch, chosen)
+    off_mic = set(image_unit.off_mic_lines(result))
+    splits = image_unit.plan_cut_splits(rows, result.get("cuts"))
+    for s in speakers:
+        if attributes.get(s["name"]):
+            s["picture_advice"] = attributes[s["name"]]
+        if s["name"] in conflicts:
+            s["picture_gender_check"] = conflicts[s["name"]]
+    marked = set()
+    for r in rows:
+        if r.get("picture_stale"):
+            continue
+        r["picture_evidence"] = True
+        if r["speaker"] in conflicts and r["speaker"] not in marked:      # one mark per speaker (the first line), not one on every line
+            r["picture_gender_check"] = True
+            marked.add(r["speaker"])
+        if r["segment_id"] in off_mic:
+            r["picture_off_mic"] = True
+        suggested = [x for x in splits if x["segment_id"] == r["segment_id"]]
+        if suggested:
+            r["picture_split_suggestions"] = suggested
+    # These are second opinions; gender, voice_id, text, times and manual choices stay as they were.
+
+
+def _picture_mood(job, row):
+    if not image_unit.enabled() or job.get("picture_option") is not True or row.get("picture_stale"):
+        return None
+    result = (job.get("analysis") or {}).get("picture_unit") or {}
+    for chunk in result.get("chunks", []):
+        for answer in (chunk.get("answer") or {}).get("lines", []):
+            if answer.get("id") == row.get("segment_id"):
+                return image_unit.mood_hint(answer.get("delivery"), row.get("emotion"), answer.get("confidence"))
+    return None
+
+
+def _picture_cuts(job):
+    if not image_unit.enabled() or job.get("picture_option") is not True:
+        return []
+    return image_unit._cuts(((job.get("analysis") or {}).get("picture_unit") or {}).get("cuts"))
 
 
 def _speaker_check_refund(job, why):
@@ -1826,7 +2011,9 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 for r in rows:      # always start from what the detector said
                     r["speaker"] = _orig[r["segment_id"]]
                     r.pop("speaker_vote", None)
-                return speaker_vote_live.apply(rows, v, allow_new=people is None)
+                picture = an.get("picture_unit") if job.get("picture_option") is True and image_unit.enabled() else None
+                extra = {"picture": picture} if isinstance(picture, dict) and picture.get("status") in ("ok", "partial") else {}
+                return speaker_vote_live.apply(rows, v, allow_new=people is None, **extra)
 
             def _n_people():
                 return len({r["speaker"] for r in rows})
@@ -2179,6 +2366,11 @@ def _run_analysis(job):
             _fail(job, "This video has too much speech to dub in one go. Please split it into shorter videos.", "analysis")
             return
         rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
+        try:      # the picture is an extra opinion: whatever goes wrong with it, the dub goes on with the sound alone
+            _picture = _run_picture(job, rows, wd)
+        except Exception as ex:
+            print(f"[longdub] picture analysis skipped: {type(ex).__name__}")
+            _picture = None
         vote = _vote_speakers(job, rows, wd, vocals_all)     # changes who says which line when the checks clearly agree
         if vote.get("fewer") and not job.get("speaker_merge_choice") and SPEAKER_COUNT_ASK:
             # The user said N people speak, and even after a second look the checks tell fewer apart: nothing is merged behind their back.
@@ -2252,6 +2444,10 @@ def _run_analysis(job):
 
         # 7. translate in small batches ------------------------------------
         _detect_speaker_genders(job, rows, vocals_all if vocals_all.exists() else None)
+        try:
+            _picture_advice(job, rows, _picture)
+        except Exception as ex:
+            print(f"[longdub] picture advice skipped: {type(ex).__name__}")
         _translate_all(job, rows)
         # 7b. the AI listens to each line's isolated voice for its delivery (emotion); falls back to the text guess without speed tags
         _mark(job, "translate", 98, "Listening to how each line is spoken...")
@@ -2419,7 +2615,12 @@ def read_segments(job):
     if not p.exists():
         return []
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        value = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(value, list) and (not image_unit.enabled() or image_unit.GENDER_MODE == "off"):
+            for row in value:
+                if isinstance(row, dict):
+                    row.pop("picture_gender_check", None)
+        return value
     except Exception:
         return []
 
@@ -2666,9 +2867,10 @@ def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flag
             hits.append(e)
     for attempt in range(2):
         try:
+            picture_context = _picture_context(_JOBS.get(job_id) or {}, batch)
             res = gemini_service.translate_segments(job_id, segs, GEMINI_API_KEY, glossary=hits or None,
                                                       paces={k: v for k, v in (paces or {}).items() if k in {x["segment_id"] for x in batch}} or None,
-                                                      gender=gender, source_language=source_language)
+                                                      gender=gender, source_language=source_language, **({"picture_context": picture_context} if picture_context else {}))
             if isinstance(res, dict) and res.get("status") == "success":
                 out = {}
                 for it in res.get("translated_segments", []):
@@ -2783,6 +2985,10 @@ def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
             if r.get("emotion_set") or (selected_ids is not None and sid not in selected_ids):
                 continue
             r["emotion"] = emotion_listen.merge(r.get("emotion"), heard.get(sid), paces.get(sid, "unknown"))
+            if sid not in heard:  # even a weak audio answer keeps precedence; never replace a chosen style
+                hint = _picture_mood(job, r)
+                if hint:
+                    r["emotion"] = hint
             try:
                 dur_ = float(r["end"]) - float(r["start"])
             except Exception:
@@ -3047,6 +3253,7 @@ def update_segments(job, edits):
                 changed += 1
             if isinstance(e.get("text"), str):
                 if e["text"][:MAX_TEXT_LEN] != r.get("text"):
+                    _clear_picture_advice(r)      # (only the picture's marks; the audio review stays)
                     for k in line_tidy.CUT_FIELDS:      # the person edited the words: the "check the cut" mark is done
                         r.pop(k, None)
                 r["text"] = e["text"][:MAX_TEXT_LEN]
@@ -3078,6 +3285,7 @@ def update_segments(job, edits):
                     r["emotion_set"] = True
                     changed += 1
         if changed:
+            _refresh_picture_speakers(job, rows)
             _write_segments(job, rows)
     return True, changed
 
@@ -3203,6 +3411,7 @@ def set_line_time(job, segment_id, start, end, manual=False):
         if manual:
             r["manual_time"] = True
         rows = _by_start(rows)
+        _refresh_picture_speakers(job, rows)
         _write_segments(job, rows)
     _ev(job, "line_time_changed", "ok", f"{segment_id} -> {start}-{end}" + (" (set by ear with the player)" if manual else ""))
     return True, "", rows
@@ -3344,6 +3553,7 @@ def split_line(job, segment_id, position):
             return False, "The line changed while it was being split. Please try again.", None, None
         rows[idx:idx + 1] = [first, second]
         rows = _by_start(rows)
+        _refresh_picture_speakers(job, rows)
         _write_segments(job, rows)
     _save(job)
     _ev(job, "line_split", "ok", f"{segment_id} -> {segment_id} + {new_id} at {plan['t1']}/{plan['t2']}")
@@ -3359,6 +3569,7 @@ def delete_line(job, segment_id):
         keep = [r for r in rows if r["segment_id"] != segment_id]
         if len(keep) == len(rows):
             return False, "Line not found.", None
+        _refresh_picture_speakers(job, keep)
         _write_segments(job, keep)
     _ev(job, "line_deleted", "ok", segment_id)
     return True, "", keep
@@ -4186,7 +4397,7 @@ def set_lipsync_resolution(job, uid, res):
         job["lipsync"]["resolution"] = res
         if job.get("status") == "estimated" and job.get("estimate"):
             try:
-                job["estimate"] = compute_estimate(job.get("duration") or 0, _job_pricing(job), job.get("stated_speakers", 2), True, res)
+                job["estimate"] = compute_estimate(job.get("duration") or 0, _job_pricing(job), job.get("stated_speakers", 2), True, res, has_video=job.get("has_video"), picture=job.get("picture_option") is True)
             except Exception as ex:
                 print(f"[longdub] could not refresh the estimate after a resolution change: {ex}")
     _save(job)
@@ -5232,6 +5443,10 @@ def _run_dubbing(job):
             raw.write_bytes(audio)
             slot = max(float(r["end"]) - float(r["start"]), 0.5)
             nxt = float(rows[i + 1]["start"]) - 0.05 if i + 1 < n else total
+            if PICTURE_CUT_ROOM:
+                picture_cut = image_unit.next_cut_after(r, _picture_cuts(job))
+                if picture_cut is not None and picture_cut - float(r["start"]) >= 0.3:
+                    nxt = min(nxt, picture_cut)
             room = max(nxt - float(r["start"]), 0.05)
             meta = _fit_line(raw, d / "fit" / f"{sid}.wav", slot, room, loud_ref, float(r["start"]))
             meta["voice_text"] = _voice_text(text, r.get("waqf"), gap_)
@@ -5328,6 +5543,21 @@ def _run_dubbing(job):
         for it in items:
             it["end"] = float(by_seg[it["seg"]]["end"])
         kept, chunks, dropped = _plan_timeline(items, total, dub.get("place"), dub.get("overlap"))
+        if PICTURE_CUT_ROOM:
+            # The fitting room above only asks for a line to end before the next shot cut; the planner can still move a
+            # line later. Count the lines that end up playing across a cut and say so -- nothing is trimmed or moved here.
+            try:
+                cuts = _picture_cuts(job)
+                crossing = []
+                for it in kept:
+                    row = by_seg.get(it["seg"])
+                    c = image_unit.next_cut_after(row, cuts) if row else None
+                    if c is not None and it["start"] < c < it["start"] + it["allowed"] - 0.05:
+                        crossing.append(it["seg"])
+                if crossing:
+                    _ev(job, "picture_cut_crossing", "info", f"{len(crossing)} lines play across a shot cut: " + ", ".join(str(x) for x in crossing[:8]))
+            except Exception as ex:
+                print(f"[longdub] cut crossing report skipped: {type(ex).__name__}")
         if dropped:
             _ev(job, "timeline", "partial", f"{len(dropped)} lines had no room and were left out")
             job.setdefault("warnings", []).append(f"{len(dropped)} line(s) had no room before the next line and were left out.")

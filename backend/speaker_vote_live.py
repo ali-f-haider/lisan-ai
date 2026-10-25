@@ -37,7 +37,7 @@ STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
 
 # The reasons the editor shows next to "Check speaker" for a line the vote is unsure about (the rest are not shown).
-SHOWN_REASONS = ("voters_split", "candidate_rejected")
+SHOWN_REASONS = ("voters_split", "candidate_rejected", "picture_disagrees")
 NOT_VOTED_REASONS = ("insufficient_line_voters", "manual_choice", "insufficient_support")
 
 ADDED_SPEAKER_MESSAGE = "Another speaker was found and added. Please check their lines."
@@ -352,18 +352,24 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes, allow_new=True):
+def apply(rows, votes, allow_new=True, picture=None):
     """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
     known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
     Returns a summary: status ('ok' or why the vote did not act), counts and the names of new speakers.
     Rows are changed only when status == 'ok'."""
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
     try:
-        lines = [{"segment_id": r["segment_id"], "speaker": r["speaker"]} for r in rows]
+        lines = [{"segment_id": r["segment_id"], "speaker": r["speaker"],
+                  **({"manual_speaker": r["manual_speaker"]} if picture is not None and isinstance(r.get("manual_speaker"), bool) else {})} for r in rows]
         policy = {"audio_weight": _audio_weight()}
+        extra = {}
+        if picture is not None:
+            import image_unit
+            extra["picture"] = image_unit.votes_for_vote(picture, rows, votes.get("dialogue") or {})
+            policy["picture_weight"] = image_unit.PICTURE_WEIGHT
         if not allow_new:
             policy["allow_new"] = False
-        res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None}, policy)
+        res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None, **extra}, policy)
     except Exception as ex:
         summary["status"] = "error_" + type(ex).__name__
         return summary

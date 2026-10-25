@@ -22,7 +22,7 @@ MAX_ROWS = 80             # above that, only the lines where something changed o
 EVENT_CHARS = 1400        # one log event holds at most 1500 characters
 TEXT_CHARS = 26
 
-_VOTERS = {"app": "detector", "dialogue": "dialogue", "audio": "audio", "voice": "voice"}
+_VOTERS = {"app": "detector", "dialogue": "dialogue", "audio": "audio", "voice": "voice", "picture": "picture"}
 
 
 def short(name):

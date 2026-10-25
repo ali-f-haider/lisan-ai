@@ -38,6 +38,8 @@ import inworld_service
 import ffmpeg_utils
 import lipsync_service
 import longdub_service
+import image_unit
+from config import PICTURE_FLAT_CREDITS, PICTURE_CREDITS_PER_MIN
 import subs_align
 import subs_export
 import publish_pack
@@ -5556,6 +5558,15 @@ def _send_plain_email(to_email, subject, body_text):
         return False
 
 
+def _picture_num(value, default):
+    import math
+    try:
+        n = float(value)
+        return max(0.0, n) if not isinstance(value, bool) and math.isfinite(n) else float(default)
+    except (TypeError, ValueError, OverflowError):
+        return float(default)
+
+
 def _ld_pricing():
     cfg = _get_pricing_config()
     # Long dubs always use Inworld (cloning there is unlimited, so every
@@ -5582,6 +5593,8 @@ def _ld_pricing():
         # the speaker check: two extra listening requests per video (measured about $0.05 for 7.8 minutes), flat + per minute
         "speaker_check_flat": int(_num(os.environ.get("SPEAKER_CHECK_FLAT_CREDITS"), longdub_service.SPEAKER_CHECK_FLAT)),
         "speaker_check_per_min": _num(os.environ.get("SPEAKER_CHECK_CREDITS_PER_MIN"), longdub_service.SPEAKER_CHECK_PER_MIN),
+        "picture_flat": int(_picture_num(os.environ.get("PICTURE_FLAT_CREDITS"), PICTURE_FLAT_CREDITS)),
+        "picture_per_min": _picture_num(os.environ.get("PICTURE_CREDITS_PER_MIN"), PICTURE_CREDITS_PER_MIN),
         # lip-sync: same per-second price as Step 7, and its own length limit
         "lipsync_per_sec": _num(cfg.get("lipsyncCreditsPerSec"), 40),
         "lipsync_max_min": _num(cfg.get("longDubLipsyncMaxMin"), 3),
@@ -5613,6 +5626,10 @@ def _longdub_refund_recovery():
     while True:
         try:
             longdub_billing.reconcile(_sb_rpc, DATA_DIR)
+            for picture_job in list(longdub_service._JOBS.values()):
+                if picture_job.get("picture_refund_pending") and not picture_job.get("picture_refund_done"):
+                    with longdub_service._lock_for(picture_job["id"]):
+                        longdub_service._picture_refund(picture_job)
         except Exception:
             print("[credits] long-video refund recovery will retry later")
         _time.sleep(60)
@@ -5791,6 +5808,7 @@ def longdub_config(request: Request):
         "max_upload_mb": longdub_service.MAX_UPLOAD_BYTES // 1048576,
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"], "flat": p["flat"],
         "speaker_check_flat": p["speaker_check_flat"], "speaker_check_per_min": p["speaker_check_per_min"],
+        "picture_available": image_unit.enabled(),
         "credits": get_credits(uid), "studio": bool(LONGDUB_ALL_TIERS or _ld_is_studio(uid)), "watermark": bool(_wm_needed(uid)),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
         "lipsync": {"available": longdub_service.lipsync_available(), "per_sec": p["lipsync_per_sec"],
@@ -5812,6 +5830,7 @@ def longdub_list(request: Request):
 
 
 class LongDubInit(BaseModel):
+    picture: bool = True
     source_language: str = "en"
     @field_validator("source_language")
     @classmethod
@@ -5847,7 +5866,7 @@ def longdub_init(body: LongDubInit, request: Request):
         return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE), "capacity": True}, status_code=503)
     job, err = longdub_service.init_upload(uid, body.filename, body.size, body.speakers, body.lipsync,
                                             body.name, body.description, body.lip_res, source_language=body.source_language,
-                                            speakers_chosen=body.speakers_chosen)
+                                            speakers_chosen=body.speakers_chosen, picture=body.picture)
     if err:
         return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
     return customer_payload(longdub_service.public_view(job))
@@ -5970,6 +5989,24 @@ def longdub_subtitle_remove(job_id: str, request: Request):
     if err:
         return err
     ok, e = longdub_service.remove_subtitle(job)
+    if not ok:
+        return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
+    return customer_payload(longdub_service.public_view(job))
+
+
+class LongDubPicture(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/longdub/{job_id}/picture-option")
+def longdub_picture_option(job_id: str, body: LongDubPicture, request: Request):
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    ok, e = longdub_service.set_picture_option(job, uid, body.enabled)
     if not ok:
         return JSONResponse({"error": customer_message(e[0])}, status_code=e[1])
     return customer_payload(longdub_service.public_view(job))

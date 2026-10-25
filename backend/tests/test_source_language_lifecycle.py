@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import Mock, patch
 import uuid
 import lang_source_capture as capture
+import image_unit
 import languages
 import source_jobs
 
@@ -19,7 +20,7 @@ class LongLifecycleTests(unittest.TestCase):
         self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
         self.scope=capture.source_namespace('longdub_service.py',('init_upload','public_view','redo_project','switch_source_language'))
-        self.scope.update(Path=Path,math=math,uuid=uuid,shutil=shutil,DATA_DIR=self.root,
+        self.scope.update(image_unit=image_unit,Path=Path,math=math,uuid=uuid,shutil=shutil,DATA_DIR=self.root,
             ALLOWED_EXTS={'.mp4'},VIDEO_EXTS={'.mp4'},MAX_SPEAKERS=20,MAX_UPLOAD_BYTES=2**31,
             MAX_PROJECTS_PER_USER=100,MAX_ACTIVE_PER_USER=100,CHUNK_BYTES=1000,NAME_MAX=80,
             _LOCK=threading.RLock(),_JOBS={},_RUNNING=set(),_save=Mock(),_ev=Mock(),_now=lambda:123.,

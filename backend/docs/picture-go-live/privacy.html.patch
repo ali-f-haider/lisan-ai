@@ -1,0 +1,22 @@
+--- a/privacy.html
++++ b/privacy.html
+@@ -31,6 +31,9 @@
+   <li><strong>Basic technical data:</strong> standard web request data (such as IP address and browser type) generated automatically when you use the site, used only for security and troubleshooting.</li>
+ </ul>
+ 
++<h2>Optional picture analysis</h2>
++<p>For video projects, picture analysis is on by default and can be switched off before you accept the estimate. If enabled, we send a small silent copy of each video section, with timed transcript lines and an optional speaker count, to our processing service to help review speakers, shot changes, visible names and delivery. We do not use faces to name or identify people. Appearance-based gender and age are uncertain advice and do not change your selected voice or gender. Temporary silent copies are removed when processing finishes, including handled errors. After an interrupted server process, temporary copies are removed during job cleanup. Anonymous text advice may be kept with the project; no face embeddings or separate face images are retained. Our processing service may keep request and response data under its own retention and safety rules.</p>
++
+ <h2>How we use your information</h2>
+ <ul>
+   <li>To provide the dubbing service: transcription, translation, voice generation, and video merging.</li>
+@@ -102,6 +105,9 @@
+   <li><strong>بيانات تقنية أساسية:</strong> بيانات الطلبات المعتادة على الويب (مثل عنوان IP ونوع المتصفح) التي تنشأ تلقائياً عند استخدامك للموقع، وتُستخدم فقط للأمان وإصلاح الأعطال.</li>
+ </ul>
+ 
++<h2>تحليل الصورة (اختياري)</h2>
++<p>يُفعَّل تحليل الصورة افتراضياً لمشاريع الفيديو، ويمكن إيقافه قبل الموافقة على التقدير. عند تفعيله نرسل نسخة صامتة مصغّرة من كل جزء، مع نص الكلام وتوقيته وعدد المتحدثين إن أدخلته، إلى خدمة المعالجة للمساعدة في مراجعة المتحدثين وانتقالات اللقطات والأسماء الظاهرة وطريقة الأداء. لا نستخدم الوجوه لتسمية الأشخاص أو التعرف إلى هوياتهم. تقدير الجنس والعمر من المظهر ملاحظة غير مؤكدة، ولا يغيّر الصوت أو الجنس الذي اخترته. تُحذف النسخ الصامتة المؤقتة عند انتهاء المعالجة، بما في ذلك الأخطاء التي يعالجها النظام. وإذا توقفت عملية الخادم فجأة، تُحذف الملفات المؤقتة خلال تنظيف المشروع. قد تُحفظ الملاحظات النصية مع المشروع دون بصمات وجوه أو صور منفصلة للوجوه. وقد تحتفظ خدمة المعالجة ببيانات الطلب والنتيجة وفق قواعد الاحتفاظ والأمان الخاصة بها.</p>
++
+ <h2>كيف نستخدم معلوماتك</h2>
+ <ul>
+   <li>لتقديم خدمة الدبلجة: التفريغ والترجمة وتوليد الصوت ودمج الفيديو.</li>

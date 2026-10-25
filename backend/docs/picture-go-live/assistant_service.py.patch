@@ -1,0 +1,18 @@
+--- a/assistant_service.py
++++ b/assistant_service.py
+@@ -176,7 +176,14 @@
+         return _kb["text"] or ""
+ 
+ 
+-FACTS = """WHERE THINGS ARE
++FACTS = """PICTURE ANALYSIS (only after the feature has actually been enabled)
++- Video projects can use "Also analyse the picture". It is on by default for new videos; switch it off before accepting analysis. Audio-only files do not use it and have no charge for it.
++- A small silent clip and timed transcript lines are sent to help review speakers, shot cuts, visible names and performance. Unclear pictures give no speaker answer. Names are never inferred from faces.
++- Picture analysis has its own credit line in the estimate. Failed portions are refunded; local cut detection costs no credits.
++- Appearance-based gender and age are advice only. A mismatch asks for review; it never changes a chosen voice or gender. A picture disagreement alone never marks a line for review.
++- Do not promise correct speaker identification, automatic age-based voices, or perfect lip alignment. Existing audio checks and the user's manual choices still apply.
++
++WHERE THINGS ARE
+ - Main app (short dubs, up to 30 seconds): the home page after sign-in. The green box in Step 1 shows credits used.
+ - Dub Long Video: the page /dub-long (button "Dub Long Video" in the app). For videos of several minutes, works in the background, we email when done.
+ - Account page: /account - credits balance, subscription (change or cancel), finished files (play, download, delete), storage used.

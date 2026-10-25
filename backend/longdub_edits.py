@@ -38,7 +38,11 @@ def active(parent):
 
 def rows(parent):
     # An empty draft is an intentional deletion of its lines, not a request to restore the original.
-    return copy.deepcopy(parent['correction_draft'] if 'correction_draft' in parent else ld.read_segments(parent))
+    value = copy.deepcopy(parent['correction_draft'] if 'correction_draft' in parent else ld.read_segments(parent))
+    if not ld.image_unit.enabled() or ld.image_unit.GENDER_MODE == 'off':
+        for row in value:
+            row.pop('picture_gender_check', None)
+    return value
 
 
 def _editable(parent):
@@ -83,6 +87,9 @@ def line_operation(parent, operation, segment_id, position=-1):
                 raise ValueError(error)
             new_id = 'edit_' + uuid.uuid4().hex
             first, second = copy.deepcopy(row), copy.deepcopy(row)
+            if row.get('picture_evidence'):
+                ld._clear_picture_advice(first)
+                ld._clear_picture_advice(second)
             first.update(text=plan['left'], words=plan['w_left'], end=plan['t1'], arabic_text='', manual_time=True)
             second.update(segment_id=new_id, text=plan['right'], words=plan['w_right'], start=plan['t2'],
                           arabic_text='', added=True, manual_time=True)
@@ -155,6 +162,7 @@ def edit(parent, incoming):
         if sid not in by_id:
             raise ValueError('This line is not part of the selected project.')
         row = by_id[sid]
+        picture_before = (row.get('text'), row.get('speaker_id'), row.get('start'), row.get('end')) if row.get('picture_evidence') else None
         for field in ('text', 'arabic_text'):
             if field in change:
                 if not isinstance(change[field], str) or len(change[field]) > 2000:
@@ -175,11 +183,14 @@ def edit(parent, incoming):
         if not math.isfinite(start + end) or start < 0 or end <= start or end > duration + 0.01:
             raise ValueError('Set finite start/end times inside the original file’s duration.')
         row['start'], row['end'] = start, end
+        if picture_before is not None and picture_before != (row.get('text'), row.get('speaker_id'), start, end):
+            ld._clear_picture_advice(row)
         if 'manual_time' in change:
             row['manual_time'] = bool(change['manual_time'])
         if change.get('emotion_set') is True:
             row['emotion_set'] = True
     current.sort(key=lambda r: r['start'])
+    ld._refresh_picture_speakers(parent, current)
     parent['correction_draft'] = current
     ld._save(parent)
     return current

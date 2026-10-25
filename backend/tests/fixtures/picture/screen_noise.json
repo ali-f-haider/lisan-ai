@@ -1,0 +1,47 @@
+[
+  {
+    "t": 1,
+    "text": "https://example.org",
+    "kind": "sign"
+  },
+  {
+    "t": 2,
+    "text": "12:34:56",
+    "kind": "caption"
+  },
+  {
+    "t": 3,
+    "text": "name@example.org",
+    "kind": "other"
+  },
+  {
+    "t": 4,
+    "text": "CHANNEL MARK",
+    "kind": "other"
+  },
+  {
+    "t": 8,
+    "text": "CHANNEL MARK",
+    "kind": "other"
+  },
+  {
+    "t": 12,
+    "text": "CHANNEL MARK",
+    "kind": "other"
+  },
+  {
+    "t": 16,
+    "text": "CHANNEL MARK",
+    "kind": "other"
+  },
+  {
+    "t": 6,
+    "text": "Mira Engineering",
+    "kind": "document"
+  },
+  {
+    "t": 7,
+    "text": "Mira Engineering",
+    "kind": "document"
+  }
+]

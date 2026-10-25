@@ -1125,12 +1125,18 @@ function renderEstimate(j) {
   var lipOn = !!(e.lipsync_wanted);
   var items = qli(T.estFeeRow, e.fee, T.estFeeSub) + qli(T.estAnalysisRow, e.analysis, T.estAnalysisSub) +
     (e.flat ? qli(T.estFlatRow, e.flat, T.estFlatSub) : "") + (e.speaker_check ? qli(T.estSpkRow, e.speaker_check, T.estSpkSub) : "") +
+    (e.picture ? qli(LANG === "ar" ? "تحليل الصورة" : "Picture analysis", e.picture, LANG === "ar" ? "يُردّ ما يقابل الأجزاء التي تعذّر تحليلها" : "Failed portions are refunded") : "") +
     qli(T.estVoiceRow, "≈ " + e.voice, T.estVoiceSub) + qli(T.estCloneRow(n, e.clone_each), e.clones, T.estCloneSub) +
     (lipOn ? qli(T.estLipRow, "≤ " + e.lipsync, T.estLipSub(e.lipsync_per_sec)) : "") + qli(T.estMergeRow, e.merge, T.estMergeSub);
-  var tip = [esc(T.estNow((e.analysis || 0) + (e.flat || 0) + (e.speaker_check || 0))), "<ul>" + items + "</ul>",
+  var tip = [esc(T.estNow((e.analysis || 0) + (e.flat || 0) + (e.speaker_check || 0) + (e.picture || 0))), "<ul>" + items + "</ul>",
              paid ? esc(T.estAlready(paid)) + " " + esc(T.estDeclineNote) : ""];
   var h = "<p style='margin:4px 0 10px;color:var(--text-muted);'>" + esc(T.estIntro(j.filename, fmtMin(j.duration), n, lipOn)) + "</p>";
   h += '<p class="ld-totalline"><span>' + esc(T.estTotal) + "</span><strong>≈ " + e.total + " " + esc(T.credits) + "</strong>" + q(tip) + "</p>";
+  if (j.has_video && cfg && cfg.picture_available && typeof j.picture_option === "boolean" && j.status === "estimated") {
+    var picLabel = LANG === "ar" ? "تحليل الصورة أيضاً" : "Also analyse the picture";
+    var picNote = LANG === "ar" ? "يُرسل مقطع صامت مصغّر مع نص الكلام وتوقيته لتحسين مراجعة المتحدثين. تظهر تكلفته بالنقاط هنا، ويُردّ ما يقابل الأجزاء التي تعذّر تحليلها." : "Sends a small silent clip with timed transcript lines to help review speakers. Its credit price is shown here; failed portions are refunded.";
+    h += '<label class="ld-agree"><input type="checkbox" id="pictureOption"' + (j.picture_option ? " checked" : "") + '><span>' + esc(picLabel) + '</span></label>' + q(esc(picNote));
+  }
   if (lipOn && j.status === "estimated") h += '<div class="ld-lipres"><label for="estLipRes">' + esc(T.lipResLabel) + '</label><select id="estLipRes">' + lipResOptions(e.lipsync_res || "720P") + "</select></div>";
   if (e.times) h += "<p class='ld-times'>" + esc(T.estTimesShort(e.times)) + q(esc(T.estTimes(e.times))) + "</p>";
   h += "<p style='font-weight:600;'>" + esc(bal === null || bal === undefined ? "" : T.estBalance(bal)) + "</p>";
@@ -1146,6 +1152,17 @@ function renderEstimate(j) {
 function wireJobButtons() {
   var b;
   if ((b = $("btnAccept"))) b.onclick = onAccept;
+  var pic = $("pictureOption");
+  if (pic) pic.onchange = function () {
+    var wanted = pic.checked, id = cur.id, accept = $("btnAccept");
+    pic.disabled = true; if (accept) accept.disabled = true;
+    api("POST", "/api/longdub/" + id + "/picture-option", {enabled: wanted}).then(function (r) {
+      if (!r.ok) { pic.checked = !wanted; alertMsg(safeErr(r.data.error, T.genericErr)); return; }
+      if (cur && cur.id === id) { cur = r.data; jobs = jobs.map(function (j) { return j.id === id ? cur : j; }); }
+    }).catch(function () { pic.checked = !wanted; alertMsg(T.netErr); }).then(function () {
+      if (cur && cur.id === id) renderJob();
+    });
+  };
   var er = $("estLipRes"); if (er) er.onchange = function () { changeLipRes(er, renderJob); };
   if ((b = $("agreeBox"))) b.onchange = function () { var ag = $("agreeBox"), ac = $("btnAccept"); if (ac) ac.disabled = !(ag && ag.checked) || !!window._estShort; };
   if ((b = $("btnDelete"))) b.onclick = onDelete;
@@ -2124,7 +2141,7 @@ function makeEmoPicker(value, onChange) {
 
 function speakerBadge(s) {
   if (s.speaker_confidence !== "low") return null;
-  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], voters_split: ["Not sure who says this line", "لسنا متأكدين ممن يقول هذا السطر"], candidate_rejected: ["May belong to another voice we could not confirm", "قد يعود إلى صوت آخر لم نتمكن من تأكيده"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
+  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], voters_split: ["Not sure who says this line", "لسنا متأكدين ممن يقول هذا السطر"], candidate_rejected: ["May belong to another voice we could not confirm", "قد يعود إلى صوت آخر لم نتمكن من تأكيده"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], picture_disagrees: ["The picture suggests another speaker", "تشير الصورة إلى متحدث آخر"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
   var seen = {}, list = [];
   (s.speaker_reasons || []).forEach(function (k) { var n = T2[k]; if (n) { var t = n[ar ? 1 : 0]; if (!seen[t]) { seen[t] = 1; list.push(t); } } });
   var b = document.createElement("span"); b.className = "ld-spk-check"; b.tabIndex = 0;
@@ -2190,7 +2207,7 @@ function genderBadge(s) {
 // Nothing is deleted or skipped: every line is still there, one click away, and "Show all lines" brings them all back.
 function needsLook(s) {
   if (!s) return false;
-  return s.speaker_confidence === "low" || !!s.cut_check || !!s.gender_check || (s.overlaps || []).length > 0 ||
+  return s.speaker_confidence === "low" || !!s.cut_check || !!s.gender_check || !!s.picture_gender_check || (s.overlaps || []).length > 0 ||
          s.heard === false || !String(s.arabic_text || "").trim();
 }
 function lookCount(rows, from, to) {
@@ -2272,6 +2289,12 @@ function buildRow(s) {
   var spkBadge = speakerBadge(s); if (spkBadge) time.appendChild(spkBadge);
   var cutMark = cutBadge(s); if (cutMark) time.appendChild(cutMark);
   var genMark = genderBadge(s); if (genMark) time.appendChild(genMark);
+  if (s.picture_gender_check) {
+    var visual = document.createElement("span"); visual.className = "ld-spk-check"; visual.tabIndex = 0;
+    visual.textContent = LANG === "ar" ? "راجع جنس المتحدث" : "Check speaker gender";
+    visual.title = LANG === "ar" ? "يختلف تقدير المظهر عن تقدير الصوت. هذه ملاحظة للمراجعة فقط؛ لم نغيّر الصوت أو الجنس الذي اخترته." : "Appearance and voice advice differ. Please check; your chosen voice and gender have not been changed.";
+    time.appendChild(visual);
+  }
   var lb = document.createElement("div"); lb.className = "ld-lbtns";
   var bIns = document.createElement("button"); bIns.className = "btn-plain"; bIns.textContent = T.insertLine;
   var bSplit = document.createElement("button"); bSplit.className = "btn-plain"; bSplit.textContent = T.splitLine; bSplit.title = T.splitHint;

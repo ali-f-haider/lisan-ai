@@ -10,7 +10,8 @@ import math
 import re
 
 
-VOTERS = ('dialogue', 'audio', 'voice', 'app')
+CORE_VOTERS = ('dialogue', 'audio', 'voice', 'app')
+VOTERS = ('dialogue', 'audio', 'voice', 'picture', 'app')
 MAX_LABEL = 64
 
 
@@ -213,6 +214,7 @@ class Policy:
     min_support: int = 1
     allow_new: bool = True
     audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
+    picture_weight: int = 1   # already aligned per chunk; visual advice remains optional
 
 
 def _policy(value):
@@ -228,8 +230,9 @@ def _policy(value):
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
             (value.min_new_lines, value.max_new_speakers, value.min_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(VOTERS) or not isinstance(value.allow_new, bool)
-            or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3):
+            or not 1 <= value.min_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool)
+            or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3
+            or isinstance(value.picture_weight, bool) or not isinstance(value.picture_weight, int) or not 1 <= value.picture_weight <= 2):
         return None
     return value
 
@@ -270,13 +273,13 @@ def decide(lines, voters=None, policy=None):
     available = {}
     for name in VOTERS:
         value = voters.get(name, original if name == 'app' else None)
-        if name == 'voice' and isinstance(value, dict):
+        if name in ('voice', 'picture') and isinstance(value, dict):
             value = {sid:label for sid,label in value.items() if label is not None}
         mapped = _mapping(value)
         if mapped is None:
             continue
         mapped = {sid:label for sid,label in mapped.items() if sid in original}
-        if not mapped or (name != 'voice' and len(mapped) * 5 < len(rows) * 4):
+        if not mapped or (name not in ('voice', 'picture') and len(mapped) * 5 < len(rows) * 4):
             continue
         if name == 'app' and mapped != original:
             continue
@@ -285,7 +288,9 @@ def decide(lines, voters=None, policy=None):
     if 'dialogue' not in available or len(available) < 3:
         return _result(rows, used, 'insufficient_voters')
     frame = available['dialogue']
-    aligned = {name:(dict(frame) if name == 'dialogue' else align_labels({'name':name, 'labels':mapping}, frame))
+    # Picture labels MUST already be aligned per chunk by image_unit.votes_for_vote.
+    # Globally realigning them would merge unrelated local labels across shots.
+    aligned = {name:(dict(mapping) if name == 'picture' else dict(frame) if name == 'dialogue' else align_labels({'name':name, 'labels':mapping}, frame))
                for name,mapping in available.items()}
     # Align the app even when its vote is absent: it still defines existing names.
     app_frame = align_labels({'name':'app', 'labels':original}, frame)
@@ -299,13 +304,16 @@ def decide(lines, voters=None, policy=None):
         if active:
             counts = Counter()
             for name, label in votes.items():
-                counts[label] += chosen.audio_weight if name == 'audio' else 1
+                counts[label] += chosen.audio_weight if name == 'audio' else chosen.picture_weight if name == 'picture' else 1
             top = max(counts.values())
             tied = sorted(label for label,count in counts.items() if count == top)
             # A tie goes to the check that listens before the check that only reads the words.
             if len(tied) > 1 and votes.get('audio') in tied:
                 winner = votes['audio']
                 reasons.append('tie_broken_by_dialogue' if winner == votes['dialogue'] else 'tie_broken_by_audio')
+            elif len(tied) > 1 and votes['dialogue'] not in tied and votes.get('picture') in tied:
+                winner = votes['picture']
+                reasons.append('tie_broken_by_picture')
             else:
                 winner = votes['dialogue'] if votes['dialogue'] in tied else tied[0]
                 if len(tied) > 1:
@@ -349,6 +357,8 @@ def decide(lines, voters=None, policy=None):
             reasons.append('voters_split')
         if audio_dissent:
             reasons.append('audio_disagrees')
+        if active and 'picture' in votes and votes['picture'] != winner:
+            reasons.append('picture_disagrees')
         changed = final != row['speaker']
         out.append(dict(segment_id=sid, speaker=final, changed=changed,
                         source='new' if winner in accepted else 'vote' if changed else 'app',

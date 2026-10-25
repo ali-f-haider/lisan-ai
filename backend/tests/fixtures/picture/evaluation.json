@@ -1,0 +1,1399 @@
+{
+  "origin": "Invented seven-speaker workshop, NOT Ali's real clip; no faces/media/customer lines.",
+  "lines": [
+    {
+      "segment_id": "e00",
+      "start": 0.0,
+      "end": 4.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e01",
+      "start": 6.0,
+      "end": 10.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e02",
+      "start": 12.0,
+      "end": 16.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e03",
+      "start": 18.0,
+      "end": 22.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e04",
+      "start": 24.0,
+      "end": 28.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e05",
+      "start": 30.0,
+      "end": 34.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e06",
+      "start": 36.0,
+      "end": 40.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e07",
+      "start": 42.0,
+      "end": 46.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e08",
+      "start": 48.0,
+      "end": 52.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e09",
+      "start": 54.0,
+      "end": 58.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e10",
+      "start": 60.0,
+      "end": 64.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e11",
+      "start": 66.0,
+      "end": 70.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e12",
+      "start": 72.0,
+      "end": 76.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e13",
+      "start": 78.0,
+      "end": 82.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e14",
+      "start": 84.0,
+      "end": 88.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e15",
+      "start": 90.0,
+      "end": 94.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e16",
+      "start": 96.0,
+      "end": 100.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e17",
+      "start": 102.0,
+      "end": 106.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e18",
+      "start": 108.0,
+      "end": 112.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e19",
+      "start": 114.0,
+      "end": 118.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e20",
+      "start": 120.0,
+      "end": 124.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e21",
+      "start": 126.0,
+      "end": 130.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e22",
+      "start": 132.0,
+      "end": 136.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e23",
+      "start": 138.0,
+      "end": 142.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e24",
+      "start": 144.0,
+      "end": 148.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e25",
+      "start": 150.0,
+      "end": 154.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e26",
+      "start": 156.0,
+      "end": 160.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e27",
+      "start": 162.0,
+      "end": 166.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e28",
+      "start": 168.0,
+      "end": 172.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e29",
+      "start": 174.0,
+      "end": 178.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e30",
+      "start": 180.0,
+      "end": 184.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e31",
+      "start": 186.0,
+      "end": 190.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e32",
+      "start": 192.0,
+      "end": 196.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e33",
+      "start": 198.0,
+      "end": 202.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e34",
+      "start": 204.0,
+      "end": 208.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e35",
+      "start": 210.0,
+      "end": 214.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e36",
+      "start": 216.0,
+      "end": 220.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e37",
+      "start": 222.0,
+      "end": 226.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e38",
+      "start": 228.0,
+      "end": 232.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e39",
+      "start": 234.0,
+      "end": 238.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e40",
+      "start": 240.0,
+      "end": 244.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e41",
+      "start": 246.0,
+      "end": 250.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e42",
+      "start": 252.0,
+      "end": 256.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e43",
+      "start": 258.0,
+      "end": 262.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e44",
+      "start": 264.0,
+      "end": 268.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e45",
+      "start": 270.0,
+      "end": 274.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e46",
+      "start": 276.0,
+      "end": 280.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e47",
+      "start": 282.0,
+      "end": 286.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e48",
+      "start": 288.0,
+      "end": 292.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e49",
+      "start": 294.0,
+      "end": 298.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e50",
+      "start": 300.0,
+      "end": 304.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e51",
+      "start": 306.0,
+      "end": 310.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e52",
+      "start": 312.0,
+      "end": 316.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e53",
+      "start": 318.0,
+      "end": 322.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e54",
+      "start": 324.0,
+      "end": 328.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e55",
+      "start": 330.0,
+      "end": 334.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e56",
+      "start": 336.0,
+      "end": 340.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 1",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e57",
+      "start": 342.0,
+      "end": 346.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e58",
+      "start": 348.0,
+      "end": 352.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e59",
+      "start": 354.0,
+      "end": 358.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e60",
+      "start": 360.0,
+      "end": 364.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e61",
+      "start": 366.0,
+      "end": 370.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e62",
+      "start": 372.0,
+      "end": 376.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    },
+    {
+      "segment_id": "e63",
+      "start": 378.0,
+      "end": 382.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "A",
+      "audio": "A",
+      "voice_cluster": "A",
+      "reference": "Person 1"
+    },
+    {
+      "segment_id": "e64",
+      "start": 384.0,
+      "end": 388.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 2",
+      "dialogue": "B",
+      "audio": "B",
+      "voice_cluster": "B",
+      "reference": "Person 2"
+    },
+    {
+      "segment_id": "e65",
+      "start": 390.0,
+      "end": 394.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 3",
+      "dialogue": "C",
+      "audio": "C",
+      "voice_cluster": "C",
+      "reference": "Person 3"
+    },
+    {
+      "segment_id": "e66",
+      "start": 396.0,
+      "end": 400.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 4",
+      "dialogue": "D",
+      "audio": "D",
+      "voice_cluster": "D",
+      "reference": "Person 4"
+    },
+    {
+      "segment_id": "e67",
+      "start": 402.0,
+      "end": 406.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 5",
+      "dialogue": "E",
+      "audio": "E",
+      "voice_cluster": "E",
+      "reference": "Person 5"
+    },
+    {
+      "segment_id": "e68",
+      "start": 408.0,
+      "end": 412.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 6",
+      "dialogue": "F",
+      "audio": "F",
+      "voice_cluster": "F",
+      "reference": "Person 6"
+    },
+    {
+      "segment_id": "e69",
+      "start": 414.0,
+      "end": 418.0,
+      "text": "Invented workshop discussion.",
+      "app": "Speaker 7",
+      "dialogue": "G",
+      "audio": "G",
+      "voice_cluster": "G",
+      "reference": "Person 7"
+    }
+  ],
+  "picture": {
+    "chunks": [
+      {
+        "index": 0,
+        "offset": 0.0,
+        "duration": 480.0,
+        "answer": {
+          "people": [
+            {
+              "id": "A",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            },
+            {
+              "id": "B",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            },
+            {
+              "id": "C",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            },
+            {
+              "id": "D",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            },
+            {
+              "id": "E",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            },
+            {
+              "id": "F",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            },
+            {
+              "id": "G",
+              "gender": "unknown",
+              "age": "unknown",
+              "confidence": "low"
+            }
+          ],
+          "lines": [
+            {
+              "id": "e00",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e01",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e02",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e03",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e04",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e05",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e06",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e07",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e08",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e09",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e10",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e11",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e12",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e13",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e14",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e15",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e16",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e17",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e18",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e19",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e20",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e21",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e22",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e23",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e24",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e25",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e26",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e27",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e28",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e29",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e30",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e31",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e32",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e33",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e34",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e35",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e36",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e37",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e38",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e39",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e40",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e41",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e42",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e43",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e44",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e45",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e46",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e47",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e48",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e49",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e50",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e51",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e52",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e53",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e54",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e55",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e56",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e57",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e58",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e59",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e60",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e61",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e62",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e63",
+              "speaker": "A",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e64",
+              "speaker": "B",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e65",
+              "speaker": "C",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e66",
+              "speaker": "D",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e67",
+              "speaker": "E",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e68",
+              "speaker": "F",
+              "on_screen": true,
+              "confidence": "high",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            },
+            {
+              "id": "e69",
+              "speaker": "G",
+              "on_screen": true,
+              "confidence": "low",
+              "voice_kind": "on_screen",
+              "delivery": "unknown"
+            }
+          ],
+          "screen_text": []
+        }
+      }
+    ],
+    "usage": {
+      "usd": 0.05
+    },
+    "charged_usd": 0.05,
+    "refund_fraction": 0.0
+  },
+  "duration": 480.0
+}
