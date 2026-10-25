@@ -240,6 +240,16 @@ GLOSSARY (Dub Long Video; free)
 SUBTITLE FILES OF THE DUB (Dub Long Video; free)
 - When the lines are ready (review step, and on the finished dub's page) the customer can download them as a subtitle file: Arabic, the original language or both, as SRT or VTT. Arabic subtitles have no tashkeel and long lines are split. It costs no credits. (The short dub has its own SRT button.)
 
+PUBLISH ON YOUTUBE (Dub Long Video; free)
+- On the page of a finished dub there is the card "Publish on YouTube". The customer types the title of the original video (description and keywords are optional) and presses "Write my YouTube texts" (about half a minute). They get an Arabic title, description, search tags, hashtags and chapters, each with a Copy button, and a .zip with these texts, the Arabic subtitles (SRT and VTT) and the dubbed audio as an audio-only file. It costs no credits, and "Write them again" makes new texts. Ask them to read the texts once before they publish.
+- The rest is done on YouTube, not in Lisan AI (Lisan AI does not post to YouTube for the customer): in YouTube Studio, Languages > the video > Add language > Arabic; add the title, description and subtitles; then next to Dub press Add and choose the audio file. YouTube needs "Advanced features" on the channel for this, and if YouTube has already made an automatic Arabic dub, that one must be deleted first.
+
+THE PAGE OF A FINISHED LONG DUB
+- It is several cards: the file with the Download button; "What to know about this dub" (lines rephrased shorter, background sound that could not be kept, lines cut or sped up; only shown if there is something to report); "More downloads" (separate tracks and subtitle files); "Publish on YouTube"; "What next?" (Redo this project, Upload another video, Show the lines).
+
+REVIEW STEP: LINES THAT NEED A LOOK (Dub Long Video)
+- In the review step every line is shown, in the order of the video. Lines that need a look carry a mark: Check speaker, Check the cut or Check gender; lines that overlap another line, lines without Arabic and lines the AI did not hear need a look too. A small warning number on the page buttons (1-10, 11-20 ...) says how many lines on that page need a look. Nothing is skipped: every line is dubbed.
+
 WATERMARK ON FREE VIDEOS
 - An account that has only used the free starting credits (no credit pack and no subscription ever bought) gets a small semi-transparent Lisan AI logo in the bottom-right corner of the videos it makes (short dub merge, lip-sync, long dub). Sound, audio files, the separate tracks and subtitle files are never marked. After the customer buys any credit pack or subscribes, the videos they make afterwards have no logo (it can take a few minutes to show). Videos made earlier keep the logo; to get a clean one the customer makes it again (a short dub: merge again, 1 credit; a long dub: the project redo, charged as usual). Never promise to remove the logo from an existing video.
 

@@ -1,4 +1,4 @@
-"""The editor puts the lines that need a look in front and folds the lines that look fine behind a "show" bar.
+"""The editor marks the lines that need a look (counted and flagged). It always shows every line.
 
 The pure part of the page script (between the "line focus (begin/end)" markers of dub_long.html) is run with node;
 the rest checks that the page is wired to it in both places that draw the list, and that the style rules exist."""
@@ -98,11 +98,15 @@ class Wiring(unittest.TestCase):
         self.assertIn("if (list) fillSegList(list, focusId);", HTML)
         self.assertNotIn("segs.slice(reviewPage * 10, reviewPage * 10 + 10).forEach(function", HTML)
 
-    def test_a_job_that_is_opened_starts_in_the_short_view(self):
-        self.assertIn("reviewPage = 0; reviewedBatches = {}; focusAll = false; revealedLines = {};", HTML)
+    def test_every_line_is_always_shown_and_nothing_can_fold_lines_away(self):
+        self.assertIn("function focusIsAll() { return true; }", HTML)
+        self.assertNotIn("Show only lines to check", HTML)
+        self.assertNotIn("Show all lines", HTML)
+        self.assertNotIn("focusAll = !focusAll", HTML)
 
-    def test_lines_shown_in_the_short_view_stay_shown_when_their_flag_is_cleared(self):
-        self.assertIn("if (it.row) { if (!all) revealedLines[it.row.segment_id] = true;", HTML)
+    def test_the_count_of_lines_to_look_at_is_still_told(self):
+        self.assertIn("lines need a look", HTML)
+        self.assertIn("No line needs a special check.", HTML)
 
     def test_the_toolbar_and_the_page_flags_exist(self):
         self.assertIn("id='focusBar'", HTML)

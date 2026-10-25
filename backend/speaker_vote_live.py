@@ -352,9 +352,10 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes, allow_new=True, picture=None):
+def apply(rows, votes, allow_new=True, picture=None, max_new=None):
     """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
     known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
+    max_new: at most this many new speakers (used when the user's number is higher than the detector found: the vote may fill the gap, no further).
     Returns a summary: status ('ok' or why the vote did not act), counts and the names of new speakers.
     Rows are changed only when status == 'ok'."""
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
@@ -369,6 +370,8 @@ def apply(rows, votes, allow_new=True, picture=None):
             policy["picture_weight"] = image_unit.PICTURE_WEIGHT
         if not allow_new:
             policy["allow_new"] = False
+        elif max_new is not None:
+            policy["max_new_speakers"] = max(0, int(max_new))
         res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None, **extra}, policy)
     except Exception as ex:
         summary["status"] = "error_" + type(ex).__name__

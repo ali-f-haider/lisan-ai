@@ -2203,8 +2203,7 @@ function genderBadge(s) {
   return b;
 }
 
-// ---- line focus (begin): the editor puts the lines that need a look in front; the lines that look fine sit behind a "show" bar.
-// Nothing is deleted or skipped: every line is still there, one click away, and "Show all lines" brings them all back.
+// ---- line focus (begin): which lines need a look (counted and marked). The list itself always shows every line.
 function needsLook(s) {
   if (!s) return false;
   return s.speaker_confidence === "low" || !!s.cut_check || !!s.gender_check || !!s.picture_gender_check || (s.overlaps || []).length > 0 ||
@@ -2228,7 +2227,8 @@ function focusPlan(rows, from, to, all, shown, keep) {
 }
 // ---- line focus (end)
 
-function focusIsAll() { return focusAll || lookCount(segs, 0, segs.length) === 0; }
+// Every line is always shown (the "fold the lines that look fine" view was removed: it hid lines people wanted to see).
+function focusIsAll() { return true; }
 
 function fillSegList(list, keep) {
   list.innerHTML = "";
@@ -2265,13 +2265,7 @@ function renderFocusBar() {
   if (!total) { el.textContent = ar ? "لا يحتاج أي سطر إلى مراجعة خاصة." : "No line needs a special check."; return; }
   var t = document.createElement("span");
   t.textContent = ar ? total + " من " + segs.length + " سطرًا يحتاج إلى نظرة" : total + " of " + segs.length + " lines need a look";
-  var b = document.createElement("button"); b.type = "button"; b.className = "btn-plain";
-  b.textContent = focusAll ? (ar ? "إظهار الأسطر التي تحتاج إلى نظرة فقط" : "Show only lines to check") : (ar ? "إظهار كل الأسطر" : "Show all lines");
-  b.onclick = function () {
-    focusAll = !focusAll; revealedLines = {};
-    var list = $("segList"); if (list) fillSegList(list);
-  };
-  el.appendChild(t); el.appendChild(b);
+  el.appendChild(t);      // (only the count: there is no longer a button that folds lines away)
 }
 
 function buildRow(s) {

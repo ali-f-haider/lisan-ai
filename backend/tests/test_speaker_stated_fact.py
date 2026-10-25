@@ -102,6 +102,47 @@ class Apply(unittest.TestCase):
         self.assertEqual({x["speaker"] for x in r}, {"Speaker 1", "Speaker 2"})
 
 
+class FillTheGap(unittest.TestCase):
+    """The user said 3 people, the detector found 2, both checks name a third person on 5+ lines: the vote may add exactly that one."""
+    def app_rows(self, n=20):
+        return rows(n, lambda i: "Speaker 1" if i < 10 else "Speaker 2")
+
+    def test_the_vote_adds_a_speaker_up_to_the_gap_and_no_further(self):
+        r = self.app_rows()
+        s = svl.apply(r, three_group_votes(), allow_new=True, max_new=1)
+        self.assertEqual(len(s["new_speakers"]), 1)
+        self.assertEqual(len({x["speaker"] for x in r}), 3)
+
+    def test_a_gap_of_zero_adds_nobody(self):
+        r = self.app_rows()
+        s = svl.apply(r, three_group_votes(), allow_new=True, max_new=0)
+        self.assertEqual(s["new_speakers"], [])
+        self.assertEqual({x["speaker"] for x in r}, {"Speaker 1", "Speaker 2"})
+
+    def test_two_extra_letters_with_a_gap_of_one_add_only_one(self):
+        label = lambda i: "A" if i < 8 else ("B" if i < 14 else ("C" if i < 20 else "D"))
+        lines = {f"seg_{i}": label(i) for i in range(26)}
+        r = rows(26, lambda i: "Speaker 1" if i < 8 else "Speaker 2")
+        s = svl.apply(r, {"dialogue": dict(lines), "audio": dict(lines)}, allow_new=True, max_new=1)
+        self.assertLessEqual(len(s["new_speakers"]), 1)
+        self.assertLessEqual(len({x["speaker"] for x in r}), 3)
+
+    def test_the_service_passes_the_gap_when_the_stated_number_is_higher(self):
+        seen = {}
+
+        def fake_apply(r, votes, allow_new=True, **kw):
+            seen.update(allow_new=allow_new, **kw)
+            return {"status": "skipped"}
+
+        job = {"id": "j", "stated_speakers": 4, "analysis": {"audio_duration": 100}}
+        with mock.patch.object(svl, "collect", lambda *a, **k: {"dialogue": None, "audio": None, "usage": {}}), mock.patch.object(svl, "apply", fake_apply), \
+                mock.patch.object(ld, "_mark", lambda *a, **k: None), mock.patch.object(ld, "_ev", lambda *a, **k: None), \
+                mock.patch.object(ld, "_save", lambda j: None), mock.patch.object(ld, "_speaker_check_refund", lambda *a, **k: None):
+            ld._vote_speakers(job, rows(4), Path("."), Path("v.wav"))
+        self.assertTrue(seen["allow_new"])
+        self.assertEqual(seen["max_new"], 2)      # 4 stated, 2 found
+
+
 class Wiring(unittest.TestCase):
     def test_stated_people(self):
         f = ld._stated_people

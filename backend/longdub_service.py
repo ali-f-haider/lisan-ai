@@ -883,7 +883,7 @@ def accept(job, uid, agreed=False):
             job["speaker_check_paid"] = int(est.get("speaker_check", 0) or 0)
             if int(est.get("picture", 0) or 0):
                 job["picture_paid"] = int(est["picture"])
-            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits" + (f" (of which {job['speaker_check_paid']} for the speaker check)" if job["speaker_check_paid"] else ""), need_now)
+            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits" + (f" (of which {job['speaker_check_paid']} for the speaker check)" if job["speaker_check_paid"] else "") + (f" (of which {job['picture_paid']} for the picture analysis)" if job.get("picture_paid") else ""), need_now)
         job["status"] = "accepted"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -1739,7 +1739,10 @@ def _run_picture(job, rows, wd):
                                 people=job.get("speaker_vote_people") or _stated_people(job))
     job.setdefault("analysis", {})["picture_unit"] = result
     _save(job)
-    _ev(job, "picture_unit", "ok" if result["status"] == "ok" else "partial", result["summary"])
+    _u = result.get("usage") or {}
+    _ev(job, "picture_unit", "ok" if result["status"] == "ok" else "partial",
+        f"{result['summary']} {int(_u.get('calls') or 0)} requests, tokens in {int(_u.get('tokens_in') or 0)} / out {int(_u.get('tokens_out') or 0)} / thinking {int(_u.get('tokens_thinking') or 0)}, "
+        f"cost ${float(result.get('usd') or 0):.4f}{' (saved answers reused, nothing new bought)' if result.get('reused') else ''}{' (cost not fully known)' if result.get('cost_unknown') else ''}")
     _ev(job, "picture_cuts", "info", f"{len(result['cuts'])} shot cuts; suggestions only")
     items = [item for chunk in result.get("chunks", []) for item in (chunk.get("answer") or {}).get("screen_text", [])]
     _ev(job, "picture_text", "info", f"{len(image_unit.screen_text_context(items, rows))} possible names or terms")
@@ -2013,6 +2016,11 @@ def _vote_speakers(job, rows, wd, vocals_all):
                     r.pop("speaker_vote", None)
                 picture = an.get("picture_unit") if job.get("picture_option") is True and image_unit.enabled() else None
                 extra = {"picture": picture} if isinstance(picture, dict) and picture.get("status") in ("ok", "partial") else {}
+                # A stated number is a fact: no speaker beyond it, but when the detector found fewer the vote may fill the gap (lines the
+                # checks agree on, the usual minimum of lines and support still apply).
+                _gap = (int(people) - len({_orig[k] for k in _orig})) if people else None
+                if _gap is not None and _gap > 0:
+                    return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, **extra)
                 return speaker_vote_live.apply(rows, v, allow_new=people is None, **extra)
 
             def _n_people():
@@ -2057,7 +2065,8 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _save(job)
             got = [k for k in ("dialogue", "audio") if votes.get(k)]
             _ev(job, "speaker_vote", "ok" if summary["status"] == "ok" else "skipped",
-                f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}{reask_note}; "
+                f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}"
+                f"; people named: " + ", ".join(f"{k} {speaker_vote_live.people_named(votes.get(k))}" for k in ("dialogue", "audio")) + f"; stated {people or 'none'}{reask_note}; "
                 f"result {summary['status']}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "

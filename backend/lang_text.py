@@ -52,10 +52,29 @@ def legacy_surface_tokens(text):
     return out
 
 
+_MARKUP_TAGS = r"(?:font|i|b|u|s|em|strong|span|br|p|div|c|v|lang|ruby|rt|rb)"
+
+
+def strip_markup(text):
+    """Subtitle formatting out of one line. Entities are decoded until nothing changes (a file that was escaped twice shows
+    its tags as text otherwise), then every tag goes -- also one that was cut off before its ">" and the left-over
+    start of an attribute on a following line (`#ffff00">`)."""
+    s = _text(text)
+    for _ in range(3):
+        t = html.unescape(s)
+        if t == s:
+            break
+        s = t
+    s = re.sub(r"</?" + _MARKUP_TAGS + r"\b[^>]*>", "", s, flags=re.I)
+    # a tag cut off before its ">": only the tag and its attributes go, the words after it stay
+    s = re.sub(r"</?" + _MARKUP_TAGS + r"\b(?:\s*[\w:-]+\s*=\s*[\"']?[#\w.%-]*[\"']?)*", "", s, flags=re.I)
+    s = re.sub(r"<[^>]*>", "", s)
+    return re.sub(r"^[#\w]{0,12}[\"']\s*>", "", s)
+
+
 def legacy_clean_line(text):
     """Exact string-input copy of subs_align._clean_line, including its quirks."""
-    s = html.unescape(_text(text))
-    s = re.sub(r"<[^>]*>", "", s)
+    s = strip_markup(text)
     s = re.sub(r"\{[^}]*\}", "", s)
     s = s.replace("‎", "").replace("‏", "").replace("‪", "").replace("‬", "")
     if "♪" in s or "♫" in s or "♩" in s:
@@ -262,8 +281,8 @@ def clean_subtitle_line(text, lang=None):
     if languages.get_record(lang).code == "en":
         return legacy_clean_line(text)
     language = languages.get_record(lang)
-    s = html.unescape(_text(text))
-    s = re.sub(r"<[^>]*>|\{[^}]*\}", "", s)
+    s = strip_markup(text)
+    s = re.sub(r"\{[^}]*\}", "", s)
     s = s.translate({ord(c): None for c in "\u200e\u200f\u202a\u202b\u202c\u202d\u202e"})
     if any(mark in s for mark in language.music_marks):
         return "", False

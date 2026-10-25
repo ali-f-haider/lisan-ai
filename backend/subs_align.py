@@ -103,8 +103,7 @@ def _clean_line(line, source_language="en"):
     """One subtitle line -> (text, dash). Tags, sound descriptions and music marks are removed."""
     if languages.get(source_language).code != "en":
         return lang_text.clean_subtitle_line(line, source_language)
-    s = html.unescape(line)
-    s = re.sub(r"<[^>]*>", "", s)
+    s = lang_text.strip_markup(line)
     s = re.sub(r"\{[^}]*\}", "", s)
     s = s.replace("‎", "").replace("‏", "").replace("‪", "").replace("‬", "")
     if "♪" in s or "♫" in s or "♩" in s:      # music notes: a song, not speech
