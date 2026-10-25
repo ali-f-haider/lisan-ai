@@ -141,6 +141,17 @@ class FillTheGap(unittest.TestCase):
             ld._vote_speakers(job, rows(4), Path("."), Path("v.wav"))
         self.assertTrue(seen["allow_new"])
         self.assertEqual(seen["max_new"], 2)      # 4 stated, 2 found
+        self.assertEqual(seen["min_new_lines"], 2)
+
+    def test_a_person_with_only_a_few_lines_is_found_when_the_user_said_they_exist(self):
+        label = lambda i: "A" if i < 10 else ("B" if i < 17 else "C")      # C says 3 lines, both checks agree
+        lines = {f"seg_{i}": label(i) for i in range(20)}
+        r = self.app_rows()
+        none = svl.apply(r, {"dialogue": dict(lines), "audio": dict(lines)}, allow_new=True, max_new=1)
+        self.assertEqual(none["new_speakers"], [])      # the vote's own minimum of 5 lines
+        r = self.app_rows()
+        some = svl.apply(r, {"dialogue": dict(lines), "audio": dict(lines)}, allow_new=True, max_new=1, min_new_lines=2)
+        self.assertEqual(len(some["new_speakers"]), 1)
 
 
 class Wiring(unittest.TestCase):

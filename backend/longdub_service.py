@@ -2020,7 +2020,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 # checks agree on, the usual minimum of lines and support still apply).
                 _gap = (int(people) - len({_orig[k] for k in _orig})) if people else None
                 if _gap is not None and _gap > 0:
-                    return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, **extra)
+                    return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, min_new_lines=2, **extra)
                 return speaker_vote_live.apply(rows, v, allow_new=people is None, **extra)
 
             def _n_people():
