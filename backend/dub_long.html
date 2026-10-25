@@ -697,6 +697,7 @@ var cfg = null;          // /api/longdub/config
 var jobs = [];           // list of public job views
 var cur = null;          // job currently on screen
 var reviewPage = 0, reviewedBatches = {}, manualNoticeId = "";
+var focusAll = false, revealedLines = {};      // line focus: false = only the lines that need a look, true = every line; revealedLines = lines the person opened
 var segs = [];           // transcript rows while editing
 var spk = [];            // speaker list while editing [{id, name}]
 var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?, speaker_id?, emotion?, waqf?} waiting to be saved
@@ -1688,7 +1689,7 @@ function loadSegments() {
     if (!cur || cur.id !== id) return;
     if (!r.ok) { $("editorBody").innerHTML = "<p class='ld-err'>" + esc(safeErr(r.data.error, T.genericErr)) + "</p>"; return; }
     segs = r.data.segments || [];
-    reviewPage = 0; reviewedBatches = {};
+    reviewPage = 0; reviewedBatches = {}; focusAll = false; revealedLines = {};
     (r.data.batches || []).forEach(function(b) { if (b.reviewed) reviewedBatches[String(b.page)] = b.hash; });
     spk = (r.data.speaker_list || []).map(speakerFromServer);
     cur.warnings = r.data.warnings || [];
@@ -1722,13 +1723,14 @@ function renderEditor() {
     ((cur.warnings || []).map(function (w) { return "<div class='ld-warn'>" + esc(w) + "</div>"; }).join("")) +
     "<div class='ld-spkpanel' id='spkPanel'></div><div id='glossPanel'></div><div id='subsPanel'></div>" +
     "<div class='ld-edhead'><strong id='lineCount'></strong><span class='ld-saved' id='savedState'></span></div>" +
+    "<div class='ld-focus' id='focusBar'></div>" +
     "<div class='ld-colhead'><div>" + esc(T.colTime) + "</div><div>" + esc(T.colEn) + "</div><div>" + esc(T.colAr) + "</div></div>";
   body.appendChild(head);
   renderProjHead();
   renderReattach();
   var list = document.createElement("div"); list.id = "segList";
   body.appendChild(reviewNavigation());
-  segs.slice(reviewPage * 10, reviewPage * 10 + 10).forEach(function (s) { list.appendChild(buildRow(s)); });
+  fillSegList(list);
   body.appendChild(list);
   body.appendChild(reviewNavigation("reviewPagesBottom"));
   var foot = document.createElement("div"); foot.id = "confirmArea";
@@ -1766,6 +1768,12 @@ function reviewNavigation(id) {
         ["reviewPages","reviewPagesBottom"].forEach(function(id) { var old = $(id); if(old) old.replaceWith(reviewNavigation(id === "reviewPages" ? null : id)); });
       }).finally(function() { check.disabled = false; });
     };
+    var looks = lookCount(segs, page * 10, page * 10 + 10);
+    if (looks) {
+      var flag = document.createElement("span"); flag.className = "ld-page-flag"; flag.textContent = "\u26A0 " + looks;
+      flag.title = LANG === "ar" ? looks + " من الأسطر تحتاج إلى نظرة" : looks + (looks === 1 ? " line needs a look" : " lines need a look");
+      b.appendChild(flag);
+    }
     label.appendChild(check); group.appendChild(b); group.appendChild(label); nav.appendChild(group);
   })(i);
   return nav;
@@ -1974,7 +1982,7 @@ function applyRows(rows, focusId) {
   pricePreview = null; tashNote = "";
   var list = $("segList");
   if (focusId) { var at = segs.findIndex(function(x) { return x.segment_id === focusId; }); if (at >= 0) reviewPage = Math.floor(at / 10); }
-  if (list) { list.innerHTML = ""; segs.slice(reviewPage * 10, reviewPage * 10 + 10).forEach(function (x) { list.appendChild(buildRow(x)); }); }
+  if (list) fillSegList(list, focusId);
   var nav = $("reviewPages"); if (nav) nav.replaceWith(reviewNavigation());
   renderSpeakers(); renderConfirm(); updateCount();
   if (focusId && list) {
@@ -2147,6 +2155,77 @@ function genderBadge(s) {
     saveTimer = setTimeout(flushSave, 900);
   };
   return b;
+}
+
+// ---- line focus (begin): the editor puts the lines that need a look in front; the lines that look fine sit behind a "show" bar.
+// Nothing is deleted or skipped: every line is still there, one click away, and "Show all lines" brings them all back.
+function needsLook(s) {
+  if (!s) return false;
+  return s.speaker_confidence === "low" || !!s.cut_check || !!s.gender_check || (s.overlaps || []).length > 0 ||
+         s.heard === false || !String(s.arabic_text || "").trim();
+}
+function lookCount(rows, from, to) {
+  var n = 0;
+  (rows || []).slice(from, to).forEach(function (s) { if (needsLook(s)) n++; });
+  return n;
+}
+// The rows of one page as a list of {row} and {gap: [segment ids]}. `shown` holds the lines the person opened, `keep` the line just worked on.
+function focusPlan(rows, from, to, all, shown, keep) {
+  var out = [], run = [];
+  function flush() { if (run.length) { out.push({ gap: run.map(function (x) { return x.segment_id; }) }); run = []; } }
+  (rows || []).slice(from, to).forEach(function (s) {
+    if (all || needsLook(s) || (shown && shown[s.segment_id]) || (keep && s.segment_id === keep)) { flush(); out.push({ row: s }); }
+    else run.push(s);
+  });
+  flush();
+  return out;
+}
+// ---- line focus (end)
+
+function focusIsAll() { return focusAll || lookCount(segs, 0, segs.length) === 0; }
+
+function fillSegList(list, keep) {
+  list.innerHTML = "";
+  var all = focusIsAll();
+  focusPlan(segs, reviewPage * 10, reviewPage * 10 + 10, all, revealedLines, keep).forEach(function (it) {
+    if (it.row) { if (!all) revealedLines[it.row.segment_id] = true; list.appendChild(buildRow(it.row)); }
+    else list.appendChild(gapBar(it.gap));
+  });
+  renderFocusBar();
+}
+
+// "12 lines look fine · Show": opens just that stretch, where the bar is.
+function gapBar(ids) {
+  var ar = LANG === "ar", n = ids.length;
+  var b = document.createElement("button"); b.type = "button"; b.className = "ld-gap";
+  b.textContent = ar ? "أسطر تبدو سليمة: " + n + " · إظهار" : n + (n === 1 ? " line looks fine" : " lines look fine") + " · Show";
+  b.onclick = function () {
+    var list = b.parentNode; if (!list) return;
+    ids.forEach(function (id) {
+      var s = segs.find(function (x) { return x.segment_id === id; });
+      if (!s) return;
+      revealedLines[id] = true;
+      list.insertBefore(buildRow(s), b);
+    });
+    list.removeChild(b);
+  };
+  return b;
+}
+
+function renderFocusBar() {
+  var el = $("focusBar"); if (!el) return;
+  var ar = LANG === "ar", total = lookCount(segs, 0, segs.length);
+  el.innerHTML = "";
+  if (!total) { el.textContent = ar ? "لا يحتاج أي سطر إلى مراجعة خاصة." : "No line needs a special check."; return; }
+  var t = document.createElement("span");
+  t.textContent = ar ? total + " من " + segs.length + " سطرًا يحتاج إلى نظرة" : total + " of " + segs.length + " lines need a look";
+  var b = document.createElement("button"); b.type = "button"; b.className = "btn-plain";
+  b.textContent = focusAll ? (ar ? "إظهار الأسطر التي تحتاج إلى نظرة فقط" : "Show only lines to check") : (ar ? "إظهار كل الأسطر" : "Show all lines");
+  b.onclick = function () {
+    focusAll = !focusAll; revealedLines = {};
+    var list = $("segList"); if (list) fillSegList(list);
+  };
+  el.appendChild(t); el.appendChild(b);
 }
 
 function buildRow(s) {

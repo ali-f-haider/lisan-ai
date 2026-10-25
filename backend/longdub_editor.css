@@ -149,6 +149,10 @@
 .ld-pages {display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:calc(var(--ld-header-height,64px) + 8px);z-index:5;padding:10px;background:var(--card,#202127);border-radius:8px;margin:12px 0}
 .ld-pages .reviewed {border:1px solid #22c55e;color:#22c55e}
 .ld-overlap {border-inline-start:4px solid #f59e0b}
+.ld-focus {display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--text-muted);margin:0 0 8px}
+.ld-gap {display:block;width:100%;margin:6px 0;padding:8px 12px;border:1px dashed var(--border);border-radius:8px;background:var(--muted-surface);color:var(--text-muted);font-size:13px;cursor:pointer;text-align:center}
+.ld-gap:hover,.ld-gap:focus-visible {border-color:var(--accent);color:var(--text)}
+.ld-page-flag {margin-inline-start:6px;color:var(--warning);font-weight:700}
 .ld-time-notice {padding:8px;border:1px solid #818cf8;border-radius:6px;margin:8px 0;font-size:13px}
 
 .ld-page-group {display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:8px;background:var(--logout-bg);overflow:hidden;flex:none}
