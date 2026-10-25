@@ -2033,9 +2033,10 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 extra = {"picture": picture} if isinstance(picture, dict) and picture.get("status") in ("ok", "partial") else {}
                 # A stated number is a fact: no speaker beyond it, but when the detector found fewer the vote may fill the gap (lines the
                 # checks agree on, the usual minimum of lines and support still apply).
-                if people and int(people) >= 2 and STATED_FIRST and _checks_name_everyone(v, int(people)):
-                    # The user's number wins over the detector: both checks told that many people apart, so those people ARE the speakers
-                    # (one letter, one speaker). The detector's grouping, which missed some of them, is not used.
+                if (people and int(people) >= 2 and STATED_FIRST and (job.get("speaker_merge_choice") == "keep" or not SPEAKER_COUNT_ASK)
+                        and _checks_name_everyone(v, int(people))):
+                    # The user was told what was found, and kept their number: it wins over the detector. Both checks told that many people
+                    # apart, so those people ARE the speakers (one letter, one speaker); the detector's grouping is not used.
                     _res = speaker_vote_live.apply(rows, v, allow_new=True, max_new=int(people) - 1, min_new_lines=1, new_support=1, fresh=True, **extra)
                     if _res.get("status") == "ok":
                         return _res

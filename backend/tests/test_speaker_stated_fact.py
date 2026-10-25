@@ -240,7 +240,7 @@ class StatedFirst(unittest.TestCase):
             return {"status": "skipped"}
 
         for switch in (True, False):
-            job = {"id": "j", "stated_speakers": 5, "analysis": {"audio_duration": 100}}
+            job = {"id": "j", "stated_speakers": 5, "speaker_merge_choice": "keep", "analysis": {"audio_duration": 100}}
             with mock.patch.object(svl, "collect", lambda *a, **k: {"dialogue": dict(self.lines), "audio": dict(self.lines), "usage": {}}), \
                     mock.patch.object(svl, "apply", fake_apply), mock.patch.object(ld, "STATED_FIRST", switch), \
                     mock.patch.object(ld, "_mark", lambda *a, **k: None), mock.patch.object(ld, "_ev", lambda *a, **k: None), \
@@ -249,6 +249,21 @@ class StatedFirst(unittest.TestCase):
         self.assertTrue(seen[0].get("fresh"))
         self.assertEqual(seen[0]["max_new"], 4)
         self.assertFalse(any(k.get("fresh") for k in seen[1:]))
+
+    def test_before_the_user_has_answered_the_detector_is_not_overruled(self):
+        seen = []
+
+        def fake_apply(r, votes, allow_new=True, **kw):
+            seen.append(kw)
+            return {"status": "skipped"}
+
+        job = {"id": "j", "stated_speakers": 5, "analysis": {"audio_duration": 100}}      # no answer yet: the question comes first
+        with mock.patch.object(svl, "collect", lambda *a, **k: {"dialogue": dict(self.lines), "audio": dict(self.lines), "usage": {}}), \
+                mock.patch.object(svl, "apply", fake_apply), \
+                mock.patch.object(ld, "_mark", lambda *a, **k: None), mock.patch.object(ld, "_ev", lambda *a, **k: None), \
+                mock.patch.object(ld, "_save", lambda j: None), mock.patch.object(ld, "_speaker_check_refund", lambda *a, **k: None):
+            ld._vote_speakers(job, self.rows(), Path("."), Path("v.wav"))
+        self.assertFalse(any(k.get("fresh") for k in seen))
 
 
 class Wiring(unittest.TestCase):
