@@ -69,7 +69,7 @@
     </div>
     <div class="ld-spkask">
       <label for="spkCount" id="spkAskLabel">How many people speak in this video?</label>
-      <input type="number" id="spkCount" min="1" max="8" value="" inputmode="numeric">
+      <input type="number" id="spkCount" min="1" max="20" value="" inputmode="numeric">
     </div>
     <p class="note" id="spkAskNote"></p>
     <div class="ld-lipask" id="lipAsk">
@@ -192,7 +192,7 @@ var T = {
     redoFail: "We couldn't create the new project. Please try again.",
     spkAskLabel: "How many people speak in this video? (optional)",
     spkAskHolder: "Not sure",
-    spkAskNote: "Leave it empty if you're not sure: Lisan AI then finds the speakers itself (the price estimate starts from 2). If you enter a number, we take it as certain, and if we find more voices than that we ask you before going on. You name the speakers and check every line before anything is dubbed.",
+    spkAskNote: "Leave it empty if you're not sure: Lisan AI then finds the speakers itself (the price estimate starts from 2). If you enter a number, we take it as certain, and if we find more voices than that we ask you before going on. You name the speakers and check every line before anything is dubbed. Up to 20 speakers are possible; with more than 12 the assignment of lines is less accurate and the price grows, so expect more lines to check.",
     spkBad: function (max) { return "Enter a number of speakers between 1 and " + max + "."; },
     packHeading: "Publish on YouTube",
     packNote: "Type the title of your original video (and its description, if you like). We write an Arabic title, description, search tags, hashtags and chapters from your dubbed lines, and put them in one .zip with the Arabic subtitles and the dubbed audio file that YouTube asks for. Free. Please read the texts once before you publish.",
@@ -469,7 +469,7 @@ var T = {
     redoFail: "تعذّر إنشاء المشروع الجديد. حاول مرة أخرى.",
     spkAskLabel: "كم شخصاً يتحدث في هذا الفيديو؟ (اختياري)",
     spkAskHolder: "لست متأكداً",
-    spkAskNote: "اتركه فارغاً إذا لم تكن متأكداً: سيكتشف لسان AI المتحدثين بنفسه ويبدأ التقدير من متحدثَين اثنين. وإذا أدخلت رقماً فسنعتمده كحقيقة، وإذا وجدنا أصواتاً أكثر منه فسنسألك قبل المتابعة. وستسمّي المتحدثين وتراجع كل سطر قبل أي دبلجة.",
+    spkAskNote: "اتركه فارغاً إذا لم تكن متأكداً: سيكتشف لسان AI المتحدثين بنفسه ويبدأ التقدير من متحدثَين اثنين. وإذا أدخلت رقماً فسنعتمده كحقيقة، وإذا وجدنا أصواتاً أكثر منه فسنسألك قبل المتابعة. وستسمّي المتحدثين وتراجع كل سطر قبل أي دبلجة. يمكن إدخال حتى 20 متحدثاً؛ وإذا زاد العدد على 12 قلّت دقة توزيع الأسطر وارتفع السعر، فتوقّع أسطراً أكثر تحتاج إلى مراجعتك.",
     spkBad: function (max) { return "أدخل عدد متحدثين بين 1 و" + max + "."; },
     packHeading: "انشر على يوتيوب",
     packNote: "اكتب عنوان فيديوك الأصلي (ووصفه إن أحببت). نكتب لك عنواناً ووصفاً وكلمات بحث ووسوماً وفصولاً بالعربية من أسطر الدبلجة، ونضعها في ملف مضغوط واحد مع الترجمة العربية وملف الصوت المدبلج الذي يطلبه يوتيوب. مجاناً. يُرجى قراءة النصوص مرة قبل النشر.",
@@ -829,7 +829,7 @@ function applyConfigText() {
   $("introSteps").innerHTML = T.introSteps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
   $("dropHint").textContent = T.dropHint(maxMin, cfg ? cfg.max_upload_mb : 2048);
   $("ldNoTrain").textContent = T.noTrain;
-  $("spkCount").max = cfg ? cfg.max_speakers : 8;
+  $("spkCount").max = cfg ? cfg.max_speakers : 20;
   var lc = (cfg && cfg.lipsync) || { available: false, per_sec: 0, max_min: 0 };
   if (lc.available) {
     $("lipAskNote").textContent = T.lipAskNote(lc.per_sec, lc.max_min);
@@ -1597,7 +1597,7 @@ function onFilePicked(file) {
   if (!nameOk()) return;
   var maxMb = cfg ? cfg.max_upload_mb : 2048;
   if (file.size > maxMb * 1048576) { showUploadError(T.tooBig(Math.round(file.size / 1048576), maxMb)); return; }
-  var maxSp = cfg ? cfg.max_speakers : 8;
+  var maxSp = cfg ? cfg.max_speakers : 20;
   // An empty box means "not sure": the server then detects the speakers on its own and never asks "you said N". The 2 sent along is
   // only the number the price estimate starts from.
   var rawSp = String($("spkCount").value || "").trim(), spChosen = rawSp !== "";
@@ -1872,7 +1872,7 @@ function redoForGender(spId) {
 
 function renderSpeakers() {
   var p = $("spkPanel"); if (!p) return;
-  var max = cfg ? cfg.max_speakers : 8;
+  var max = cfg ? cfg.max_speakers : 20;
   var h = "<h4>" + esc(T.spkHeading) + q(esc(T.spkSummary(cur.speakers_chosen === false ? 0 : (cur.stated_speakers || spk.length), cur.detected_speakers || spk.length))) + "</h4>";
   spk.forEach(function (s, i) {
     var n = linesOf(s.id);

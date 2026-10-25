@@ -47,7 +47,7 @@ class ApiSchemaTests(unittest.TestCase):
     def test_numeric_ranges_allowed_values_and_lengths(self):
         for changes, field in (({"size_bytes": 0}, "size_bytes"), ({"size_bytes": 2147483649}, "size_bytes"),
                                ({"kind": "unknown"}, "kind"), ({"name": "x" * 81}, "name"),
-                               ({"stated_speakers": 9}, "stated_speakers"), ({"rights_confirmed": False}, "rights_confirmed")):
+                               ({"stated_speakers": 21}, "stated_speakers"), ({"rights_confirmed": False}, "rights_confirmed")):
             self.assertIn(field, validate_body("CreateJob", dict(GOOD_BODIES["CreateJob"], **changes)))
 
     def test_filename_paths_and_invalid_unicode_are_rejected(self):

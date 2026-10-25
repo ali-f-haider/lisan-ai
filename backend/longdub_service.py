@@ -102,7 +102,7 @@ EST_SPEAKERS = 2
 
 SAMPLE_RATE = 44100
 
-MAX_SPEAKERS = 8
+MAX_SPEAKERS = 20      # (was 8; scenes with a crowd of named people exist. Each speaker costs one voice, so the price estimate grows with the number; above 12 the assignment is less accurate and the upload note says so)
 # Bump when the wording of what the user is told with the offer changes, so a
 # complaint can be matched to the exact terms that were shown.
 TERMS_VERSION = "2026-10-05-corrections"

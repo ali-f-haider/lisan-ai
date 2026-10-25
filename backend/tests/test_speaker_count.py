@@ -203,7 +203,7 @@ class NumberLeftEmpty(unittest.TestCase):
         self.assertIn("speakers_chosen: bool = True", main)
         self.assertIn("speakers_chosen=body.speakers_chosen", main)
         page = (ROOT / "dub_long.html").read_text(encoding="utf-8")
-        self.assertIn('id="spkCount" min="1" max="8" value=""', page)
+        self.assertIn('id="spkCount" min="1" max="20" value=""', page)
         self.assertIn("speakers_chosen: spChosen", page)
         self.assertIn('rawSp !== ""', page)
         svc = (ROOT / "longdub_service.py").read_text(encoding="utf-8")
@@ -359,6 +359,21 @@ class Wiring(unittest.TestCase):
         self.assertIn("speaker_count: \"Waiting for your answer\"", h)
         self.assertIn("speaker_count: \"بانتظار إجابتك\"", h)
 
+
+
+class LimitIsToldTests(unittest.TestCase):
+    def test_the_limit_is_20_and_every_place_that_names_it_agrees(self):
+        root = Path(__file__).resolve().parents[1]
+        import re
+        svc = (root / "longdub_service.py").read_text(encoding="utf-8")
+        self.assertRegex(svc, r"(?m)^MAX_SPEAKERS = 20\b")
+        page = (root / "dub_long.html").read_text(encoding="utf-8")
+        self.assertEqual(page.count("cfg.max_speakers : 20;"), 3)
+        self.assertNotIn("cfg.max_speakers : 8", page)
+        self.assertIn("Up to 20 speakers are possible", page)
+        self.assertIn("حتى 20 متحدثاً", page)
+        self.assertIn("(1 to 20)", (root / "help.html").read_text(encoding="utf-8"))
+        self.assertIn("from 1 to 20", (root / "assistant_service.py").read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main()

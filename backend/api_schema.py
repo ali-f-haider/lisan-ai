@@ -43,7 +43,7 @@ BODY_SCHEMAS = {
             "size_bytes": {"type": "integer", "minimum": 1, "maximum": 2147483648},
             "name": {"type": "string", "maxLength": 80},
             "description": {"type": "string", "maxLength": 500},
-            "stated_speakers": {"type": "integer", "minimum": 1, "maximum": 8, "default": 2},
+            "stated_speakers": {"type": "integer", "minimum": 1, "maximum": 20, "default": 2},
             "rights_confirmed": {"type": "boolean", "const": True},
             "terms_version": VERSION,
         },
@@ -74,7 +74,7 @@ BODY_SCHEMAS = {
     "EditSpeakers": {
         "type": "object", "additionalProperties": False, "required": ["revision", "speakers"],
         "properties": {"revision": {"type": "integer", "minimum": 0, "maximum": 2147483647},
-                       "speakers": {"type": "array", "minItems": 1, "maxItems": 8, "items": SPEAKER}},
+                       "speakers": {"type": "array", "minItems": 1, "maxItems": 20, "items": SPEAKER}},
     },
 }
 
