@@ -2131,6 +2131,13 @@ def _run_analysis(job):
                 _ev(job, "lines_planned", "ok", ", ".join(f"{k}={v}" for k, v in _plan.items() if k != "refusals"))
             except Exception as ex:
                 print(f"[longdub] line planner skipped: {ex}")
+        try:      # a line that starts long before its first sound of speech is started where the speech really begins (line_tidy.snap_starts): ONLY the start moves, nothing is cut
+            if vocals_all.exists():
+                rows, _snap = line_tidy.snap_starts(rows, vocals_all)
+                if _snap:
+                    _ev(job, "line_starts", "ok", f"{len(_snap)} line(s) started later, at their first sound of speech: " + ", ".join(f"{sid} {pitch_check._clock(o)} -> {pitch_check._clock(n)}" for sid, o, n in _snap[:30]))
+        except Exception as ex:
+            print(f"[longdub] line starts skipped: {ex}")
         _review_speakers(job, rows, turns, label_map, vote=vote)
         _write_segments(job, rows)
         try:      # who said each line at each step, for the job log (reads only; nothing is decided here)

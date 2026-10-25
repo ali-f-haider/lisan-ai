@@ -16,6 +16,7 @@ always right at the edge between two speakers. Two mistakes are common and can b
 tidy_lines(rows, vocals) -> (rows, report). Never raises: any problem returns the rows as they were.
 """
 import languages, lang_text
+import os
 import re
 
 SENT_END = re.compile(r"[.!?؟…][\"'”’)\]]*\s*$")
@@ -26,6 +27,13 @@ MAX_LINE_SEC = 15.0         # a joined line is never longer than this (the same 
 MAX_TAIL_WORDS = 8          # an unfinished beginning longer than this is left alone (probably a real interruption)
 MIN_VOICE_SEC = 0.25        # a stretch of voice shorter than this is a breath or noise, not words
 ONSET_BACK_MAX = 6.0        # a line's start is never moved back by more than this
+SNAP_STARTS = os.environ.get("LONGDUB_SNAP_STARTS", "1").strip().lower() not in ("0", "false", "off", "no")
+BURST_ABOVE_FLOOR_DB = 15.0 # a short word ("Fine.") is a burst this far above the quiet of its line, even when it is too short for the other two ears
+BURST_MIN_SEC = 0.1
+LEAD_SILENCE_MIN = 1.0      # a line whose first voiced sound comes this long after its stated start has a start that is too early
+LEAD_MARGIN = 0.25          # the corrected start lies this long before the first voiced sound (a soft "sh" or "th" comes before the pitch)
+LEAD_MIN_AFTER = 0.3        # at least this much of the line must remain after that sound
+LEAD_MAX_SHIFT = 10.0       # a start is never moved later by more than this
 FRAGMENT_MAX_WORDS = 3      # a first part of this many words or fewer, cut off before the sentence ends ("How's" | "your face?")
 FRAGMENT_MAX_GAP = 2.5      # seconds: the recogniser sometimes places the first word long before the rest (measured: 1.5 s)
 AFTER_PREVIOUS_SEC = 0.25   # the search for a joined line's voice starts this long after the end of the line before it
@@ -125,6 +133,80 @@ def merge_fragments(rows, vocals=None, source_language="en"):
                 continue
         out.append(row)
     return out, joined
+
+
+def burst_onset(vocals, lo, hi):
+    """Where the first short loud burst (at least BURST_MIN_SEC, BURST_ABOVE_FLOOR_DB above the quiet of this stretch) starts between lo and
+    hi seconds, or None. Hears a one-word line that is too short for a pitch run or a 0.25 s level run."""
+    try:
+        import numpy as np
+        import soundfile as sf
+        if hi - lo < BURST_MIN_SEC:
+            return None
+        sr = sf.info(str(vocals)).samplerate
+        x, _ = sf.read(str(vocals), start=int(max(0.0, lo) * sr), frames=int((hi - lo) * sr), dtype="float32", always_2d=True)
+        x = x.mean(axis=1)
+        win = max(1, int(0.025 * sr))
+        n = len(x) // win
+        if n < 4:
+            return None
+        db = 20 * np.log10(np.sqrt((x[:n * win].reshape(n, win) ** 2).mean(axis=1)) + 1e-9)
+        loud = db > max(np.percentile(db, 20) + BURST_ABOVE_FLOOR_DB, -50.0)
+        need = max(1, int(round(BURST_MIN_SEC / 0.025)))
+        run = 0
+        for i, flag in enumerate(loud):
+            run = run + 1 if flag else 0
+            if run >= need:
+                return max(0.0, lo) + (i - run + 1) * win / sr
+        return None
+    except Exception:
+        return None
+
+
+def _first_sound(vocals, lo, hi):
+    """(where the first sound of speech starts between lo and hi, or None). Three independent ears: the pitch (a voiced sound, not a
+    rustle), the level (a loud-enough stretch, which also hears a soft or unvoiced beginning) and short loud bursts (a one-word
+    "Fine."); the EARLIEST of them counts, so a quiet or very short first word is never cut off because one of them missed it."""
+    found = [t for t in (voiced_onset(vocals, lo, hi), voice_onset(vocals, lo, hi), burst_onset(vocals, lo, hi)) if t is not None]
+    return min(found) if found else None
+
+
+def snap_starts(rows, vocals=None):
+    """A line whose stated start comes long before its first sound of speech (the recogniser put "You know," at 86.3 s, where the
+    person before had just finished, but the voice says it at 91.1 s) is started where the speech really begins. ONLY the start
+    changes: no word is removed, nothing of a dubbed sentence is ever cut. Where the voices cannot be read, or nothing clearly
+    sounds, the line stays as it was. Returns (rows, [(segment_id, old_start, new_start)])."""
+    moved = []
+    if vocals is None or not SNAP_STARTS:
+        return rows, moved
+    for k, r in enumerate(rows):
+        try:
+            if r.get("locked"):
+                continue
+            start, end = float(r["start"]), float(r["end"])
+            if end - start < LEAD_SILENCE_MIN + LEAD_MIN_AFTER:
+                continue
+            lo = start
+            if k > 0:                       # the line before may still sound a moment after its stated end
+                try:
+                    lo = max(start, float(rows[k - 1]["end"]) + AFTER_PREVIOUS_SEC)
+                except (KeyError, TypeError, ValueError):
+                    pass
+            if end - lo < LEAD_MIN_AFTER:
+                continue
+            sound = _first_sound(vocals, lo, end)
+            if sound is None or sound - start < LEAD_SILENCE_MIN or end - sound < LEAD_MIN_AFTER:
+                continue
+            new = round(min(max(start, sound - LEAD_MARGIN), start + LEAD_MAX_SHIFT), 2)
+            r["start"] = new
+            for w in r.get("words") or []:  # the word times that came before the voice follow the line
+                if float(w["start"]) < new:
+                    w["start"] = new
+                    w["end"] = max(float(w["end"]), new)
+            moved.append((r.get("segment_id"), round(start, 2), new))
+        except Exception:
+            continue
+    return rows, moved
 
 
 def _tail_start(tokens, source_language="en"):
