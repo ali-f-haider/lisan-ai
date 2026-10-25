@@ -153,6 +153,8 @@
 .ld-gap {display:block;width:100%;margin:6px 0;padding:8px 12px;border:1px dashed var(--border);border-radius:8px;background:var(--muted-surface);color:var(--text-muted);font-size:13px;cursor:pointer;text-align:center}
 .ld-gap:hover,.ld-gap:focus-visible {border-color:var(--accent);color:var(--text)}
 .ld-page-flag {margin-inline-start:6px;color:var(--warning);font-weight:700}
+.pk-results {border-top:1px solid var(--border);margin-top:12px;padding-top:12px}
+#packState:empty {display:none}
 .ld-time-notice {padding:8px;border:1px solid #818cf8;border-radius:6px;margin:8px 0;font-size:13px}
 
 .ld-page-group {display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:8px;background:var(--logout-bg);overflow:hidden;flex:none}

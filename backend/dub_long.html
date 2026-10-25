@@ -100,6 +100,7 @@
     <div id="jobSpin" style="display:none;justify-content:center;margin:4px 0 8px;" role="status" aria-hidden="true"><picture><source srcset="/static/loading-spinner.webp" type="image/webp"><img src="/static/loading-spinner.gif" alt="" style="width:72px;height:72px;display:block;"></picture></div>
     <div id="jobBody"></div>
   </div>
+  <div id="doneCards"></div>
 
   <div class="card hidden" id="editorCard">
     <h3 id="editorHeading">3. Review and edit</h3>
@@ -346,6 +347,7 @@ var T = {
     failedHeading: "This one didn't finish",
     startNew: "Upload another video",
     doneHeading: "✅ Your dubbed file is ready",
+    doneNotesHeading: "What to know about this dub", moreDownloadsHeading: "More downloads", nextHeading: "What next?",
     doneText: function (kind, dur) { return "Your dubbed " + kind + " (" + dur + ") is ready. You can correct selected lines on the correction page. Saved voices are retained for {voice_period} after last use, or until you finish corrections."; },
     kindVideo: "video", kindAudio: "audio",
     download: "⬇️ Download", fileGone: "This file has expired or was deleted. It is kept for your plan's storage period.",
@@ -618,6 +620,7 @@ var T = {
     failedHeading: "لم تكتمل هذه العملية",
     startNew: "ارفع فيديو آخر",
     doneHeading: "✅ ملفك المدبلج جاهز",
+    doneNotesHeading: "ما يجب معرفته عن هذا الدبلاج", moreDownloadsHeading: "تنزيلات إضافية", nextHeading: "ماذا بعد؟",
     doneText: function (kind, dur) { return "الـ" + kind + " المدبلج (" + dur + ") جاهز. يمكنك تصحيح أسطر محددة في صفحة التصحيحات. تُحفظ الأصوات {voice_period} بعد آخر استخدام، أو حتى إنهاء التصحيحات."; },
     kindVideo: "فيديو", kindAudio: "صوت",
     download: "⬇️ تنزيل", fileGone: "انتهت صلاحية هذا الملف أو حُذف. يُحتفظ به طوال مدة التخزين في باقتك.",
@@ -935,6 +938,7 @@ function render() {
   $("upsellCard").classList.toggle("hidden", studio);
   $("uploadCard").classList.toggle("hidden", !studio || (!!cur && (isOpen(st) || st === "done")));
   $("jobCard").classList.toggle("hidden", !cur || st === "editing");
+  if (st !== "done") $("doneCards").innerHTML = "";
   $("editorCard").classList.toggle("hidden", !cur || st !== "editing");
   renderJob();
   renderEditor();
@@ -989,7 +993,7 @@ function renderJob() {
   if (cur) { T.colEn = LisanSource.name(cur.source_language, LANG); T.subsEn = T.colEn; T.subsBoth = T.subsAr + " + " + T.colEn; }
   if (!cur) { $("jobBody").innerHTML = ""; setSpin(false); return; }
   if (cur.status === "editing") { setSpin(false); renderReattach(); return; }
-  var j = cur, h = "";
+  var j = cur, h = "", doneCardsHtml = "";
   var heading = T.jobHeading;
   if (j.status === "estimated") heading = T.estHeading;
   else if (j.restoring) heading = T.restoringHeading;
@@ -1039,40 +1043,27 @@ function renderJob() {
     var r = j.result || {};
     h += name;
     if (j.file_available) {
+      // The finished screen is several cards, each with one job: the file, what to know about it, more downloads, YouTube, what next.
       h += "<p>" + esc(T.doneText(r.kind === "audio" ? T.kindAudio : T.kindVideo, fmtTime(r.duration))) + "</p>";
       if (r.failed_lines) h += "<div class='ld-warn'>" + esc(T.doneWarn(r.failed_lines)) + "</div>";
-      var at = function (a) { return a.map(fmtTime).join("، "); };
-      if (r.rephrased && r.rephrased.length) {
-        h += "<div class='ld-warn'>" + esc(T.doneRephrased(r.n_rephrased || r.rephrased.length, at(r.rephrased.map(function (x) { return x.t; })), r.rephrase_refund || 0)) + "</div>";
-        h += "<details style='margin:6px 0 10px;'><summary style='cursor:pointer;font-size:13px;'>" + esc(T.showChanges) + "</summary>" +
-          r.rephrased.map(function (x) {
-            return "<div style='border-top:1px solid var(--border);padding:8px 0;font-size:13px;'><b>" + esc(fmtTime(x.t)) + "</b>" +
-              "<div style='color:var(--text-muted);'>" + esc(T.chBefore) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.before) + "</div>" +
-              "<div style='color:var(--text-muted);margin-top:4px;'>" + esc(T.chAfter) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.after) + "</div></div>";
-          }).join("") + "</details>";
-      }
-      if (window.LisanBackground) h += window.LisanBackground.html(r.background_report, LANG);
-      if (r.background) h += "<div class='ld-warn'>" + esc(T.doneBg(r.background.state, r.background.failed_parts, r.background.parts)) + "</div>";
-      if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
-      if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";
-      if (r.lipsync) h += "<p class='note'>" + esc(T.doneLip(r.lipsync.synced, r.lipsync.clips)) + "</p>";
       if (r.watermark && r.kind === "video") h += "<div class='ld-warn'>" + esc(T.wmNote) + ' <a href="/pricing">' + esc(T.buyCredits) + "</a></div>";
+      if (r.lipsync) h += "<p class='note'>" + esc(T.doneLip(r.lipsync.synced, r.lipsync.clips)) + "</p>";
       h += '<div class="ld-row-btns"><a class="ld-dl" href="/api/longdub/' + esc(j.id) + '/download">' + esc(T.download) + "</a></div>";
-      h += doneExtrasHtml(j);
+      doneCardsHtml = doneNotesCard(j, r) + doneCard("doneMore", T.moreDownloadsHeading, doneDownloadsHtml(j)) +
+        '<div class="card" id="packCard"><h3>' + esc(T.packHeading) + q(esc(T.packNote)) + '</h3><div id="packBox">' + packInner(j) + "</div></div>" +
+        doneCard("doneNext", T.nextHeading, '<div class="ld-row-btns"><button id="btnRedo">' + esc(T.redoBtn) + '</button><button class="btn-plain" id="btnNew">' + esc(T.startNew) + "</button></div>" + showLinesHtml(j));
     } else {
       h += "<p class='note'>" + esc(T.fileGone) + "</p>";
+      h += '<div class="ld-row-btns"><button id="btnRedo">' + esc(T.redoBtn) + '</button><button class="btn-plain" id="btnNew">' + esc(T.startNew) + "</button></div>";
     }
-    h += '<div class="ld-row-btns"><button id="btnRedo">' + esc(T.redoBtn) + '</button><button class="btn-plain" id="btnNew">' + esc(T.startNew) + "</button></div>";
   } else {
     h += name;
     h += '<div class="ld-row-btns"><button id="btnNew">' + esc(T.startNew) + "</button></div>";
   }
-  if (j.status === "done" || j.status === "failed") {
-    h += '<div class="ld-row-btns"><button class="btn-plain" id="btnShowLines">' + esc(roOpen[j.id] ? T.hideLines : T.showLines) + "</button></div>";
-    if (roOpen[j.id]) h += '<div id="roLines">' + roHtml(j) + "</div>";
-  }
+  if (j.status === "failed" || (j.status === "done" && !j.file_available)) h += showLinesHtml(j);
   if (lastErr) h += '<div class="ld-err">' + esc(lastErr) + "</div>";
   $("jobBody").innerHTML = h;
+  if ($("doneCards")) $("doneCards").innerHTML = doneCardsHtml;
   if (j.status === "speaker_count") {
     var spkAsk = j.speaker_count_ask || {};
     [["spkKeep", spkAsk.stated], ["spkUse", spkAsk.found]].forEach(function (pair) {
@@ -1196,7 +1187,7 @@ function packCopyText(text) {
 function packResultHtml(j) {
   var d = packData[j.id];
   if (!d || !d.pack) return "";
-  var p = d.pack, h = "";
+  var p = d.pack, h = '<div class="pk-results">';
   var row = function (label, key, text) {
     return '<div class="pk-row"><div class="pk-head"><span>' + esc(label) + '</span><button type="button" class="btn-plain pk-copy" data-k="' + key + '">' + esc(T.packCopy) + '</button></div><div class="pk-val" dir="auto">' + esc(text) + "</div></div>";
   };
@@ -1206,13 +1197,12 @@ function packResultHtml(j) {
   h += row(T.packHashOut, "hash", (p.hashtags || []).join(" "));
   h += p.chapters_text ? row(T.packChapOut, "chap", p.chapters_text) : "<p class='note'>" + esc(T.packNoChap) + "</p>";
   h += '<div class="ld-row-btns"><a class="ld-dl" href="/api/longdub/' + encodeURIComponent(j.id) + '/publish_pack.zip">' + esc(T.packZip) + "</a></div>";
-  return h + "<p class='note'>" + esc(T.packZipNote) + "</p>";
+  return h + "<p class='note'>" + esc(T.packZipNote) + "</p></div>";
 }
 function packInner(j) {
   var d = packDraft[j.id] || {}, data = packData[j.id], inp = (data && data.input) || {};
   var v = function (k) { return d[k] !== undefined ? d[k] : (inp[k] || ""); };
-  return "<strong>" + esc(T.packHeading) + "</strong>" + q(esc(T.packNote)) +
-    '<label for="packTitle">' + esc(T.packTitleLabel) + '</label><input type="text" id="packTitle" dir="auto" maxlength="200" placeholder="' + esc(T.packTitlePh) + '" value="' + esc(v("title")) + '">' +
+  return '<label for="packTitle">' + esc(T.packTitleLabel) + '</label><input type="text" id="packTitle" dir="auto" maxlength="200" placeholder="' + esc(T.packTitlePh) + '" value="' + esc(v("title")) + '">' +
     '<label for="packDesc">' + esc(T.packDescLabel) + '</label><textarea id="packDesc" rows="3" dir="auto" maxlength="4000">' + esc(v("description")) + "</textarea>" +
     '<label for="packKw">' + esc(T.packKwLabel) + '</label><input type="text" id="packKw" dir="auto" maxlength="400" value="' + esc(v("keywords")) + '">' +
     '<div class="ld-row-btns" style="margin:8px 0;"><button type="button" id="packMake"' + (packBusy[j.id] ? " disabled" : "") + ">" + esc(data && data.pack ? T.packRemake : T.packMake) + "</button></div>" +
@@ -1255,15 +1245,41 @@ function wirePack(j) {
     }).catch(function () { packLoading[j.id] = false; packData[j.id] = false; });
   }
 }
-function doneExtrasHtml(j) {
+// ---- the finished screen: one card per job (see renderJob)
+function doneCard(id, heading, inner) {
+  return inner ? '<div class="card" id="' + id + '"><h3>' + esc(heading) + "</h3>" + inner + "</div>" : "";
+}
+// What we changed or could not do, in one place: lines shortened to fit, the background sound, lines cut or sped up.
+function doneNotesCard(j, r) {
+  var at = function (a) { return a.map(fmtTime).join("، "); }, h = "";
+  if (r.rephrased && r.rephrased.length) {
+    h += "<div class='ld-warn'>" + esc(T.doneRephrased(r.n_rephrased || r.rephrased.length, at(r.rephrased.map(function (x) { return x.t; })), r.rephrase_refund || 0)) + "</div>";
+    h += "<details style='margin:6px 0 10px;'><summary style='cursor:pointer;font-size:13px;'>" + esc(T.showChanges) + "</summary>" +
+      r.rephrased.map(function (x) {
+        return "<div style='border-top:1px solid var(--border);padding:8px 0;font-size:13px;'><b>" + esc(fmtTime(x.t)) + "</b>" +
+          "<div style='color:var(--text-muted);'>" + esc(T.chBefore) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.before) + "</div>" +
+          "<div style='color:var(--text-muted);margin-top:4px;'>" + esc(T.chAfter) + "</div><div dir='rtl' style='font-size:15px;'>" + esc(x.after) + "</div></div>";
+      }).join("") + "</details>";
+  }
+  if (window.LisanBackground) h += window.LisanBackground.html(r.background_report, LANG);
+  if (r.background) h += "<div class='ld-warn'>" + esc(T.doneBg(r.background.state, r.background.failed_parts, r.background.parts)) + "</div>";
+  if (r.timing && r.timing.n_cut) h += "<div class='ld-warn'>" + esc(T.doneCut(r.timing.n_cut, at(r.timing.cut) + (r.timing.n_cut > r.timing.cut.length ? " …" : ""))) + "</div>";
+  if (r.timing && r.timing.n_fast) h += "<div class='ld-warn'>" + esc(T.doneFast(r.timing.n_fast, at(r.timing.fast) + (r.timing.n_fast > r.timing.fast.length ? " …" : ""))) + "</div>";
+  return doneCard("doneNotes", T.doneNotesHeading, h);
+}
+// The separate voice/effects tracks (when asked for at the confirm step) and the subtitle files.
+function doneDownloadsHtml(j) {
   var id = encodeURIComponent(j.id), tr = j.tracks || [], h = "";
   if (tr.length) {
     h += '<div class="ld-extra"><strong>' + esc(T.tracksHeading) + "</strong>" + q(esc(T.tracksNote)) + "<div class='ld-row-btns'>" +
       (tr.indexOf("voices") >= 0 ? '<a class="ld-dl" href="/api/longdub/' + id + '/track/voices">' + esc(T.trackVoices) + "</a>" : "") +
       (tr.indexOf("effects") >= 0 ? '<a class="ld-dl" href="/api/longdub/' + id + '/track/effects">' + esc(T.trackEffects) + "</a>" : "") + "</div></div>";
   }
-  return h + '<div class="ld-extra"><strong>' + esc(T.subsHeading) + "</strong>" + q(esc(T.subsNote)) + subsInner("dn", true) + "</div>" +
-    '<div class="ld-extra" id="packBox">' + packInner(j) + "</div>";
+  return h + '<div class="ld-extra"><strong>' + esc(T.subsHeading) + "</strong>" + q(esc(T.subsNote)) + subsInner("dn", true) + "</div>";
+}
+function showLinesHtml(j) {
+  return '<div class="ld-row-btns"><button class="btn-plain" id="btnShowLines">' + esc(roOpen[j.id] ? T.hideLines : T.showLines) + "</button></div>" +
+    (roOpen[j.id] ? '<div id="roLines">' + roHtml(j) + "</div>" : "");
 }
 function glossText(j) {
   if (glossDraft[j.id] !== undefined) return glossDraft[j.id];
