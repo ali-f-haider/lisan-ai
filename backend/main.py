@@ -5876,6 +5876,18 @@ def long_set_speaker_count(job_id: str, body: dict, request: Request):
     return customer_payload(longdub_service.public_view(job))
 
 
+@app.post("/api/longdub/{job_id}/speaker-merge")
+def long_set_speaker_merge(job_id: str, body: dict, request: Request):
+    """The answer to "you said N, the checks tell only M people apart": "keep" N or "use" M. Resumes the paused analysis."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, problem = longdub_service.choose_speaker_merge(job, body.get("choice"))
+    if not ok:
+        return JSONResponse({"error": problem[0]}, status_code=problem[1])
+    return customer_payload(longdub_service.public_view(job))
+
+
 @app.put("/api/longdub/{job_id}/chunk")
 async def longdub_chunk(job_id: str, index: int, request: Request):
     uid, job, err = _ld_job(request, job_id)

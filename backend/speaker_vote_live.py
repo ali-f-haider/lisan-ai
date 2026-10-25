@@ -105,11 +105,11 @@ def _limit(n_lines, retry=False):
     return min(65536, 24576 + 40 * max(1, int(n_lines)))
 
 
-def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=None):
+def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=None, extra=""):
     parts = []
     if kind == "audio":
         parts.append({"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}})
-    parts.append({"text": prompt_for(kind, rows, source_language=source_language, people=people)})
+    parts.append({"text": prompt_for(kind, rows, source_language=source_language, people=people) + (extra or "")})
     # "medium" thinking is what the test clip was measured with (an 8,192-token budget maps to it in gemini_service)
     return {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": _limit(len(rows), retry),
@@ -129,14 +129,14 @@ def _default_ask(api_key, payload, timeout):
     return gemini_service.call_gemini(api_key, payload, timeout=timeout)
 
 
-def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en", people=None):
+def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en", people=None, extra=""):
     """One listening request, with one more try (and more output room) when the answer is missing or unusable.
     Returns {segment_id: label} or None. Never raises."""
     ids = [r["segment_id"] for r in rows]
     parse = speaker_vote.parse_audio_answer if kind == "audio" else speaker_vote.parse_dialogue_answer
     for attempt in range(2):
         try:
-            data, _err = ask(api_key, _payload(kind, rows, audio_b64, retry=attempt > 0, source_language=source_language, people=people), 600)
+            data, _err = ask(api_key, _payload(kind, rows, audio_b64, retry=attempt > 0, source_language=source_language, people=people, extra=extra), 600)
         except Exception as ex:      # a failing request is an unavailable voter, not a failing job
             print(f"[speaker_vote] {kind} request failed: {type(ex).__name__}")
             data = None
@@ -205,6 +205,21 @@ def _save_state(path, state):
     os.replace(tmp, path)
 
 
+def _audio_b64(vocals_path, work_dir):
+    """The voices as a small mp3, base64, or None when there is no recording or it is too big to send."""
+    mp3 = Path(work_dir) / "speaker_vote_voices.mp3"
+    out = None
+    if vocals_path and Path(vocals_path).exists():
+        small = shrink_audio(vocals_path, mp3)
+        if small:
+            out = base64.b64encode(small.read_bytes()).decode("ascii")
+        try:
+            mp3.unlink()
+        except Exception:
+            pass
+    return out
+
+
 def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_language="en", people=None):
     """Returns {"dialogue": map|None, "audio": map|None, "usage": {...}, "reused": bool}.
     Answers are saved in work_dir so a restart reuses them (no second request, no second cost)."""
@@ -221,16 +236,7 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
     usage = {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}
     if not api_key:
         return {"dialogue": None, "audio": None, "usage": usage, "reused": False}
-    audio_b64 = None
-    mp3 = Path(work_dir) / "speaker_vote_voices.mp3"
-    if vocals_path and Path(vocals_path).exists():
-        small = shrink_audio(vocals_path, mp3)
-        if small:
-            audio_b64 = base64.b64encode(small.read_bytes()).decode("ascii")
-        try:
-            mp3.unlink()
-        except Exception:
-            pass
+    audio_b64 = _audio_b64(vocals_path, work_dir)
     results, locks = {}, threading.Lock()
 
     def run(kind):
@@ -254,6 +260,93 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
                                  "usage": usage, "at": time.time()})
     except Exception as ex:
         print(f"[speaker_vote] could not save the answers: {type(ex).__name__}")
+    return out
+
+
+# ------------------------------------------------------------------ the second look (fewer people named than the user said)
+
+REASK_STATE_FILE = "speaker_vote_reask.json"
+REASK_VERSION = 1
+REASK = os.environ.get("LONGDUB_SPEAKER_REASK", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: never look a second time
+
+
+def people_named(answer):
+    """How many different people an answer ({segment_id: label}) names."""
+    return len(set(answer.values())) if isinstance(answer, dict) else 0
+
+
+def reask_text(kind, named, people):
+    """The paragraph added after the lines when the first answer named fewer people than the user said speak. Plain words, no vendor."""
+    n = int(people)
+    out = (f"\n\nA FIRST ANSWER to these lines used only {int(named)} different letters, but exactly {n} different people speak. "
+           f"Some lines were given to a person who does not say them. Read every line again and use all {n} letters: give a line to a letter "
+           "that is still unused whenever a different name, title, or a reply to the previous line shows that another person speaks. "
+           "Several short replies in a row often belong to different people. Never give two different people the same letter. "
+           "Return the same JSON, covering every line.")
+    if kind == "audio":
+        out += " Listen again to the voices: a clearly different voice is a different person."
+    return out
+
+
+def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None, source_language="en"):
+    """The user said N people speak and an answer named fewer: that check is asked once more, told how few it named and that exactly N
+    speak. A new answer replaces the old one only when it names MORE people (it never makes things worse). Saved in work_dir, so a restart
+    or a resume after the user's answer never pays twice. Returns {"dialogue", "audio" (the answers to use), "changed": [kinds replaced],
+    "asked": [kinds asked], "usage", "reused"}. Never raises."""
+    out = {"dialogue": (votes or {}).get("dialogue"), "audio": (votes or {}).get("audio"), "changed": [], "asked": [],
+           "usage": {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}, "reused": False}
+    try:
+        n = int(people)
+        if n < 2 or not REASK or not api_key:
+            return out
+        need = [k for k in ("dialogue", "audio") if isinstance(out[k], dict) and out[k] and people_named(out[k]) < n]
+        if not need:
+            return out
+        ask = ask or _default_ask
+        fp = fingerprint(rows)
+        key = f"{fp}|reask|v{REASK_VERSION}|people={n}|" + ",".join(f"{k}:{people_named(out[k])}" for k in need)
+        if languages.get(source_language).code != "en":
+            key += "|" + languages.get(source_language).code
+        fp = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        state_path = Path(work_dir) / REASK_STATE_FILE
+        saved = _load_state(state_path, fp)
+        if saved:
+            new, usage, reused = saved.get("new") or {}, saved.get("usage") or out["usage"], True
+        else:
+            audio_b64 = _audio_b64(vocals_path, work_dir) if "audio" in need else None
+            if "audio" in need and not audio_b64:
+                need = [k for k in need if k != "audio"]
+            new, usage, reused = {}, {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}, False
+            lock = threading.Lock()
+
+            def run(kind):
+                u = {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}
+                res = _one_voter(kind, job_id, rows, audio_b64, api_key, ask, u, source_language=source_language, people=n,
+                                 extra=reask_text(kind, people_named(out[kind]), n))
+                with lock:
+                    new[kind] = res
+                    for k in usage:
+                        usage[k] += u[k]
+
+            threads = [threading.Thread(target=run, args=(k,), daemon=True) for k in need]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            usage["usd"] = round(usage["usd"], 5)
+            try:
+                _save_state(state_path, {"v": STATE_VERSION, "fp": fp, "new": new, "usage": usage, "at": time.time()})
+            except Exception as ex:
+                print(f"[speaker_vote] could not save the second look: {type(ex).__name__}")
+        out["asked"] = [k for k in need if k in new]      # (a check with no audio to send was not asked)
+        for kind in need:
+            ans = new.get(kind)
+            if isinstance(ans, dict) and people_named(ans) > people_named(out[kind]):
+                out[kind] = ans
+                out["changed"].append(kind)
+        out["usage"], out["reused"] = usage, reused
+    except Exception as ex:
+        print(f"[speaker_vote] second look skipped: {type(ex).__name__}")
     return out
 
 

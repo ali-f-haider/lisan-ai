@@ -325,6 +325,10 @@ var T = {
     spkCountNote: "Your choice is used from now on: every line is assigned to one of that many speakers, and no other speaker is added. You can still correct single lines in the editor.",
     spkCountKeep: function (n) { return "Keep " + n; },
     spkCountUse: function (m) { return "Change to " + m; },
+    spkMergeText: function (n, m) { return "You said " + n + (n === 1 ? " speaker" : " speakers") + ". We checked the words and the voices twice, and we can tell only " + m + (m === 1 ? " person" : " people") + " apart. Some lines may belong to people we could not separate. We did not merge anyone without asking you."; },
+    spkMergeNote: "If you keep your number, every line stays with the speaker we found and the other speakers are empty: you can move lines to them in the editor. If you change the number, the project continues with the smaller one.",
+    spkMergeKeep: function (n) { return "Keep " + n + " and assign lines myself"; },
+    spkMergeUse: function (m) { return "Continue with " + m; },
     analyzingNote: "This takes several times the length of your video. You can close this page and come back later — your text will be waiting here for you to review.",
     dubbingHeading: "4. Dubbing in progress",
     dubbingNote: "We are dubbing your video. You can close this page — we will email you when the finished file is ready.",
@@ -598,6 +602,10 @@ var T = {
     spkCountNote: "سنعتمد اختيارك من الآن: يُنسب كل سطر إلى أحد هذا العدد من المتحدثين ولا يُضاف متحدث آخر. ويمكنك تصحيح أي سطر في المحرر.",
     spkCountKeep: function (n) { return "إبقاء " + n; },
     spkCountUse: function (m) { return "التغيير إلى " + m; },
+    spkMergeText: function (n, m) { return "ذكرتَ " + arSpeakers(n) + ". راجعنا الكلام والأصوات مرتين ولم نستطع التمييز إلا بين " + (m === 1 ? "شخص واحد" : m === 2 ? "شخصين" : m + " أشخاص") + ". قد تنتمي بعض الأسطر إلى أشخاص لم نستطع فصلهم. ولم ندمج أحدًا دون أن نسألك."; },
+    spkMergeNote: "إذا أبقيت العدد الذي ذكرته، يبقى كل سطر عند المتحدث الذي وجدناه ويبقى بقية المتحدثين فارغين، وتستطيع نقل الأسطر إليهم في المحرر. وإذا غيّرت العدد، يتابع المشروع بالعدد الأصغر.",
+    spkMergeKeep: function (n) { return "إبقاء " + n + " وسأوزّع الأسطر بنفسي"; },
+    spkMergeUse: function (m) { return "المتابعة بـ " + m; },
     analyzingNote: "يستغرق هذا عدة أضعاف مدة الفيديو. يمكنك إغلاق الصفحة والعودة لاحقاً — سيكون النص بانتظارك هنا للمراجعة.",
     dubbingHeading: "٤. الدبلجة قيد التنفيذ",
     dubbingNote: "نقوم بدبلجة الفيديو. يمكنك إغلاق الصفحة — سنراسلك عندما يجهز الملف النهائي.",
@@ -1020,9 +1028,14 @@ function renderJob() {
   } else if (j.status === "language_mismatch") {
     h += name + '<p>' + esc(LANG === "ar" ? "يبدو أن الكلام بلغة أخرى. اختر لغة الفيديو للمتابعة." : "The speech appears to be in a different language. Choose the video's language to continue.") + '</p><div class="ld-row-btns"><select id="mismatchLanguage"></select><button id="switchSourceLanguage"></button></div>';
   } else if (j.status === "speaker_count") {
-    var spk = j.speaker_count_ask || {};
-    h += name + "<p>" + esc(T.spkCountText(spk.stated, spk.found)) + "</p><p class='note'>" + esc(T.spkCountNote) + "</p>" +
-      '<div class="ld-row-btns"><button class="btn-plain" id="spkKeep">' + esc(T.spkCountKeep(spk.stated)) + '</button><button class="green" id="spkUse">' + esc(T.spkCountUse(spk.found)) + "</button></div>";
+    var spk = j.speaker_merge_ask || j.speaker_count_ask || {};
+    if (j.speaker_merge_ask) {      // the checks told fewer people apart than the user said: nothing is merged without asking
+      h += name + "<p>" + esc(T.spkMergeText(spk.stated, spk.found)) + "</p><p class='note'>" + esc(T.spkMergeNote) + "</p>" +
+        '<div class="ld-row-btns"><button class="btn-plain" id="spkKeep">' + esc(T.spkMergeKeep(spk.stated)) + '</button><button class="green" id="spkUse">' + esc(T.spkMergeUse(spk.found)) + "</button></div>";
+    } else {
+      h += name + "<p>" + esc(T.spkCountText(spk.stated, spk.found)) + "</p><p class='note'>" + esc(T.spkCountNote) + "</p>" +
+        '<div class="ld-row-btns"><button class="btn-plain" id="spkKeep">' + esc(T.spkCountKeep(spk.stated)) + '</button><button class="green" id="spkUse">' + esc(T.spkCountUse(spk.found)) + "</button></div>";
+    }
   } else if (j.status === "estimated") {
     h += name + renderEstimate(j);
   } else if (isWorking(j.status)) {
@@ -1065,13 +1078,13 @@ function renderJob() {
   $("jobBody").innerHTML = h;
   if ($("doneCards")) $("doneCards").innerHTML = doneCardsHtml;
   if (j.status === "speaker_count") {
-    var spkAsk = j.speaker_count_ask || {};
-    [["spkKeep", spkAsk.stated], ["spkUse", spkAsk.found]].forEach(function (pair) {
+    var spkAsk = j.speaker_merge_ask || j.speaker_count_ask || {}, spkMerge = !!j.speaker_merge_ask;
+    [["spkKeep", spkMerge ? "keep" : spkAsk.stated], ["spkUse", spkMerge ? "use" : spkAsk.found]].forEach(function (pair) {
       var b = $(pair[0]);
       if (!b) return;
       b.onclick = function () {
         $("spkKeep").disabled = true; $("spkUse").disabled = true;
-        api("POST", "/api/longdub/" + j.id + "/speaker-count", {count: pair[1]}).then(function (r) {
+        api("POST", "/api/longdub/" + j.id + (spkMerge ? "/speaker-merge" : "/speaker-count"), spkMerge ? {choice: pair[1]} : {count: pair[1]}).then(function (r) {
           if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); $("spkKeep").disabled = false; $("spkUse").disabled = false; return; }
           cur = r.data; render(); startPoll();
         }, function () { $("spkKeep").disabled = false; $("spkUse").disabled = false; alertMsg(T.genericErr); });

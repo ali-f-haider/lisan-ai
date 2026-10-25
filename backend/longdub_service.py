@@ -377,7 +377,7 @@ PUBLIC_FIELDS = ("id", "filename", "size", "status", "stage", "percent", "messag
                  "has_video", "estimate", "paid", "error", "n_segments", "speakers", "created",
                  "updated", "received_count", "total_chunks", "warnings", "price", "result",
                  "stated_speakers", "speakers_chosen", "detected_speakers", "speaker_list", "lipsync", "name", "description",
-                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary", "edit_of", "restore_for_edits", "speaker_count_ask")
+                 "media_present", "restoring", "parked_at", "redo_of", "subtitle", "glossary", "edit_of", "restore_for_edits", "speaker_count_ask", "speaker_merge_ask")
 
 
 def result_file(job):
@@ -1751,6 +1751,38 @@ def choose_speaker_count(job, count):
 SPEAKER_COUNT_ASK = os.environ.get("LONGDUB_ASK_SPEAKER_COUNT", "1") != "0"       # LONGDUB_ASK_SPEAKER_COUNT=0: never pause to ask
 
 
+def choose_speaker_merge(job, choice):
+    """The user's answer to "you said N, the checks tell only M people apart": "keep" (N stays; the speakers without lines are empty and lines
+    can be moved to them in the editor) or "use" (the project continues with M). Resumes the paused analysis. Returns (True, None) or
+    (False, (message, status))."""
+    for _ in range(50):      # the paused worker thread is still finishing: give it a few seconds to let go
+        with _LOCK:
+            if job["id"] not in _RUNNING:
+                break
+        time.sleep(0.1)
+    with _LOCK:
+        if job["id"] in _RUNNING:
+            return False, ("Please wait a moment for the analysis to pause, then try again.", 409)
+    with _lock_for(job["id"]):
+        ask = job.get("speaker_merge_ask")
+        if job.get("status") != "speaker_count" or not isinstance(ask, dict):
+            return False, ("This can only be chosen while the analysis is waiting for it.", 409)
+        if choice not in ("keep", "use"):
+            return False, ("Choose one of the two answers shown.", 400)
+        job["speaker_merge_choice"] = choice
+        if choice == "use":
+            job["stated_speakers_asked"] = ask.get("stated")
+            job["stated_speakers"] = int(ask.get("found") or 1)
+        job.pop("speaker_merge_ask", None)
+        job["status"] = "accepted"
+        job["message"] = ""
+        _save(job)
+        _ev(job, "speaker_merge_chosen", "ok", f"you said {ask.get('stated')}, the checks told {ask.get('found')} apart; "
+            + (f"the project continues with {ask.get('found')}" if choice == "use" else f"{ask.get('stated')} stay, the lines are yours to move"))
+        start_worker(job["id"])
+    return True, None
+
+
 def _stated_count(job):
     """The number of speakers the person really typed at upload (1 to MAX_SPEAKERS), or 0. The upload form sends 2 when the box is left
     empty, only so the price estimate has a number; that 2 is not something they said, so it is never taken as fact. Jobs from before
@@ -1782,24 +1814,63 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _ev(job, "speaker_vote", "skipped", f"video of {dur / 60:.1f} min is outside the check's limit")
         else:
             _mark(job, "speakers", 88, "Checking who says each line...")
-            people = _stated_people(job)       # the user's number of speakers is a fact: the checks are told it and may not add another speaker
-            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, people=people, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
+            people = job.get("speaker_vote_people") or _stated_people(job)       # the user's number of speakers is a fact: the checks are told it and may not add another speaker
+            if people and not job.get("speaker_vote_people"):
+                job["speaker_vote_people"] = int(people)      # the number the saved answers were made for (a later choice of the user does not make them stale)
+            _src = {"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}
+            votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, people=people, **_src)
             _det = speaker_trace.snapshot(rows)       # (for the per-line log) who the detector said, before the check changes anything
-            summary = speaker_vote_live.apply(rows, votes, allow_new=people is None)
+            _orig = {r["segment_id"]: r["speaker"] for r in rows}
+
+            def _run_vote(v):
+                for r in rows:      # always start from what the detector said
+                    r["speaker"] = _orig[r["segment_id"]]
+                    r.pop("speaker_vote", None)
+                return speaker_vote_live.apply(rows, v, allow_new=people is None)
+
+            def _n_people():
+                return len({r["speaker"] for r in rows})
+
+            summary = _run_vote(votes)
+            usage = dict(votes.get("usage") or {})
+            reask_note = ""
+            if people and int(people) >= 2 and summary["status"] == "ok" and _n_people() < int(people):
+                # The user said N people speak and the vote ended with fewer: both checks look once more, told how few they named.
+                _first_n = _n_people()
+                more = speaker_vote_live.reask(job["id"], rows, votes, vocals_all, wd, GEMINI_API_KEY, people, **_src)
+                _mu = more.get("usage") or {}
+                usage["usd"] = round(float(usage.get("usd") or 0) + float(_mu.get("usd") or 0), 5)
+                for _k in ("calls", "tokens_in", "tokens_out", "tokens_thinking"):
+                    usage[_k] = int(usage.get(_k) or 0) + int(_mu.get(_k) or 0)
+                if more.get("changed"):
+                    votes2 = dict(votes)
+                    for _k in more["changed"]:
+                        votes2[_k] = more[_k]
+                    s2 = _run_vote(votes2)
+                    if s2["status"] == "ok" and _n_people() > _first_n:
+                        votes, summary = votes2, s2
+                    else:
+                        summary = _run_vote(votes)      # the second look did not help: the first answer stands
+                reask_note = (f"; second look by {', '.join(more.get('asked') or []) or 'nobody'}"
+                              f" ({'saved answers reused' if more.get('reused') else 'new requests'}): people with lines {_first_n} -> {_n_people()} of {people}")
             _kept = {r["speaker"] for r in rows}       # the detector's names that still exist after the check (a merged one is gone)
-            usage = votes.get("usage") or {}
             summary["rename"] = speaker_vote_live.compact_names(rows) if summary["status"] == "ok" else {}
             try:
                 summary["trace"] = speaker_trace.build(rows, speaker_trace.carry(_det, _kept, summary.get("rename")), summary.get("by_line")) if summary["status"] == "ok" else []
             except Exception:
                 summary["trace"] = []
+            if people and int(people) >= 2 and summary["status"] == "ok" and _n_people() < int(people):
+                _per = {}
+                for r in rows:
+                    _per[r["speaker"]] = _per.get(r["speaker"], 0) + 1
+                summary["fewer"] = {"stated": int(people), "found": _n_people(), "lines": sorted(_per.values(), reverse=True)}
             an["speaker_vote"] = {k: summary.get(k) for k in ("status", "changed", "badged", "merged", "voters")}
             an["speaker_vote"]["new_speakers"] = len(summary.get("new_speakers") or [])
             an["speaker_vote"]["usd"] = usage.get("usd")
             _save(job)
             got = [k for k in ("dialogue", "audio") if votes.get(k)]
             _ev(job, "speaker_vote", "ok" if summary["status"] == "ok" else "skipped",
-                f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}; "
+                f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}{reask_note}; "
                 f"result {summary['status']}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
@@ -2109,6 +2180,16 @@ def _run_analysis(job):
             return
         rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
         vote = _vote_speakers(job, rows, wd, vocals_all)     # changes who says which line when the checks clearly agree
+        if vote.get("fewer") and not job.get("speaker_merge_choice") and SPEAKER_COUNT_ASK:
+            # The user said N people speak, and even after a second look the checks tell fewer apart: nothing is merged behind their back.
+            f = vote["fewer"]
+            job["speaker_merge_ask"] = {"stated": f["stated"], "found": f["found"], "lines": f["lines"]}
+            job["status"] = "speaker_count"
+            job["message"] = "Waiting for your answer about the number of speakers."
+            _save(job)
+            _ev(job, "speaker_merge_asked", "partial",
+                f"you said {f['stated']}; after a second look the checks tell only {f['found']} people apart (lines each: {', '.join(str(n) for n in f['lines'])})")
+            return       # paused: the user chooses (choose_speaker_merge resumes the job; the checks' answers are saved, nothing is paid twice)
         if vote.get("rename"):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
         try:      # the pitch check (pitch_check.py): free, local; moves a line only when the voice's pitch clearly belongs to another speaker
