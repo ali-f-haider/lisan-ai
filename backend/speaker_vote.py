@@ -212,6 +212,7 @@ class Policy:
     min_new_lines: int = 5
     max_new_speakers: int = 2
     min_support: int = 1
+    new_support: int = 2      # voters that must agree on a line before it counts for a NEW speaker (1: the user insisted on the number)
     allow_new: bool = True
     audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
     picture_weight: int = 1   # already aligned per chunk; visual advice remains optional
@@ -228,9 +229,9 @@ def _policy(value):
     if not isinstance(value, Policy):
         return None
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
-            (value.min_new_lines, value.max_new_speakers, value.min_support))
+            (value.min_new_lines, value.max_new_speakers, value.min_support, value.new_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool)
+            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool)
             or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3
             or isinstance(value.picture_weight, bool) or not isinstance(value.picture_weight, int) or not 1 <= value.picture_weight <= 2):
         return None
@@ -330,7 +331,7 @@ def decide(lines, voters=None, policy=None):
     matches = [re.fullmatch(r'Speaker ([0-9]+)', name) for name in original.values()]
     next_number = max((int(m[1]) for m in matches if m), default=0) + 1
     for label,entries in sorted(wins.items(), key=lambda item: (item[1][0][0], item[0])):
-        backed = sum(support >= 2 for _,support in entries)
+        backed = sum(support >= chosen.new_support for _,support in entries)
         reason = ('new_disabled' if not chosen.allow_new else
                   'too_few_lines' if len(entries) < chosen.min_new_lines else
                   'too_little_support' if backed < chosen.min_new_lines else

@@ -352,9 +352,10 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None):
+def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None):
     """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
     known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
+    new_support: how many checks must agree on a line for it to count towards a new speaker (the vote's default: 2).
     min_new_lines: lines a new speaker needs (default of the vote: 5); only used together with max_new.
     max_new: at most this many new speakers (used when the user's number is higher than the detector found: the vote may fill the gap, no further).
     Returns a summary: status ('ok' or why the vote did not act), counts and the names of new speakers.
@@ -375,6 +376,8 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
             policy["max_new_speakers"] = max(0, int(max_new))
             if min_new_lines is not None:
                 policy["min_new_lines"] = max(1, int(min_new_lines))      # the user said these people exist: a small part is enough
+            if new_support is not None:
+                policy["new_support"] = max(1, int(new_support))      # ... and when they insisted, one check's word is enough
         res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None, **extra}, policy)
     except Exception as ex:
         summary["status"] = "error_" + type(ex).__name__

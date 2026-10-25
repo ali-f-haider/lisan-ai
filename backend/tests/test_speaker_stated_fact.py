@@ -154,6 +154,38 @@ class FillTheGap(unittest.TestCase):
         self.assertEqual(len(some["new_speakers"]), 1)
 
 
+class Insisted(unittest.TestCase):
+    """The user was told what the checks found and kept their number: it wins, one check's word is enough for a new speaker."""
+    def lines(self):
+        label = lambda i: "A" if i < 10 else ("B" if i < 17 else "C")
+        return {f"seg_{i}": label(i) for i in range(20)}
+
+    def test_a_person_only_one_check_names_is_added_when_the_user_insisted(self):
+        r = rows(20, lambda i: "Speaker 1" if i < 10 else "Speaker 2")
+        votes = {"dialogue": {k: ("B" if v == "C" else v) for k, v in self.lines().items()}, "audio": self.lines()}
+        s = svl.apply(r, votes, allow_new=True, max_new=1, min_new_lines=1)
+        self.assertEqual(s["new_speakers"], [])      # not enough agreement for the normal answer
+        r = rows(20, lambda i: "Speaker 1" if i < 10 else "Speaker 2")
+        s = svl.apply(r, votes, allow_new=True, max_new=1, min_new_lines=1, new_support=1)
+        self.assertEqual(len(s["new_speakers"]), 1)
+
+    def test_the_service_uses_it_only_after_the_user_chose_keep(self):
+        seen = []
+
+        def fake_apply(r, votes, allow_new=True, **kw):
+            seen.append(kw)
+            return {"status": "skipped"}
+
+        for choice in (None, "keep"):
+            job = {"id": "j", "stated_speakers": 4, "analysis": {"audio_duration": 100}, **({"speaker_merge_choice": choice} if choice else {})}
+            with mock.patch.object(svl, "collect", lambda *a, **k: {"dialogue": None, "audio": None, "usage": {}}), mock.patch.object(svl, "apply", fake_apply), \
+                    mock.patch.object(ld, "_mark", lambda *a, **k: None), mock.patch.object(ld, "_ev", lambda *a, **k: None), \
+                    mock.patch.object(ld, "_save", lambda j: None), mock.patch.object(ld, "_speaker_check_refund", lambda *a, **k: None):
+                ld._vote_speakers(job, rows(4), Path("."), Path("v.wav"))
+        self.assertEqual((seen[0]["min_new_lines"], "new_support" in seen[0]), (2, False))
+        self.assertEqual((seen[1]["min_new_lines"], seen[1]["new_support"]), (1, 1))
+
+
 class Wiring(unittest.TestCase):
     def test_stated_people(self):
         f = ld._stated_people
