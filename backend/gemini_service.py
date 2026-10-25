@@ -255,6 +255,7 @@ Do not add filler words. Be extremely concise to fit the time limit.
 OTHER RULES:
 Translate into clear, natural MSA Arabic suitable for voice dubbing.
 Add full Tashkeel (Arabic diacritics) to every word.
+COMMANDS (imperative): the command form of most verbs starts with a plain alif, never with أَ. Put kasra on that alif (اِدْفَعْ pay, اِذْهَبْ go, اِجْلِسْ sit, اِشْرَبْ drink, اِسْمَعْ listen), or damma when the third letter of the command has damma (اُكْتُبْ write, اُخْرُجْ get out). Never write أَدْفَعْ for the command to pay: that means I pay. Only commands of verbs on the pattern أَفْعَلَ keep the hamza with fatha: أَرْسِلْ send, أَعْطِ give, أَخْبِرْ tell, أَحْضِرْ bring. A verb that says I keeps أَ: أَدْفَعُ means I pay.
 Detect the primary emotion of each line. Return ONE primary emotion tag, with at most ONE optional non-pacing delivery tag only when clearly supported. A single tag is valid; use "neutral" when unclear. Never invent a second tag. Choose tags ONLY from this exact list:
 {', '.join(t for t in CANONICAL_EMOTIONS if t not in ('slowly', 'drawn out', 'rushed', 'hesitant', 'stammering'))}
 Example: a sad line may be "sad"; when quiet delivery is clearly supported it may be "sad, softly". An urgent, angry line may be "angry". Do not return speed instructions: slowly, drawn out, rushed, very fast, hesitant or stammering. Audio listening and independent timing evidence decide speed separately.
@@ -311,6 +312,7 @@ def add_tashkeel_lines(job_id: str, items: list, api_key: str):
         "STRICT RULES:\n"
         "- Do NOT translate.\n"
         "- Do NOT change, add, remove, or reorder any words or letters.\n"
+        "- On a command that starts with a plain alif (ا), put kasra on the alif (اِدْفَعْ, اِذْهَبْ), or damma when the third letter takes damma (اُكْتُبْ, اُخْرُجْ); never fatha. A verb that says I and starts with أ (أَدْفَعُ) keeps its fatha.\n"
         "- Words that already carry tashkeel must stay exactly as they are.\n"
         "- Keep punctuation and spacing exactly as is.\n"
         '- Return ONLY a valid JSON array: [{"segment_id": "...", "arabic_text": "..."}]\n'
@@ -354,6 +356,7 @@ def shorten_arabic_line(job_id: str, english: str, arabic: str, max_letters: int
         "- Keep the same meaning, the same tone and the same dialect/register as the original. Natural spoken Arabic.\n"
         "- Do NOT add any new information. Drop the least important words or use a shorter way to say the same thing.\n"
         "- Keep full Arabic tashkeel (harakat) on every word, like the original.\n"
+        "- Commands (imperatives) of most verbs start with a plain alif with kasra or damma (اِدْفَعْ, اُكْتُبْ), never with أَ (not أَدْفَعْ); only verbs on the pattern أَفْعَلَ keep أَ (أَرْسِلْ, أَعْطِ).\n"
         "- Keep names, numbers and the sentence type (question / statement) as they are.\n"
         '- Return ONLY valid JSON: {"arabic_text": "..."}\n\n'
         f"{'English' if languages.get(source_language).code == 'en' else languages.names(source_language)} original (for meaning only): {json.dumps(english or '', ensure_ascii=False)}\n"

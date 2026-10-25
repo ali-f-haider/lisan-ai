@@ -4705,6 +4705,7 @@ def tashkeel(req: TashkeelRequest, request: Request):
               "Add full, correct Arabic tashkeel (harakat) to each text below.\n"
               "STRICT RULES:\n- Do NOT translate.\n- Do NOT change, add, remove, or reorder any words.\n"
               "- Keep punctuation exactly as is.\n"
+              "- On a command that starts with a plain alif (ا), put kasra on the alif (اِدْفَعْ, اِذْهَبْ), or damma when the third letter takes damma (اُكْتُبْ, اُخْرُجْ); never fatha. A verb that says I and starts with أ (أَدْفَعُ) keeps its fatha.\n"
               '- Return ONLY valid JSON array: [{"segment_id": "...", "arabic_text": "..."}]\n'
               "Texts:\n" + json.dumps([i.dict() for i in req.items], ensure_ascii=False, indent=1))
     txt = _gemini_text(prompt).strip()
