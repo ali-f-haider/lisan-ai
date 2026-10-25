@@ -1990,6 +1990,21 @@ def _stated_people(job):
     return n if n >= 1 else None
 
 
+STATED_FIRST = os.environ.get("LONGDUB_STATED_FIRST", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: the detector's grouping decides again
+
+
+def _checks_name_everyone(votes, people):
+    """True when the check that reads the dialogue, and the one that listens when it answered, each told at least `people` different people apart."""
+    try:
+        d = (votes or {}).get("dialogue")
+        if speaker_vote_live.people_named(d) < people:
+            return False
+        a = (votes or {}).get("audio")
+        return not a or speaker_vote_live.people_named(a) >= people
+    except Exception:
+        return False
+
+
 def _vote_speakers(job, rows, wd, vocals_all):
     """Who says each line, decided by a vote (speaker_vote.py): the dialogue, the voices and the app's own detector.
     Changes row["speaker"] (and may add a new speaker); returns a summary dict whose "status" is "ok" only when the vote acted.
@@ -2018,6 +2033,12 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 extra = {"picture": picture} if isinstance(picture, dict) and picture.get("status") in ("ok", "partial") else {}
                 # A stated number is a fact: no speaker beyond it, but when the detector found fewer the vote may fill the gap (lines the
                 # checks agree on, the usual minimum of lines and support still apply).
+                if people and int(people) >= 2 and STATED_FIRST and _checks_name_everyone(v, int(people)):
+                    # The user's number wins over the detector: both checks told that many people apart, so those people ARE the speakers
+                    # (one letter, one speaker). The detector's grouping, which missed some of them, is not used.
+                    _res = speaker_vote_live.apply(rows, v, allow_new=True, max_new=int(people) - 1, min_new_lines=1, new_support=1, fresh=True, **extra)
+                    if _res.get("status") == "ok":
+                        return _res
                 _gap = (int(people) - len({_orig[k] for k in _orig})) if people else None
                 if _gap is not None and _gap > 0:
                     if job.get("speaker_merge_choice") == "keep":      # the user was told what the checks found and insisted on their number: it wins
@@ -2069,7 +2090,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _ev(job, "speaker_vote", "ok" if summary["status"] == "ok" else "skipped",
                 f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}"
                 f"; people named: " + ", ".join(f"{k} {speaker_vote_live.people_named(votes.get(k))}" for k in ("dialogue", "audio")) + f"; stated {people or 'none'}{reask_note}; "
-                f"result {summary['status']}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
+                f"result {summary['status']}{' (your number of speakers decided, the detector was not used)' if summary.get('fresh') else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
                 f"cost ${float(usage.get('usd') or 0):.4f}")
@@ -2393,7 +2414,9 @@ def _run_analysis(job):
             _ev(job, "speaker_merge_asked", "partial",
                 f"you said {f['stated']}; after a second look the checks tell only {f['found']} people apart (lines each: {', '.join(str(n) for n in f['lines'])})")
             return       # paused: the user chooses (choose_speaker_merge resumes the job; the checks' answers are saved, nothing is paid twice)
-        if vote.get("rename"):
+        if vote.get("fresh"):
+            label_map = {raw: "~" + name for raw, name in label_map.items()}      # the speakers are the user's people now: the detector's names mean nothing
+        elif vote.get("rename"):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
         try:      # the pitch check (pitch_check.py): free, local; moves a line only when the voice's pitch clearly belongs to another speaker
             if vocals_all.exists():

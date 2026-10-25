@@ -352,9 +352,11 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None):
+def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None, fresh=False):
     """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
     known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
+    fresh: the user's number replaces the detector's grouping: the speakers are the people the two checks tell apart (one letter, one speaker);
+    the detector's names only decide nothing. Needs allow_new and max_new (= the number of people minus one).
     new_support: how many checks must agree on a line for it to count towards a new speaker (the vote's default: 2).
     min_new_lines: lines a new speaker needs (default of the vote: 5); only used together with max_new.
     max_new: at most this many new speakers (used when the user's number is higher than the detector found: the vote may fill the gap, no further).
@@ -362,7 +364,7 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
     Rows are changed only when status == 'ok'."""
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
     try:
-        lines = [{"segment_id": r["segment_id"], "speaker": r["speaker"],
+        lines = [{"segment_id": r["segment_id"], "speaker": "Speaker 1" if fresh else r["speaker"],
                   **({"manual_speaker": r["manual_speaker"]} if picture is not None and isinstance(r.get("manual_speaker"), bool) else {})} for r in rows]
         policy = {"audio_weight": _audio_weight()}
         extra = {}
@@ -370,6 +372,8 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
             import image_unit
             extra["picture"] = image_unit.votes_for_vote(picture, rows, votes.get("dialogue") or {})
             policy["picture_weight"] = image_unit.PICTURE_WEIGHT
+        if fresh:
+            policy["app_votes"] = False
         if not allow_new:
             policy["allow_new"] = False
         elif max_new is not None:
@@ -385,6 +389,7 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
     s = res.get("summary") or {}
     summary["status"] = s.get("status", "error")
     summary["voters"] = list(s.get("voters_used") or [])
+    summary["fresh"] = bool(fresh)
     if summary["status"] != "ok":
         return summary
     by_id = {r["segment_id"]: r for r in res["lines"]}

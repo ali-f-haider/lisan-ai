@@ -186,6 +186,71 @@ class Insisted(unittest.TestCase):
         self.assertEqual((seen[1]["min_new_lines"], seen[1]["new_support"]), (1, 1))
 
 
+class StatedFirst(unittest.TestCase):
+    """The user said 5 people, the detector lumped them into 2 voices, both checks tell 5 people apart: the 5 people are the speakers."""
+    def setUp(self):
+        self.sizes = [10, 5, 6, 4, 5]
+        letters = "ABCDE"
+        self.lines = {}
+        i = 0
+        for L, n in zip(letters, self.sizes):
+            for _ in range(n):
+                self.lines[f"seg_{i}"] = L
+                i += 1
+        self.n = i
+
+    def rows(self):
+        return rows(self.n, lambda i: "Speaker 1" if i < 15 else "Speaker 2")
+
+    def test_every_person_the_checks_tell_apart_becomes_a_speaker(self):
+        r = self.rows()
+        s = svl.apply(r, {"dialogue": dict(self.lines), "audio": dict(self.lines)}, allow_new=True, max_new=4, min_new_lines=1, new_support=1, fresh=True)
+        self.assertEqual(s["status"], "ok")
+        self.assertTrue(s["fresh"])
+        got = [x["speaker"] for x in r]
+        self.assertEqual(len(set(got)), 5)
+        # the lines of one letter stay together, the detector's lumps are gone
+        by_letter = {}
+        for sid, L in self.lines.items():
+            by_letter.setdefault(L, set()).add(next(x["speaker"] for x in r if x["segment_id"] == sid))
+        self.assertTrue(all(len(v) == 1 for v in by_letter.values()))
+        self.assertEqual(len({next(iter(v)) for v in by_letter.values()}), 5)
+
+    def test_without_it_the_lumps_stay(self):
+        r = self.rows()
+        svl.apply(r, {"dialogue": dict(self.lines), "audio": dict(self.lines)}, allow_new=False)
+        self.assertEqual({x["speaker"] for x in r}, {"Speaker 1", "Speaker 2"})
+
+    def test_the_service_checks_that_both_checks_name_everyone(self):
+        f = ld._checks_name_everyone
+        five = dict(self.lines)
+        four = {k: ("D" if v == "E" else v) for k, v in five.items()}
+        self.assertTrue(f({"dialogue": five, "audio": five}, 5))
+        self.assertTrue(f({"dialogue": five, "audio": None}, 5))
+        self.assertFalse(f({"dialogue": five, "audio": four}, 5))
+        self.assertFalse(f({"dialogue": four, "audio": five}, 5))
+        self.assertFalse(f({"dialogue": None, "audio": five}, 5))
+        self.assertFalse(f(None, 5))
+
+    def test_the_service_uses_it_and_the_switch_turns_it_off(self):
+        seen = []
+
+        def fake_apply(r, votes, allow_new=True, **kw):
+            seen.append(kw)
+            return {"status": "skipped"}
+
+        for switch in (True, False):
+            job = {"id": "j", "stated_speakers": 5, "analysis": {"audio_duration": 100}}
+            with mock.patch.object(svl, "collect", lambda *a, **k: {"dialogue": dict(self.lines), "audio": dict(self.lines), "usage": {}}), \
+                    mock.patch.object(svl, "apply", fake_apply), mock.patch.object(ld, "STATED_FIRST", switch), \
+                    mock.patch.object(ld, "_mark", lambda *a, **k: None), mock.patch.object(ld, "_ev", lambda *a, **k: None), \
+                    mock.patch.object(ld, "_save", lambda j: None), mock.patch.object(ld, "_speaker_check_refund", lambda *a, **k: None):
+                ld._vote_speakers(job, self.rows(), Path("."), Path("v.wav"))
+        self.assertTrue(seen[0].get("fresh"))
+        self.assertEqual(seen[0]["max_new"], 4)
+        self.assertFalse(any(k.get("fresh") for k in seen[1:]))
+
+
 class Wiring(unittest.TestCase):
     def test_stated_people(self):
         f = ld._stated_people

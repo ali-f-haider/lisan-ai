@@ -212,6 +212,7 @@ class Policy:
     min_new_lines: int = 5
     max_new_speakers: int = 2
     min_support: int = 1
+    app_votes: bool = True    # False: the app's own grouping (the detector) is not a voter, it only has to exist (the user's number replaced it)
     new_support: int = 2      # voters that must agree on a line before it counts for a NEW speaker (1: the user insisted on the number)
     allow_new: bool = True
     audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
@@ -231,7 +232,7 @@ def _policy(value):
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
             (value.min_new_lines, value.max_new_speakers, value.min_support, value.new_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool)
+            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool)
             or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3
             or isinstance(value.picture_weight, bool) or not isinstance(value.picture_weight, int) or not 1 <= value.picture_weight <= 2):
         return None
@@ -299,9 +300,9 @@ def decide(lines, voters=None, policy=None):
     preliminary, wins = [], {}
     for index,row in enumerate(rows):
         sid = row['segment_id']
-        votes = {name:aligned[name][sid] for name in used if sid in aligned[name]}
+        votes = {name:aligned[name][sid] for name in used if sid in aligned[name] and (name != 'app' or chosen.app_votes)}
         reasons, winner = [], app_frame[sid]
-        active = 'dialogue' in votes and len(votes) >= 3 and not row.get('manual_speaker', False)
+        active = 'dialogue' in votes and len(votes) + (0 if chosen.app_votes or 'app' not in used else 1) >= 3 and not row.get('manual_speaker', False)
         if active:
             counts = Counter()
             for name, label in votes.items():
