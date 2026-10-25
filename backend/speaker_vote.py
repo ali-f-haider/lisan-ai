@@ -241,7 +241,8 @@ def _result(rows, used, reason):
 
 
 def decide(lines, voters=None, policy=None):
-    """Plurality in dialogue's label frame; ties prefer dialogue.
+    """Plurality in dialogue's label frame; ties prefer the audio voter, then dialogue. A line whose final answer the audio
+    voter disagrees with is badged (even when other voters outnumber it).
 
     By default the app votes from lines. Explicit voters['app']=None removes its
     vote for offline ablation only; the unchanged app remains the fallback.
@@ -297,9 +298,14 @@ def decide(lines, voters=None, policy=None):
             counts = Counter(votes.values())
             top = max(counts.values())
             tied = sorted(label for label,count in counts.items() if count == top)
-            winner = votes['dialogue'] if votes['dialogue'] in tied else tied[0]
-            if len(tied) > 1:
-                reasons.append('tie_broken_by_dialogue')
+            # A tie goes to the check that listens before the check that only reads the words.
+            if len(tied) > 1 and votes.get('audio') in tied:
+                winner = votes['audio']
+                reasons.append('tie_broken_by_dialogue' if winner == votes['dialogue'] else 'tie_broken_by_audio')
+            else:
+                winner = votes['dialogue'] if votes['dialogue'] in tied else tied[0]
+                if len(tied) > 1:
+                    reasons.append('tie_broken_by_dialogue')
             if top < chosen.min_support:
                 winner = app_frame[sid]
                 reasons.append('insufficient_support')
@@ -332,9 +338,13 @@ def decide(lines, voters=None, policy=None):
         final = accepted[winner] if winner in accepted else existing[winner]
         voters_for = [name for name,label in votes.items() if label == winner]
         support, present = len(voters_for), len(votes)
-        badge = active and (candidate_rejected or support * 2 <= present)
-        if active and support * 2 <= present:
+        # The check that listens disagreeing with the answer is a reason to look, even when two other voters agreed.
+        audio_dissent = active and 'audio' in votes and votes['audio'] != winner
+        badge = active and (candidate_rejected or support * 2 <= present or audio_dissent)
+        if active and (support * 2 <= present or audio_dissent):
             reasons.append('voters_split')
+        if audio_dissent:
+            reasons.append('audio_disagrees')
         changed = final != row['speaker']
         out.append(dict(segment_id=sid, speaker=final, changed=changed,
                         source='new' if winner in accepted else 'vote' if changed else 'app',

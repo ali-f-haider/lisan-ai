@@ -5,6 +5,9 @@ always right at the edge between two speakers. Two mistakes are common and can b
 
 * a short phrase of ONE speaker split in two ("Good" | "Lord. You're a confidential informant.") - the two lines are
   joined again once both have the same speaker;
+* the first word or two of a sentence left alone on a line of their own, with the rest of the sentence on the next line
+  of the same speaker a little later ("How's" | "your face?"; the lower-case start of the second line shows it continues) -
+  the two lines are joined, and the joined line starts where the voice really starts;
 * the first words of a sentence stuck to the END of the previous speaker's line ("And that is? My Immunity" | "Agreement
   with the federal government...") - one sentence is said by one voice, so its unfinished beginning moves to the line
   that finishes it. Nothing is invented: the words only change line, and a line that gained words early gets its start
@@ -23,6 +26,9 @@ MAX_LINE_SEC = 15.0         # a joined line is never longer than this (the same 
 MAX_TAIL_WORDS = 8          # an unfinished beginning longer than this is left alone (probably a real interruption)
 MIN_VOICE_SEC = 0.25        # a stretch of voice shorter than this is a breath or noise, not words
 ONSET_BACK_MAX = 6.0        # a line's start is never moved back by more than this
+FRAGMENT_MAX_WORDS = 3      # a first part of this many words or fewer, cut off before the sentence ends ("How's" | "your face?")
+FRAGMENT_MAX_GAP = 2.5      # seconds: the recogniser sometimes places the first word long before the rest (measured: 1.5 s)
+FRAGMENT_MOVE_MIN = 0.3     # the joined line starts later than the first part claimed only when the voice really starts this much later
 
 
 def _ends_sentence(text, source_language="en"):
@@ -57,6 +63,55 @@ def merge_split_phrases(rows, source_language="en"):
                     and not INTERRUPTED.search(str(prev.get("text") or ""))
                     and float(row["end"]) - float(prev["start"]) <= MAX_LINE_SEC
                     and not (prev.get("locked") or row.get("locked"))):
+                prev["end"] = row["end"]
+                prev["text"] = _join_text(prev.get("text"), row.get("text"))
+                if "words" in prev or "words" in row:
+                    prev["words"] = list(prev.get("words") or []) + list(row.get("words") or [])
+                joined += 1
+                continue
+        out.append(row)
+    return out, joined
+
+
+def voiced_onset(vocals, lo, hi):
+    """Where the first steady stretch of a voiced sound (a pitch, not a rustle or a clink) starts between lo and hi seconds, or None.
+    The level alone is too late for a quiet first word ("How's"): the pitch shows the voice a fraction of a second earlier."""
+    try:
+        import numpy as np
+        import soundfile as sf
+        import pitch_check
+        if hi - lo < MIN_VOICE_SEC:
+            return None
+        sr = sf.info(str(vocals)).samplerate
+        x, _ = sf.read(str(vocals), start=int(max(0.0, lo) * sr), frames=int((hi - lo) * sr), dtype="float32", always_2d=True)
+        f0 = pitch_check.f0_frames(x.mean(axis=1), sr)
+        voiced = np.nonzero(f0)[0]
+        return None if voiced.size == 0 else max(0.0, lo) + float(voiced[0]) * pitch_check.HOP_SEC
+    except Exception:
+        return None
+
+
+def merge_fragments(rows, vocals=None, source_language="en"):
+    """Join a short unfinished first part with the line after it (same speaker, up to FRAGMENT_MAX_GAP later) when that line
+    starts with a small letter, i.e. continues the sentence. The first part must carry no punctuation at its end: a comma or
+    a dash is a pause the speaker made, not a cut by the recogniser. Returns (rows, joined)."""
+    out, joined = [], 0
+    for row in rows:
+        if out:
+            prev = out[-1]
+            ta, tb = str(prev.get("text") or "").strip(), str(row.get("text") or "").strip()
+            gap = float(row["start"]) - float(prev["end"])
+            if (ta and tb and _same_voice(prev, row) and gap > MERGE_GAP and gap <= FRAGMENT_MAX_GAP
+                    and len(_tokens(ta)) <= FRAGMENT_MAX_WORDS and ta[-1].isalnum()
+                    and tb[0].isalpha() and tb[0].islower()
+                    and float(row["end"]) - float(prev["start"]) <= MAX_LINE_SEC
+                    and not (prev.get("locked") or row.get("locked"))):
+                start = float(prev["start"])
+                if vocals is not None:
+                    onset = voiced_onset(vocals, start, float(row["end"]) + 0.2)
+                    if onset is not None and onset - start >= FRAGMENT_MOVE_MIN:
+                        start = min(float(row["start"]), max(start, onset - 0.05))
+                prev["start"] = round(start, 2)
                 prev["end"] = row["end"]
                 prev["text"] = _join_text(prev.get("text"), row.get("text"))
                 if "words" in prev or "words" in row:
@@ -226,11 +281,12 @@ def flag_doubtful_cuts(rows, source_language="en"):
 
 
 def tidy_lines(rows, vocals=None, source_language="en"):
-    """Returns (rows, {"joined": n, "moved": n, "flagged": n}). The rows are changed in place and renumbered."""
+    """Returns (rows, {"joined": n, "moved": n, "flagged": n, "fragments": n}). The rows are changed in place and renumbered."""
     report = {"joined": 0, "moved": 0, "flagged": 0}
     try:
         ordered = sorted(rows, key=lambda r: (float(r["start"]), float(r["end"])))
         merged, report["joined"] = merge_split_phrases([dict(r) for r in ordered], source_language=source_language)
+        merged, report["fragments"] = merge_fragments(merged, vocals, source_language=source_language)
         report["moved"] = move_unfinished_beginnings(merged, vocals, source_language=source_language)
         clear_flags(merged)
         report["flagged"] = flag_doubtful_cuts(merged, source_language=source_language)
@@ -238,4 +294,4 @@ def tidy_lines(rows, vocals=None, source_language="en"):
             r["segment_id"] = f"seg_{i}"
         return merged, report
     except Exception:
-        return rows, {"joined": 0, "moved": 0, "flagged": 0, "error": True}
+        return rows, {"joined": 0, "moved": 0, "flagged": 0, "fragments": 0, "error": True}
