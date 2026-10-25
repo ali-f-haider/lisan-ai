@@ -212,6 +212,7 @@ class Policy:
     max_new_speakers: int = 2
     min_support: int = 1
     allow_new: bool = True
+    audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
 
 
 def _policy(value):
@@ -227,7 +228,8 @@ def _policy(value):
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
             (value.min_new_lines, value.max_new_speakers, value.min_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(VOTERS) or not isinstance(value.allow_new, bool)):
+            or not 1 <= value.min_support <= len(VOTERS) or not isinstance(value.allow_new, bool)
+            or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3):
         return None
     return value
 
@@ -241,7 +243,7 @@ def _result(rows, used, reason):
 
 
 def decide(lines, voters=None, policy=None):
-    """Plurality in dialogue's label frame; ties prefer the audio voter, then dialogue. A line whose final answer the audio
+    """Plurality in dialogue's label frame; the audio voter counts audio_weight times (default 2); ties prefer the audio voter, then dialogue. A line whose final answer the audio
     voter disagrees with is badged (even when other voters outnumber it).
 
     By default the app votes from lines. Explicit voters['app']=None removes its
@@ -295,7 +297,9 @@ def decide(lines, voters=None, policy=None):
         reasons, winner = [], app_frame[sid]
         active = 'dialogue' in votes and len(votes) >= 3 and not row.get('manual_speaker', False)
         if active:
-            counts = Counter(votes.values())
+            counts = Counter()
+            for name, label in votes.items():
+                counts[label] += chosen.audio_weight if name == 'audio' else 1
             top = max(counts.values())
             tied = sorted(label for label,count in counts.items() if count == top)
             # A tie goes to the check that listens before the check that only reads the words.
@@ -306,7 +310,7 @@ def decide(lines, voters=None, policy=None):
                 winner = votes['dialogue'] if votes['dialogue'] in tied else tied[0]
                 if len(tied) > 1:
                     reasons.append('tie_broken_by_dialogue')
-            if top < chosen.min_support:
+            if sum(label == winner for label in votes.values()) < chosen.min_support:
                 winner = app_frame[sid]
                 reasons.append('insufficient_support')
             elif winner not in existing:

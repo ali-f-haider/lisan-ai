@@ -1,6 +1,8 @@
 """v1.82.70: the audio check outranks the dialogue check on a tie, and its disagreement is a reason to look.
 Offline; invented lines (no film dialogue)."""
+import os
 import unittest
+from unittest import mock
 
 import speaker_vote as sv
 import speaker_vote_live as live
@@ -30,20 +32,36 @@ class AudioDissent(unittest.TestCase):
             voters["app"] = app
         return sv.decide(self.rows, voters)
 
-    def test_audio_alone_against_two_others_marks_the_line_without_moving_it(self):
+    def solo_audio(self, weight=None):
         # dialogue and the detector both say line 3 is Speaker 1's; audio says Speaker 2 (the truth in the Dutch clip)
         rows = self.rows
-        app = {r["segment_id"]: r["speaker"] for r in rows}
-        app["seg_3"] = "Speaker 1"
         for r in rows:
-            r["speaker"] = app[r["segment_id"]]
-        res = self.run_vote(labels(rows, flips=(3,)), labels(rows))
-        d = {x["segment_id"]: x for x in res["lines"]}
+            r["speaker"] = "Speaker 1" if r["segment_id"] == "seg_3" else r["speaker"]
+        res = sv.decide(rows, {"dialogue": labels(rows, flips=(3,)), "audio": labels(rows), "voice": None},
+                        None if weight is None else {"audio_weight": weight})
+        return {x["segment_id"]: x for x in res["lines"]}, res
+
+    def test_audio_alone_against_two_others_wins_and_the_line_is_marked(self):
+        d, res = self.solo_audio()
+        self.assertEqual(d["seg_3"]["speaker"], "Speaker 2")
+        self.assertTrue(d["seg_3"]["changed"])
+        self.assertTrue(d["seg_3"]["badge"])
+        self.assertEqual((d["seg_3"]["support"], d["seg_3"]["voters_present"]), (1, 3))
+        self.assertIn("voters_split", d["seg_3"]["reasons"])
+        self.assertEqual(res["summary"]["badged_lines"], 1)
+
+    def test_with_the_plain_count_audio_alone_only_marks_the_line(self):
+        d, res = self.solo_audio(weight=1)
         self.assertEqual(d["seg_3"]["speaker"], "Speaker 1")
         self.assertTrue(d["seg_3"]["badge"])
         self.assertIn("audio_disagrees", d["seg_3"]["reasons"])
         self.assertIn("voters_split", d["seg_3"]["reasons"])
         self.assertEqual(res["summary"]["badged_lines"], 1)
+
+    def test_a_weight_outside_one_to_three_is_refused(self):
+        for bad in (0, 4, True, 1.5, "2"):
+            res = sv.decide(self.rows, {"dialogue": labels(self.rows), "audio": labels(self.rows), "voice": None}, {"audio_weight": bad})
+            self.assertEqual(res["summary"]["status"], "invalid_input", bad)
 
     def test_lines_the_audio_check_agrees_on_are_not_marked(self):
         rows = self.rows
@@ -69,7 +87,6 @@ class AudioDissent(unittest.TestCase):
         res = self.run_vote(dialogue, audio)
         d = {x["segment_id"]: x for x in res["lines"]}
         self.assertEqual(d["seg_1"]["speaker"], "Speaker 1")
-        self.assertIn("tie_broken_by_audio", d["seg_1"]["reasons"])
         self.assertTrue(d["seg_1"]["badge"])
 
     def test_dialogue_and_audio_agreeing_win_normally(self):
@@ -94,6 +111,37 @@ class AudioDissent(unittest.TestCase):
         d = {x["segment_id"]: x for x in res["lines"]}
         self.assertFalse(d["seg_3"]["badge"])
         self.assertNotIn("audio_disagrees", d["seg_3"]["reasons"])
+
+    def test_audio_decides_when_it_answers_even_against_two_others_who_agree(self):
+        # the Dutch clip, 11 lines: dialogue and detector agreed with each other and were wrong, audio alone was right
+        rows = self.rows
+        for r in rows:
+            r["speaker"] = "Speaker 1" if r["segment_id"] in ("seg_2", "seg_3") else r["speaker"]
+        res = sv.decide(rows, {"dialogue": labels(rows, flips=(2, 3)), "audio": labels(rows), "voice": None})
+        d = {x["segment_id"]: x for x in res["lines"]}
+        self.assertEqual(d["seg_2"]["speaker"], "Speaker 1")          # seg_2 is even-numbered: audio says A = Speaker 1
+        self.assertEqual(d["seg_3"]["speaker"], "Speaker 2")
+
+    def test_the_live_step_applies_the_weight_and_the_switch_turns_it_off(self):
+        def run(env):
+            rows = [{"segment_id": r["segment_id"], "speaker": "Speaker 1" if r["segment_id"] == "seg_3" else r["speaker"]} for r in lines()]
+            votes = {"dialogue": labels(rows, flips=(3,)), "audio": labels(rows)}
+            with mock.patch.dict(os.environ, env):
+                summary = live.apply(rows, votes)
+            return summary, {r["segment_id"]: r for r in rows}
+        summary, rows = run({})
+        self.assertEqual(rows["seg_3"]["speaker"], "Speaker 2")
+        self.assertTrue(rows["seg_3"]["speaker_vote"]["badge"])
+        summary, rows = run({"LONGDUB_AUDIO_WEIGHT": "1"})
+        self.assertEqual(rows["seg_3"]["speaker"], "Speaker 1")
+        self.assertTrue(rows["seg_3"]["speaker_vote"]["badge"])
+
+    def test_a_bad_switch_value_falls_back_to_two(self):
+        for value in ("", "x", "0", "9", "-1"):
+            with mock.patch.dict(os.environ, {"LONGDUB_AUDIO_WEIGHT": value}):
+                self.assertEqual(live._audio_weight(), 2, value)
+        with mock.patch.dict(os.environ, {"LONGDUB_AUDIO_WEIGHT": "3"}):
+            self.assertEqual(live._audio_weight(), 3)
 
     def test_the_editor_shows_the_existing_not_sure_text_for_it(self):
         row = {"speaker_vote": {"badge": True, "reasons": ["voters_split", "audio_disagrees"]}}

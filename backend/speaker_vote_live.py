@@ -23,6 +23,16 @@ import speaker_vote
 ENGINE_MAX_MIN = 60
 AUDIO_BITRATE = "24k"
 MAX_AUDIO_BYTES = 13_500_000            # the encoded audio is a third larger when sent; the request limit is 20 MB
+def _audio_weight():
+    """How many times the voter that listens counts in the vote (LONGDUB_AUDIO_WEIGHT, 1 = every voter once). Default 2: in the Dutch
+    test clip it was alone against the other two on 14 lines and right on all 14."""
+    try:
+        n = int(os.environ.get("LONGDUB_AUDIO_WEIGHT", "2"))
+    except ValueError:
+        return 2
+    return n if 1 <= n <= 3 else 2
+
+
 STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
 
@@ -257,8 +267,10 @@ def apply(rows, votes, allow_new=True):
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
     try:
         lines = [{"segment_id": r["segment_id"], "speaker": r["speaker"]} for r in rows]
-        res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None},
-                                  None if allow_new else {"allow_new": False})
+        policy = {"audio_weight": _audio_weight()}
+        if not allow_new:
+            policy["allow_new"] = False
+        res = speaker_vote.decide(lines, {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None}, policy)
     except Exception as ex:
         summary["status"] = "error_" + type(ex).__name__
         return summary

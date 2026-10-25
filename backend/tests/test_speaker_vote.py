@@ -211,7 +211,8 @@ class VotingTests(unittest.TestCase):
         self.assertEqual(normal['lines'],permuted['lines'])
 
     def test_tie_goes_to_dialogue_and_carries_badge(self):
-        row = self.run_case('tie_dialogue_wins')['lines'][-1]
+        # the plain count (every voter once); since v1.82.70 the audio voter counts double by default (tests/test_audio_dissent.py)
+        row = self.run_case('tie_dialogue_wins',{'audio_weight':1})['lines'][-1]
         self.assertEqual(row['speaker'],'Speaker 2')
         self.assertEqual(row['support'],2)
         self.assertEqual(row['voters_present'],4)

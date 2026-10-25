@@ -55,6 +55,15 @@ class Join(unittest.TestCase):
         self.assertAlmostEqual(out[1]["start"], 19.91, delta=0.08)
         self.assertEqual(out[1]["end"], 20.5)
 
+    def test_the_tail_of_the_line_before_is_not_taken_for_the_start(self):
+        rows = [row(0, 16.9, 17.3, "Good.", "Speaker 2"), row(1, 17.34, 18.6, "How's", "Speaker 1"),
+                row(2, 20.1, 20.5, "your face?", "Speaker 1")]
+        with tempfile.TemporaryDirectory() as tmp:
+            v = voices_file(tmp, [(16.9, 17.5), (19.96, 20.5)])      # "Good." is still sounding at 17.5, after its stated end
+            out, n = lt.merge_fragments(rows, v)
+        self.assertEqual(n, 1)
+        self.assertAlmostEqual(out[1]["start"], 19.91, delta=0.08)
+
     def test_a_voice_that_starts_where_the_line_starts_does_not_move_it(self):
         with tempfile.TemporaryDirectory() as tmp:
             v = voices_file(tmp, [(17.5, 18.4), (20.1, 20.5)])

@@ -28,6 +28,7 @@ MIN_VOICE_SEC = 0.25        # a stretch of voice shorter than this is a breath o
 ONSET_BACK_MAX = 6.0        # a line's start is never moved back by more than this
 FRAGMENT_MAX_WORDS = 3      # a first part of this many words or fewer, cut off before the sentence ends ("How's" | "your face?")
 FRAGMENT_MAX_GAP = 2.5      # seconds: the recogniser sometimes places the first word long before the rest (measured: 1.5 s)
+AFTER_PREVIOUS_SEC = 0.25   # the search for a joined line's voice starts this long after the end of the line before it
 FRAGMENT_MOVE_MIN = 0.3     # the joined line starts later than the first part claimed only when the voice really starts this much later
 
 
@@ -108,7 +109,11 @@ def merge_fragments(rows, vocals=None, source_language="en"):
                     and not (prev.get("locked") or row.get("locked"))):
                 start = float(prev["start"])
                 if vocals is not None:
-                    onset = voiced_onset(vocals, start, float(row["end"]) + 0.2)
+                    # the line before may still be sounding a moment after its stated end ("Good." trails to 17.45 s although its
+                    # end says 17.3 s): look for the voice only after that
+                    before = out[-2] if len(out) >= 2 else None
+                    lo = start if before is None else max(start, float(before["end"]) + AFTER_PREVIOUS_SEC)
+                    onset = voiced_onset(vocals, lo, float(row["end"]) + 0.2)
                     if onset is not None and onset - start >= FRAGMENT_MOVE_MIN:
                         start = min(float(row["start"]), max(start, onset - 0.05))
                 prev["start"] = round(start, 2)
