@@ -24,7 +24,8 @@ class CostTests(unittest.TestCase):
         with patch.object(R,'GEMINI_IN_USD_PER_M',3),patch.object(R,'GEMINI_OUT_USD_PER_M',25):
             r=I.estimate_usd(60,10,{'fps':1.,'media_resolution':'low'})
         self.assertAlmostEqual(r['low_usd'],.063156)
-        self.assertEqual(I.estimate_usd(3600,600)['chunks'],6)
+        self.assertEqual(I.estimate_usd(3600,600,{'chunk_sec':600.})['chunks'],6)
+        self.assertEqual(I.estimate_usd(3600,600)['chunks'],20)      # the default piece is 3 minutes
         self.assertGreater(I.estimate_usd(60,10,{'fps':2})['low_usd'],I.estimate_usd(60,10,{'fps':1})['low_usd'])
 
     def test_actual_tokens_thinking_and_unexpected_audio_use_existing_pricer(self):

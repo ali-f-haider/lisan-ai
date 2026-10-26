@@ -36,9 +36,29 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(I.parse_answer(raw,self.ids,32,2),a)
 
     def test_prose_truncation_duplicates_long_labels_and_excess_people_fail_closed(self):
-        for name in ['prose.txt','truncated.txt','duplicate_ids.json','long_labels.json','too_many_people.json']:
+        for name in ['prose.txt','truncated.txt','long_labels.json']:
             with self.subTest(name=name):
                 self.assertIsNone(I.parse_answer((FIX/name).read_text(),self.ids,32,2))
+
+    def test_one_bad_detail_does_not_throw_the_whole_answer_away(self):
+        a,why=I.parse_answer_why((FIX/'duplicate_ids.json').read_text(),self.ids,32,2)
+        self.assertEqual(why,'')
+        self.assertNotIn('l0',[r['id'] for r in a['lines']])      # named twice: neither answer is trusted
+        self.assertIn('l1',[r['id'] for r in a['lines']])
+        b,why=I.parse_answer_why((FIX/'too_many_people.json').read_text(),self.ids,32,2)
+        self.assertEqual(why,'')
+        self.assertEqual(sorted(p['id'] for p in b['people']),['A','B'])      # the listed extra person nobody speaks as is dropped
+        raw=load('clean.json');raw['lines'][0]['speaker']='Z'
+        c,why=I.parse_answer_why(raw,self.ids,32,2)
+        self.assertIsNone(c['lines'][0]['speaker'])      # a speaker that is not in the people list is no evidence
+
+    def test_more_speaking_people_than_stated_fails_closed_and_says_why(self):
+        raw=load('clean.json')
+        raw['people'].append({'id':'C','gender':'male','age':'adult','confidence':'high'})
+        raw['lines'][0]['speaker']='C'
+        a,why=I.parse_answer_why(raw,self.ids,32,2)
+        self.assertIsNone(a);self.assertTrue(why.startswith('more_speakers_than_stated'))
+        self.assertEqual(I.parse_answer_why('Sorry, no.',self.ids,32,2),(None,'not_json_or_cut_off'))
 
     def test_unknown_ids_are_not_evidence(self):
         a=I.parse_answer(load('unknown_ids.json'),self.ids,32,2)
@@ -301,7 +321,7 @@ class AnalysisTests(unittest.TestCase):
                 with lock:active-=1
         self.ask=measured
         with patch.object(I,'video_info',return_value={'duration':3600.,'width':640,'height':360}):
-            out=self.run_analysis(options={'max_parallel':2},duration=3600)
+            out=self.run_analysis(options={'max_parallel':2,'chunk_sec':600.},duration=3600)
         self.assertEqual(out['chunks_planned'],6);self.assertEqual(out['chunks_answered'],6)
         self.assertLessEqual(peak,2);self.assertEqual(out['refund_fraction'],0.)
 

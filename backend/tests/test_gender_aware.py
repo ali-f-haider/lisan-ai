@@ -54,6 +54,13 @@ class DetectTests(unittest.TestCase):
         out = self.detect(segs=SEGS[:1], describe=lambda j, p: {"gender": "female", "uncertain": True})                     # the listener is unsure: the pitch decides
         self.assertEqual((out["A"]["gender"], out["A"]["source"], out["A"]["uncertain"]), ("male", "pitch", True))
 
+    def test_an_unsure_listener_is_still_shown_when_the_pitch_cannot_tell(self):
+        src = Path(self.dir.name) / "mid.wav"; tone_wav(src, 170)                                  # 150-185 Hz: the pitch alone says nothing
+        out = gc.detect_genders("j", src, SEGS[:1], None, work=Path(self.dir.name) / "w", cut=fake_cut, describe=lambda j, p: {"gender": "female", "uncertain": True})
+        self.assertEqual((out["A"]["gender"], out["A"]["source"], out["A"]["uncertain"]), ("female", "heard", True))      # a marked guess, not an empty box
+        out = gc.detect_genders("j", src, SEGS[:1], None, work=Path(self.dir.name) / "w", cut=fake_cut, describe=lambda j, p: {"gender": "", "uncertain": True})
+        self.assertEqual(out["A"]["gender"], "")
+
     def test_every_speaker_is_listened_to_not_only_the_six_with_the_most_speech(self):
         segs = [{"speaker": f"S{i}", "start": i * 3.0, "end": i * 3.0 + 3.0} for i in range(12)]
         called = []

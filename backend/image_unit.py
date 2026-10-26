@@ -45,7 +45,7 @@ def _env(name, default, low, high, integer=False):
 # environment setting, no new release needed). Any of 0 / false / empty is off.
 ENABLED = os.environ.get('IMAGE_UNIT', '0').strip().lower() not in ('0', 'false', '')
 CUT_THRESHOLD = _env('IMAGE_CUT_THRESHOLD', .30, .01, 1.)
-CHUNK_SEC = _env('IMAGE_CHUNK_SEC', 600., 1., 600.)
+CHUNK_SEC = _env('IMAGE_CHUNK_SEC', 180., 1., 600.)      # short pieces: the model keeps its list of people small and exact
 FPS = _env('IMAGE_FPS', 2., .1, 10.)
 MEDIA_RESOLUTION = os.environ.get('IMAGE_MEDIA_RESOLUTION', 'default').strip().lower()
 if MEDIA_RESOLUTION not in ('low', 'default', 'high'):
@@ -209,35 +209,49 @@ def _json(raw):
 
 
 def parse_answer(raw, line_ids, duration, people=None):
+    return parse_answer_why(raw, line_ids, duration, people)[0]
+
+
+def parse_answer_why(raw, line_ids, duration, people=None):
+    """(answer, reason). reason is '' when the answer is accepted; otherwise a short code that is written to the log.
+
+    One bad detail never throws the whole chunk away (that cost a customer the picture help on an 8-minute clip): a line
+    that is named twice, a line whose speaker is not in the list of people, and listed people nobody speaks as are
+    dropped one by one. What still fails closed: prose / cut-off JSON, a wrong shape, malformed person ids, and MORE
+    SPEAKING people than the user said there are.
+    """
     try:
         raw = _json(raw)
-        if not isinstance(raw,dict) or not isinstance(line_ids,(list,tuple)) or len(set(line_ids)) != len(line_ids):
-            return None
+        if not isinstance(raw,dict):
+            return None, 'not_json_or_cut_off'
+        if not isinstance(line_ids,(list,tuple)) or len(set(line_ids)) != len(line_ids):
+            return None, 'bad_line_ids'
         wanted = set(line_ids)
         if not all(isinstance(s,str) for s in wanted) or not all(isinstance(raw.get(k),list) for k in ('people','lines','screen_text')):
-            return None
+            return None, 'wrong_shape'
         count = people if type(people) is int and 1 <= people <= 32 else 32
-        if len(raw['people']) > count or len(raw['lines']) > MAX_ROWS*2 or len(raw['screen_text']) > 1000:
-            return None
-        persons, lines, seen = {}, [], set()
+        if len(raw['people']) > 64 or len(raw['lines']) > MAX_ROWS*2 or len(raw['screen_text']) > 1000:
+            return None, f"too_big(people {len(raw['people'])}, lines {len(raw['lines'])})"
+        persons, lines, seen, twice = {}, [], set(), set()
         for p in raw['people']:
             if not isinstance(p,dict) or not isinstance(p.get('id'),str) or not _ID.fullmatch(p['id']) or p['id'] in persons:
-                return None
+                return None, 'bad_person_id'
             persons[p['id']] = {'id':p['id'], 'gender':p.get('gender') if p.get('gender') in _GENDERS else 'unknown',
                                 'age':p.get('age') if p.get('age') in _AGES else 'unknown',
                                 'confidence':'high' if p.get('confidence')=='high' else 'low'}
         for r in raw['lines']:
             if not isinstance(r,dict) or not isinstance(r.get('id'),str):
-                return None
+                return None, 'bad_line'
             sid = r['id']
             if sid not in wanted:
                 continue
             if sid in seen:
-                return None
+                twice.add(sid)         # named twice: neither answer is trusted
+                continue
             seen.add(sid)
             label = r.get('speaker')
             if label is not None and (not isinstance(label,str) or label not in persons):
-                return None
+                label = None           # a speaker that is not in the list of people is no evidence
             on = r.get('on_screen') is True
             confidence = 'high' if r.get('confidence')=='high' else 'low'
             kind = r.get('voice_kind') if r.get('voice_kind') in _KINDS else 'unknown'
@@ -246,6 +260,13 @@ def parse_answer(raw, line_ids, duration, people=None):
                 label = None
             lines.append(dict(id=sid,speaker=label,on_screen=on,confidence=confidence,voice_kind=kind,
                               delivery=r.get('delivery') if r.get('delivery') in _DELIVERIES else 'unknown'))
+        lines = [r for r in lines if r['id'] not in twice]
+        used = {r['speaker'] for r in lines if r['speaker'] is not None}
+        if len(used) > count:
+            return None, f'more_speakers_than_stated({len(used)}>{count})'
+        # people nobody speaks as are kept only up to the stated number (the biggest first is not known, so the first listed)
+        keep = [x for x in persons.values() if x['id'] in used]
+        keep += [x for x in persons.values() if x['id'] not in used][:max(0, count - len(keep))]
         items = []
         for item in raw['screen_text']:
             if not isinstance(item,dict):
@@ -253,9 +274,9 @@ def parse_answer(raw, line_ids, duration, people=None):
             t = _number(item.get('t'))
             if t is not None and 0 <= t <= _number(duration,0) and isinstance(item.get('text'),str):
                 items.append(dict(t=t,text=item['text'][:1000],kind=item.get('kind') if item.get('kind') in _TEXT_KINDS else 'other'))
-        return dict(people=list(persons.values()), lines=lines, screen_text=items)
+        return dict(people=keep, lines=lines, screen_text=items), ''
     except (TypeError, ValueError, KeyError, OverflowError, RecursionError):
-        return None
+        return None, 'unreadable'
 
 
 def _chunks(result):
@@ -685,6 +706,9 @@ def _summary_result(status, chunks=None, cuts=None, planned=0):
     charged=sum(c.get('usage',{}).get('usd',0) for c in chunks if not c.get('reused'))
     fraction=(planned-answered)/planned if planned else 1.
     summary=f'Picture analysis: {answered}/{planned} chunks usable; {len(cuts or [])} shot cuts.' if planned else 'Picture analysis: '+status.replace('_',' ')+'.'
+    why=[f"chunk {c.get('index')}: {c.get('why') or c.get('reason')}" for c in chunks if not c.get('usable') and (c.get('why') or c.get('reason'))]
+    if why:
+        summary+=' Not usable - '+'; '.join(why[:6])+'.'
     return dict(status=status,chunks=chunks,cuts=cuts or [],usage=usage,usd=usage['usd'],charged_usd=charged,
                 reused=bool(chunks) and all(c.get('reused') for c in chunks),chunks_planned=planned,chunks_answered=answered,
                 refundable=answered==0,refund_fraction=max(0.,min(1.,fraction)),
@@ -768,13 +792,14 @@ def analyse(job_id, rows, video_path, work_dir, api_key, *, ask=None, frame=None
                             base['usage']=report
                             base['cost_unknown']=bool(report['missing_usage'])
                             _record(job_id,report)
-                            answer=parse_answer(data,[r['segment_id'] for r in selected],length,people)
+                            answer,why=parse_answer_why(data,[r['segment_id'] for r in selected],length,people)
                             if answer is not None:
                                 for item in answer['screen_text']:
                                     item['t']+=start
                                 base['answer']=answer;base['usable']=_usable(answer)
                             if not base['usable']:
                                 base['reason']='no_usable_picture_answer'
+                                base['why']=why or ('answer_had_nothing_clear' if answer is not None else 'unreadable')
             except Exception:
                 base['reason']='picture_request_unavailable'
             try:

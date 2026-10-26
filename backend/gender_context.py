@@ -92,6 +92,10 @@ def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=No
                 g, source = clean(t.get("gender")), t.get("gender_source") or ""
                 pitch_g = clean(vm.guess_gender(prof.get("f0_median"))) if prof else ""
                 uncertain = (source != "heard") or bool(ai and ai.get("uncertain"))
+                if not g and ai and clean(ai.get("gender")):
+                    # The listener named a gender but said it was not sure (short, noisy or mixed clip), and the pitch cannot tell
+                    # (the overlap of 150-185 Hz): better a marked guess the person can see than no gender at all.
+                    g, source, uncertain = clean(ai.get("gender")), "heard", True
                 if source == "heard" and pitch_g and pitch_g != g:
                     uncertain = True                       # the listener and the pitch disagree
                 out[n] = {"gender": g, "source": source if g else "", "uncertain": uncertain if g else True}
