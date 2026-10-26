@@ -166,23 +166,38 @@ class AdviceTests(unittest.TestCase):
         labels['extra']='Speaker 1'
         self.assertEqual(I.person_attributes({'chunks':[{'answer':mixed}]},labels)['Speaker 1']['age'],'adult')  # 4/5
 
-    def test_a_speaker_with_very_few_lines_is_decided_only_when_all_of_their_lines_were_seen(self):
+    def test_a_speaker_with_very_few_lines_is_never_decided_by_the_picture(self):
+        # real run: two one-line speakers were set to the wrong gender from a single sighting each
         raw=load('clean.json');rows=load('rows.json')
         labels={r['segment_id']:r['speaker'] for r in rows}
         small=copy.deepcopy(raw);small['lines']=small['lines'][:2]
         attr=I.person_attributes({'chunks':[{'answer':small}]},labels)
-        self.assertIsNone(attr['Speaker 1']['gender'])                          # (the flag rule still wants three)
+        self.assertIsNone(attr['Speaker 1']['gender'])
         self.assertEqual(attr['Speaker 1']['gender_top'],'female')
-        seen=[r['segment_id'] for r in rows if r['speaker']=='Speaker 1']
-        two_ids={l['id'] for l in small['lines']}
-        # two lines in total, both seen: sure; the same two seen among five lines: not enough
-        self.assertEqual(I.certain_genders(attr,totals={'Speaker 1':len(two_ids & set(seen))}),{'Speaker 1':'female'})
-        self.assertEqual(I.certain_genders(attr,totals={'Speaker 1':5}),{})
-        # one line in total, seen once
+        for total in (1,2,5):
+            self.assertEqual(I.certain_genders(attr,totals={'Speaker 1':total}),{})
         one=copy.deepcopy(raw);one['lines']=one['lines'][:1]
         a1=I.person_attributes({'chunks':[{'answer':one}]},labels)
-        self.assertEqual(I.certain_genders(a1,totals={'Speaker 1':1}),{'Speaker 1':'female'})
-        self.assertEqual(I.certain_genders(a1,totals={'Speaker 1':2}),{})
+        self.assertEqual(I.certain_genders(a1,totals={'Speaker 1':1}),{})
+
+    def test_one_sighting_is_enough_only_when_the_speaker_was_alone_in_the_frame(self):
+        # a woman standing next to a man was set to the man's gender from one sighting; alone in the frame is the safe case
+        raw=load('clean.json');rows=load('rows.json')
+        labels={r['segment_id']:r['speaker'] for r in rows}
+        one=copy.deepcopy(raw);one['lines']=one['lines'][:1]
+        for alone,expected in ((False,{}),(True,{'Speaker 1':'female'})):
+            one['lines'][0]['alone']=alone
+            parsed=I.parse_answer(one,[r['segment_id'] for r in rows],32,2)
+            attr=I.person_attributes({'chunks':[{'answer':parsed}]},labels)
+            self.assertEqual(I.certain_genders(attr),expected,alone)
+        # alone once, but another sighting (not alone) shows something else: out
+        two=copy.deepcopy(raw);two['lines']=two['lines'][:2]
+        two['lines'][0]['alone']=True
+        two['people'][0]['gender']='female'
+        parsed=I.parse_answer(two,[r['segment_id'] for r in rows],32,2)
+        attr=I.person_attributes({'chunks':[{'answer':parsed}]},labels)
+        attr['Speaker 1']['gender_agreement']=.5
+        self.assertEqual(I.certain_genders(attr),{})
 
     def test_unknowns_stay_in_agreement_denominator_and_duplicate_lines_do_not_help(self):
         raw=load('clean.json');raw['people'][1]['gender']='unknown'

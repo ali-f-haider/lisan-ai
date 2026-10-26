@@ -1776,13 +1776,14 @@ def _picture_advice(job, rows, result):
             g = sure.get(s.get("name"))
             if not g or s.get("gender_source") == "chosen":
                 continue
-            if s.get("gender_source") == "text" and s.get("gender") in ("male", "female") and s.get("gender") != g:
+            _heard_sure = s.get("gender_source") == "heard" and not s.get("gender_uncertain")      # the listening check was sure and the picture says otherwise: two opinions, so the person looks
+            if (s.get("gender_source") == "text" or _heard_sure) and s.get("gender") in ("male", "female") and s.get("gender") != g:
                 suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": s.get("gender"), "manual_choice_unchanged": False}
                 continue
             before = (s.get("gender") or "?", s.get("gender_source") or "none", bool(s.get("gender_uncertain")))
             s["gender"], s["gender_source"], s["gender_uncertain"] = g, "seen", False
             _ev(job, "picture_gender", "ok", f"{s.get('name')}: {g} (was {before[0]} from {before[1]}{', unsure' if before[2] else ''}); seen speaking in "
-                f"{attributes[s['name']].get('gender_lines')} lines, all showing the same")
+                f"{attributes[s['name']].get('gender_lines')} lines, all showing the same{', alone in the frame in ' + str(attributes[s['name']].get('gender_alone_lines')) if attributes[s['name']].get('gender_alone_lines') else ''}")
     pitch = {s["name"]: s.get("gender") for s in speakers}
     chosen = {s["name"]: s.get("gender") for s in speakers if s.get("gender_source") == "chosen"}
     conflicts = image_unit.gender_conflicts(attributes, pitch, chosen)

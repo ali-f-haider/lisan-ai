@@ -262,14 +262,30 @@ class AdviceTests(unittest.TestCase):
         self.assertIn("picture_gender_check", sp)                          # (the 80% case is a suspicion: flagged)
         self.assertTrue(rows[0].get("picture_gender_check"))
 
-    def test_a_speaker_with_two_lines_is_decided_when_both_were_clearly_seen(self):
+    def test_a_speaker_with_two_lines_is_not_decided_even_when_both_were_clearly_seen(self):
         job = {"picture_option": True, "speaker_list": [{"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}]}
         rows = [{"segment_id": f"s{i}", "speaker": "Speaker 1", "text": "x", "start": i, "end": i + 0.9} for i in range(2)]
         attrs = {"Speaker 1": {"gender": None, "gender_top": "male", "gender_lines": 2, "gender_observed": 2, "gender_agreement": 1.0}}
         with Unit(), patch.object(image_unit, "person_attributes", return_value=attrs):
             ld._picture_advice(job, rows, {"status": "ok", "cuts": [], "chunks": []})
         sp = job["speaker_list"][0]
-        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("male", "seen", False))
+        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("female", "pitch", True))
+
+    def test_one_sighting_alone_in_the_frame_is_enough_but_not_against_a_sure_listener(self):
+        attrs = {"Speaker 1": {"gender": None, "gender_top": "female", "gender_lines": 1, "gender_observed": 1, "gender_agreement": 1.0,
+                               "gender_alone_lines": 1, "gender_alone_observed": 1}}
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "pitch", "gender_uncertain": True}, attrs)
+        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("female", "seen", False))
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "heard", "gender_uncertain": False}, attrs)
+        self.assertEqual((sp["gender"], sp["gender_source"]), ("male", "heard"))      # sure sound stays; the person is told
+        self.assertIn("picture_gender_check", sp)
+
+    def test_a_sure_listening_result_is_flagged_not_overruled_by_the_picture(self):
+        sp, rows = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": "heard", "gender_uncertain": False}, self.sure("male"))
+        self.assertEqual((sp["gender"], sp["gender_source"]), ("female", "heard"))
+        self.assertIn("picture_gender_check", sp)
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": "heard", "gender_uncertain": True}, self.sure("male"))
+        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("male", "seen", False))      # an unsure listener is overruled
 
     def test_one_clear_sighting_among_several_lines_is_not_enough(self):
         job = {"picture_option": True, "speaker_list": [{"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}]}
