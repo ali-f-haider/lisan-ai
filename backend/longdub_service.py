@@ -1768,8 +1768,12 @@ def _picture_advice(job, rows, result):
     if image_unit.GENDER_DECIDE and image_unit.GENDER_MODE != "off":
         # What the picture shows without any doubt is set now, before the translation (Arabic marks gender). The person's own choice is never touched,
         # and a gender the WORDS proved ("he said", Mr., Mrs.) is not overruled by a face: that case is flagged for the person instead.
+        totals = {}
+        for sp_name in final.values():
+            totals[sp_name] = totals.get(sp_name, 0) + 1
+        sure = image_unit.certain_genders(attributes, totals=totals)
         for s in speakers:
-            g = image_unit.certain_genders(attributes).get(s.get("name"))
+            g = sure.get(s.get("name"))
             if not g or s.get("gender_source") == "chosen":
                 continue
             if s.get("gender_source") == "text" and s.get("gender") in ("male", "female") and s.get("gender") != g:

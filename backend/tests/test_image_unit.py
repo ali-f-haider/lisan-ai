@@ -146,6 +146,24 @@ class AdviceTests(unittest.TestCase):
         labels['extra']='Speaker 1'
         self.assertEqual(I.person_attributes({'chunks':[{'answer':mixed}]},labels)['Speaker 1']['age'],'adult')  # 4/5
 
+    def test_a_speaker_with_very_few_lines_is_decided_only_when_all_of_their_lines_were_seen(self):
+        raw=load('clean.json');rows=load('rows.json')
+        labels={r['segment_id']:r['speaker'] for r in rows}
+        small=copy.deepcopy(raw);small['lines']=small['lines'][:2]
+        attr=I.person_attributes({'chunks':[{'answer':small}]},labels)
+        self.assertIsNone(attr['Speaker 1']['gender'])                          # (the flag rule still wants three)
+        self.assertEqual(attr['Speaker 1']['gender_top'],'female')
+        seen=[r['segment_id'] for r in rows if r['speaker']=='Speaker 1']
+        two_ids={l['id'] for l in small['lines']}
+        # two lines in total, both seen: sure; the same two seen among five lines: not enough
+        self.assertEqual(I.certain_genders(attr,totals={'Speaker 1':len(two_ids & set(seen))}),{'Speaker 1':'female'})
+        self.assertEqual(I.certain_genders(attr,totals={'Speaker 1':5}),{})
+        # one line in total, seen once
+        one=copy.deepcopy(raw);one['lines']=one['lines'][:1]
+        a1=I.person_attributes({'chunks':[{'answer':one}]},labels)
+        self.assertEqual(I.certain_genders(a1,totals={'Speaker 1':1}),{'Speaker 1':'female'})
+        self.assertEqual(I.certain_genders(a1,totals={'Speaker 1':2}),{})
+
     def test_unknowns_stay_in_agreement_denominator_and_duplicate_lines_do_not_help(self):
         raw=load('clean.json');raw['people'][1]['gender']='unknown'
         labels={r['id']:'One' for r in raw['lines']}

@@ -417,25 +417,29 @@ def person_attributes(result, final_speakers):
                 value,count=sorted(counts.items(),key=lambda p:(-p[1],p[0]))[0] if counts else (None,0)
                 ratio=count/len(values) if values else 0.
                 out[s][k]=value if count>=3 and ratio>=.8 else None
-                out[s][k+'_lines']=count;out[s][k+'_agreement']=ratio;out[s][k+'_observed']=len(values)
+                out[s][k+'_top']=value;out[s][k+'_lines']=count;out[s][k+'_agreement']=ratio;out[s][k+'_observed']=len(values)
         return out
     except Exception:
         return {}
 
 
-def certain_genders(attributes, min_lines=None):
+def certain_genders(attributes, min_lines=None, totals=None):
     """{speaker: 'male'|'female'} only where the picture leaves no doubt: the speaker was clearly seen speaking in at least `min_lines` lines
     (high confidence, on screen, the person's own gender 'high' too), EVERY one of them shows the same gender and none said 'unknown'.
+    A speaker with fewer lines than that (`totals` = {speaker: number of lines}) needs ALL of their lines clearly seen instead.
     One different or unclear sighting is enough to leave the speaker out (then the usual flag applies). Never raises."""
     try:
         need = GENDER_SURE_LINES if min_lines is None else int(min_lines)
         out = {}
         for speaker, a in (attributes or {}).items():
-            if not isinstance(a, dict) or a.get('gender') not in ('male', 'female'):
+            top = a.get('gender_top', a.get('gender')) if isinstance(a, dict) else None
+            if top not in ('male', 'female'):
                 continue
             n, seen, agree = a.get('gender_lines'), a.get('gender_observed'), a.get('gender_agreement')
-            if isinstance(n, int) and n >= need and n == seen and agree == 1.0:
-                out[speaker] = a['gender']
+            total = (totals or {}).get(speaker)
+            floor = min(need, total) if isinstance(total, int) and total >= 1 else need
+            if isinstance(n, int) and n >= max(1, floor) and n == seen and agree == 1.0:
+                out[speaker] = top
         return out
     except Exception:
         return {}

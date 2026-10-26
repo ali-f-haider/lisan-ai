@@ -262,6 +262,23 @@ class AdviceTests(unittest.TestCase):
         self.assertIn("picture_gender_check", sp)                          # (the 80% case is a suspicion: flagged)
         self.assertTrue(rows[0].get("picture_gender_check"))
 
+    def test_a_speaker_with_two_lines_is_decided_when_both_were_clearly_seen(self):
+        job = {"picture_option": True, "speaker_list": [{"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}]}
+        rows = [{"segment_id": f"s{i}", "speaker": "Speaker 1", "text": "x", "start": i, "end": i + 0.9} for i in range(2)]
+        attrs = {"Speaker 1": {"gender": None, "gender_top": "male", "gender_lines": 2, "gender_observed": 2, "gender_agreement": 1.0}}
+        with Unit(), patch.object(image_unit, "person_attributes", return_value=attrs):
+            ld._picture_advice(job, rows, {"status": "ok", "cuts": [], "chunks": []})
+        sp = job["speaker_list"][0]
+        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("male", "seen", False))
+
+    def test_one_clear_sighting_among_several_lines_is_not_enough(self):
+        job = {"picture_option": True, "speaker_list": [{"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}]}
+        rows = [{"segment_id": f"s{i}", "speaker": "Speaker 1", "text": "x", "start": i, "end": i + 0.9} for i in range(5)]
+        attrs = {"Speaker 1": {"gender": None, "gender_top": "male", "gender_lines": 1, "gender_observed": 1, "gender_agreement": 1.0}}
+        with Unit(), patch.object(image_unit, "person_attributes", return_value=attrs):
+            ld._picture_advice(job, rows, {"status": "ok", "cuts": [], "chunks": []})
+        self.assertEqual(job["speaker_list"][0]["gender"], "female")
+
     def test_the_persons_own_choice_is_never_changed(self):
         sp, _ = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "chosen", "gender_uncertain": False}, self.sure("female"))
         self.assertEqual((sp["gender"], sp["gender_source"]), ("male", "chosen"))
