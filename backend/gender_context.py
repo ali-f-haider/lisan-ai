@@ -37,7 +37,7 @@ def _ffmpeg_cut(src, start, dur, out):
                     "-i", str(src), "-vn", "-ar", "16000", "-ac", "1", str(out)], check=True, timeout=60)
 
 
-def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=None, describe=None, max_listened=6):
+def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=None, describe=None, max_listened=24):      # (was 6: with many speakers the rest were judged by pitch alone, which is the weakest evidence)
     """{speaker name: {"gender": "male"|"female"|"", "source": "chosen"|"heard"|"pitch"|"", "uncertain": bool}}.
 
     segments: [{speaker, start, end}] (times in the file `src`); chosen: {name: gender} only what the person picked.

@@ -1764,9 +1764,25 @@ def _picture_advice(job, rows, result):
     final = {r["segment_id"]: r["speaker"] for r in rows if not r.get("picture_stale")}
     attributes = image_unit.person_attributes(result, final)
     speakers = job.get("speaker_list") or []
+    suspicious = {}
+    if image_unit.GENDER_DECIDE and image_unit.GENDER_MODE != "off":
+        # What the picture shows without any doubt is set now, before the translation (Arabic marks gender). The person's own choice is never touched,
+        # and a gender the WORDS proved ("he said", Mr., Mrs.) is not overruled by a face: that case is flagged for the person instead.
+        for s in speakers:
+            g = image_unit.certain_genders(attributes).get(s.get("name"))
+            if not g or s.get("gender_source") == "chosen":
+                continue
+            if s.get("gender_source") == "text" and s.get("gender") in ("male", "female") and s.get("gender") != g:
+                suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": s.get("gender"), "manual_choice_unchanged": False}
+                continue
+            before = (s.get("gender") or "?", s.get("gender_source") or "none", bool(s.get("gender_uncertain")))
+            s["gender"], s["gender_source"], s["gender_uncertain"] = g, "seen", False
+            _ev(job, "picture_gender", "ok", f"{s.get('name')}: {g} (was {before[0]} from {before[1]}{', unsure' if before[2] else ''}); seen speaking in "
+                f"{attributes[s['name']].get('gender_lines')} lines, all showing the same")
     pitch = {s["name"]: s.get("gender") for s in speakers}
     chosen = {s["name"]: s.get("gender") for s in speakers if s.get("gender_source") == "chosen"}
     conflicts = image_unit.gender_conflicts(attributes, pitch, chosen)
+    conflicts.update(suspicious)
     off_mic = set(image_unit.off_mic_lines(result))
     splits = image_unit.plan_cut_splits(rows, result.get("cuts"))
     for s in speakers:

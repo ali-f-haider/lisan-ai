@@ -54,6 +54,12 @@ class DetectTests(unittest.TestCase):
         out = self.detect(segs=SEGS[:1], describe=lambda j, p: {"gender": "female", "uncertain": True})                     # the listener is unsure: the pitch decides
         self.assertEqual((out["A"]["gender"], out["A"]["source"], out["A"]["uncertain"]), ("male", "pitch", True))
 
+    def test_every_speaker_is_listened_to_not_only_the_six_with_the_most_speech(self):
+        segs = [{"speaker": f"S{i}", "start": i * 3.0, "end": i * 3.0 + 3.0} for i in range(12)]
+        called = []
+        self.detect(segs=segs, describe=lambda j, p: called.append(p) or {"gender": "male", "uncertain": False})
+        self.assertEqual(len(called), 12)
+
     def test_listener_and_pitch_disagreeing_is_unsure(self):
         out = self.detect(segs=SEGS[:1], describe=lambda j, p: {"gender": "female", "uncertain": False})     # a 120 Hz voice heard as female
         self.assertEqual((out["A"]["gender"], out["A"]["uncertain"]), ("female", True))

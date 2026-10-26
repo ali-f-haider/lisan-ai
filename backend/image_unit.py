@@ -56,6 +56,8 @@ CLIP_LONG_SIDE = _env('IMAGE_CLIP_LONG_SIDE', 480, 64, 480, True)
 GENDER_MODE = os.environ.get('IMAGE_GENDER_MODE', 'flag').strip().lower()
 if GENDER_MODE not in ('flag', 'off'):
     GENDER_MODE = 'flag'
+GENDER_DECIDE = os.environ.get('IMAGE_GENDER_DECIDE', '1').strip().lower() not in ('0', 'off', 'no', 'false')      # 0: the picture only flags a different gender, it never sets one
+GENDER_SURE_LINES = 3      # lines in which the speaker was clearly seen speaking, ALL showing the same gender, before the picture may set it
 CACHE_VERSION = 1
 MAX_CUTS = 2000
 MAX_ROWS = 6000
@@ -416,6 +418,24 @@ def person_attributes(result, final_speakers):
                 ratio=count/len(values) if values else 0.
                 out[s][k]=value if count>=3 and ratio>=.8 else None
                 out[s][k+'_lines']=count;out[s][k+'_agreement']=ratio;out[s][k+'_observed']=len(values)
+        return out
+    except Exception:
+        return {}
+
+
+def certain_genders(attributes, min_lines=None):
+    """{speaker: 'male'|'female'} only where the picture leaves no doubt: the speaker was clearly seen speaking in at least `min_lines` lines
+    (high confidence, on screen, the person's own gender 'high' too), EVERY one of them shows the same gender and none said 'unknown'.
+    One different or unclear sighting is enough to leave the speaker out (then the usual flag applies). Never raises."""
+    try:
+        need = GENDER_SURE_LINES if min_lines is None else int(min_lines)
+        out = {}
+        for speaker, a in (attributes or {}).items():
+            if not isinstance(a, dict) or a.get('gender') not in ('male', 'female'):
+                continue
+            n, seen, agree = a.get('gender_lines'), a.get('gender_observed'), a.get('gender_agreement')
+            if isinstance(n, int) and n >= need and n == seen and agree == 1.0:
+                out[speaker] = a['gender']
         return out
     except Exception:
         return {}

@@ -380,6 +380,7 @@ var T = {
     emoHint: function (n) { return "Pick up to 3 styles (" + n + " of 3)"; }, emoMax: "You can pick up to 3 styles. Untick one first.",
     chars: function (n) { return n + " characters"; },
     spkHeading: "Speakers",
+    spkGenderCheck: function (names) { return "Please choose the gender of " + names + " yourself: the voice and the words did not settle it. It decides the voice and the Arabic wording."; },
     spkSummary: function (stated, detected) { if (!stated) return "Lisan AI detected " + detected + " speaker" + (detected === 1 ? "" : "s") + ". Name each speaker, add or remove speakers, then assign every line below."; return "You told us " + stated + " speaker" + (stated === 1 ? "" : "s") + " · Lisan AI detected " + detected + ". Name each speaker, add or remove speakers, then assign every line below."; },
     spkLines: function (n) { return n + " line" + (n === 1 ? "" : "s"); },
     spkAdd: "+ Add a speaker", spkRemove: "Remove", spkNamePh: "Speaker name",
@@ -657,6 +658,7 @@ var T = {
     emoHint: function (n) { return "اختر حتى 3 أساليب (" + n + " من 3)"; }, emoMax: "يمكنك اختيار 3 أساليب كحدٍّ أقصى. ألغِ أحدها أولاً.",
     chars: function (n) { return n + " حرفاً"; },
     spkHeading: "المتحدثون",
+    spkGenderCheck: function (names) { return "اختر بنفسك جنس " + names + ": لم يحسم الصوت والكلام ذلك. وهو يحدد الصوت وصياغة العربية."; },
     spkSummary: function (stated, detected) { if (!stated) return "اكتشف لسان AI " + detected + " متحدثين. سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; return "أخبرتنا بوجود " + stated + " متحدثين · واكتشف لسان AI " + detected + ". سمِّ كل متحدث، وأضف متحدثين أو احذفهم، ثم أسنِد كل سطر أدناه."; },
     spkLines: function (n) { return n + " سطر"; },
     spkAdd: "+ أضف متحدثاً", spkRemove: "حذف", spkNamePh: "اسم المتحدث",
@@ -1835,10 +1837,11 @@ function speakerFromServer(s) {
   return { id: s.id, name: s.name, gender: chosen ? (s.gender || "") : "", heard: chosen ? "" : (s.gender || ""), unsure: !!s.gender_uncertain };
 }
 function genderWord(g) { var ar = LANG === "ar"; return g === "female" ? (ar ? "أنثى" : "Female") : g === "male" ? (ar ? "ذكر" : "Male") : ""; }
+function genderGuessed(s) { return !s.gender && (!s.heard || !!s.unsure); }      // nobody chose it and the engine is not sure
 function genderSelectHtml(s, i) {
   var ar = LANG === "ar";
   var auto = (ar ? "تلقائي" : "Auto") + (s.heard ? " (" + genderWord(s.heard) + (s.unsure ? (ar ? "، غير متأكد" : ", not sure") : "") + ")" : "");
-  return '<select data-gen="' + i + '" aria-label="' + esc(ar ? "جنس المتحدث (اختياري)" : "Speaker gender (optional)") + '" title="' + esc(ar ? "اختياري. العربية تُظهر الجنس في الأفعال والضمائر، فكلما كان صحيحًا كانت الترجمة أدق." : "Optional. Arabic shows gender in verbs and pronouns, so the translation is more accurate when this is right.") + '">' +
+  return '<select data-gen="' + i + '"' + (genderGuessed(s) && linesOf(s.id) ? ' style="outline:2px solid #e65100"' : "") + ' aria-label="' + esc(ar ? "جنس المتحدث (اختياري)" : "Speaker gender (optional)") + '" title="' + esc(ar ? "اختياري. العربية تُظهر الجنس في الأفعال والضمائر، فكلما كان صحيحًا كانت الترجمة أدق." : "Optional. Arabic shows gender in verbs and pronouns, so the translation is more accurate when this is right.") + '">' +
     '<option value=""' + (s.gender ? "" : " selected") + ">" + esc(auto) + "</option>" +
     '<option value="male"' + (s.gender === "male" ? " selected" : "") + ">" + esc(genderWord("male")) + "</option>" +
     '<option value="female"' + (s.gender === "female" ? " selected" : "") + ">" + esc(genderWord("female")) + "</option></select>";
@@ -1874,6 +1877,8 @@ function renderSpeakers() {
   var p = $("spkPanel"); if (!p) return;
   var max = cfg ? cfg.max_speakers : 20;
   var h = "<h4>" + esc(T.spkHeading) + q(esc(T.spkSummary(cur.speakers_chosen === false ? 0 : (cur.stated_speakers || spk.length), cur.detected_speakers || spk.length))) + "</h4>";
+  var unsureNames = spk.filter(function (s) { return genderGuessed(s) && linesOf(s.id); }).map(function (s) { return s.name; });
+  if (unsureNames.length) h += '<p class="note" id="spkGenderCheck" style="color:#e65100">' + esc(T.spkGenderCheck(unsureNames.join(LANG === "ar" ? "، " : ", "))) + "</p>";
   spk.forEach(function (s, i) {
     var n = linesOf(s.id);
     h += '<div class="ld-spkrow"><input type="text" data-spk="' + i + '" maxlength="40" value="' + esc(s.name) + '" placeholder="' + esc(T.spkNamePh) + '">' +

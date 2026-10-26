@@ -226,6 +226,67 @@ class AdviceTests(unittest.TestCase):
                 self.assertEqual(r[k], b[k])
         self.assertEqual([r.get("picture_gender_check") for r in rows], [True, None, None, None])     # one mark per speaker
 
+    # ---- what the picture shows without doubt is set; anything less only flags
+    def sure(self, g="female", lines=4, seen=None, agree=1.0):
+        return {"Speaker 1": {"gender": g, "age": None, "gender_lines": lines, "gender_observed": lines if seen is None else seen,
+                              "gender_agreement": agree}}
+
+    def advise(self, speaker, attrs, decide=True):
+        job = {"picture_option": True, "speaker_list": [speaker]}
+        rows = [{"segment_id": f"s{i}", "speaker": speaker["name"], "text": "x", "start": i, "end": i + 0.9} for i in range(4)]
+        with Unit(), patch.object(image_unit, "person_attributes", return_value=attrs), patch.object(image_unit, "GENDER_DECIDE", decide):
+            ld._picture_advice(job, rows, {"status": "ok", "cuts": [], "chunks": []})
+        return job["speaker_list"][0], rows
+
+    def test_a_clear_picture_sets_the_gender_before_the_translation(self):
+        sp, rows = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}, self.sure("male"))
+        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("male", "seen", False))
+        self.assertNotIn("picture_gender_check", sp)                      # nothing left to doubt: no flag
+        self.assertFalse(any(r.get("picture_gender_check") for r in rows))
+
+    def test_a_clear_picture_that_agrees_makes_the_gender_certain(self):
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "pitch", "gender_uncertain": True}, self.sure("male"))
+        self.assertEqual((sp["gender"], sp["gender_uncertain"]), ("male", False))
+
+    def test_a_speaker_with_no_gender_yet_gets_it(self):
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "", "gender_source": "", "gender_uncertain": True}, self.sure("female"))
+        self.assertEqual((sp["gender"], sp["gender_source"]), ("female", "seen"))
+
+    def test_a_doubtful_picture_only_flags(self):
+        for attrs in (self.sure("female", lines=2),                       # too few sightings
+                      self.sure("female", lines=4, seen=5, agree=0.8),     # one sighting showed something else or was unclear
+                      self.sure("female", lines=4, seen=4, agree=0.75)):
+            sp, rows = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "pitch", "gender_uncertain": True}, attrs)
+            self.assertEqual((sp["gender"], sp["gender_source"]), ("male", "pitch"), attrs)
+        sp, rows = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "pitch", "gender_uncertain": True}, self.sure("female", lines=4, seen=5, agree=0.8))
+        self.assertIn("picture_gender_check", sp)                          # (the 80% case is a suspicion: flagged)
+        self.assertTrue(rows[0].get("picture_gender_check"))
+
+    def test_the_persons_own_choice_is_never_changed(self):
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "chosen", "gender_uncertain": False}, self.sure("female"))
+        self.assertEqual((sp["gender"], sp["gender_source"]), ("male", "chosen"))
+        self.assertIn("picture_gender_check", sp)                          # still told to the person
+
+    def test_a_gender_the_words_proved_is_flagged_not_overruled(self):
+        sp, rows = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "text", "gender_uncertain": False}, self.sure("female"))
+        self.assertEqual((sp["gender"], sp["gender_source"]), ("male", "text"))
+        self.assertIn("picture_gender_check", sp)
+        self.assertTrue(rows[0].get("picture_gender_check"))
+
+    def test_the_switch_turns_the_decision_off(self):
+        sp, _ = self.advise({"name": "Speaker 1", "gender": "male", "gender_source": "pitch", "gender_uncertain": True}, self.sure("female"), decide=False)
+        self.assertEqual((sp["gender"], sp["gender_source"]), ("male", "pitch"))
+        self.assertIn("picture_gender_check", sp)
+
+    def test_certain_genders_needs_every_sighting_to_agree(self):
+        c = image_unit.certain_genders
+        self.assertEqual(c(self.sure("male")), {"Speaker 1": "male"})
+        self.assertEqual(c(self.sure("male", lines=2)), {})
+        self.assertEqual(c(self.sure("male", lines=4, seen=5, agree=0.8)), {})
+        self.assertEqual(c({"S": {"gender": None, "gender_lines": 5, "gender_observed": 5, "gender_agreement": 1.0}}), {})
+        self.assertEqual(c(None), {})
+        self.assertEqual(c({"S": "junk"}), {})
+
     def test_a_failed_or_missing_result_adds_nothing(self):
         job = {"speaker_list": [{"name": "A"}]}
         rows = [{"segment_id": "s", "speaker": "A"}]

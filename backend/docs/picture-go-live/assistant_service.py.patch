@@ -9,7 +9,7 @@
 +- Video projects can use "Also analyse the picture". It is on by default for new videos; switch it off before accepting analysis. Audio-only files do not use it and have no charge for it.
 +- A small silent clip and timed transcript lines are sent to help review speakers, shot cuts, visible names and performance. Unclear pictures give no speaker answer. Names are never inferred from faces.
 +- Picture analysis has its own credit line in the estimate. Failed portions are refunded; local cut detection costs no credits.
-+- Appearance-based gender and age are advice only. A mismatch asks for review; it never changes a chosen voice or gender. A picture disagreement alone never marks a line for review.
++- Appearance-based gender: when the picture clearly shows a speaker in at least 3 lines and every sighting shows the same gender, that gender is set before the translation. Anything less clear only asks the customer to check. It never changes a voice or gender the customer chose. A picture disagreement alone never marks a line for review.
 +- Do not promise correct speaker identification, automatic age-based voices, or perfect lip alignment. Existing audio checks and the user's manual choices still apply.
 +
 +WHERE THINGS ARE

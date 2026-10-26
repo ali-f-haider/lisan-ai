@@ -375,5 +375,15 @@ class LimitIsToldTests(unittest.TestCase):
         self.assertIn("(1 to 20)", (root / "help.html").read_text(encoding="utf-8"))
         self.assertIn("from 1 to 20", (root / "assistant_service.py").read_text(encoding="utf-8"))
 
+
+class GuessedGenderIsShownTests(unittest.TestCase):
+    def test_the_speaker_panel_names_the_speakers_whose_gender_was_only_guessed(self):
+        page = (ROOT / "dub_long.html").read_text(encoding="utf-8")
+        self.assertEqual(page.count("spkGenderCheck:"), 2)
+        self.assertIn("function genderGuessed(s)", page)
+        self.assertIn("T.spkGenderCheck(", page)
+        self.assertIn("did not settle it", page)
+        self.assertIn("لم يحسم الصوت والكلام", page)
+
 if __name__ == "__main__":
     unittest.main()
