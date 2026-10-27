@@ -418,17 +418,32 @@ def off_mic_lines(result):
 
 
 def person_attributes(result, final_speakers):
+    """What the picture says about each FINAL speaker. A picture letter ('A', 'B'...) belongs to the final speaker who has most of that
+    letter's lines; a line counts as a sighting of its final speaker only when its letter belongs to that speaker. A line the picture gave to
+    a person who is somebody else's in every other line (a voice-over heard over another person's shot, a reaction shot, a wrong guess)
+    is left out instead of telling a wrong gender for the speaker the sound put there. Left-out lines are counted in `gender_dropped`;
+    the lines that counted are listed in `gender_ids`."""
     try:
         labels = final_speakers if isinstance(final_speakers,dict) else {r['segment_id']:r['speaker'] for r in final_speakers}
         names=sorted({s for s in labels.values() if isinstance(s,str)})
-        evidence={s:{'gender':[],'age':[],'alone':[]} for s in names};seen=set()
-        for c in _chunks(result):
+        evidence={s:{'gender':[],'age':[],'alone':[],'ids':[],'dropped':0} for s in names};seen=set()
+        for ci,c in enumerate(_chunks(result)):
             a=c.get('answer') or {};people={p['id']:p for p in a.get('people',[]) if isinstance(p,dict) and isinstance(p.get('id'),str)}
+            usable=[]
             for r in a.get('lines',[]):
                 sid=r.get('id');s=labels.get(sid);p=people.get(r.get('speaker'))
                 if sid in seen or s not in evidence or r.get('confidence')!='high' or r.get('on_screen') is not True or r.get('voice_kind')!='on_screen' or not p or p.get('confidence')!='high':
                     continue
-                seen.add(sid)
+                seen.add(sid);usable.append((sid,s,p,r))
+            owners={}
+            for letter in {p['id'] for _,_,p,_ in usable}:
+                top=Counter(s for _,s,p,_ in usable if p['id']==letter).most_common(2)
+                owners[letter]=top[0][0] if len(top)==1 or top[0][1]>top[1][1] else None      # a tie belongs to nobody
+            for sid,s,p,r in usable:
+                if owners.get(p['id'])!=s:
+                    evidence[s]['dropped']+=1
+                    continue
+                evidence[s]['ids'].append(sid)
                 for k,values in (('gender',_GENDERS),('age',_AGES)):
                     evidence[s][k].append(p.get(k) if p.get(k) in values else 'unknown')
                 if r.get('alone') is True:      # the only person in the frame: nobody else the voice could belong to
@@ -444,18 +459,20 @@ def person_attributes(result, final_speakers):
                 out[s][k+'_top']=value;out[s][k+'_lines']=count;out[s][k+'_agreement']=ratio;out[s][k+'_observed']=len(values)
             al=evidence[s]['alone'];top_alone=Counter(v for v in al if v!='unknown').most_common(1)
             out[s]['gender_alone_lines']=top_alone[0][1] if top_alone else 0;out[s]['gender_alone_observed']=len(al)
+            out[s]['gender_ids']=list(evidence[s]['ids']);out[s]['gender_dropped']=evidence[s]['dropped']
         return out
     except Exception:
         return {}
 
 
-def certain_genders(attributes, min_lines=None, totals=None):
-    """{speaker: 'male'|'female'} only where the picture leaves no doubt. Two ways to be sure, and EVERY sighting must show the same gender
-    (one different or unclear one leaves the speaker out, then the usual flag applies):
-      1. the speaker was clearly seen speaking in at least `min_lines` lines (default 3: high confidence, on screen, the person's own gender 'high');
-      2. in at least one line the speaker was the ONLY person in the frame (`alone`), so the voice cannot belong to anyone else.
-    One sighting with two people in the frame is not enough (in a real run a woman standing next to a man was taken for the man).
-    `totals` is kept for callers and ignored. Never raises."""
+def sighting_genders(attributes, min_lines=None):
+    """{speaker: (gender, strong)} for every speaker whose clear sightings ALL show the same gender (one different or unclear sighting leaves the
+    speaker out: the usual flag applies).
+      strong: the speaker was the ONLY person in the frame (`alone`) in at least two lines. Such a picture may overrule a voice guess.
+      weak:   seen speaking in at least `min_lines` lines (default 3), or alone in the frame once. Several people in the frame can be mixed up, and one
+              line can be a reaction shot, so a weak result may fill an empty gender or confirm one, but it never overrules a voice opinion
+              (in real runs two single sightings 'alone in the frame' were wrong: the voice belonged to a woman).
+    Never raises."""
     try:
         need = GENDER_SURE_LINES if min_lines is None else int(min_lines)
         out = {}
@@ -467,11 +484,17 @@ def certain_genders(attributes, min_lines=None, totals=None):
             if not (isinstance(n, int) and n == seen and agree == 1.0):
                 continue
             alone, alone_seen = a.get('gender_alone_lines'), a.get('gender_alone_observed')
-            if n >= max(1, need) or (isinstance(alone, int) and alone >= 1 and alone == alone_seen):
-                out[speaker] = top
+            all_alone = isinstance(alone, int) and alone >= 1 and alone == alone_seen
+            if n >= max(1, need) or all_alone:
+                out[speaker] = (top, bool(all_alone and alone >= 2))
         return out
     except Exception:
         return {}
+
+
+def certain_genders(attributes, min_lines=None, totals=None):
+    """{speaker: 'male'|'female'}: every speaker `sighting_genders` found, strong or weak. (`totals` is ignored.)"""
+    return {k: v[0] for k, v in sighting_genders(attributes, min_lines).items()}
 
 
 def gender_conflicts(attributes, pitch_genders, manual=None, mode=None):

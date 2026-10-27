@@ -159,12 +159,23 @@ class AdviceTests(unittest.TestCase):
         small=copy.deepcopy(raw);small['lines']=small['lines'][:2]
         self.assertIsNone(I.person_attributes({'chunks':[{'answer':small}]},labels)['Speaker 1']['gender'])
         mixed=copy.deepcopy(raw);mixed['people'][1]['gender']='female'
-        mixed['lines'][3]['speaker']='B'  # still female; age now disagrees 3/4
-        attr=I.person_attributes({'chunks':[{'answer':mixed}]},labels)['Speaker 1']
+        same={r['segment_id']:'Same' for r in rows}      # one speaker, two letters: gender agrees (both female), age splits 4/4
+        attr=I.person_attributes({'chunks':[{'answer':mixed}]},same)['Same']
         self.assertEqual(attr['gender'],'female');self.assertIsNone(attr['age'])
-        mixed['lines'].append(dict(mixed['lines'][0],id='extra'))
-        labels['extra']='Speaker 1'
-        self.assertEqual(I.person_attributes({'chunks':[{'answer':mixed}]},labels)['Speaker 1']['age'],'adult')  # 4/5
+
+    def test_a_line_the_picture_gave_to_somebody_elses_person_is_left_out(self):
+        # real run: a woman's voice-over was heard over the shot of a man; the picture gave the line to the man (letter B, who is Speaker 2's in
+        # every other line), so the line must not tell Speaker 1 that she is a man
+        raw=load('clean.json');rows=load('rows.json')
+        labels={r['segment_id']:r['speaker'] for r in rows}
+        voice_over=copy.deepcopy(raw);voice_over['lines'][3]['speaker']='B'
+        attr=I.person_attributes({'chunks':[{'answer':voice_over}]},labels)
+        self.assertEqual(attr['Speaker 1']['gender_lines'],3);self.assertEqual(attr['Speaker 1']['gender_dropped'],1)
+        self.assertNotIn(raw['lines'][3]['id'],attr['Speaker 1']['gender_ids'])
+        self.assertEqual(attr['Speaker 2']['gender_dropped'],0)
+        alone=copy.deepcopy(raw);alone['lines']=[dict(alone['lines'][0],speaker='C')];alone['people']=[dict(alone['people'][0],id='C')]
+        a2=I.person_attributes({'chunks':[{'answer':alone}]},labels)       # a letter with a single line belongs to that line's speaker
+        self.assertEqual(a2['Speaker 1']['gender_ids'],[alone['lines'][0]['id']])
 
     def test_a_speaker_with_very_few_lines_is_never_decided_by_the_picture(self):
         # real run: two one-line speakers were set to the wrong gender from a single sighting each
@@ -198,6 +209,17 @@ class AdviceTests(unittest.TestCase):
         attr=I.person_attributes({'chunks':[{'answer':parsed}]},labels)
         attr['Speaker 1']['gender_agreement']=.5
         self.assertEqual(I.certain_genders(attr),{})
+
+    def test_alone_twice_is_strong_alone_once_or_three_sightings_is_weak(self):
+        base=dict(gender_top='male',gender_lines=3,gender_observed=3,gender_agreement=1.0)
+        f=I.sighting_genders
+        self.assertEqual(f({'S':dict(base,gender_alone_lines=2,gender_alone_observed=2)}),{'S':('male',True)})
+        self.assertEqual(f({'S':dict(base,gender_alone_lines=1,gender_alone_observed=1)}),{'S':('male',False)})
+        self.assertEqual(f({'S':dict(base,gender_alone_lines=0,gender_alone_observed=0)}),{'S':('male',False)})
+        self.assertEqual(f({'S':dict(base,gender_alone_lines=1,gender_alone_observed=2)}),{'S':('male',False)})      # one alone sighting showed another gender
+        two=dict(gender_top='male',gender_lines=2,gender_observed=2,gender_agreement=1.0)
+        self.assertEqual(f({'S':two}),{})
+        self.assertEqual(f({'S':dict(two,gender_alone_lines=2,gender_alone_observed=2)}),{'S':('male',True)})
 
     def test_unknowns_stay_in_agreement_denominator_and_duplicate_lines_do_not_help(self):
         raw=load('clean.json');raw['people'][1]['gender']='unknown'

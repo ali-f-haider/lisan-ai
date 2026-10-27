@@ -1767,23 +1767,28 @@ def _picture_advice(job, rows, result):
     suspicious = {}
     if image_unit.GENDER_DECIDE and image_unit.GENDER_MODE != "off":
         # What the picture shows without any doubt is set now, before the translation (Arabic marks gender). The person's own choice is never touched,
-        # and a gender the WORDS proved ("he said", Mr., Mrs.) is not overruled by a face: that case is flagged for the person instead.
-        totals = {}
-        for sp_name in final.values():
-            totals[sp_name] = totals.get(sp_name, 0) + 1
-        sure = image_unit.certain_genders(attributes, totals=totals)
+        # a gender the WORDS proved or a sure listening result is not overruled by a face, and a picture that is only weak (see image_unit.sighting_genders)
+        # never overrules any voice opinion: those cases are flagged for the person instead.
+        sure = image_unit.sighting_genders(attributes)
+        _clock = {r.get("segment_id"): f"{int(float(r.get('start') or 0) // 60)}:{float(r.get('start') or 0) % 60:04.1f}" for r in rows if isinstance(r, dict)}
+        def _where(name):      # the lines (with their time) the decision rests on, so the exact moments can be looked at
+            ids = (attributes.get(name) or {}).get("gender_ids") or []
+            return ", ".join(f"{i} {_clock.get(i, '?')}" for i in ids[:6]) + (" ..." if len(ids) > 6 else "")
         for s in speakers:
-            g = sure.get(s.get("name"))
+            g, strong = sure.get(s.get("name"), (None, False))
             if not g or s.get("gender_source") == "chosen":
                 continue
-            _heard_sure = s.get("gender_source") == "heard" and not s.get("gender_uncertain")      # the listening check was sure and the picture says otherwise: two opinions, so the person looks
-            if (s.get("gender_source") == "text" or _heard_sure) and s.get("gender") in ("male", "female") and s.get("gender") != g:
-                suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": s.get("gender"), "manual_choice_unchanged": False}
+            current = s.get("gender") if s.get("gender") in ("male", "female") else ""
+            _heard_sure = s.get("gender_source") == "heard" and not s.get("gender_uncertain")      # a sure result of the listening check is not overruled
+            # A voice opinion (words, a sure listener, or any guess when the picture is only weak) that says otherwise: two opinions, so the person looks.
+            if current and current != g and (s.get("gender_source") == "text" or _heard_sure or not strong):
+                suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
+                _ev(job, "picture_gender_flag", "info", f"{s.get('name')}: the picture shows {g} ({'strong' if strong else 'weak'}) but the {s.get('gender_source') or 'earlier'} result says {current}; nothing changed, the speaker is flagged. Sightings: {_where(s.get('name'))}")
                 continue
             before = (s.get("gender") or "?", s.get("gender_source") or "none", bool(s.get("gender_uncertain")))
             s["gender"], s["gender_source"], s["gender_uncertain"] = g, "seen", False
             _ev(job, "picture_gender", "ok", f"{s.get('name')}: {g} (was {before[0]} from {before[1]}{', unsure' if before[2] else ''}); seen speaking in "
-                f"{attributes[s['name']].get('gender_lines')} lines, all showing the same{', alone in the frame in ' + str(attributes[s['name']].get('gender_alone_lines')) if attributes[s['name']].get('gender_alone_lines') else ''}")
+                f"{attributes[s['name']].get('gender_lines')} lines, all showing the same{', alone in the frame in ' + str(attributes[s['name']].get('gender_alone_lines')) if attributes[s['name']].get('gender_alone_lines') else ''}. Sightings: {_where(s.get('name'))}")
     pitch = {s["name"]: s.get("gender") for s in speakers}
     chosen = {s["name"]: s.get("gender") for s in speakers if s.get("gender_source") == "chosen"}
     conflicts = image_unit.gender_conflicts(attributes, pitch, chosen)
