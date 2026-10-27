@@ -25,3 +25,9 @@ fal-client>=1.0.0
 dashscope>=1.27.0
 # audio decoding used by faster-whisper (it needs av.open(..., metadata_errors=...)); pinned so a rebuild cannot pick a different one
 av>=12.3.0,<17
+# face check (face_unit.py): what MediaPipe 1.2.0 needs (it is installed with --no-deps in the Dockerfile); versions that keep numpy 1.26
+absl-py==2.5.1
+flatbuffers==25.12.19
+certifi>=2024.2.2
+opencv-python-headless==4.10.0.84
+matplotlib==3.9.2

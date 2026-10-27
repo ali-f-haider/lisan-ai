@@ -8216,10 +8216,30 @@ def admin_health(request: Request):
             db_backup = r2_backup.latest_db_backup()
         except Exception:
             db_backup = None
+    # The services that run on our own server (no outside company): installed or not. find_spec only looks, it imports nothing heavy.
+    import importlib.util as _iu
+    def _installed(mod):
+        try:
+            return "ok" if _iu.find_spec(mod) is not None else "fail"
+        except Exception:
+            return "fail"
+    try:
+        import face_unit as _fu
+        face = _fu.status()
+    except Exception:
+        face = "fail"
+    try:
+        ga = "ok" if (_get_pricing_config().get("gaMeasurementId") or "").strip() else "not_configured"
+    except Exception:
+        ga = "?"
     return {
         "supabase": supabase, "inworld": inworld, "elevenlabs": eleven, "gemini": gemini,
         "dashscope": dashscope, "stripe": stripe_status, "resend": resend_status,
         "r2": r2_status, "sentry": sentry_status, "db_backup": db_backup,
+        "fal": "ok" if FAL_API_KEY else "not_configured", "huggingface": "ok" if HF_TOKEN else "not_configured",
+        "qwen": "ok" if (os.environ.get("DASHSCOPE_SG_API_KEY") and os.environ.get("DASHSCOPE_SG_WORKSPACE_ID")) else "not_configured",
+        "analytics": ga, "face": face, "whisper": _installed("faster_whisper"), "pyannote": _installed("pyannote.audio"),
+        "demucs": _installed("demucs"), "ffmpeg": "ok" if shutil.which("ffmpeg") else "fail",
     }
 
 

@@ -37,7 +37,7 @@ STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
 
 # The reasons the editor shows next to "Check speaker" for a line the vote is unsure about (the rest are not shown).
-SHOWN_REASONS = ("voters_split", "candidate_rejected", "picture_disagrees")
+SHOWN_REASONS = ("voters_split", "candidate_rejected", "picture_disagrees", "two_faces")
 NOT_VOTED_REASONS = ("insufficient_line_voters", "manual_choice", "insufficient_support")
 
 ADDED_SPEAKER_MESSAGE = "Another speaker was found and added. Please check their lines."

@@ -69,6 +69,9 @@
 <h2>Voice data &amp; cloning</h2>
 <p>If you use voice cloning, the reference audio and the resulting cloned voice model are treated as biometric data. They're used only to generate your dubbing. Temporary cloned voices are removed automatically rather than kept around indefinitely (for Dub Long Video, exactly as described under "How long we keep your content"), and the isolated reference recording of a short dub is deleted once your project resets or a new one starts. Only voices that you choose to save on your Account page (monthly plans) are kept until you delete them.</p>
 
+<h2>Faces in your video</h2>
+<p>For video projects, our own server looks at the faces in your video to find whose mouth moves while each line is spoken, so that each line goes to the right speaker and is voiced as a man or a woman. This step runs on our server with an open-source tool (Google MediaPipe); nothing is sent to anyone else for it. For a few lines per speaker in which one face clearly speaks, a small still picture of that face is sent to our AI provider, which only answers whether the person looks male or female. We never recognise, name or identify anyone: a face is only followed within one continuous shot, and no face description ("face print") is created or kept. The temporary face pictures are deleted as soon as that answer arrives; only the position of the faces and numbers about mouth movement for each frame are kept with your project, and they are deleted together with it. A gender you choose for a speaker yourself is never changed.</p>
+
 <h2>Cookies &amp; local storage</h2>
 <p>We use essential cookies/local storage only to keep you signed in and to remember your in-progress project. We do not use third-party advertising or tracking cookies.</p>
 
@@ -139,6 +142,9 @@
 
 <h2>بيانات الصوت والاستنساخ</h2>
 <p>إذا استخدمت استنساخ الصوت، فإن الصوت المرجعي ونموذج الصوت المنسوخ الناتج يُعاملان كبيانات حيوية. ولا يُستخدمان إلا لإنتاج دبلجتك. وتُزال الأصوات المنسوخة المؤقتة تلقائياً بدلاً من إبقائها بلا نهاية (وفي دبلجة فيديو طويل تماماً كما هو موضح في «كم نحتفظ بمحتواك»)، ويُحذف التسجيل المرجعي المعزول للدبلجة القصيرة عندما يُعاد ضبط مشروعك أو يبدأ مشروع جديد. والأصوات التي تختار حفظها في صفحة حسابك (الخطط الشهرية) وحدها تبقى حتى تحذفها.</p>
+
+<h2>الوجوه في الفيديو</h2>
+<p>في مشاريع الفيديو يفحص خادمنا الوجوه في الفيديو ليعرف أيَّ فمٍ يتحرك أثناء قول كل سطر، حتى يُنسب كل سطر إلى المتحدث الصحيح ويُؤدّى بصوت رجل أو امرأة. تجري هذه الخطوة على خادمنا بأداة مفتوحة المصدر (Google MediaPipe)، ولا يُرسَل فيها شيء إلى أي جهة أخرى. ولعدد قليل من الأسطر لكل متحدث، حيث يتكلم وجه واحد بوضوح، تُرسَل صورة ثابتة صغيرة لذلك الوجه إلى مزوّد الذكاء الاصطناعي لدينا، فيجيب فقط إن كان الشخص يبدو رجلاً أم امرأة. لا نتعرّف إلى أي شخص ولا نسمّيه ولا نحدد هويته: يُتتبَّع الوجه داخل اللقطة المتصلة الواحدة فقط، ولا تُنشأ أي بصمة للوجه ولا تُحفظ. تُحذف صور الوجوه المؤقتة فور وصول الإجابة، ولا يُحفظ مع مشروعك إلا موضع الوجوه وأرقام عن حركة الفم في كل إطار، وتُحذف مع المشروع. ولا نغيّر أبداً جنس المتحدث الذي تختاره بنفسك.</p>
 
 <h2>ملفات تعريف الارتباط والتخزين المحلي</h2>
 <p>نستخدم ملفات تعريف الارتباط/التخزين المحلي الأساسية فقط لإبقائك مسجّل الدخول ولتذكّر مشروعك الجاري. ولا نستخدم ملفات تعريف ارتباط إعلانية أو تتبعية تابعة لأطراف ثالثة.</p>

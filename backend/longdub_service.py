@@ -61,6 +61,7 @@ import line_planner
 import gender_context
 import speaker_vote_live
 import image_unit
+import face_unit
 import dub_timing
 
 LONG_DIR = DATA_DIR / "longjobs"
@@ -1750,6 +1751,151 @@ def _run_picture(job, rows, wd):
     return result
 
 
+FACE_WAIT_SEC = 900      # the longest the analysis waits for the face scan before it goes on without it
+
+
+def _clock(t):
+    try:
+        t = float(t)
+        return f"{int(t // 60)}:{t % 60:04.1f}"
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _face_start(job, src, wd):
+    """Starts the face scan in the background (once; a finished scan is reused after a restart). Never raises."""
+    try:
+        if face_unit.start(src, wd, duration=job.get("duration")):
+            job.setdefault("analysis", {})["face_unit"] = {"status": "running"}
+        else:
+            ok, why = face_unit.available()
+            job.setdefault("analysis", {})["face_unit"] = {"status": "off", "why": why or "no video"}
+    except Exception as ex:
+        print(f"[longdub] face scan not started: {type(ex).__name__}: {ex}")
+
+
+def _face_frames(job, wd):
+    """The finished face scan, or None (and the reason is logged once)."""
+    an = job.setdefault("analysis", {})
+    if not job.get("has_video"):
+        return None
+    ok, why = face_unit.available()
+    if not ok:
+        if an.get("face_unit", {}).get("logged") is not True:
+            an["face_unit"] = {"status": "off", "why": why, "logged": True}
+            _ev(job, "face_check", "info", f"face check not run: {why}")
+        return None
+    if not (Path(wd) / face_unit.DONE_FILE).exists():
+        face_unit.start(Path(wd) / f"src{job['ext']}", wd, duration=job.get("duration"))      # (a restart: the scan runs again)
+        _mark(job, "speakers", 89, "Looking at who speaks on screen...")
+    frames = face_unit.wait(wd, FACE_WAIT_SEC)
+    if frames is None and an.get("face_unit", {}).get("logged") is not True:
+        err = ""
+        try:
+            err = (Path(wd) / "face_scan.error").read_text(encoding="utf-8")
+        except Exception:
+            pass
+        an["face_unit"] = {"status": "failed", "why": err or "not finished in time", "logged": True}
+        _ev(job, "face_check", "partial", f"face check not used: {err or 'the scan did not finish in time'}")
+    return frames
+
+
+def _face_check(job, rows, wd):
+    """After the vote: lines that the same face speaks, alone on screen in one shot, go to one speaker (never emptying a speaker), and
+    lines that two different faces on screen together speak as one speaker are marked 'check speaker'. Logged in detail."""
+    frames = _face_frames(job, wd)
+    if not frames:
+        return None
+    judged = face_unit.judge(frames, rows)
+    by_id = {r["segment_id"]: r for r in rows}
+    moves = face_unit.same_face_moves(judged, rows)
+    for sid, old, new in moves:
+        r = by_id[sid]
+        r["speaker"] = new
+        v = r.get("speaker_vote") if isinstance(r.get("speaker_vote"), dict) else {}
+        r["speaker_vote"] = dict(v, source="face", badge=bool(v.get("badge")), reasons=list(v.get("reasons") or []))
+    flags = face_unit.two_faces(judged, rows, frames)
+    for sid in flags:
+        r = by_id[sid]
+        v = r.get("speaker_vote") if isinstance(r.get("speaker_vote"), dict) else {"source": "face", "support": 0, "present": 0}
+        r["speaker_vote"] = dict(v, badge=True, reasons=list(dict.fromkeys(list(v.get("reasons") or []) + ["two_faces"])))
+    kinds = {}
+    for j in judged.values():
+        kinds[j["kind"]] = kinds.get(j["kind"], 0) + 1
+    summary = {"status": "ok", "frames": len(frames), "speaking": kinds.get("speaker", 0), "unclear": kinds.get("unclear", 0),
+               "nobody": kinds.get("nobody", 0), "moved": len(moves), "two_faces": len(flags)}
+    job.setdefault("analysis", {})["face_unit"] = summary
+    _save(job)
+    try:
+        scan = json.loads((Path(wd) / face_unit.DONE_FILE).read_text(encoding="utf-8"))
+    except Exception:
+        scan = {}
+    moved = "; ".join(f"{sid} {_clock(by_id[sid].get('start'))} {old} -> {new}" for sid, old, new in moves[:12])
+    two = {}
+    for sid, sp in flags.items():
+        two.setdefault(sp, []).append(f"{sid} {_clock(by_id[sid].get('start'))}")
+    _ev(job, "face_check", "ok",
+        f"{len(frames)} frames looked at ({scan.get('frames_with_faces', '?')} with faces, scan {scan.get('seconds', '?')} s, our own server); "
+        f"{len(rows)} lines: a face clearly speaks {summary['speaking']}, two mouths move {summary['unclear']}, nobody visible speaks {summary['nobody']}; "
+        f"{len(moves)} line(s) given to the speaker their face speaks as{(': ' + moved) if moved else ''}; "
+        f"{len(flags)} line(s) marked 'check speaker' because two different faces speak as one speaker"
+        + ("".join(f"; {sp}: " + ", ".join(v[:8]) for sp, v in two.items()) if two else ""))
+    return summary
+
+
+def _face_genders(job, rows, wd):
+    """The gender of the face that clearly speaks a speaker's lines (Gemini looks at small crops of that face only). Same rules as the
+    picture: the person's own choice, the words and every sure result stay; a strong face result (alone on screen in at least two lines)
+    sets a guessed gender; a weaker one fills an empty gender (marked not sure) or confirms the same one; a different answer only flags."""
+    if not face_unit.GENDER or not GEMINI_API_KEY:
+        return None
+    frames = face_unit.load(wd)
+    if not frames:
+        return None
+    judged = face_unit.judge(frames, rows)
+    crops = face_unit.pick_crops(judged, rows)
+    if not crops:
+        return None
+    tmp = Path(wd) / "face_crops"
+    tmp.mkdir(exist_ok=True)
+    try:
+        src = Path(wd) / f"src{job['ext']}"
+        ready = []
+        for c in crops:
+            out = tmp / f"{c['id']}.jpg"
+            if face_unit.crop(src, c["frame"], c["box"], out):
+                ready.append(dict(c, path=str(out)))
+        answers, usage = face_unit.ask_genders(job["id"], ready, GEMINI_API_KEY)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)      # the face pictures are never kept
+    found = face_unit.speaker_genders(ready, answers)
+    by_id = {r["segment_id"]: r for r in rows}
+    told = []
+    for sp in job.get("speaker_list") or []:
+        res = found.get(sp.get("name"))
+        if not res or sp.get("gender_source") == "chosen":
+            continue
+        g, strong = res["gender"], res["strong"]
+        current = sp.get("gender") if sp.get("gender") in ("male", "female") else ""
+        sure_now = bool(current) and (sp.get("gender_source") == "text" or not sp.get("gender_uncertain"))
+        where = ", ".join(f"{s} {_clock(by_id[s].get('start'))}" for s in res["ids"] if s in by_id)
+        if current and current != g and (sure_now or not strong):
+            sp["picture_gender_check"] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
+            sp["gender_uncertain"] = True      # two opinions: the person looks (nothing is changed)
+            told.append(f"{sp.get('name')}: the speaking face looks {g}, the {sp.get('gender_source') or 'earlier'} result says {current}; flagged, not changed ({where})")
+            continue
+        if current == g or strong or not current:
+            before = f"{current or '?'} from {sp.get('gender_source') or 'none'}{', unsure' if sp.get('gender_uncertain') else ''}"
+            sp["gender"], sp["gender_source"] = g, "seen"
+            sp["gender_uncertain"] = not (strong or current == g)      # a single weak sighting with nothing to compare stays 'not sure'
+            told.append(f"{sp.get('name')}: {g} (was {before}){'' if not sp['gender_uncertain'] else ', still marked not sure'}; {res['seen']} face(s) seen speaking: {where}")
+    _save(job)
+    u = usage or {}
+    _ev(job, "face_gender", "ok", f"{len(ready)} face crops looked at by Gemini ({len(answers)} clear answers), tokens in {int(u.get('promptTokenCount') or 0)} / "
+        f"out {int(u.get('candidatesTokenCount') or 0)}; " + ("; ".join(told) if told else "no gender changed"))
+    return found
+
+
 def _picture_context(job, rows):
     if not image_unit.enabled() or not job.get("has_video") or job.get("picture_option") is not True:
         return ""
@@ -1779,7 +1925,7 @@ def _picture_advice(job, rows, result):
             if not g or s.get("gender_source") == "chosen":
                 continue
             current = s.get("gender") if s.get("gender") in ("male", "female") else ""
-            _heard_sure = s.get("gender_source") == "heard" and not s.get("gender_uncertain")      # a sure result of the listening check is not overruled
+            _heard_sure = s.get("gender_source") in ("heard", "pitch", "seen") and not s.get("gender_uncertain")      # a sure result (heard, a clearly male/female pitch, a face) is not overruled
             # A voice opinion (words, a sure listener, or any guess when the picture is only weak) that says otherwise: two opinions, so the person looks.
             if current and current != g and (s.get("gender_source") == "text" or _heard_sure or not strong):
                 suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
@@ -2247,6 +2393,8 @@ def _run_analysis(job):
         (wd / "bg").mkdir(exist_ok=True)
         slot = _Slot(job)
         has_video = bool(job.get("has_video"))
+        if has_video:
+            _face_start(job, src, wd)      # the face check looks at the picture in the background, while the sound is prepared
 
         # 3. separate vocals from background, one piece at a time ---------
         for i, (b0, b1) in enumerate(pieces):
@@ -2453,6 +2601,10 @@ def _run_analysis(job):
             label_map = {raw: "~" + name for raw, name in label_map.items()}      # the speakers are the user's people now: the detector's names mean nothing
         elif vote.get("rename"):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
+        try:      # who speaks on screen (face_unit.py, our own server): the same face in one shot is one speaker; two faces as one speaker are marked
+            _face_check(job, rows, wd)
+        except Exception as ex:
+            print(f"[longdub] face check skipped: {type(ex).__name__}: {ex}")
         try:      # the pitch check (pitch_check.py): free, local; moves a line only when the voice's pitch clearly belongs to another speaker
             if vocals_all.exists():
                 _pc = pitch_check.run(rows, vocals_all)
@@ -2517,6 +2669,10 @@ def _run_analysis(job):
             _picture_advice(job, rows, _picture)
         except Exception as ex:
             print(f"[longdub] picture advice skipped: {type(ex).__name__}")
+        try:      # the gender of the face that clearly speaks (a small crop to Gemini: man or woman)
+            _face_genders(job, rows, wd)
+        except Exception as ex:
+            print(f"[longdub] face genders skipped: {type(ex).__name__}: {ex}")
         _translate_all(job, rows)
         # 7b. the AI listens to each line's isolated voice for its delivery (emotion); falls back to the text guess without speed tags
         _mark(job, "translate", 98, "Listening to how each line is spoken...")
