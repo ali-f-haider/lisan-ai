@@ -266,6 +266,72 @@ class StatedFirst(unittest.TestCase):
         self.assertFalse(any(k.get("fresh") for k in seen))
 
 
+class KeepDetected(unittest.TestCase):
+    """The detector found exactly the user's number: the vote corrects lines but never empties a speaker, never adds one, and nobody is
+    asked. (Real runs: the detector found 12 of 12 and the vote merged 1-3 of them away; the rebuild that followed mixed people up.)"""
+    def votes(self):
+        # both checks lump Speaker 3's lines (12-15) in with A and move line 3 from Speaker 1 to Speaker 2
+        label = lambda i: "A" if i < 3 or 4 <= i < 6 or 12 <= i < 16 else ("B" if i == 3 or 6 <= i < 12 else "A")
+        lines = {f"seg_{i}": label(i) for i in range(16)}
+        return {"dialogue": dict(lines), "audio": dict(lines)}
+
+    def rows(self):
+        return rows(16, lambda i: "Speaker 1" if i < 6 else ("Speaker 2" if i < 12 else "Speaker 3"))
+
+    def test_a_speaker_the_vote_would_empty_keeps_its_lines_marked_for_checking(self):
+        r = self.rows()
+        plain = svl.apply(r, self.votes(), allow_new=False)
+        self.assertEqual(plain["status"], "ok")
+        self.assertNotIn("Speaker 3", {x["speaker"] for x in r})          # without keep: merged away
+        r = self.rows()
+        s = svl.apply(r, self.votes(), allow_new=False, keep=True)
+        self.assertEqual({x["speaker"] for x in r}, {"Speaker 1", "Speaker 2", "Speaker 3"})
+        self.assertEqual(s["merged"], 0)
+        self.assertEqual(s["restored"], 4)
+        kept = [x for x in r if x["speaker"] == "Speaker 3"]
+        self.assertTrue(all(x["speaker_vote"]["badge"] for x in kept))     # shown as 'check speaker'
+        self.assertEqual(next(x for x in r if x["segment_id"] == "seg_3")["speaker"], "Speaker 2")      # a line between survivors is still corrected
+
+    def run_service(self, job, rws, votes, **patches):
+        seen = []
+
+        def fake_apply(r, v, allow_new=True, **kw):
+            seen.append(dict(kw, allow_new=allow_new))
+            return {"status": "skipped"}
+
+        import contextlib
+        with contextlib.ExitStack() as stack:
+            for target, name, value in [(svl, "collect", lambda *a, **k: dict(votes, usage={})), (svl, "apply", fake_apply),
+                                        (ld, "_mark", lambda *a, **k: None), (ld, "_ev", lambda *a, **k: None), (ld, "_save", lambda j: None),
+                                        (ld, "_speaker_check_refund", lambda *a, **k: None)] + [(ld, k, v) for k, v in patches.items()]:
+                stack.enter_context(mock.patch.object(target, name, value))
+            ld._vote_speakers(job, rws, Path("."), Path("v.wav"))
+        return seen
+
+    def test_the_service_keeps_the_detectors_speakers_even_after_a_keep_answer(self):
+        for choice in (None, "keep"):
+            job = {"id": "j", "stated_speakers": 3, "analysis": {"audio_duration": 100}, **({"speaker_merge_choice": choice} if choice else {})}
+            seen = self.run_service(job, self.rows(), self.votes())
+            self.assertEqual(len(seen), 1, choice)
+            self.assertTrue(seen[0]["keep"]);self.assertFalse(seen[0]["allow_new"]);self.assertFalse(seen[0].get("fresh"))
+
+    def test_nobody_is_asked_when_the_detector_found_the_number(self):
+        job = {"id": "j", "stated_speakers": 3, "analysis": {"audio_duration": 100}}
+        with mock.patch.object(svl, "collect", lambda *a, **k: dict(self.votes(), usage={})), \
+                mock.patch.object(ld, "_mark", lambda *a, **k: None), mock.patch.object(ld, "_ev", lambda *a, **k: None), \
+                mock.patch.object(ld, "_save", lambda j: None), mock.patch.object(ld, "_speaker_check_refund", lambda *a, **k: None), \
+                mock.patch.object(svl, "reask", lambda *a, **k: self.fail("no second look is needed")):
+            s = ld._vote_speakers(job, self.rows(), Path("."), Path("v.wav"))
+        self.assertEqual(s["status"], "ok")
+        self.assertNotIn("fewer", s)
+
+    def test_fewer_found_or_the_switch_off_uses_the_old_way(self):
+        job = {"id": "j", "stated_speakers": 4, "analysis": {"audio_duration": 100}}
+        self.assertFalse(any(k.get("keep") for k in self.run_service(job, self.rows(), self.votes())))
+        job = {"id": "j", "stated_speakers": 3, "analysis": {"audio_duration": 100}}
+        self.assertFalse(any(k.get("keep") for k in self.run_service(job, self.rows(), self.votes(), KEEP_DETECTED=False)))
+
+
 class Wiring(unittest.TestCase):
     def test_stated_people(self):
         f = ld._stated_people
@@ -282,8 +348,9 @@ class Wiring(unittest.TestCase):
             seen["collect"] = kw
             return {"dialogue": None, "audio": None, "usage": {}}
 
-        def fake_apply(r, votes, allow_new=True):
+        def fake_apply(r, votes, allow_new=True, **kw):
             seen["allow_new"] = allow_new
+            seen["kw"] = kw
             return {"status": "skipped"}
 
         job = {"id": "j", "stated_speakers": 2, "analysis": {"audio_duration": 100}}
@@ -293,6 +360,7 @@ class Wiring(unittest.TestCase):
             ld._vote_speakers(job, rows(4), Path("."), Path("v.wav"))
         self.assertEqual(seen["collect"]["people"], 2)
         self.assertFalse(seen["allow_new"])
+        self.assertTrue(seen["kw"].get("keep"))       # the detector found the 2: they are kept
 
     def test_detection_asks_for_exactly_the_chosen_number(self):
         src = inspect.getsource(ld._run_detection)

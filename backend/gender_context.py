@@ -37,6 +37,48 @@ def _ffmpeg_cut(src, start, dur, out):
                     "-i", str(src), "-vn", "-ar", "16000", "-ac", "1", str(out)], check=True, timeout=60)
 
 
+PITCH_SURE_MALE = 140.0       # Hz: a single clean voice this low is a man's ...
+PITCH_SURE_FEMALE = 200.0     # ... and this high a woman's. Between them (and below/above 150/185) the pitch only guesses.
+PITCH_SURE_SECONDS = 3.0      # clean speech the measurement must rest on
+PITCH_SPLIT = 165.0           # each measured line must fall on the same side of this: one voice, not two people put together
+
+
+def _line_pitches(svc, vm, src, pieces, cut, work, n=6):
+    """The pitch of each of the speaker's n longest lines (lines too short or without a clear voice are left out)."""
+    out = []
+    for a, b in sorted(pieces, key=lambda p: p[0] - p[1])[:n]:
+        try:
+            x, got = svc._speaker_audio(src, [(a, b)], cut, work, 10.0)
+            f0 = vm.acoustic_profile(x, svc.SR).get("f0_median") if got >= 0.6 else None
+            if f0:
+                out.append(float(f0))
+        except Exception:
+            pass
+    return out
+
+
+def pitch_is_sure(gender, f0, seconds, line_pitches, ai=None):
+    """True when the pitch alone settles the gender: clearly outside the middle band, measured on enough clean speech, every measured line
+    on the same side (one voice, not a mix of people), and the listening check (when it answered at all) neither heard a child nor the
+    other gender. A mixed speaker (two men put together) or a boy's voice is exactly what these conditions keep out."""
+    try:
+        if gender not in ("male", "female") or not f0 or seconds < PITCH_SURE_SECONDS:
+            return False
+        if (gender == "male" and f0 > PITCH_SURE_MALE) or (gender == "female" and f0 < PITCH_SURE_FEMALE):
+            return False
+        if not line_pitches or any((p < PITCH_SPLIT) != (gender == "male") for p in line_pitches):
+            return False
+        if ai:
+            if ai.get("age") == "child":
+                return False
+            heard = clean(ai.get("gender"))
+            if heard and heard != gender:
+                return False
+        return True
+    except Exception:
+        return False
+
+
 def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=None, describe=None, max_listened=24):      # (was 6: with many speakers the rest were judged by pitch alone, which is the weakest evidence)
     """{speaker name: {"gender": "male"|"female"|"", "source": "chosen"|"heard"|"pitch"|"", "uncertain": bool}}.
 
@@ -98,6 +140,10 @@ def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=No
                     g, source, uncertain = clean(ai.get("gender")), "heard", True
                 if source == "heard" and pitch_g and pitch_g != g:
                     uncertain = True                       # the listener and the pitch disagree
+                if source == "pitch" and uncertain:
+                    lines_f0 = _line_pitches(svc, vm, src, pieces, cut, work)
+                    if pitch_is_sure(g, prof.get("f0_median"), got, lines_f0, ai):
+                        uncertain = False                  # a clearly male or female pitch of one clean voice settles it
                 out[n] = {"gender": g, "source": source if g else "", "uncertain": uncertain if g else True}
             except Exception as ex:
                 print(f"[gender] could not judge {n}: {ex}")

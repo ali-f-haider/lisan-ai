@@ -352,7 +352,7 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None, fresh=False):
+def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None, fresh=False, keep=False):
     """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
     known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
     fresh: the user's number replaces the detector's grouping: the speakers are the people the two checks tell apart (one letter, one speaker);
@@ -360,6 +360,8 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
     new_support: how many checks must agree on a line for it to count towards a new speaker (the vote's default: 2).
     min_new_lines: lines a new speaker needs (default of the vote: 5); only used together with max_new.
     max_new: at most this many new speakers (used when the user's number is higher than the detector found: the vote may fill the gap, no further).
+    keep: every speaker the rows start with keeps existing (used when the detector found exactly the user's number): a speaker the vote would
+    empty gets back the lines the detector gave it, each marked 'check speaker'. Lines are still corrected between speakers that survive.
     Returns a summary: status ('ok' or why the vote did not act), counts and the names of new speakers.
     Rows are changed only when status == 'ok'."""
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
@@ -394,6 +396,7 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
         return summary
     by_id = {r["segment_id"]: r for r in res["lines"]}
     before = {r["speaker"] for r in rows}
+    start = {r["segment_id"]: r["speaker"] for r in rows}
     summary["by_line"] = {sid: {"by": list(d.get("voters_for") or []), "support": d.get("support"), "present": d.get("voters_present")}
                           for sid, d in by_id.items()}      # who backed each line's winner (for the log only)
     for row in rows:
@@ -404,7 +407,19 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
         row["speaker_vote"] = {"source": d["source"], "support": d["support"], "present": d["voters_present"],
                                "badge": bool(d["badge"]), "reasons": list(d["reasons"])}
     after = {r["speaker"] for r in rows}
-    summary.update(changed=int(s.get("lines_changed", 0)), badged=int(s.get("badged_lines", 0)),
+    restored = 0
+    if keep and not fresh:
+        gone = before - after
+        for row in rows:
+            if start.get(row["segment_id"]) in gone:
+                row["speaker"] = start[row["segment_id"]]
+                v = row.get("speaker_vote") if isinstance(row.get("speaker_vote"), dict) else {}
+                row["speaker_vote"] = dict(v, source="kept", badge=True, reasons=["voters_split"])
+                restored += 1
+        after = {r["speaker"] for r in rows}
+    summary["restored"] = restored
+    summary.update(changed=max(0, int(s.get("lines_changed", 0)) - restored),
+                   badged=sum(1 for r in rows if isinstance(r.get("speaker_vote"), dict) and r["speaker_vote"].get("badge")) if restored else int(s.get("badged_lines", 0)),
                    new_speakers=[x["label"] for x in (s.get("new_speakers") or [])],
                    merged=len(before - after),
                    dropped_small=len(s.get("dropped_small") or []))

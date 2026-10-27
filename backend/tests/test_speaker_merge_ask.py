@@ -182,6 +182,13 @@ def job(**kw):
 
 
 class VoteStep(unittest.TestCase):
+    """The second look and the question. These tests start from a detector that found the user's number; since that case now keeps the
+    detector's speakers (KeepDetected in test_speaker_stated_fact), they run with that switch off."""
+    def setUp(self):
+        p = mock.patch.object(ld, "KEEP_DETECTED", False)
+        p.start()
+        self.addCleanup(p.stop)
+
     def run_step(self, j, second, first=FIRST, extra_patch=None):
         r = rows()
         events = []

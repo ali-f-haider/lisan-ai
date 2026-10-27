@@ -2017,6 +2017,7 @@ def _stated_people(job):
 
 
 STATED_FIRST = os.environ.get("LONGDUB_STATED_FIRST", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: the detector's grouping decides again
+KEEP_DETECTED = os.environ.get("LONGDUB_KEEP_DETECTED", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: the vote may merge speakers even when the detector found the user's number
 
 
 def _checks_name_everyone(votes, people):
@@ -2050,6 +2051,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
             votes = speaker_vote_live.collect(job["id"], rows, vocals_all, wd, GEMINI_API_KEY, people=people, **_src)
             _det = speaker_trace.snapshot(rows)       # (for the per-line log) who the detector said, before the check changes anything
             _orig = {r["segment_id"]: r["speaker"] for r in rows}
+            _same_number = bool(people and int(people) >= 2 and KEEP_DETECTED and len(set(_orig.values())) == int(people))
 
             def _run_vote(v):
                 for r in rows:      # always start from what the detector said
@@ -2057,6 +2059,11 @@ def _vote_speakers(job, rows, wd, vocals_all):
                     r.pop("speaker_vote", None)
                 picture = an.get("picture_unit") if job.get("picture_option") is True and image_unit.enabled() else None
                 extra = {"picture": picture} if isinstance(picture, dict) and picture.get("status") in ("ok", "partial") else {}
+                if _same_number:
+                    # The detector found exactly the user's number: those are the speakers. The vote corrects who says which line, but it may
+                    # neither add a speaker nor empty one (a speaker it would empty keeps the detector's lines, marked 'check speaker').
+                    # In real runs the vote merged 1-3 of these speakers away, and rebuilding from scratch after that mixed people up.
+                    return speaker_vote_live.apply(rows, v, allow_new=False, keep=True, **extra)
                 # A stated number is a fact: no speaker beyond it, but when the detector found fewer the vote may fill the gap (lines the
                 # checks agree on, the usual minimum of lines and support still apply).
                 if (people and int(people) >= 2 and STATED_FIRST and (job.get("speaker_merge_choice") == "keep" or not SPEAKER_COUNT_ASK)
@@ -2117,7 +2124,8 @@ def _vote_speakers(job, rows, wd, vocals_all):
             _ev(job, "speaker_vote", "ok" if summary["status"] == "ok" else "skipped",
                 f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}"
                 f"; people named: " + ", ".join(f"{k} {speaker_vote_live.people_named(votes.get(k))}" for k in ("dialogue", "audio")) + f"; stated {people or 'none'}{reask_note}; "
-                f"result {summary['status']}{' (your number of speakers decided, the detector was not used)' if summary.get('fresh') else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
+                f"result {summary['status']}{' (your number of speakers decided, the detector was not used)' if summary.get('fresh') else ''}"
+                f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied)' if _same_number and summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
                 f"cost ${float(usage.get('usd') or 0):.4f}")

@@ -284,6 +284,38 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn('not-a-key',text);self.assertNotIn('Y2xpcA==',text)
         self.assertNotIn('$',first['summary'])
 
+    def test_the_answer_shape_is_sent_and_an_unreadable_piece_is_asked_once_more_without_it(self):
+        replies=[{'candidates':[{'content':{'parts':[{'text':'{"people": ['}]},'finishReason':'MAX_TOKENS'}],**load('usage.json')},
+                 response(load('clean.json'))]
+        def ask(key,payload,timeout):
+            self.calls.append(payload);return replies[len(self.calls)-1],None
+        out=I.analyse('invented',self.rows,self.video,self.wd,'not-a-key',ask=ask)
+        self.assertEqual(len(self.calls),2)
+        self.assertIn('responseSchema',self.calls[0]['generationConfig'])
+        self.assertNotIn('responseSchema',self.calls[1]['generationConfig'])
+        self.assertEqual(out['status'],'ok')
+        c=out['chunks'][0]
+        self.assertTrue(c['retried']);self.assertEqual(c['usage']['calls'],2)          # both paid answers are counted
+        self.assertEqual(c['first_try']['finish'],'MAX_TOKENS');self.assertEqual(c['first_try']['why'],'not_json_or_cut_off')
+        self.assertIn('asked a second time',out['summary'])
+
+    def test_a_piece_unreadable_twice_keeps_the_start_of_the_answer_and_the_reason(self):
+        bad={'candidates':[{'content':{'parts':[{'text':'Sorry, I cannot'}]},'finishReason':'SAFETY'}],**load('usage.json')}
+        def ask(key,payload,timeout):
+            self.calls.append(payload);return bad,None
+        out=I.analyse('invented',self.rows,self.video,self.wd,'not-a-key',ask=ask)
+        self.assertEqual(len(self.calls),2)                                                # one second try, never more
+        c=out['chunks'][0]
+        self.assertEqual(c['raw_head'],'Sorry, I cannot');self.assertEqual(c['finish'],'SAFETY')
+        self.assertIn('finish SAFETY',c['why']);self.assertIn('finish SAFETY',out['summary'])
+        self.assertEqual(out['refund_fraction'],1.)
+
+    def test_a_readable_answer_with_nothing_clear_is_not_asked_again(self):
+        def ask(key,payload,timeout):
+            self.calls.append(payload);return response({'people':[],'lines':[],'screen_text':[]}),None
+        I.analyse('invented',self.rows,self.video,self.wd,'not-a-key',ask=ask)
+        self.assertEqual(len(self.calls),1)
+
     def test_options_video_rows_people_source_version_invalidate_cache(self):
         self.run_analysis();self.run_analysis(options={'fps':1.})
         self.video.write_bytes(b'changed video');self.run_analysis()

@@ -172,16 +172,52 @@ def build_prompt(rows, offset=0., duration=None, source_language='en', people=No
     return p
 
 
+def _enum(values):
+    return {'type': 'STRING', 'enum': list(values)}
+
+
+# The answer's shape, sent with the request so the model has to return valid JSON of exactly this form (two of three pieces once came back
+# unreadable). The parser below still checks everything; this only stops prose and broken JSON at the source.
+RESPONSE_SCHEMA = {
+    'type': 'OBJECT',
+    'properties': {
+        'people': {'type': 'ARRAY', 'items': {'type': 'OBJECT', 'properties': {
+            'id': {'type': 'STRING'}, 'gender': _enum(_GENDERS), 'age': _enum(_AGES), 'confidence': _enum(('high', 'low'))},
+            'required': ['id', 'gender', 'age', 'confidence']}},
+        'lines': {'type': 'ARRAY', 'items': {'type': 'OBJECT', 'properties': {
+            'id': {'type': 'STRING'}, 'speaker': {'type': 'STRING', 'nullable': True}, 'on_screen': {'type': 'BOOLEAN'},
+            'alone': {'type': 'BOOLEAN'}, 'confidence': _enum(('high', 'low')), 'voice_kind': _enum(_KINDS), 'delivery': _enum(_DELIVERIES)},
+            'required': ['id', 'speaker', 'on_screen', 'alone', 'confidence', 'voice_kind', 'delivery']}},
+        'screen_text': {'type': 'ARRAY', 'items': {'type': 'OBJECT', 'properties': {
+            't': {'type': 'NUMBER'}, 'text': {'type': 'STRING'}, 'kind': _enum(_TEXT_KINDS)}, 'required': ['t', 'text', 'kind']}},
+    },
+    'required': ['people', 'lines', 'screen_text'],
+}
+UNREADABLE = ('not_json_or_cut_off', 'unreadable', 'wrong_shape', 'bad_line', 'bad_person_id', 'no_answer')
+
+
+def _raw_info(data):
+    """(the first 1500 characters of the answer's text, the model's finish reason) of a raw response, for the receipt of a piece that failed."""
+    try:
+        c = data['candidates'][0]
+        text = ''.join(p.get('text', '') for p in c['content']['parts'] if isinstance(p, dict) and not p.get('thought'))
+        return text[:1500], str(c.get('finishReason') or '')
+    except Exception:
+        return '', ''
+
+
 def _limit(n):
     return min(65536, 24576 + 160 * max(1, int(_number(n, 1))))
 
 
-def request_payload(clip, rows, offset=0., duration=None, source_language='en', people=None, options=None):
+def request_payload(clip, rows, offset=0., duration=None, source_language='en', people=None, options=None, schema=True):
     o = _options(options)
     if o is None or not isinstance(clip, bytes) or len(clip) > MAX_CLIP_BYTES:
         return None
     cfg = {'responseMimeType':'application/json', 'maxOutputTokens':_limit(len(_rows(rows))),
            'thinkingConfig':{'thinkingLevel':'medium'}}
+    if schema:
+        cfg['responseSchema'] = RESPONSE_SCHEMA
     if o.media_resolution != 'default':
         cfg['mediaResolution'] = 'MEDIA_RESOLUTION_'+o.media_resolution.upper()
     payload = {'contents':[{'parts':[{'inline_data':{'mime_type':'video/mp4','data':base64.b64encode(clip).decode('ascii')},
@@ -738,6 +774,9 @@ def _summary_result(status, chunks=None, cuts=None, planned=0):
     fraction=(planned-answered)/planned if planned else 1.
     summary=f'Picture analysis: {answered}/{planned} chunks usable; {len(cuts or [])} shot cuts.' if planned else 'Picture analysis: '+status.replace('_',' ')+'.'
     why=[f"chunk {c.get('index')}: {c.get('why') or c.get('reason')}" for c in chunks if not c.get('usable') and (c.get('why') or c.get('reason'))]
+    retried=sum(1 for c in chunks if c.get('retried'))
+    if retried:
+        summary+=f' {retried} piece(s) asked a second time after an unreadable answer.'
     if why:
         summary+=' Not usable - '+'; '.join(why[:6])+'.'
     return dict(status=status,chunks=chunks,cuts=cuts or [],usage=usage,usd=usage['usd'],charged_usd=charged,
@@ -747,7 +786,8 @@ def _summary_result(status, chunks=None, cuts=None, planned=0):
 
 
 def analyse(job_id, rows, video_path, work_dir, api_key, *, ask=None, frame=None, duration=None, source_language='en', people=None, options=None):
-    """Evidence/receipts only. One helper invocation per chunk, no silent retry.
+    """Evidence/receipts only. One request per chunk, and one second request only when the first answer was unreadable (both are
+    counted and logged; never more).
 
     Receipt sidecars are durable BEFORE sending and contain no media. If a
     process dies after send, unknown receipts stay blocked; humans reconcile
@@ -818,19 +858,34 @@ def analyse(job_id, rows, video_path, work_dir, api_key, *, ask=None, frame=None
                             base['reason']='no_key'
                         else:
                             base['cost_unknown']=True
+                            ids=[r['segment_id'] for r in selected]
                             data,error=(ask or _default_ask)(api_key,payload,600)
-                            report=cost_report(data)
+                            _record(job_id,cost_report(data))
+                            answer,why=parse_answer_why(data,ids,length,people) if data is not None else (None,'no_answer')
+                            replies=[data]
+                            if answer is None and why in UNREADABLE:
+                                # One second try for an unreadable piece, without the answer shape in case the model refused it. Both are paid
+                                # and both are counted; the first answer's start and finish reason stay in the receipt for the log.
+                                base['first_try']=dict(zip(('raw_head','finish'),_raw_info(data)),why=why,error=str(error or '')[:300])
+                                plain=request_payload(clip.read_bytes(),selected,start,length,source_language,people,o,schema=False)
+                                if plain is not None:
+                                    data,error=(ask or _default_ask)(api_key,plain,600)
+                                    _record(job_id,cost_report(data))
+                                    replies.append(data)
+                                    answer,why=parse_answer_why(data,ids,length,people) if data is not None else (None,'no_answer')
+                                    base['retried']=True
+                            report=cost_report(replies)
                             base['usage']=report
                             base['cost_unknown']=bool(report['missing_usage'])
-                            _record(job_id,report)
-                            answer,why=parse_answer_why(data,[r['segment_id'] for r in selected],length,people)
+                            if answer is None:
+                                base['raw_head'],base['finish']=_raw_info(data)
                             if answer is not None:
                                 for item in answer['screen_text']:
                                     item['t']+=start
                                 base['answer']=answer;base['usable']=_usable(answer)
                             if not base['usable']:
                                 base['reason']='no_usable_picture_answer'
-                                base['why']=why or ('answer_had_nothing_clear' if answer is not None else 'unreadable')
+                                base['why']=(why or ('answer_had_nothing_clear' if answer is not None else 'unreadable'))+(f" (finish {base['finish']})" if base.get('finish') and base['finish']!='STOP' else '')
             except Exception:
                 base['reason']='picture_request_unavailable'
             try:

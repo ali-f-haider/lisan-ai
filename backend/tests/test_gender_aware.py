@@ -71,9 +71,39 @@ class DetectTests(unittest.TestCase):
         out = self.detect(segs=SEGS[:1], describe=lambda j, p: {"gender": "female", "uncertain": False})     # a 120 Hz voice heard as female
         self.assertEqual((out["A"]["gender"], out["A"]["uncertain"]), ("female", True))
 
-    def test_without_a_listener_the_pitch_is_used_and_marked_unsure(self):
-        out = self.detect(segs=SEGS[:1])
-        self.assertEqual((out["A"]["gender"], out["A"]["source"], out["A"]["uncertain"]), ("male", "pitch", True))
+    def test_without_a_listener_a_clearly_male_pitch_of_one_voice_is_sure(self):
+        out = self.detect(segs=[{"speaker": "A", "start": 0, "end": 4}, {"speaker": "A", "start": 6, "end": 10}])      # 120 Hz in every line
+        self.assertEqual((out["A"]["gender"], out["A"]["source"], out["A"]["uncertain"]), ("male", "pitch", False))
+
+    def two_voices(self, lo, hi):
+        """A wav whose first 20 s are `lo` Hz and last 20 s are `hi` Hz."""
+        src = Path(self.dir.name) / f"mix_{lo}_{hi}.wav"
+        a, b = Path(self.dir.name) / "a.wav", Path(self.dir.name) / "b.wav"
+        tone_wav(a, lo, 20.0); tone_wav(b, hi, 20.0)
+        frames = b""
+        for p in (a, b):
+            with wave.open(str(p)) as r:
+                frames += r.readframes(r.getnframes())
+        with wave.open(str(src), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(frames)
+        return src
+
+    def test_pitch_stays_unsure_for_a_mix_a_middle_pitch_too_little_speech_a_child_or_a_listener_who_heard_otherwise(self):
+        det = lambda src, segs, describe=None: gc.detect_genders("j", src, segs, None, work=Path(self.dir.name) / "w", cut=fake_cut, describe=describe)
+        mix = self.two_voices(110, 210)                                   # two people put into one speaker
+        out = det(mix, [{"speaker": "A", "start": 0, "end": 3}, {"speaker": "A", "start": 4, "end": 8}, {"speaker": "A", "start": 22, "end": 24}])
+        self.assertTrue(out["A"]["uncertain"])
+        mid = Path(self.dir.name) / "mid.wav"; tone_wav(mid, 145)         # male by the old rule, but not clearly
+        self.assertEqual((det(mid, [{"speaker": "A", "start": 0, "end": 8}])["A"]["gender"], det(mid, [{"speaker": "A", "start": 0, "end": 8}])["A"]["uncertain"]), ("male", True))
+        self.assertTrue(det(self.src, [{"speaker": "A", "start": 0, "end": 2}])["A"]["uncertain"])                     # 2 s of speech only
+        child = det(self.src, [{"speaker": "A", "start": 0, "end": 8}], describe=lambda j, p: {"gender": "", "age": "child", "uncertain": True})
+        self.assertTrue(child["A"]["uncertain"])
+        f = gc.pitch_is_sure
+        self.assertTrue(f("female", 230, 5, [225, 240]))
+        self.assertFalse(f("female", 230, 5, [225, 150]))                  # one line sounds like someone else
+        self.assertFalse(f("female", 190, 5, [190]))                       # in the middle band
+        self.assertFalse(f("female", 230, 5, [230], {"gender": "male", "uncertain": True}))
+        self.assertFalse(f("male", 120, 5, []))                            # no line could be measured on its own
 
     def test_no_audio_or_a_failing_listener_never_raises_and_leaves_gender_unknown(self):
         self.assertEqual(self.detect(src=None)["A"], {"gender": "", "source": "", "uncertain": True})
