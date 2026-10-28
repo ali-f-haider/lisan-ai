@@ -147,9 +147,10 @@ class RephraseInsteadOfSpeedUpTests(unittest.TestCase):
         self.d = Path(self.tmp.name)
         (self.d / "lines").mkdir()
         (self.d / "fit").mkdir()
-        self.saved = (g.shorten_arabic_line, ls._tts_with_retry, ls._fit_line, ls._ev)
+        self.saved = (g.shorten_arabic_line, g.check_shortened_arabic, ls._tts_with_retry, ls._fit_line, ls._ev)
         self.asked = []
-        g.shorten_arabic_line = lambda jid, en, ar, max_letters, key: (self.asked.append(max_letters) or "هَذَا نَصٌّ أَقْصَرُ")
+        g.shorten_arabic_line = lambda jid, en, ar, max_letters, key, **kw: (self.asked.append(max_letters) or "هَذَا نَصٌّ أَقْصَرُ")
+        g.check_shortened_arabic = lambda *a, **k: {"same": True, "lost": ""}
         ls._tts_with_retry = lambda voice, text, *a, **k: (b"x", "")
         ls._ev = lambda *a, **k: None
 
@@ -159,7 +160,7 @@ class RephraseInsteadOfSpeedUpTests(unittest.TestCase):
         ls._fit_line = fit
 
     def tearDown(self):
-        self.g.shorten_arabic_line, self.ls._tts_with_retry, self.ls._fit_line, self.ls._ev = self.saved
+        self.g.shorten_arabic_line, self.g.check_shortened_arabic, self.ls._tts_with_retry, self.ls._fit_line, self.ls._ev = self.saved
         self.tmp.cleanup()
 
     def meta(self, tempo):

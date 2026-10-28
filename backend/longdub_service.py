@@ -569,9 +569,11 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None,
     picture_active = bool(picture and has_video and image_unit.enabled() and image_unit.fits(duration_sec))
     picture_charge = (max(0, int(cfg.get("picture_flat", 0) or 0)) +
                       int(math.ceil(minutes * max(0.0, float(cfg.get("picture_per_min", 0) or 0))))) if picture_active else 0
-    total = fee + analysis + flat + speaker_check + speech_check + picture_charge + voice + clones + merge + lip
+    shorten = _shorten_reserve(cfg, duration_sec)
+    total = fee + analysis + flat + speaker_check + speech_check + picture_charge + voice + clones + merge + lip + shorten
     return {
         "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "speaker_check": speaker_check, "speech_check": speech_check, "voice": voice,
+        "shorten": shorten,
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
         **({"picture": picture_charge} if picture_active else {}),
         "speakers": speakers, "assumed_speakers": speakers,
@@ -4763,7 +4765,8 @@ def dub_price(job, cfg=None):
     voice = int(math.ceil(chars / float(cpc))) if chars else 0
     clones = clone_each * len(used)
     merge = max(1, int(cfg.get("merge_credits", 1)))
-    due = voice + clones + merge
+    shorten = _shorten_reserve(cfg, job.get("duration") or 0) if lines else 0
+    due = voice + clones + merge + shorten
     lip = lipsync_price(job, [r for r in rows if (r.get("arabic_text") or "").strip()], cfg)
     if lip:
         due += lip["credits"]
@@ -4777,7 +4780,7 @@ def dub_price(job, cfg=None):
         hi += lip["time_max"]
     return {
         "lines": lines, "chars": chars, "voice": voice, "clones": clones, "clone_each": clone_each,
-        "merge": merge, "due": due, "already_paid": already, "total": already + due,
+        "merge": merge, "shorten": shorten, "due": due, "already_paid": already, "total": already + due,
         "lines_without_arabic": without, "chars_per_credit": cpc,
         "speakers_used": [{"id": k, "name": names.get(k, "?"), "lines": v} for k, v in used.items()],
         "time_min": lo, "time_max": hi,
@@ -4884,7 +4887,7 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
         job["music_budget"] = mq["max_credits"]
         job["music_expected_repairs"] = mq.get('repairs', 0)
         job["dub_plan"] = {"chars": price["chars"], "cpc": price["chars_per_credit"], "clone_each": price["clone_each"],
-                           "merge": price["merge"], "lines": price["lines"],
+                           "merge": price["merge"], "lines": price["lines"], "shorten": int(price.get("shorten") or 0),
                            "speakers": [s["id"] for s in price["speakers_used"]], "confirmed_at": _now()}
         if lip_plan is not None:
             job["dub_plan"]["lipsync"] = lip_plan
@@ -5449,7 +5452,41 @@ def _plan_timeline(lines, total, place=None, overlap=None):
 
 
 REPHRASE_ENABLED = True
-REPHRASE_TRIES = 2             # at most this many shorter versions are tried for one line
+REPHRASE_TRIES = 2             # at most this many shorter versions are tried (spoken) for one line
+SHORTEN_MEANING_RETRIES = 1    # a shorter wording that changes the meaning is asked again this many times (told what it lost)
+# Shortening a line asks Gemini 4 Argon twice (the shorter wording, then a separate meaning check). Priced at its price from
+# 1 Dec 2026: measured about $0.009 per line on the Air Force One clip (30 lines), so 1 credit per line we try to shorten.
+# A reserve is part of the dubbing price (per minute; the clip needed about 4 lines a minute); what is not used is given back.
+SHORTEN_CREDITS_PER_LINE = 1
+SHORTEN_PER_MIN = 4.0
+
+
+def _shorten_reserve(cfg, duration_sec):
+    """Credits kept aside in the dubbing price for shortening lines that are too long (the unused part is given back)."""
+    if not REPHRASE_ENABLED:
+        return 0
+    rate = max(0.0, float((cfg or {}).get("shorten_per_min", SHORTEN_PER_MIN) or 0))
+    return int(math.ceil(max(0.0, float(duration_sec or 0)) / 60.0 * rate)) if rate else 0
+
+
+def _shorten_refund(job, uid, dub):
+    """Gives back the part of the shortening reserve that was not used (1 credit per line we tried to shorten). Once."""
+    plan = job.get("dub_plan") or {}
+    reserve = int(plan.get("shorten") or 0)
+    if not reserve or dub.get("shorten_settled"):
+        return
+    used = min(reserve, len(dub.get("shorten_asked") or []) * SHORTEN_CREDITS_PER_LINE)
+    back = reserve - used
+    if back <= 0:
+        dub["shorten_settled"] = True
+        _ev(job, "shorten_cost", "ok", f"{len(dub.get('shorten_asked') or [])} line(s) sent for shortening: the whole reserve of {reserve} credits was used")
+        return
+    if _remaining(job, "dub") >= back and _refund(job, uid, back, "dub", "shorten_unused"):
+        dub["shorten_settled"] = True
+        dub["shorten_refund"] = back
+        _ev(job, "shorten_refund", "ok", f"{len(dub.get('shorten_asked') or [])} line(s) sent for shortening ({used} credits): {back} of {reserve} credits back", back)
+    else:
+        _ev(job, "shorten_refund", "failed", f"{back} credits not yet confirmed; retried on the next run")
 try:      # a line with fewer Arabic letters than this is never rewritten shorter (env LONGDUB_REPHRASE_MIN_LETTERS, 8 - 40)
     REPHRASE_MIN_LETTERS = min(40, max(8, int(float(os.environ.get("LONGDUB_REPHRASE_MIN_LETTERS") or 14))))
 except Exception:
@@ -5477,6 +5514,18 @@ def _rephrase_gender(job, r, rows_all=None):
     return context
 
 
+def _shorten_context(rows, sid, before=2, after=1):
+    """The lines around one line (speaker, original, Arabic) for the shortening and its meaning check."""
+    rows = rows or []
+    ids = [x.get("segment_id") for x in rows]
+    if sid not in ids:
+        return None
+    i = ids.index(sid)
+    pick = lambda x: {"speaker": str(x.get("speaker") or ""), "english": str(x.get("text") or "")[:300],
+                      "arabic": str(x.get("arabic_text") or "")[:300]}
+    return {"before": [pick(x) for x in rows[max(0, i - before):i]], "after": [pick(x) for x in rows[i + 1:i + 1 + after]]}
+
+
 def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=None, gap=None, min_letters=None, rows_all=None):
     """A line that is still too long after using the silence after it and the
     "good" stretch would have its end cut. Instead, ask for a SHORTER version of
@@ -5495,7 +5544,13 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
                  or context.get("addressee_is") or arabic_rewrite_guard.address_gender(reviewed)) else {}
     cur_text = r["arabic_text"].strip()
     best_meta, best_text, best_out = meta, None, None
-    for attempt in range(1, REPHRASE_TRIES + 1):
+    src_kw = {"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}
+    ctx = _shorten_context(rows_all if rows_all is not None else read_segments(job), sid)
+    rejected = []           # shorter wordings the meaning check turned down: the next ask is told what they lost
+    attempt = 0
+    meaning_asks = 0
+    while attempt < REPHRASE_TRIES:
+        attempt += 1
         letters = _ar_letters(cur_text)
         actual = float(best_meta.get("raw") or 0)
         if letters < (min_letters or REPHRASE_MIN_LETTERS) or actual <= 0:
@@ -5506,10 +5561,14 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         if ratio >= 0.97:
             break
         max_letters = max(3, int(letters * ratio))
+        asked = job.setdefault("dub", {}).setdefault("shorten_asked", [])
+        if sid not in asked:
+            asked.append(sid)   # this line costs a shortening (SHORTEN_CREDITS_PER_LINE): counted once, however often it is asked
         new = None
         for ask in range(2):        # the AI service sometimes answers with nothing: ask once more
             try:
-                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY, **gender_kw, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
+                new = gemini_service.shorten_arabic_line(job["id"], r.get("text") or "", cur_text, max_letters, GEMINI_API_KEY, **gender_kw, **src_kw,
+                                                         context=ctx, rejected=rejected)
             except Exception as ex:
                 print(f"[longdub] rephrase call failed for {sid}: {ex}")
             if new:
@@ -5533,6 +5592,22 @@ def _rephrase_to_fit(job, r, tag, meta, slot, room, voice_id, loud_ref, d, cap=N
         if conflict:
             _ev(job, "line_rephrase", "failed", f"{sid}: shorter wording rejected ({conflict}); keeping the reviewed wording")
             break
+        # the meaning comes first: a separate reader compares the shorter wording with the reviewed line; if it lost anything,
+        # it is not used (and not spoken). One more ask is told what was lost; after that the line keeps its longer wording.
+        verdict = None
+        try:
+            verdict = gemini_service.check_shortened_arabic(job["id"], r.get("text") or "", reviewed, new, GEMINI_API_KEY, **src_kw, context=ctx)
+        except Exception as ex:
+            print(f"[longdub] meaning check failed for {sid}: {ex}")
+        if not verdict or not verdict.get("same"):
+            lost = (verdict or {}).get("lost") or "the meaning check gave no answer"
+            _ev(job, "line_rephrase", "failed", f"{sid}: shorter wording rejected, it does not say the same ({lost}): {new}")
+            rejected.append({"text": new, "lost": lost})
+            if verdict is None or meaning_asks >= SHORTEN_MEANING_RETRIES:
+                break
+            meaning_asks += 1
+            attempt -= 1          # a wording that was not spoken does not use up a try
+            continue
         audio, err = _tts_with_retry(voice_id, f"{tag}{new}", r.get("waqf"), gap, job.get("delivery_mode"))
         if audio is None:
             _ev(job, "line_rephrase", "failed", f"{sid}: the voice service did not speak the shorter version: {err}")
@@ -5925,6 +6000,8 @@ def _run_dubbing(job):
                 else:
                     _ev(job, "rephrase_refund", "failed", "the refund was not confirmed and will be retried")
             _save(job)
+        _shorten_refund(job, uid, dub)
+        _save(job)
         if failed:
             # Pro-rata refund for the characters of lines that were not generated.
             fchars = sum(len(inworld_service.instruction_tag(by_seg[s].get("emotion"))) + len(by_seg[s]["arabic_text"].strip())

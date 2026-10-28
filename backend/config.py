@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.83.4"
+APP_VERSION = "1.83.6"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -223,6 +223,10 @@ GEMINI_MODELS = [
 # Telling who says which line is the hardest judgement the checks make: those requests (and only those) go to Google's strongest
 # model first, then to the models above when it fails. LONGDUB_SPEAKER_MODELS (comma separated) changes it; "-" turns it off.
 SPEAKER_MODELS = [m.strip() for m in os.environ.get("LONGDUB_SPEAKER_MODELS", "gemini-4-argon").split(",") if m.strip() and m.strip() != "-"]
+# Shortening an Arabic line that is too long for its time, and the check that the shorter line still means the same, go to the
+# same strongest model first (measured on 30 lines of the Air Force One clip: the usual model broke the meaning of 12 of them).
+# LONGDUB_SHORTEN_MODELS changes it; "-" turns it off (then the models above).
+SHORTEN_MODELS = [m.strip() for m in os.environ.get("LONGDUB_SHORTEN_MODELS", "gemini-4-argon").split(",") if m.strip() and m.strip() != "-"]
 
 # Picture-unit runtime options live in image_unit.py and are read once there.
 # IMAGE_UNIT=0 (OFF until proven; set 1 to turn it on), IMAGE_FPS=2, IMAGE_MEDIA_RESOLUTION=default,

@@ -5596,6 +5596,9 @@ def _ld_pricing():
         # the second listen (speech_second.py): the whole voice track is listened to once more, flat + per minute
         "speech_check_flat": int(_num(os.environ.get("SPEECH_CHECK_FLAT_CREDITS"), longdub_service.SPEECH_CHECK_FLAT)),
         "speech_check_per_min": _num(os.environ.get("SPEECH_CHECK_CREDITS_PER_MIN"), longdub_service.SPEECH_CHECK_PER_MIN),
+        # shortening lines that are too long for their time (with a meaning check): a reserve per minute in the dubbing price,
+        # 1 credit per line actually shortened, the rest given back
+        "shorten_per_min": _num(os.environ.get("SHORTEN_CREDITS_PER_MIN"), longdub_service.SHORTEN_PER_MIN),
         "picture_flat": int(_picture_num(os.environ.get("PICTURE_FLAT_CREDITS"), PICTURE_FLAT_CREDITS)),
         "picture_per_min": _picture_num(os.environ.get("PICTURE_CREDITS_PER_MIN"), PICTURE_CREDITS_PER_MIN),
         # lip-sync: same per-second price as Step 7, and its own length limit
@@ -5812,6 +5815,7 @@ def longdub_config(request: Request):
         "fee": p["fee"], "analysis_per_min": p["analysis_per_min"], "flat": p["flat"],
         "speaker_check_flat": p["speaker_check_flat"], "speaker_check_per_min": p["speaker_check_per_min"],
         "speech_check_flat": p["speech_check_flat"], "speech_check_per_min": p["speech_check_per_min"],
+        "shorten_per_min": p["shorten_per_min"],
         "picture_available": image_unit.enabled(),
         "credits": get_credits(uid), "studio": bool(LONGDUB_ALL_TIERS or _ld_is_studio(uid)), "watermark": bool(_wm_needed(uid)),
         "max_speakers": longdub_service.MAX_SPEAKERS, "terms_version": longdub_service.TERMS_VERSION,
@@ -8802,7 +8806,9 @@ def _assistant_pricing_text():
         L.append(f"Long dub: videos up to {p['max_min']:g} minutes; analysis {p['analysis_per_min']:g} credits per minute of video plus a flat {p['flat']} credits "
                  f"plus a speaker check of {p['speaker_check_flat']} credits flat and {p['speaker_check_per_min']:g} per minute (two extra checks of who says each line; returned if the check cannot run) "
                  f"plus a second listen of {p['speech_check_flat']} credits flat and {p['speech_check_per_min']:g} per minute (the speech is listened to once more to catch missed or misheard sentences; returned if it cannot run) "
-                 f"(shown as the estimate before the user accepts); then the dub itself is priced on the lines and voices and shown before accepting; "
+                 f"(shown as the estimate before the user accepts); then the dub itself is priced on the lines and voices and shown before accepting, "
+                 f"with a reserve of {p['shorten_per_min']:g} credits per minute for shortening lines that are too long for their time "
+                 f"(1 credit per line shortened, each shorter line is checked to keep the same meaning; the unused part is given back); "
                  f"lip-sync for long dubs up to {p['lipsync_max_min']:g} minutes.")
     except Exception:
         pass

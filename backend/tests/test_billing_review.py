@@ -160,7 +160,7 @@ class BillingReviewTests(unittest.TestCase):
         price = {'lines':1, 'due':7, 'chars':6, 'chars_per_credit':60, 'clone_each':5, 'merge':1,
                  'speakers_used':[{'id':'s1'}], 'voice':1, 'clones':5}
         charge = Mock(return_value=True)
-        n = extract('longdub_service.py', ['confirm', '_charge', '_ops', '_paid_key', 'clean_delivery_mode'], {'uuid':__import__('uuid'), 'has_media':lambda _:True, 'ensure_tashkeel':lambda _:(0,None),
+        n = extract('longdub_service.py', ['confirm', '_charge', '_ops', '_paid_key'], {'uuid':__import__('uuid'), 'has_media':lambda _:True, 'ensure_tashkeel':lambda _:(0,None),
                     'dub_price':lambda _:price, 'INWORLD_API_KEY':'mock', 'music_quote':lambda _:{'max_credits':0},
                     'Hooks':NS(get_credits=lambda _:100, charge=charge), '_lock_for':lambda _:threading.RLock(),
                     '_debit_ok':debit_confirmed, '_now':lambda:1, 'ROOM_CHOICES':{'auto':0},
@@ -300,7 +300,8 @@ class BillingReviewTests(unittest.TestCase):
             for configured in (1, 3, 0):
                 cfg={'chars_per_credit':60,'clone_credits':5,'merge_credits':configured}
                 env={'Hooks':NS(pricing=lambda cfg=cfg:cfg),'read_segments':lambda _:rows,'math':math,
-                     'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1,'_job_pricing':lambda _job,cfg=cfg:cfg}
+                     'lipsync_price':lambda *args:None,'_speed_factor':lambda _:1,'DUB_BASE_SEC':1,'_job_pricing':lambda _job,cfg=cfg:cfg,
+                     '_shorten_reserve':lambda _cfg,_dur:2}
                 long=extract('longdub_service.py',['dub_price'],env)
                 import speech_removal
                 fixture = Path(tempfile.mkdtemp()); self.addCleanup(shutil.rmtree, fixture, True)
@@ -312,7 +313,7 @@ class BillingReviewTests(unittest.TestCase):
                 for kind,price in [('long',long['dub_price'](parent)),('correction',corrections['quote'](parent,['line']))]:
                     with self.subTest(kind=kind, configured=configured):
                         self.assertEqual(price['merge'], expected)
-                        self.assertEqual(price['due'], price['voice'] + price['clones'] + expected,
+                        self.assertEqual(price['due'], price['voice'] + price['clones'] + expected + int(price.get('shorten') or 0),
                                          'The total shown must include exactly the assembly fee')
 
     def test_completed_music_checkpoint_is_reused_without_paid_repairs(self):

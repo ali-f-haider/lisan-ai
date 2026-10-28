@@ -282,6 +282,7 @@ var T = {
     estVoiceRow: "Arabic voice generation (about)", estVoiceSub: "Final price is calculated from your edited text",
     estCloneRow: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; }, estCloneSub: "Charged for each speaker whose voice is cloned",
     estMergeRow: "Final assembly", estMergeSub: "",
+    estShortenRow: "Shortening long lines (at most)", estShortenSub: "Lines too long for their time are shortened without changing their meaning: 1 credit per line, the unused part is given back",
     estTotal: "Estimated total",
     estTimes: function (t) {
       return "⏱ Estimated waiting time: analysis about " + t.analysis_min + "–" + t.analysis_max + " min, then dubbing about " + t.dub_min + "–" + t.dub_max + " min after you confirm" +
@@ -391,7 +392,7 @@ var T = {
     priceTashkeel: function (n) { return "✍️ Tashkeel was added to " + n + " line" + (n === 1 ? "" : "s") + " that had none. Check the lines above and the new price."; },
     priceLines: function (n, chars) { return n + " lines · " + chars + " characters of Arabic"; },
     priceVoice: "Arabic voice generation", priceClones: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; },
-    priceMerge: "Final assembly", priceDue: "To pay now", priceAlready: function (n) { return "Already paid (estimate, analysis and processing): " + n; },
+    priceMerge: "Final assembly", priceShorten: "Shortening long lines (at most; the unused part is given back)", priceDue: "To pay now", priceAlready: function (n) { return "Already paid (estimate, analysis and processing): " + n; },
     priceLipRow: function (l) { return "Lip-sync: " + l.clips + " clip" + (l.clips === 1 ? "" : "s") + ", " + l.seconds + " s × " + l.per_sec + (l.resolution ? " · " + l.resolution.replace("P", "p") : ""); },
     priceLipShort: function (n) { return "ℹ️ " + n + " very short speaking moment(s) between clips cannot be lip-synced and keep the original picture."; },
     priceLipNone: "ℹ️ No stretch of speech is long enough to be lip-synced, so nothing is charged for lip-sync.",
@@ -560,6 +561,7 @@ var T = {
     estVoiceRow: "توليد الصوت العربي (تقريباً)", estVoiceSub: "السعر النهائي يُحسب من النص بعد تعديلك",
     estCloneRow: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; }, estCloneSub: "يُحتسب لكل متحدث يُستنسخ صوته",
     estMergeRow: "التجميع النهائي", estMergeSub: "",
+    estShortenRow: "تقصير الأسطر الطويلة (حدّ أقصى)", estShortenSub: "الأسطر الأطول من وقتها تُختصر دون تغيير معناها: رصيد واحد لكل سطر، ويُردّ ما لا يُستخدم",
     estTotal: "الإجمالي المقدَّر",
     estTimes: function (t) {
       return "⏱ وقت الانتظار المقدَّر: التحليل نحو " + t.analysis_min + "–" + t.analysis_max + " دقيقة، ثم الدبلجة نحو " + t.dub_min + "–" + t.dub_max + " دقيقة بعد تأكيدك" +
@@ -669,7 +671,7 @@ var T = {
     priceTashkeel: function (n) { return "✍️ أُضيف التشكيل إلى " + n + " سطراً لم يكن فيه تشكيل. راجع الأسطر أعلاه والسعر الجديد."; },
     priceLines: function (n, chars) { return n + " سطر · " + chars + " حرفاً عربياً"; },
     priceVoice: "توليد الصوت العربي", priceClones: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; },
-    priceMerge: "التجميع النهائي", priceDue: "المطلوب الآن", priceAlready: function (n) { return "المدفوع مسبقاً (التقدير + التحليل + المعالجة): " + n; },
+    priceMerge: "التجميع النهائي", priceShorten: "تقصير الأسطر الطويلة (حدّ أقصى؛ يُردّ ما لا يُستخدم)", priceDue: "المطلوب الآن", priceAlready: function (n) { return "المدفوع مسبقاً (التقدير + التحليل + المعالجة): " + n; },
     priceLipRow: function (l) { return "مزامنة الشفاه: " + l.clips + " مقطعاً، " + l.seconds + " ث × " + l.per_sec + (l.resolution ? " · " + l.resolution.replace("P", "p") : ""); },
     priceLipShort: function (n) { return "ℹ️ " + n + " لحظة كلام قصيرة جداً بين المقاطع لا يمكن مزامنة شفاهها وتبقى بالصورة الأصلية."; },
     priceLipNone: "ℹ️ لا توجد فترة كلام طويلة بما يكفي لمزامنة الشفاه، فلا يُحتسب شيء لمزامنة الشفاه.",
@@ -1129,7 +1131,8 @@ function renderEstimate(j) {
     (e.flat ? qli(T.estFlatRow, e.flat, T.estFlatSub) : "") + (e.speaker_check ? qli(T.estSpkRow, e.speaker_check, T.estSpkSub) : "") + (e.speech_check ? qli(T.estSpeechRow, e.speech_check, T.estSpeechSub) : "") +
     (e.picture ? qli(LANG === "ar" ? "تحليل الصورة" : "Picture analysis", e.picture, LANG === "ar" ? "يُردّ ما يقابل الأجزاء التي تعذّر تحليلها" : "Failed portions are refunded") : "") +
     qli(T.estVoiceRow, "≈ " + e.voice, T.estVoiceSub) + qli(T.estCloneRow(n, e.clone_each), e.clones, T.estCloneSub) +
-    (lipOn ? qli(T.estLipRow, "≤ " + e.lipsync, T.estLipSub(e.lipsync_per_sec)) : "") + qli(T.estMergeRow, e.merge, T.estMergeSub);
+    (lipOn ? qli(T.estLipRow, "≤ " + e.lipsync, T.estLipSub(e.lipsync_per_sec)) : "") + (e.shorten ? qli(T.estShortenRow, "≤ " + e.shorten, T.estShortenSub) : "") +
+    qli(T.estMergeRow, e.merge, T.estMergeSub);
   var tip = [esc(T.estNow((e.analysis || 0) + (e.flat || 0) + (e.speaker_check || 0) + (e.speech_check || 0) + (e.picture || 0))), "<ul>" + items + "</ul>",
              paid ? esc(T.estAlready(paid)) + " " + esc(T.estDeclineNote) : ""];
   var h = "<p style='margin:4px 0 10px;color:var(--text-muted);'>" + esc(T.estIntro(j.filename, fmtMin(j.duration), n, lipOn)) + "</p>";
@@ -2511,7 +2514,8 @@ function renderConfirm() {
   } else {
     var p = pricePreview;
     var bk = "<ul>" + qli(T.priceVoice, p.voice) + qli(T.priceClones(p.speakers_used.length, p.clone_each), p.clones) +
-      (p.lipsync && p.lipsync.clips ? qli(T.priceLipRow(p.lipsync), p.lipsync.credits) : "") + qli(T.priceMerge, p.merge) + "</ul>";
+      (p.lipsync && p.lipsync.clips ? qli(T.priceLipRow(p.lipsync), p.lipsync.credits) : "") + (p.shorten ? qli(T.priceShorten, "≤ " + p.shorten) : "") +
+      qli(T.priceMerge, p.merge) + "</ul>";
     var tip = [esc(T.priceLines(p.lines, p.chars)), bk, esc(T.priceAlready(p.already_paid)) + " · " + esc(T.priceTotal(p.total)),
                esc(T.priceSpeakers) + " " + p.speakers_used.map(function (s) { return esc(s.name) + " (" + s.lines + ")"; }).join("، ")];
     if (p.lipsync) h += '<div class="ld-lipres"><label for="priceLipRes">' + esc(T.lipResLabel) + '</label><select id="priceLipRes">' + lipResOptions(p.lipsync.resolution || "720P") + "</select></div>";
