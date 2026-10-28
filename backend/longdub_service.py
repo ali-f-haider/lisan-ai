@@ -1946,6 +1946,12 @@ def _face_genders(job, rows, wd):
         # Sure results that a face does not overrule: the words, and a sure listening or picture result. A pitch alone is not among them: an
         # old man's rough voice measured 190-246 Hz line by line (a woman's range) while his face, clearly speaking, was a man's.
         sure_now = bool(current) and (sp.get("gender_source") == "text" or (not sp.get("gender_uncertain") and sp.get("gender_source") != "pitch"))
+        if not sure_now and not strong:
+            # two looks that agree beat an unsure voice guess (real run, 28 Oct: the hijacker's face, seen twice, and the picture both
+            # said a man; the pitch, unsure, said a woman): the face seen speaking in two lines, or the picture saying the same
+            seen_twice = int(res.get("seen") or 0) >= 2
+            picture_same = (sp.get("picture_gender_check") or {}).get("visual_advice") == g
+            strong = seen_twice or picture_same
         where = ", ".join(f"{s} {_clock(by_id[s].get('start'))}" for s in res["ids"] if s in by_id)
         if current and current != g and (sure_now or not strong):
             sp["picture_gender_check"] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
@@ -2066,7 +2072,21 @@ def _speaker_check_refund(job, why):
     return 0
 
 
-def _speaker_check_settle(job, usage):
+def _speaker_check_add_usage(job, usage):
+    """Adds what a request of the speaker check used to the job's count (kept with the job, so a resumed run still knows it)."""
+    try:
+        if int((usage or {}).get("calls") or 0) <= 0:
+            return
+        an = job.setdefault("analysis", {})
+        u = an.setdefault("speaker_check_usage", {"calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0})
+        for k in ("calls", "tokens_in", "tokens_out", "tokens_thinking"):
+            u[k] = int(u.get(k) or 0) + int(usage.get(k) or 0)
+        _save(job)
+    except Exception as ex:
+        print(f"[longdub] speaker check usage not kept: {ex}")
+
+
+def _speaker_check_settle(job, usage=None):
     """After the speaker check ran: keep what it really used (its tokens at the December price of the strongest model, 1 credit per
     cent, plus the flat part, scaled like this job's price list) and give back the rest of the reserve. Once. Never raises."""
     try:
@@ -2074,8 +2094,8 @@ def _speaker_check_settle(job, usage):
         if paid <= 0 or job.get("speaker_check_settled"):
             return 0
         an = job.setdefault("analysis", {})
-        if int((usage or {}).get("calls") or 0) > 0:
-            an["speaker_check_usage"] = {k: int(usage.get(k) or 0) for k in ("calls", "tokens_in", "tokens_out", "tokens_thinking")}
+        if usage:
+            _speaker_check_add_usage(job, usage)
         u = an.get("speaker_check_usage")
         if not u:
             return 0          # nothing measured (saved answers from an older version): the reserve stands
@@ -2440,7 +2460,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
             r.pop("speaker_vote", None)
         _speaker_check_refund(job, "the speaker check could not run on this video")
     else:
-        _speaker_check_settle(job, usage)
+        _speaker_check_add_usage(job, usage)      # settled after the genders, which may ask once more (see _detect_speaker_genders)
     return summary
 
 
@@ -2852,6 +2872,7 @@ def _run_analysis(job):
             _face_genders(job, rows, wd)
         except Exception as ex:
             print(f"[longdub] face genders skipped: {type(ex).__name__}: {ex}")
+        _speaker_check_settle(job)        # the speaker check's reserve: what its requests used is kept, the rest given back
         _translate_all(job, rows)
         # 7b. the AI listens to each line's isolated voice for its delivery (emotion); falls back to the text guess without speed tags
         _mark(job, "translate", 98, "Listening to how each line is spoken...")
@@ -3356,14 +3377,31 @@ def _detect_speaker_genders(job, rows, src):
         # What the WORDS show (names, titles, he/she, jobs) beats a voice guess; the person's own choice beats both.
         people = gender_context.read_transcript_people(job["id"], rows, GEMINI_API_KEY, source_language=languages.get(job.get("source_language")).code)
         found, roles = gender_context.combine_people(found, people)
+        heard_note = ""
+        # every speaker whose gender the words or the person did not settle (measured 28 Oct 2026: 20 of 20 speakers right on the two
+        # test clips, about $0.04 a clip; only an unsure result is replaced, a sure one that disagrees is marked for the person)
+        unsure = [n for n, info in found.items() if info.get("source") not in ("chosen", "text")]
+        if unsure and src and Path(src).exists() and GEMINI_API_KEY:
+            try:      # the strongest model hears these speakers in the whole scene (part of the speaker check, paid from its reserve)
+                audio = speaker_vote_live._audio_b64(src, _wd(job))
+                heard, h_usage = gender_context.hear_in_context(job["id"], audio, rows, unsure, GEMINI_API_KEY)
+                _speaker_check_add_usage(job, h_usage)
+                before = {n: dict(found[n]) for n in unsure}
+                changed = gender_context.apply_context(found, heard)
+                heard_note = "; heard in the scene: " + (", ".join(
+                    f"{n} {heard[n]['gender']}{'' if heard[n]['sure'] else ' (not sure)'}"
+                    + (f" (was {before[n].get('gender') or '?'} from {before[n].get('source') or 'none'})" if n in changed else "")
+                    for n in unsure if n in heard) or "no usable answer")
+            except Exception as ex:
+                print(f"[longdub] hearing speakers in the scene skipped: {ex}")
         for sp in lst:
             info = found.get(sp.get("name"))
             if info:
                 sp["gender"], sp["gender_source"], sp["gender_uncertain"] = info["gender"], info["source"], info["uncertain"]
             if roles.get(sp.get("name")):
                 sp["role"] = roles[sp["name"]]
-        _ev(job, "speaker_genders", "ok", ", ".join(f"{sp.get('name')}={sp.get('gender') or '?'}({sp.get('gender_source') or 'none'}"
-                                                     f"{', unsure' if sp.get('gender_uncertain') else ''})" for sp in lst))
+        _ev(job, "speaker_genders", "ok", (", ".join(f"{sp.get('name')}={sp.get('gender') or '?'}({sp.get('gender_source') or 'none'}"
+                                                     f"{', unsure' if sp.get('gender_uncertain') else ''})" for sp in lst) + heard_note)[:1400])
     except Exception as ex:
         print(f"[longdub] speaker gender skipped: {ex}")
 

@@ -353,3 +353,122 @@ def read_flags(item):
     if addressee not in ("male", "female", "group", "none", "unknown"):
         addressee = ""
     return addressee, (item or {}).get("gender_check") is True
+
+
+# ------------------------------------------------------------------ hearing each speaker in the scene (since 1.84.4)
+# A voice cut out of its scene can fool both the pitch and a listener: on Air Force One (28 Oct 2026) the hijacker shouting and the
+# pilot on the radio measured 160-170 Hz, so they were guessed "female (pitch, unsure)", while the face check saw a man. The strongest
+# model hears the whole voice track with each speaker's lines marked by time, and says man / woman / child per speaker. Measured the
+# same day on the two labelled clips: 20 of 20 speakers right (Air Force One 8 of 8, C4K 12 of 12), about $0.04 a clip.
+
+CONTEXT_MAX_LINES = 12          # lines listed per speaker (the longest ones)
+CONTEXT_THINKING = "medium"     # telling a man from a woman needs no long thinking
+
+
+def context_prompt(speakers):
+    """speakers: {name: [{"id", "start", "end", "text"}]}"""
+    out = ["You hear the isolated voices of a whole film scene. Below, for some speakers, are lines they say, with start and end "
+           "seconds. Listen to each speaker's lines at those times and decide, from the VOICE, whether this speaker is a man, a woman "
+           "or a child. Shouting, a radio or a telephone can make a man's voice sound higher: judge the whole person, not one line. "
+           "Say sure=false when the lines sound like different people or you cannot tell. Return JSON only: "
+           '{"speakers": [{"name": "Speaker 1", "gender": "male" or "female", "child": false, "sure": true}]}', ""]
+    for name, lines in speakers.items():
+        out.append(f"{name}:")
+        for l in lines:
+            out.append("  " + json.dumps({"start": round(float(l["start"]), 2), "end": round(float(l["end"]), 2),
+                                          "text": str(l.get("text") or "")[:120]}, ensure_ascii=False))
+    return "\n".join(out)
+
+
+def parse_context_answer(text, names):
+    """{name: {"gender", "child", "sure"}} for the asked names only; {} when the answer is unusable."""
+    try:
+        obj = json.loads(text)
+    except Exception:
+        m = re.search(r"\{.*\}", str(text or ""), re.S)
+        if not m:
+            return {}
+        try:
+            obj = json.loads(m.group(0))
+        except Exception:
+            return {}
+    items = obj.get("speakers") if isinstance(obj, dict) else obj
+    out = {}
+    for it in items if isinstance(items, list) else []:
+        if not isinstance(it, dict):
+            continue
+        n, g = str(it.get("name") or "").strip(), clean(it.get("gender"))
+        if n in names and g:
+            out[n] = {"gender": g, "child": bool(it.get("child")), "sure": it.get("sure") is True}
+    return out
+
+
+def hear_in_context(job_id, audio_b64, rows, names, key, ask=None):
+    """Asks once for every name in `names`. Returns ({name: {"gender", "child", "sure"}}, usage dict). Never raises."""
+    usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0, "usd": 0.0}
+    if not names or not audio_b64 or (not key and ask is None):
+        return {}, usage
+    speakers = {}
+    for n in names:
+        mine = [r for r in rows if r.get("speaker") == n and str(r.get("text") or "").strip()]
+        mine.sort(key=lambda r: -(float(r["end"]) - float(r["start"])))
+        if mine:
+            speakers[n] = sorted(mine[:CONTEXT_MAX_LINES], key=lambda r: float(r["start"]))
+    if not speakers:
+        return {}, usage
+    payload = {"contents": [{"parts": [{"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}},
+                                       {"text": context_prompt(speakers)}]}],
+               "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": 8192,
+                                    "thinkingConfig": {"thinkingLevel": CONTEXT_THINKING}}}
+    try:
+        if ask is None:
+            import gemini_service
+            import speaker_vote_live
+            ask = lambda p: gemini_service.call_gemini(key, p, timeout=300, models=speaker_vote_live.speaker_models())
+        data, _err = ask(payload)
+    except Exception as ex:
+        print(f"[gender] hearing in the scene failed: {ex}")
+        return {}, usage
+    if not data:
+        return {}, usage
+    try:
+        import resource_meter
+        u = data.get("usageMetadata") or {}
+        usage.update(calls=1, tokens_in=int(u.get("promptTokenCount") or 0), tokens_out=int(u.get("candidatesTokenCount") or 0),
+                     tokens_thinking=int(u.get("thoughtsTokenCount") or 0), usd=float(resource_meter.gemini_usd(data) or 0.0))
+    except Exception:
+        pass
+    try:
+        parts = data["candidates"][0]["content"]["parts"]
+        text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and not p.get("thought"))
+    except Exception:
+        text = ""
+    return parse_context_answer(text, set(speakers)), usage
+
+
+def apply_context(found, heard):
+    """Puts what was heard in the scene into the gender table. Only an unsure voice guess (pitch, a listener that was not sure, or
+    nothing) is replaced; the person's choice and what the words show are never touched. A sure answer that agrees or replaces makes
+    the speaker sure; a sure answer that disagrees with a sure voice result only marks the speaker unsure. Returns the changed names."""
+    changed = []
+    for name, h in (heard or {}).items():
+        info = found.get(name)
+        if info is None or info.get("source") in ("chosen", "text"):
+            continue
+        g, cur = h["gender"], clean(info.get("gender"))
+        unsure_now = bool(info.get("uncertain")) or info.get("source") in ("pitch", "")
+        if cur == g:
+            if h["sure"] and info.get("uncertain"):
+                found[name] = dict(info, uncertain=False)
+                changed.append(name)
+            continue
+        if unsure_now and h["sure"]:
+            found[name] = dict(info, gender=g, source="heard", uncertain=False)
+            changed.append(name)
+        elif unsure_now and not cur:
+            found[name] = dict(info, gender=g, source="heard", uncertain=True)
+            changed.append(name)
+        elif h["sure"]:
+            found[name] = dict(info, uncertain=True)          # two sure opinions disagree: the person looks
+            changed.append(name)
+    return changed

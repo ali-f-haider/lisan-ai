@@ -431,7 +431,9 @@ def ask_genders(job_id, crops, api_key, ask=None):
 
 def speaker_genders(crops, answers):
     """{speaker: {'gender', 'strong', 'seen', 'ids'}} for speakers whose answered crops ALL show the same gender. strong: at least two
-    of those crops show the face alone on screen. A crop answered 'unknown' does not count against; one answered otherwise does."""
+    crops of the face that clearly speaks (its mouth moves with the line, any other face on screen stays still), alone on screen or not:
+    a real run had the old judge seen speaking in two lines, one of them next to two other men, and the result was wrongly called weak.
+    A crop answered 'unknown' does not count against; one answered otherwise does."""
     by = {}
     for c in crops:
         g = answers.get(c['id'])
@@ -443,5 +445,5 @@ def speaker_genders(crops, answers):
         if len(genders) != 1:
             continue
         alone = sum(1 for _, a, _ in items if a)
-        out[sp] = dict(gender=genders.pop(), strong=alone >= 2, seen=len(items), ids=[s for _, _, s in items])
+        out[sp] = dict(gender=genders.pop(), strong=len(items) >= 2, seen=len(items), alone=alone, ids=[s for _, _, s in items])
     return out
