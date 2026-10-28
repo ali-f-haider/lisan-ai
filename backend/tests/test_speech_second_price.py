@@ -64,8 +64,14 @@ class Refund(unittest.TestCase):
         self.assertEqual(refunds, [])
 
     def test_returned_with_a_subtitle(self):
-        _, refunds = self.run_listener({"lines": None}, job={"id": "j", "uid": "u", "subtitle": {"name": "x.srt"}, "speech_check_paid": 19})
+        _, refunds = self.run_listener({"lines": None}, job={"id": "j", "uid": "u", "subtitle": {"name": "x.srt", "result": {"ok": True}}, "speech_check_paid": 19})
         self.assertEqual(len(refunds), 1)
+
+    def test_kept_when_the_subtitle_matched_nothing(self):
+        heard = {"lines": [{"start": 0.0, "end": 1.0, "text": "Hello there, friend."}], "model": "gemini-4-argon", "usd": 0.1, "seconds": 3}
+        _, refunds = self.run_listener(heard, job={"id": "j", "uid": "u", "subtitle": {"name": "x.srt", "result": {"ok": False, "reason": "no_match"}},
+                                                   "speech_check_paid": 19, "analysis": {"audio_duration": 100}})
+        self.assertEqual(refunds, [])
 
 
 class Wiring(unittest.TestCase):

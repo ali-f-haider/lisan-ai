@@ -177,14 +177,14 @@ class Wiring(unittest.TestCase):
         src = inspect.getsource(ld._run_analysis)
         a = src.index("rows = rows_from_raw(raw_all")
         b = src.index("rows = _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language)")
-        c = src.index("_kept = _kept_start(raw_all, rows)")
-        self.assertLess(a, b); self.assertLess(b, c)
-        self.assertLess(b, src.index("rows = _apply_subtitle(job, rows)"))
+        sub = src.index("rows = _apply_subtitle(job, rows)")
+        self.assertLess(a, sub); self.assertLess(sub, b)      # only a subtitle that was really used replaces the second listen
+        self.assertLess(b, src.index("vote = _vote_speakers(job, rows, wd, vocals_all)"))
 
     def test_skipped_with_a_subtitle_or_switched_off(self):
         import longdub_service as ld
         src = inspect.getsource(ld._second_listener)
-        self.assertIn('job.get("subtitle")', src)
+        self.assertIn('(job.get("subtitle") or {}).get("result", {}).get("ok")', src)
         self.assertIn("speech_second.ENABLED", src)
 
     def test_editor_mark_and_its_confirm(self):

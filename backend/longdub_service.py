@@ -2629,7 +2629,6 @@ def _run_analysis(job):
             except Exception as ex:
                 print(f"[longdub] pause detection failed: {ex}")
         rows = rows_from_raw(raw_all, turns, label_map, silences, source_language=source_language)
-        rows = _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language)      # a second listen fills in what was missed or misheard
         _kept = _kept_start(raw_all, rows)      # every sentence the speech recognition heard must stay in a line (speech_kept.py)
         try:     # what the detector said and what became of it (for the server log; short clips only)
             if len(turns) <= 80:
@@ -2649,6 +2648,9 @@ def _run_analysis(job):
         rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
         if (job.get("subtitle") or {}).get("result", {}).get("ok"):
             _kept = None      # the user's subtitle decides the words
+        # a second listen fills in what was missed or misheard (after the subtitle step: only a subtitle that was really used replaces it;
+        # real run, 28 Oct: a subtitle of another film matched nothing, yet the second listen had been skipped and refunded)
+        rows = _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language)
         try:      # the picture is an extra opinion: whatever goes wrong with it, the dub goes on with the sound alone
             _picture = _run_picture(job, rows, wd)
         except Exception as ex:
@@ -2891,8 +2893,9 @@ def _second_listener(job, rows, wd, vocals_all, turns, label_map, source_languag
     a line, a line it clearly misheard gets the second listener's words. Both are marked 'check text'. Never fails the job."""
     try:
         import speech_second
-        if not speech_second.ENABLED or not GEMINI_API_KEY or not vocals_all.exists() or job.get("subtitle") or not rows:
-            _speech_check_refund(job, "your own subtitle gives the words" if job.get("subtitle") else "the second listen could not run on this video")
+        sub_used = bool((job.get("subtitle") or {}).get("result", {}).get("ok"))
+        if not speech_second.ENABLED or not GEMINI_API_KEY or not vocals_all.exists() or sub_used or not rows:
+            _speech_check_refund(job, "your own subtitle gives the words" if sub_used else "the second listen could not run on this video")
             return rows
         _mark(job, "build", 86, "Listening once more for anything missed...")
         heard = speech_second.listen(job["id"], vocals_all, wd, GEMINI_API_KEY, (job.get("analysis") or {}).get("audio_duration"),
