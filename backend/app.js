@@ -8,7 +8,7 @@ const CREDIT_USD = 0.01;
 const GEMINI_IN_PER_M = 0.30, GEMINI_OUT_PER_M = 2.50;
 const AUDIO_TOKENS_PER_SEC = 258;
 const VOICE_USD_PER_1K_CHARS = 0.18;
-const GEMINI_TEXT_MODELS = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+const GEMINI_TEXT_MODELS = ["gemini-3.6-flash", "gemini-flash-latest"];   // 2.5 and 2.0 Flash no longer answer (28 Oct 2026)
 const COIN_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v9"/><path d="M14.5 9.5c0-1-1.1-1.6-2.5-1.6s-2.5.6-2.5 1.6 1.1 1.6 2.5 1.6 2.5.6 2.5 1.6-1.1 1.6-2.5 1.6-2.5-.6-2.5-1.6"/></svg>`;
 const NOTIFY_AUTO_CLOSE_MS = 10000;
 // Timeline blocks are sized by how much English text a line has, not by its

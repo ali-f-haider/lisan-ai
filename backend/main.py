@@ -174,7 +174,7 @@ def read_terms():
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
 
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
-GEMINI_TEXT_MODELS = ["gemini-2.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]
+GEMINI_TEXT_MODELS = ["gemini-3.6-flash", "gemini-flash-latest"]      # 2.5 Flash no longer answers (28 Oct 2026)
 
 # ==================== ALL MODELS ====================
 

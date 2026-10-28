@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.83.6"
+APP_VERSION = "1.83.7"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -215,8 +215,9 @@ WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")
 
 # --- Gemini model lists (text + TTS) ---
+# gemini-2.5-flash was taken off this list on 28 Oct 2026: Google no longer answers it ("no longer available to new users"),
+# so every request failed there once before reaching 3.6 Flash. gemini-flash-latest answers as 3.8 Flash.
 GEMINI_MODELS = [
-    "gemini-2.5-flash",
     "gemini-3.6-flash",
     "gemini-flash-latest",
 ]

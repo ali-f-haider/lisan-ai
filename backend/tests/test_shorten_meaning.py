@@ -150,6 +150,17 @@ class Price(unittest.TestCase):
         spec.loader.exec_module(cfg)
         self.assertEqual(cfg.SHORTEN_MODELS[0], "gemini-4-argon")
 
+    def test_models_google_no_longer_answers_are_not_tried(self):
+        root = Path(__file__).resolve().parents[1]
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("real_config_for_models", root / "config.py")
+        cfg = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cfg)
+        for gone in ("gemini-2.5-flash", "gemini-2.0-flash"):     # 404 "no longer available" (28 Oct 2026)
+            self.assertNotIn(gone, cfg.GEMINI_MODELS)
+            self.assertNotIn(f'"{gone}"', (root / "main.py").read_text(encoding="utf-8").split("GEMINI_TEXT_MODELS = ")[1].split("\n")[0])
+            self.assertNotIn(f'"{gone}"', (root / "app.js").read_text(encoding="utf-8").split("GEMINI_TEXT_MODELS = ")[1].split("\n")[0])
+
     def test_the_unused_part_is_given_back_once(self):
         backs, evs = [], []
         saved = (ls._refund, ls._remaining, ls._ev)
