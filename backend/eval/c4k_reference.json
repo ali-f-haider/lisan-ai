@@ -1,7 +1,7 @@
 {
  "clip": "C4K Clip.mp4",
  "duration_sec": 488.8,
- "labelled_by": "Ali, 28 Oct 2026",
+ "labelled_by": "Ali, 28 Oct 2026 ('Overruled.' corrected to the Judge)",
  "people": [
   "Bailiff",
   "Billy",
@@ -395,7 +395,7 @@
   {
    "start": 166.4,
    "end": 166.9,
-   "speaker": "Prosecutor",
+   "speaker": "Judge",
    "text": "Overruled."
   },
   {
