@@ -69,7 +69,19 @@ class Price(unittest.TestCase):
 
     def test_other_models_unchanged(self):
         d = {"modelVersion": "gemini-2.5-flash", "usageMetadata": {"promptTokenCount": 1_000_000}}
-        self.assertAlmostEqual(resource_meter.gemini_usd(d), resource_meter.GEMINI_IN_USD_PER_M)
+        self.assertAlmostEqual(resource_meter.gemini_usd(d), resource_meter.flash_rates()[0])
+
+    def test_flash_price_and_the_january_rise(self):
+        with mock.patch.object(resource_meter, "GEMINI_IN_USD_PER_M", None), mock.patch.object(resource_meter, "GEMINI_OUT_USD_PER_M", None), \
+                mock.patch.object(resource_meter, "GEMINI_AUDIO_IN_USD_PER_M", None):
+            self.assertEqual(resource_meter.flash_rates(datetime.date(2026, 10, 28)), (0.75, 3.75, 0.75))
+            self.assertEqual(resource_meter.flash_rates(datetime.date(2027, 1, 1)), (1.50, 7.50, 1.50))
+            d = {"modelVersion": "gemini-3.6-flash", "usageMetadata": {"promptTokenCount": 2_000_000, "candidatesTokenCount": 1_000_000,
+                 "promptTokensDetails": [{"modality": "AUDIO", "tokenCount": 1_000_000}]}}
+            # 1M text in + 1M audio in + 1M out, at today's prices
+            self.assertAlmostEqual(resource_meter.gemini_usd(d), sum(resource_meter.flash_rates()))
+        with mock.patch.object(resource_meter, "GEMINI_IN_USD_PER_M", 0.3):       # an admin's fixed rate still wins
+            self.assertEqual(resource_meter.flash_rates(datetime.date(2027, 1, 1))[0], 0.3)
 
 
 if __name__ == "__main__":

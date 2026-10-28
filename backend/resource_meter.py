@@ -229,9 +229,39 @@ _active = 0                          # jobs being measured right now (cache is n
 _meters = []                         # JobMeters running right now
 _meters_lock = threading.Lock()
 _tl = threading.local()              # the JobMeter(s) started by this thread (a provider call inside it adds its price to the top one)
-GEMINI_IN_USD_PER_M = _env_float("GEMINI_IN_USD_PER_M", 0.30)      # gemini-2.5-flash, the model every call uses first
-GEMINI_OUT_USD_PER_M = _env_float("GEMINI_OUT_USD_PER_M", 2.50)
-GEMINI_AUDIO_IN_USD_PER_M = _env_float("GEMINI_AUDIO_IN_USD_PER_M", 1.00)   # audio the model listens to costs more than text    # answer AND thinking tokens are both billed at this rate
+# Gemini 3.6 Flash, the model every usual call uses first (2.5 Flash no longer answers since 28 Oct 2026). Google's price list
+# (read 28 Oct 2026), per 1M tokens, one input price for text, pictures and audio; answer AND thinking tokens at the output price:
+# $0.75 / $3.75 until 31 Dec 2026, then $1.50 / $7.50 from 1 Jan 2027. Measured by the day of the request, like Argon.
+FLASH_PRICES = ((_dt.date(2027, 1, 1), 1.50, 7.50),
+                (_dt.date(2000, 1, 1), 0.75, 3.75))
+
+
+def _env_rate(name):
+    """A fixed rate set by the admin in the environment, or None (then the price list above counts)."""
+    try:
+        v = os.environ.get(name, "")
+        return float(v) if v.strip() else None
+    except ValueError:
+        return None
+
+
+GEMINI_IN_USD_PER_M = _env_rate("GEMINI_IN_USD_PER_M")              # None: the price list by date
+GEMINI_OUT_USD_PER_M = _env_rate("GEMINI_OUT_USD_PER_M")
+GEMINI_AUDIO_IN_USD_PER_M = _env_rate("GEMINI_AUDIO_IN_USD_PER_M")  # None: the same as the input price (3.6 Flash has one input price)
+
+
+def flash_rates(today=None):
+    """(input, output, audio input) dollars per 1M tokens for the usual Gemini model on that day (default today)."""
+    day = today or _dt.date.today()
+    rin, rout = FLASH_PRICES[-1][1], FLASH_PRICES[-1][2]
+    for start, a, b in FLASH_PRICES:
+        if day >= start:
+            rin, rout = a, b
+            break
+    rin = GEMINI_IN_USD_PER_M if GEMINI_IN_USD_PER_M is not None else rin
+    rout = GEMINI_OUT_USD_PER_M if GEMINI_OUT_USD_PER_M is not None else rout
+    raud = GEMINI_AUDIO_IN_USD_PER_M if GEMINI_AUDIO_IN_USD_PER_M is not None else rin
+    return rin, rout, raud
 _trim = {"runs": 0, "freed_gb_total": 0.0, "last_ts": None, "last_freed_gb": None, "last_files": 0}
 
 
@@ -265,7 +295,8 @@ def gemini_usd(data):
             if str(d.get("modality", "")).upper() == "AUDIO":
                 taud += int(d.get("tokenCount", 0) or 0)
         taud = min(taud, tin)
-        return (tin - taud) / 1e6 * GEMINI_IN_USD_PER_M + taud / 1e6 * GEMINI_AUDIO_IN_USD_PER_M + tout / 1e6 * GEMINI_OUT_USD_PER_M
+        rin, rout, raud = flash_rates()
+        return (tin - taud) / 1e6 * rin + taud / 1e6 * raud + tout / 1e6 * rout
     except Exception:
         return 0.0
 

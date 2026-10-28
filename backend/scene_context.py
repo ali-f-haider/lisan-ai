@@ -36,8 +36,8 @@ CACHE_VERSION = 1
 MAX_TEXT_CHARS = 90000            # transcript sent to Gemini; longer ones are thinned out evenly (about 25k tokens)
 MAX_FRAMES = 10
 FRAME_WIDTH = 384
-PRICE_IN_PER_M = 0.30             # $ per million tokens, gemini-2.5-flash (same rates main.py uses for its job costs)
-PRICE_OUT_PER_M = 2.50
+PRICE_IN_PER_M = None             # None: the cost meter's Gemini 3.6 Flash price for the day (resource_meter.flash_rates); a number fixes it
+PRICE_OUT_PER_M = None
 
 # kind of place -> (what it covers, longest believable decay time in s, loudest believable tail in dB).
 # These are starting estimates in the same units room_acoustics measures in; they are ceilings, not targets.
@@ -231,7 +231,14 @@ def _cost(usage):
     t_in = int(usage.get("promptTokenCount", 0) or 0)
     t_out = int(usage.get("candidatesTokenCount", 0) or 0)
     t_th = int(usage.get("thoughtsTokenCount", 0) or 0)
-    usd = t_in / 1e6 * PRICE_IN_PER_M + (t_out + t_th) / 1e6 * PRICE_OUT_PER_M
+    try:
+        import resource_meter
+        rin, rout, _aud = resource_meter.flash_rates()
+    except Exception:
+        rin, rout = 0.75, 3.75
+    rin = PRICE_IN_PER_M if PRICE_IN_PER_M is not None else rin
+    rout = PRICE_OUT_PER_M if PRICE_OUT_PER_M is not None else rout
+    usd = t_in / 1e6 * rin + (t_out + t_th) / 1e6 * rout
     return {"tokens_in": t_in, "tokens_out": t_out, "tokens_thoughts": t_th, "cost_usd": round(usd, 5)}
 
 

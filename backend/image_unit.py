@@ -559,7 +559,11 @@ def mood_hint(delivery, current_emotion, confidence):
 
 def _rates():
     import resource_meter as meter
-    a,b=(_number(getattr(meter,k,None),v) for k,v in [('GEMINI_IN_USD_PER_M',.30),('GEMINI_OUT_USD_PER_M',2.50)])
+    try:
+        rin,rout,_aud=meter.flash_rates()
+    except Exception:
+        rin,rout=.75,3.75
+    a,b=_number(rin,.75),_number(rout,3.75)
     return max(0.,a),max(0.,b)
 
 
