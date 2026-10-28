@@ -217,6 +217,7 @@ class Policy:
     allow_new: bool = True
     audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
     picture_weight: int = 1   # already aligned per chunk; visual advice remains optional
+    prefer_backed: bool = False   # True: when places for new speakers are limited, the person with the most backed lines gets one first (default: who speaks first)
 
 
 def _policy(value):
@@ -232,7 +233,7 @@ def _policy(value):
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
             (value.min_new_lines, value.max_new_speakers, value.min_support, value.new_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool)
+            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool) or not isinstance(value.prefer_backed, bool)
             or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3
             or isinstance(value.picture_weight, bool) or not isinstance(value.picture_weight, int) or not 1 <= value.picture_weight <= 2):
         return None
@@ -331,8 +332,12 @@ def decide(lines, voters=None, policy=None):
     accepted, rejected = {}, []
     matches = [re.fullmatch(r'Speaker ([0-9]+)', name) for name in original.values()]
     next_number = max((int(m[1]) for m in matches if m), default=0) + 1
-    for label,entries in sorted(wins.items(), key=lambda item: (item[1][0][0], item[0])):
-        backed = sum(support >= chosen.new_support for _,support in entries)
+    def _backed(entries):
+        return sum(support >= chosen.new_support for _,support in entries)
+    order = ((lambda item: (-_backed(item[1]), item[1][0][0], item[0])) if chosen.prefer_backed else
+             (lambda item: (item[1][0][0], item[0])))
+    for label,entries in sorted(wins.items(), key=order):
+        backed = _backed(entries)
         reason = ('new_disabled' if not chosen.allow_new else
                   'too_few_lines' if len(entries) < chosen.min_new_lines else
                   'too_little_support' if backed < chosen.min_new_lines else

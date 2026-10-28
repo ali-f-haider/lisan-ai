@@ -332,6 +332,68 @@ class KeepDetected(unittest.TestCase):
         self.assertFalse(any(k.get("keep") for k in self.run_service(job, self.rows(), self.votes(), KEEP_DETECTED=False)))
 
 
+class SwapPlace(unittest.TestCase):
+    """The detector found the user's number by chance: it glued two people together (a mother and her daughter) and made a separate
+    speaker of half an 'Mm-hmm' that no check backs. The person both checks agree on takes that empty place; the number stays the same."""
+    def rows(self):
+        # Speaker 1: mother (0-2) + daughter (3-7); Speaker 2: lines 8-13; Speaker 3: line 14 only ('Mm'); Speaker 4: lines 15-19
+        return rows(20, lambda i: "Speaker 1" if i < 8 else "Speaker 2" if i < 14 else "Speaker 3" if i == 14 else "Speaker 4")
+
+    def votes(self, line14="B", extra=None):
+        lab = {f"seg_{i}": ("A" if i < 3 else "D" if i < 8 else "B" if i < 14 else line14 if i == 14 else "C") for i in range(20)}
+        lab.update(extra or {})
+        return {"dialogue": dict(lab), "audio": dict(lab)}
+
+    def people(self, r):
+        return {x["speaker"] for x in r}
+
+    def test_the_person_both_checks_agree_on_takes_the_unbacked_place(self):
+        r = self.rows()
+        s = svl.apply(r, self.votes(), allow_new=False, keep=True)
+        self.assertEqual(s["status"], "ok")
+        self.assertEqual(len(self.people(r)), 4)                    # still the user's number
+        self.assertNotIn("Speaker 3", self.people(r))               # the half 'Mm-hmm' speaker gave its place away
+        self.assertEqual([x["speaker"] for x in r if x["segment_id"] == "seg_14"], ["Speaker 2"])     # its line went to who said it
+        first = {x["speaker"] for x in r[:3]}; second = {x["speaker"] for x in r[3:8]}
+        self.assertEqual(len(first), 1); self.assertEqual(len(second), 1); self.assertNotEqual(first, second)      # mother and daughter apart
+        self.assertEqual([d["old"] for d in s["swapped"]], ["Speaker 3"])
+        self.assertEqual(len(s["new_speakers"]), 1)
+        self.assertEqual(s["merged"], 0)
+
+    def test_a_small_speaker_a_check_backs_is_never_given_away(self):
+        r = self.rows()
+        s = svl.apply(r, self.votes(line14="E"), allow_new=False, keep=True)      # both checks: line 14 is somebody else
+        self.assertIn("Speaker 3", self.people(r))
+        self.assertEqual(len(self.people(r)), 4)
+        self.assertEqual(s["swapped"], [])
+        self.assertEqual({x["speaker"] for x in r[:8]}, {"Speaker 1"})           # nothing to swap with: the lines stay, marked
+        self.assertTrue(any(x["speaker_vote"]["badge"] for x in r[:8]))
+
+    def test_one_free_place_goes_to_the_person_with_more_backed_lines(self):
+        # Speaker 4 now has lines 15-25; a third person N is heard in lines 23-25 (3 lines), the daughter has 5: there is one free place
+        r = rows(26, lambda i: "Speaker 1" if i < 8 else "Speaker 2" if i < 14 else "Speaker 3" if i == 14 else "Speaker 4")
+        lab = {f"seg_{i}": ("A" if i < 3 else "D" if i < 8 else "B" if i < 15 else "N" if i >= 23 else "C") for i in range(26)}
+        s = svl.apply(r, {"dialogue": dict(lab), "audio": dict(lab)}, allow_new=False, keep=True)
+        self.assertEqual(len(self.people(r)), 4)
+        self.assertEqual(len({x["speaker"] for x in r[3:8]} & {x["speaker"] for x in r[:3]}), 0)      # the daughter got it
+        self.assertEqual({x["speaker"] for x in r[15:26]}, {"Speaker 4"})                            # N stays on its speaker, marked
+        self.assertTrue(all(x["speaker_vote"]["badge"] for x in r[23:26]))
+        self.assertEqual(len(s["swapped"]), 1)
+
+    def test_too_few_lines_for_a_new_person_changes_nothing(self):
+        r = self.rows()
+        lab = self.votes(extra={f"seg_{i}": "A" for i in range(3, 6)})      # the 'daughter' now has only 2 lines
+        s = svl.apply(r, lab, allow_new=False, keep=True)
+        self.assertEqual(s["swapped"], [])
+        self.assertIn("Speaker 3", self.people(r))                  # given back as before, marked 'check speaker'
+        self.assertEqual(s["restored"], 1)
+
+    def test_the_log_names_the_swap(self):
+        note = ld._swap_note({"swapped": [{"old": "Speaker 8", "old_lines": 1}], "new_speakers": ["Speaker 14"], "rename": {"Speaker 14": "Speaker 13"}})
+        self.assertIn("Speaker 8 (1 line(s)) -> Speaker 13", note)
+        self.assertEqual(ld._swap_note({"swapped": []}), "")
+
+
 class Wiring(unittest.TestCase):
     def test_stated_people(self):
         f = ld._stated_people

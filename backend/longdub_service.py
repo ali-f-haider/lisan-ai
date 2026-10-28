@@ -1877,7 +1877,9 @@ def _face_genders(job, rows, wd):
             continue
         g, strong = res["gender"], res["strong"]
         current = sp.get("gender") if sp.get("gender") in ("male", "female") else ""
-        sure_now = bool(current) and (sp.get("gender_source") == "text" or not sp.get("gender_uncertain"))
+        # Sure results that a face does not overrule: the words, and a sure listening or picture result. A pitch alone is not among them: an
+        # old man's rough voice measured 190-246 Hz line by line (a woman's range) while his face, clearly speaking, was a man's.
+        sure_now = bool(current) and (sp.get("gender_source") == "text" or (not sp.get("gender_uncertain") and sp.get("gender_source") != "pitch"))
         where = ", ".join(f"{s} {_clock(by_id[s].get('start'))}" for s in res["ids"] if s in by_id)
         if current and current != g and (sure_now or not strong):
             sp["picture_gender_check"] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
@@ -2163,6 +2165,19 @@ def _stated_people(job):
 
 
 STATED_FIRST = os.environ.get("LONGDUB_STATED_FIRST", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: the detector's grouping decides again
+
+
+def _swap_note(summary):
+    """Log text for the keep mode's swap: which detector speakers no check backed gave their place to which new person."""
+    sw = summary.get("swapped") or []
+    if not sw:
+        return ""
+    rename = summary.get("rename") or {}
+    new = [rename.get(x, x) for x in (summary.get("new_speakers") or [])]
+    return ("; " + str(len(sw)) + " detector speaker(s) no check backed gave their place to a person the checks agree on: "
+            + ", ".join(f"{d['old']} ({d['old_lines']} line(s))" for d in sw) + " -> " + ", ".join(new))
+
+
 KEEP_DETECTED = os.environ.get("LONGDUB_KEEP_DETECTED", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: the vote may merge speakers even when the detector found the user's number
 
 
@@ -2271,7 +2286,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}"
                 f"; people named: " + ", ".join(f"{k} {speaker_vote_live.people_named(votes.get(k))}" for k in ("dialogue", "audio")) + f"; stated {people or 'none'}{reask_note}; "
                 f"result {summary['status']}{' (your number of speakers decided, the detector was not used)' if summary.get('fresh') else ''}"
-                f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied)' if _same_number and summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
+                f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied' + _swap_note(summary) + ')' if _same_number and summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
                 f"cost ${float(usage.get('usd') or 0):.4f}")
