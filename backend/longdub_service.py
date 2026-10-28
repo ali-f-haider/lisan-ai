@@ -2715,6 +2715,7 @@ def _run_analysis(job):
                 _ev(job, "speaker_trace_lines", "info", _t_row)
         except Exception as ex:
             print(f"[longdub] speaker trace skipped: {ex}")
+        _answer_sheet_score(job, rows)      # test clips with a hand-made answer sheet (eval/): who-says-which-line score in the log
         _ev(job, "transcript_built", "ok", f"{len(rows)} lines, {job['detected_speakers']} speakers detected, "
                                            f"{_stated_count(job) or 'no number'} stated by the user; "
                                            f"{len(silences)} pauses of {PAUSE_MIN_SEC:g}s+ measured")
@@ -2850,6 +2851,38 @@ def remove_subtitle(job):
     _save(job)
     _ev(job, "subtitle_removed", "ok", "")
     return True, None
+
+
+EVAL_DIR = Path(__file__).resolve().parent / "eval"
+
+
+def _answer_sheet_score(job, rows):
+    """When the video is one of our test clips (a file in eval/ with the same file name and length), the log gets its score:
+    how many lines have the right speaker, by the answer sheet a person made. Only a log line; never changes anything."""
+    try:
+        dur = float((job.get("analysis") or {}).get("audio_duration") or 0)
+        for f in sorted(EVAL_DIR.glob("*_reference.json")):
+            ref = json.loads(f.read_text(encoding="utf-8"))
+            if ref.get("clip") != job.get("filename") or abs(float(ref.get("duration_sec") or 0) - dur) > 1.0:
+                continue
+            import sys as _sys
+            _tools = str(Path(__file__).resolve().parent / "tools")
+            if _tools not in _sys.path:
+                _sys.path.insert(0, _tools)
+            import answer_score
+            sc = answer_score.score(ref, rows)
+            def _c(t):
+                return f"{int(float(t) // 60)}:{float(t) % 60:04.1f}"
+            _ev(job, "answer_sheet_score", "info",
+                f"{f.name}: lines right {sc['lines_right']} of {sc['lines_scored']} ({100 * sc['line_accuracy']:.1f}%), speaking time right "
+                f"{100 * (sc['time_accuracy'] or 0):.1f}%; people {sc['people_real']} real, {sc['people_app']} in the app; never found: "
+                f"{', '.join(sc['people_never_matched']) or 'none'}; wrong: "
+                + "; ".join(f"{_c(m['time'])} {m['real']} as {m['app_means'] or m['app']} \"{m['text'][:30]}\"" for m in sc["mistakes"][:40])
+                + (f"; not in the app's lines: " + "; ".join(f"{_c(m['time'])} \"{m['text'][:30]}\"" for m in sc["missing"][:10]) if sc["missing"] else ""))
+            return sc
+    except Exception as ex:
+        print(f"[longdub] answer sheet score skipped: {type(ex).__name__}: {ex}")
+    return None
 
 
 def _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language="en"):

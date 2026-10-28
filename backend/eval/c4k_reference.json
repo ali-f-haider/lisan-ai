@@ -1,0 +1,804 @@
+{
+ "clip": "C4K Clip.mp4",
+ "duration_sec": 488.8,
+ "labelled_by": "Ali, 28 Oct 2026",
+ "people": [
+  "Bailiff",
+  "Billy",
+  "Channel owner",
+  "Daughter",
+  "Guglielmo",
+  "Judge",
+  "Judge 2",
+  "Kirk",
+  "Max Duganfield",
+  "Mother",
+  "Police chief",
+  "Prosecutor",
+  "Receptionist",
+  "Woman at the fair",
+  "Woman at the fair 2"
+ ],
+ "turns": [
+  {
+   "start": 1.6,
+   "end": 4.2,
+   "speaker": "Billy",
+   "text": "Uh, do I..."
+  },
+  {
+   "start": 4.2,
+   "end": 5.2,
+   "speaker": "Mother",
+   "text": "Mm -hmm."
+  },
+  {
+   "start": 5.3,
+   "end": 6.2,
+   "speaker": "Billy",
+   "text": "Do I have to?"
+  },
+  {
+   "start": 6.6,
+   "end": 7.3,
+   "speaker": "Mother",
+   "text": "Oh, yes."
+  },
+  {
+   "start": 7.5,
+   "end": 7.7,
+   "speaker": "Billy",
+   "text": "Yeah."
+  },
+  {
+   "start": 9.1,
+   "end": 9.6,
+   "speaker": "Mother",
+   "text": "Well?"
+  },
+  {
+   "start": 10.3,
+   "end": 10.7,
+   "speaker": "Billy",
+   "text": "297."
+  },
+  {
+   "start": 13.3,
+   "end": 15.1,
+   "speaker": "Mother",
+   "text": "Billy, you were 297 last week."
+  },
+  {
+   "start": 15.2,
+   "end": 17.5,
+   "speaker": "Billy",
+   "text": "Well, it takes some time for these diets to work."
+  },
+  {
+   "start": 21.1,
+   "end": 22.3,
+   "speaker": "Billy",
+   "text": "Heidi, what are you doing to me?"
+  },
+  {
+   "start": 23.3,
+   "end": 23.7,
+   "speaker": "Daughter",
+   "text": "Morning."
+  },
+  {
+   "start": 24.1,
+   "end": 24.2,
+   "speaker": "Billy",
+   "text": "Ah."
+  },
+  {
+   "start": 24.5,
+   "end": 26.4,
+   "speaker": "Mother",
+   "text": "You always wanted me to do to you."
+  },
+  {
+   "start": 27.1,
+   "end": 29.2,
+   "speaker": "Mother",
+   "text": "In the back seat of your father's car."
+  },
+  {
+   "start": 29.8,
+   "end": 31.1,
+   "speaker": "Mother",
+   "text": "I'm proving my love."
+  },
+  {
+   "start": 31.9,
+   "end": 35.3,
+   "speaker": "Daughter",
+   "text": "So, you gonna go to New Haven to get Mr. Mafia off today?"
+  },
+  {
+   "start": 36.4,
+   "end": 37.4,
+   "speaker": "Mother",
+   "text": "Please don't call him that."
+  },
+  {
+   "start": 38.0,
+   "end": 40.0,
+   "speaker": "Mother",
+   "text": "It's bad enough your father's defending him."
+  },
+  {
+   "start": 40.0,
+   "end": 41.0,
+   "speaker": "Mother",
+   "text": "Jokes I can do without."
+  },
+  {
+   "start": 42.9,
+   "end": 44.4,
+   "speaker": "Daughter",
+   "text": "Your sir, this is justice."
+  },
+  {
+   "start": 44.9,
+   "end": 46.3,
+   "speaker": "Daughter",
+   "text": "This is not justice."
+  },
+  {
+   "start": 46.7,
+   "end": 47.5,
+   "speaker": "Billy",
+   "text": "Keep it up."
+  },
+  {
+   "start": 47.5,
+   "end": 48.8,
+   "speaker": "Billy",
+   "text": "I'll take your video card away."
+  },
+  {
+   "start": 49.4,
+   "end": 50.4,
+   "speaker": "Daughter",
+   "text": "You would not."
+  },
+  {
+   "start": 50.6,
+   "end": 52.1,
+   "speaker": "Billy",
+   "text": "Oh, promise, sweetheart."
+  },
+  {
+   "start": 52.8,
+   "end": 54.7,
+   "speaker": "Mother",
+   "text": "Glad you two think this is so funny."
+  },
+  {
+   "start": 56.1,
+   "end": 56.9,
+   "speaker": "Billy",
+   "text": "Oh, come on."
+  },
+  {
+   "start": 56.9,
+   "end": 60.5,
+   "speaker": "Billy",
+   "text": "I wouldn't have taken on Janelli's case unless I was absolutely convinced of his innocence."
+  },
+  {
+   "start": 60.8,
+   "end": 61.2,
+   "speaker": "Mother",
+   "text": "Maybe."
+  },
+  {
+   "start": 61.4,
+   "end": 62.3,
+   "speaker": "Mother",
+   "text": "This time."
+  },
+  {
+   "start": 62.9,
+   "end": 63.4,
+   "speaker": "Mother",
+   "text": "Maybe."
+  },
+  {
+   "start": 67.4,
+   "end": 68.5,
+   "speaker": "Daughter",
+   "text": "There's my ride."
+  },
+  {
+   "start": 69.0,
+   "end": 72.3,
+   "speaker": "Daughter",
+   "text": "I go to wipe out the tachylias and earth science."
+  },
+  {
+   "start": 72.8,
+   "end": 73.2,
+   "speaker": "Billy",
+   "text": "Oh."
+  },
+  {
+   "start": 74.9,
+   "end": 75.2,
+   "speaker": "Daughter",
+   "text": "Bye."
+  },
+  {
+   "start": 75.4,
+   "end": 75.8,
+   "speaker": "Daughter",
+   "text": "Love you."
+  },
+  {
+   "start": 89.83,
+   "end": 93.59,
+   "speaker": "Billy",
+   "text": "defense calls max duganfield ..."
+  },
+  {
+   "start": 93.59,
+   "end": 101.55,
+   "speaker": "Prosecutor",
+   "text": "oh your honor i object ..."
+  },
+  {
+   "start": 101.55,
+   "end": 104.83,
+   "speaker": "Judge",
+   "text": "mr hallock are you sure ..."
+  },
+  {
+   "start": 104.83,
+   "end": 113.57,
+   "speaker": "Billy",
+   "text": "your honor if max duganfield ..."
+  },
+  {
+   "start": 113.57,
+   "end": 115.8,
+   "speaker": "Judge",
+   "text": "call max duganfield to the stand ..."
+  },
+  {
+   "start": 116.5,
+   "end": 118.59,
+   "speaker": "Bailiff",
+   "text": "Mr. Max Duganfield, please"
+  },
+  {
+   "start": 119.17,
+   "end": 120.5,
+   "speaker": "Guglielmo",
+   "text": "What the hell are you doing Billy?"
+  },
+  {
+   "start": 121.1,
+   "end": 123.6,
+   "speaker": "Billy",
+   "text": "Remember what I told you about that, uh, detective agency?"
+  },
+  {
+   "start": 124.7,
+   "end": 127.13,
+   "speaker": "Guglielmo",
+   "text": "So what this is really all about is"
+  },
+  {
+   "start": 127.13,
+   "end": 128.6,
+   "speaker": "Billy",
+   "text": "pulling your ass out of the fire."
+  },
+  {
+   "start": 128.8,
+   "end": 129.7,
+   "speaker": "Bailiff",
+   "text": "Please raise your right hand."
+  },
+  {
+   "start": 130.4,
+   "end": 134.3,
+   "speaker": "Bailiff",
+   "text": "You swear to tell the truth, the whole truth, and nothing but the truth, so I hope you got it."
+  },
+  {
+   "start": 134.5,
+   "end": 134.9,
+   "speaker": "Max Duganfield",
+   "text": "I do."
+  },
+  {
+   "start": 135.2,
+   "end": 136.6,
+   "speaker": "Bailiff",
+   "text": "State your name for the record, please."
+  },
+  {
+   "start": 137.4,
+   "end": 138.3,
+   "speaker": "Max Duganfield",
+   "text": "Max Duganfield."
+  },
+  {
+   "start": 139.3,
+   "end": 139.7,
+   "speaker": "Billy",
+   "text": "Mr."
+  },
+  {
+   "start": 140.8,
+   "end": 141.3,
+   "speaker": "Billy",
+   "text": "Duganfield."
+  },
+  {
+   "start": 144.6,
+   "end": 147.6,
+   "speaker": "Billy",
+   "text": "Anybody else out there who might want to see you dead?"
+  },
+  {
+   "start": 149.1,
+   "end": 149.6,
+   "speaker": "Max Duganfield",
+   "text": "Maybe."
+  },
+  {
+   "start": 151.0,
+   "end": 151.4,
+   "speaker": "Max Duganfield",
+   "text": "Possibly."
+  },
+  {
+   "start": 151.4,
+   "end": 155.7,
+   "speaker": "Billy",
+   "text": "To your knowledge, has there ever been a price on your head prior to this current matter?"
+  },
+  {
+   "start": 156.4,
+   "end": 156.8,
+   "speaker": "Max Duganfield",
+   "text": "Well."
+  },
+  {
+   "start": 158.9,
+   "end": 159.9,
+   "speaker": "Max Duganfield",
+   "text": "Three years ago."
+  },
+  {
+   "start": 160.1,
+   "end": 161.5,
+   "speaker": "Billy",
+   "text": "Who was it, Mr. Duganfield?"
+  },
+  {
+   "start": 161.8,
+   "end": 164.9,
+   "speaker": "Billy",
+   "text": "Who was it that took a contract out on your life three years ago?"
+  },
+  {
+   "start": 165.5,
+   "end": 165.9,
+   "speaker": "Prosecutor",
+   "text": "Objection!"
+  },
+  {
+   "start": 166.4,
+   "end": 166.9,
+   "speaker": "Prosecutor",
+   "text": "Overruled."
+  },
+  {
+   "start": 168.4,
+   "end": 170.2,
+   "speaker": "Max Duganfield",
+   "text": "Well, it was my wife."
+  },
+  {
+   "start": 171.4,
+   "end": 173.6,
+   "speaker": "Max Duganfield",
+   "text": "She got feisty this one time."
+  },
+  {
+   "start": 174.2,
+   "end": 175.9,
+   "speaker": "Max Duganfield",
+   "text": "The PMS thing, maybe."
+  },
+  {
+   "start": 176.2,
+   "end": 177.4,
+   "speaker": "Max Duganfield",
+   "text": "You know how they get."
+  },
+  {
+   "start": 178.0,
+   "end": 180.4,
+   "speaker": "Max Duganfield",
+   "text": "And then there was this matter of some money."
+  },
+  {
+   "start": 180.6,
+   "end": 181.2,
+   "speaker": "Max Duganfield",
+   "text": "Your Honor..."
+  },
+  {
+   "start": 181.2,
+   "end": 184.8,
+   "speaker": "Max Duganfield",
+   "text": "But, uh, now that she's gone through the change, man,"
+  },
+  {
+   "start": 185.7,
+   "end": 187.2,
+   "speaker": "Max Duganfield",
+   "text": "everything is beautiful."
+  },
+  {
+   "start": 195.0,
+   "end": 201.4,
+   "speaker": "Guglielmo",
+   "text": "Grazie, Mamma. Curiamo. Grazie."
+  },
+  {
+   "start": 201.5,
+   "end": 202.0,
+   "speaker": "Billy",
+   "text": "just"
+  },
+  {
+   "start": 208.2,
+   "end": 212.4,
+   "speaker": "Guglielmo",
+   "text": "doing my job fuck that i owe you a big one william"
+  },
+  {
+   "start": 214.0,
+   "end": 215.1,
+   "speaker": "Guglielmo",
+   "text": "listen i"
+  },
+  {
+   "start": 217.7,
+   "end": 223.15,
+   "speaker": "Billy",
+   "text": "I know you had the lobby ... to take this case so"
+  },
+  {
+   "start": 228.1,
+   "end": 232.1,
+   "speaker": "Guglielmo",
+   "text": "Even after I'm done paying your firm a fuckin' fortune, I'm still gonna owe you."
+  },
+  {
+   "start": 232.5,
+   "end": 233.3,
+   "speaker": "Guglielmo",
+   "text": "Big time."
+  },
+  {
+   "start": 274.1,
+   "end": 277.9,
+   "speaker": "Woman at the fair",
+   "text": "you got it mister you try the rest not try the best"
+  },
+  {
+   "start": 277.9,
+   "end": 278.6,
+   "speaker": "Woman at the fair",
+   "text": "huh?"
+  },
+  {
+   "start": 278.6,
+   "end": 290.1,
+   "speaker": "Woman at the fair 2",
+   "text": "What do you think, huh? Come on, everybody! ..."
+  },
+  {
+   "start": 299.8,
+   "end": 305.6,
+   "speaker": "Receptionist",
+   "text": "they're coming this afternoon to fix the elevator and congratulations you made the new news"
+  },
+  {
+   "start": 306.6,
+   "end": 308.7,
+   "speaker": "Kirk",
+   "text": "Hey, Billy, you pulled it off."
+  },
+  {
+   "start": 309.0,
+   "end": 310.6,
+   "speaker": "Kirk",
+   "text": "I never would have believed it possible."
+  },
+  {
+   "start": 311.0,
+   "end": 315.7,
+   "speaker": "Billy",
+   "text": "Well, Kirk Penchley proves once again, without faith, good deeds are dead."
+  },
+  {
+   "start": 316.2,
+   "end": 317.9,
+   "speaker": "Kirk",
+   "text": "Hey, hey, hey, kiddo."
+  },
+  {
+   "start": 318.4,
+   "end": 320.1,
+   "speaker": "Kirk",
+   "text": "You're gonna take a few pounds off there, huh?"
+  },
+  {
+   "start": 320.1,
+   "end": 320.6,
+   "speaker": "Kirk",
+   "text": "Come on."
+  },
+  {
+   "start": 320.9,
+   "end": 322.0,
+   "speaker": "Kirk",
+   "text": "I want to show you something."
+  },
+  {
+   "start": 323.0,
+   "end": 324.7,
+   "speaker": "Kirk",
+   "text": "Have you looked across the street this morning?"
+  },
+  {
+   "start": 325.8,
+   "end": 326.2,
+   "speaker": "Kirk",
+   "text": "Huh?"
+  },
+  {
+   "start": 327.4,
+   "end": 328.3,
+   "speaker": "Kirk",
+   "text": "Check this out."
+  },
+  {
+   "start": 330.2,
+   "end": 332.1,
+   "speaker": "Kirk",
+   "text": "You see that gypsy piece of ass down there?"
+  },
+  {
+   "start": 333.1,
+   "end": 334.1,
+   "speaker": "Billy",
+   "text": "How can I miss her?"
+  },
+  {
+   "start": 334.2,
+   "end": 334.5,
+   "speaker": "Kirk",
+   "text": "All right."
+  },
+  {
+   "start": 335.3,
+   "end": 336.2,
+   "speaker": "Kirk",
+   "text": "Give her this quarter."
+  },
+  {
+   "start": 337.0,
+   "end": 338.1,
+   "speaker": "Kirk",
+   "text": "Tell her to raise her skirt."
+  },
+  {
+   "start": 339.9,
+   "end": 341.9,
+   "speaker": "Billy",
+   "text": "Didn't your prick ever escape the sixth grade, Kirk?"
+  },
+  {
+   "start": 342.0,
+   "end": 342.6,
+   "speaker": "Kirk",
+   "text": "I hope not."
+  },
+  {
+   "start": 344.1,
+   "end": 344.7,
+   "speaker": "Billy",
+   "text": "What's the matter?"
+  },
+  {
+   "start": 345.6,
+   "end": 347.5,
+   "speaker": "Billy",
+   "text": "Afraid she heard you I'm"
+  },
+  {
+   "start": 349.0,
+   "end": 352.0,
+   "speaker": "Billy",
+   "text": "taking the rest of the afternoon off say good afternoon Billy."
+  },
+  {
+   "start": 352.1,
+   "end": 353.0,
+   "speaker": "Kirk",
+   "text": "Good afternoon, Billy"
+  },
+  {
+   "start": 355.2,
+   "end": 356.8,
+   "speaker": "Kirk",
+   "text": "Hey, don't forget tonight at the club"
+  },
+  {
+   "start": 357.8,
+   "end": 358.6,
+   "speaker": "Kirk",
+   "text": "We'll celebrate."
+  },
+  {
+   "start": 358.9,
+   "end": 359.6,
+   "speaker": "Billy",
+   "text": "Mm -hmm."
+  },
+  {
+   "start": 373.8,
+   "end": 375.5,
+   "speaker": "Judge 2",
+   "text": "What's taking hot place so long?"
+  },
+  {
+   "start": 375.7,
+   "end": 377.1,
+   "speaker": "Judge 2",
+   "text": "They should have been out of their hours ago."
+  },
+  {
+   "start": 377.4,
+   "end": 378.4,
+   "speaker": "Billy",
+   "text": "Oh, hi a judge"
+  },
+  {
+   "start": 379.1,
+   "end": 382.3,
+   "speaker": "Billy",
+   "text": "Listen, I want to thank you for turning me on to that detective agency."
+  },
+  {
+   "start": 382.7,
+   "end": 384.12,
+   "speaker": "Billy",
+   "text": "You won me a big case this morning"
+  },
+  {
+   "start": 384.12,
+   "end": 388.5,
+   "speaker": "Judge 2",
+   "text": "Don't you see what's going on here? We've been invaded ..."
+  },
+  {
+   "start": 388.7,
+   "end": 389.4,
+   "speaker": "Billy",
+   "text": "I don't know, Judge."
+  },
+  {
+   "start": 390.2,
+   "end": 391.6,
+   "speaker": "Billy",
+   "text": "They kind of bring a little fun with it."
+  },
+  {
+   "start": 391.8,
+   "end": 394.6,
+   "speaker": "Judge 2",
+   "text": "They bring disease, crime, and prostitution."
+  },
+  {
+   "start": 394.6,
+   "end": 395.5,
+   "speaker": "Judge 2",
+   "text": "What kind of fun is that?"
+  },
+  {
+   "start": 396.2,
+   "end": 397.1,
+   "speaker": "Billy",
+   "text": "Who's the old guy?"
+  },
+  {
+   "start": 397.8,
+   "end": 399.5,
+   "speaker": "Judge 2",
+   "text": "That chief's name is Lemke."
+  },
+  {
+   "start": 402.9,
+   "end": 403.3,
+   "speaker": "Judge 2",
+   "text": "That's"
+  },
+  {
+   "start": 406.5,
+   "end": 407.1,
+   "speaker": "Judge 2",
+   "text": "good riddance."
+  },
+  {
+   "start": 407.4,
+   "end": 408.3,
+   "speaker": "Police chief",
+   "text": "Not yet."
+  },
+  {
+   "start": 408.7,
+   "end": 411.8,
+   "speaker": "Police chief",
+   "text": "They've rented some land out of Lars Ancaster's farm."
+  },
+  {
+   "start": 412.3,
+   "end": 414.4,
+   "speaker": "Billy",
+   "text": "Well, you can't drive them off private property, Judge."
+  },
+  {
+   "start": 414.6,
+   "end": 415.2,
+   "speaker": "Judge 2",
+   "text": "Yes, you can."
+  },
+  {
+   "start": 415.6,
+   "end": 418.9,
+   "speaker": "Judge 2",
+   "text": "Unless you want the whole damn high school football team down with a clap or worse."
+  },
+  {
+   "start": 418.9,
+   "end": 421.7,
+   "speaker": "Judge 2",
+   "text": "And dog fights and make the money on dog fights now"
+  },
+  {
+   "start": 425.6,
+   "end": 427.0,
+   "speaker": "Police chief",
+   "text": "No problem. Look into what Ancaster's doing here."
+  },
+  {
+   "start": 427.0,
+   "end": 428.4,
+   "speaker": "Police chief",
+   "text": "Do we have a zoning restrictions? They're gonna slap all kind of health violations."
+  },
+  {
+   "start": 476.8,
+   "end": 487.9,
+   "speaker": "Channel owner",
+   "text": "Thank you for clicking on our video everybody if you like what you saw here Make sure you like the video and subscribe and share with your friends who like this sort of content We're an independent company, and we appreciate all of your support"
+  }
+ ],
+ "left_out": [
+  "1:24.4 'the' (not speech)",
+  "4:15.1 'Hey, wait a while, huh?' (not in the video)",
+  "3:44 'what this is really all about is uh / Is he?' (no speaker given)",
+  "3:53 line 74 (empty)"
+ ]
+}
