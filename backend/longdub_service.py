@@ -2597,6 +2597,7 @@ def _run_analysis(job):
             except Exception as ex:
                 print(f"[longdub] pause detection failed: {ex}")
         rows = rows_from_raw(raw_all, turns, label_map, silences, source_language=source_language)
+        _kept = _kept_start(raw_all, rows)      # every sentence the speech recognition heard must stay in a line (speech_kept.py)
         try:     # what the detector said and what became of it (for the server log; short clips only)
             if len(turns) <= 80:
                 print(f"[longdub] {job['id']} turn_map: " + " ".join(
@@ -2613,6 +2614,8 @@ def _run_analysis(job):
             _fail(job, "This video has too much speech to dub in one go. Please split it into shorter videos.", "analysis")
             return
         rows = _apply_subtitle(job, rows)     # the user's subtitle file (optional), before the translation
+        if (job.get("subtitle") or {}).get("result", {}).get("ok"):
+            _kept = None      # the user's subtitle decides the words
         try:      # the picture is an extra opinion: whatever goes wrong with it, the dub goes on with the sound alone
             _picture = _run_picture(job, rows, wd)
         except Exception as ex:
@@ -2633,10 +2636,12 @@ def _run_analysis(job):
             label_map = {raw: "~" + name for raw, name in label_map.items()}      # the speakers are the user's people now: the detector's names mean nothing
         elif vote.get("rename"):
             label_map = {raw: vote["rename"].get(name, "~" + name) for raw, name in label_map.items()}
+        _kept_check(_kept, "speaker check", rows)
         try:      # who speaks on screen (face_unit.py, our own server): the same face in one shot is one speaker; two faces as one speaker are marked
             _face_check(job, rows, wd)
         except Exception as ex:
             print(f"[longdub] face check skipped: {type(ex).__name__}: {ex}")
+        _kept_check(_kept, "face check", rows)
         try:      # the pitch check (pitch_check.py): free, local; moves a line only when the voice's pitch clearly belongs to another speaker
             if vocals_all.exists():
                 _pc = pitch_check.run(rows, vocals_all)
@@ -2645,18 +2650,21 @@ def _run_analysis(job):
             _ev(job, "pitch_check", "ok" if _pc["status"] == "ok" else "info", _pc["text"])
         except Exception as ex:
             print(f"[longdub] pitch check skipped: {ex}")
+        _kept_check(_kept, "pitch check", rows)
         _init_speakers(job, rows)
         try:      # free clean-up at the edges between speakers (line_tidy.py): a split phrase is joined, a stray sentence beginning moves to its speaker
             rows, _tidy = line_tidy.tidy_lines(rows, vocals_all if vocals_all.exists() else None, source_language=source_language)
             _ev(job, "lines_tidied", "ok", ", ".join(f"{k}={v}" for k, v in _tidy.items()))
         except Exception as ex:
             print(f"[longdub] line clean-up skipped: {ex}")
+        _kept_check(_kept, "line clean-up", rows)
         if line_planner.ENABLED and GEMINI_API_KEY:      # TRIAL, off unless LD_LINE_PLANNER=1: the AI suggests where lines should be cut; every change is checked by rules first
             try:
                 rows, _plan = line_planner.plan_lines(job["id"], rows, GEMINI_API_KEY, vocals_all if vocals_all.exists() else None, source_language=source_language)
                 _ev(job, "lines_planned", "ok", ", ".join(f"{k}={v}" for k, v in _plan.items() if k != "refusals"))
             except Exception as ex:
                 print(f"[longdub] line planner skipped: {ex}")
+            _kept_check(_kept, "line planner", rows)
         try:      # a line that starts long before its first sound of speech is started where the speech really begins (line_tidy.snap_starts): ONLY the start moves, nothing is cut
             if vocals_all.exists():
                 rows, _snap = line_tidy.snap_starts(rows, vocals_all)
@@ -2664,6 +2672,8 @@ def _run_analysis(job):
                     _ev(job, "line_starts", "ok", f"{len(_snap)} line(s) started later, at their first sound of speech: " + ", ".join(f"{sid} {pitch_check._clock(o)} -> {pitch_check._clock(n)}" for sid, o, n in _snap[:30]))
         except Exception as ex:
             print(f"[longdub] line starts skipped: {ex}")
+        _kept_check(_kept, "line starts", rows)
+        rows = _kept_restore(job, _kept, rows)
         _review_speakers(job, rows, turns, label_map, vote=vote)
         _write_segments(job, rows)
         try:      # who said each line at each step, for the job log (reads only; nothing is decided here)
@@ -2808,6 +2818,38 @@ def remove_subtitle(job):
     _save(job)
     _ev(job, "subtitle_removed", "ok", "")
     return True, None
+
+
+def _kept_start(raw_all, rows):
+    try:
+        import speech_kept
+        k = speech_kept.Tracker(raw_all)
+        k.check("lines built", rows)
+        return k
+    except Exception as ex:
+        print(f"[longdub] speech check skipped: {type(ex).__name__}")
+        return None
+
+
+def _kept_check(kept, step, rows):
+    if kept is not None:
+        kept.check(step, rows)
+
+
+def _kept_restore(job, kept, rows):
+    """Sentences the recognition heard that one of our steps lost come back as their own line (marked 'check speaker')."""
+    if kept is None:
+        return rows
+    try:
+        import speech_kept
+        rows, back = kept.restore(rows)
+        note = speech_kept.summary(kept, back)
+        if note:
+            _ev(job, "speech_kept", "partial" if back else "info", note)
+        return rows
+    except Exception as ex:
+        print(f"[longdub] speech restore skipped: {type(ex).__name__}: {ex}")
+        return rows
 
 
 def _apply_subtitle(job, rows):
