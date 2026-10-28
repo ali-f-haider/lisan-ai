@@ -278,7 +278,7 @@ var T = {
     estLipRow: "Lip-sync (highest possible price)", estLipSub: function (perSec) { return perSec + " credits per second, only for the parts where somebody speaks. The exact price is shown before dubbing."; },
     estFeeRow: "Estimate fee (already paid)", estFeeSub: "Counts toward the total",
     estAnalysisRow: "Transcribe, detect speakers and translate", estAnalysisSub: "Charged when you accept",
-    estFlatRow: "Processing fee", estFlatSub: "Flat fee per video, charged when you accept", estSpkRow: "Speaker check", estSpkSub: "Extra checks of who says each line (flat fee plus a charge per minute); returned if it cannot run",
+    estFlatRow: "Processing fee", estFlatSub: "Flat fee per video, charged when you accept", estSpkRow: "Speaker check", estSpkSub: "Extra checks of who says each line (flat fee plus a charge per minute); returned if it cannot run", estSpeechRow: "Second listen", estSpeechSub: "The speech is listened to once more to catch missed or misheard sentences (flat fee plus a charge per minute); returned if it cannot run",
     estVoiceRow: "Arabic voice generation (about)", estVoiceSub: "Final price is calculated from your edited text",
     estCloneRow: function (n, each) { return "Voice cloning: " + n + " speaker" + (n === 1 ? "" : "s") + " × " + each; }, estCloneSub: "Charged for each speaker whose voice is cloned",
     estMergeRow: "Final assembly", estMergeSub: "",
@@ -556,7 +556,7 @@ var T = {
     estLipRow: "مزامنة الشفاه (أعلى سعر ممكن)", estLipSub: function (perSec) { return perSec + " رصيد لكل ثانية، فقط للمقاطع التي يتحدث فيها أحد. يظهر السعر الدقيق قبل بدء الدبلجة."; },
     estFeeRow: "رسم التقدير (مدفوع)", estFeeSub: "يُحتسب من الإجمالي",
     estAnalysisRow: "التفريغ وتحديد المتحدثين والترجمة", estAnalysisSub: "يُخصم عند الموافقة",
-    estFlatRow: "رسم المعالجة", estFlatSub: "رسم ثابت لكل فيديو، يُخصم عند الموافقة", estSpkRow: "فحص المتحدثين", estSpkSub: "فحوصات إضافية لمعرفة من يقول كل سطر (رسم ثابت + رسم لكل دقيقة)؛ يُردّ إن تعذّر إجراؤه",
+    estFlatRow: "رسم المعالجة", estFlatSub: "رسم ثابت لكل فيديو، يُخصم عند الموافقة", estSpkRow: "فحص المتحدثين", estSpkSub: "فحوصات إضافية لمعرفة من يقول كل سطر (رسم ثابت + رسم لكل دقيقة)؛ يُردّ إن تعذّر إجراؤه", estSpeechRow: "استماع ثانٍ", estSpeechSub: "يُستمع إلى الكلام مرة أخرى لالتقاط الجمل الفائتة أو المسموعة خطأً (رسم ثابت + رسم لكل دقيقة)؛ يُردّ إن تعذّر إجراؤه",
     estVoiceRow: "توليد الصوت العربي (تقريباً)", estVoiceSub: "السعر النهائي يُحسب من النص بعد تعديلك",
     estCloneRow: function (n, each) { return "استنساخ الأصوات: " + n + " متحدثين × " + each; }, estCloneSub: "يُحتسب لكل متحدث يُستنسخ صوته",
     estMergeRow: "التجميع النهائي", estMergeSub: "",
@@ -1126,11 +1126,11 @@ function renderEstimate(j) {
   var n = e.speakers || e.assumed_speakers || 2;
   var lipOn = !!(e.lipsync_wanted);
   var items = qli(T.estFeeRow, e.fee, T.estFeeSub) + qli(T.estAnalysisRow, e.analysis, T.estAnalysisSub) +
-    (e.flat ? qli(T.estFlatRow, e.flat, T.estFlatSub) : "") + (e.speaker_check ? qli(T.estSpkRow, e.speaker_check, T.estSpkSub) : "") +
+    (e.flat ? qli(T.estFlatRow, e.flat, T.estFlatSub) : "") + (e.speaker_check ? qli(T.estSpkRow, e.speaker_check, T.estSpkSub) : "") + (e.speech_check ? qli(T.estSpeechRow, e.speech_check, T.estSpeechSub) : "") +
     (e.picture ? qli(LANG === "ar" ? "تحليل الصورة" : "Picture analysis", e.picture, LANG === "ar" ? "يُردّ ما يقابل الأجزاء التي تعذّر تحليلها" : "Failed portions are refunded") : "") +
     qli(T.estVoiceRow, "≈ " + e.voice, T.estVoiceSub) + qli(T.estCloneRow(n, e.clone_each), e.clones, T.estCloneSub) +
     (lipOn ? qli(T.estLipRow, "≤ " + e.lipsync, T.estLipSub(e.lipsync_per_sec)) : "") + qli(T.estMergeRow, e.merge, T.estMergeSub);
-  var tip = [esc(T.estNow((e.analysis || 0) + (e.flat || 0) + (e.speaker_check || 0) + (e.picture || 0))), "<ul>" + items + "</ul>",
+  var tip = [esc(T.estNow((e.analysis || 0) + (e.flat || 0) + (e.speaker_check || 0) + (e.speech_check || 0) + (e.picture || 0))), "<ul>" + items + "</ul>",
              paid ? esc(T.estAlready(paid)) + " " + esc(T.estDeclineNote) : ""];
   var h = "<p style='margin:4px 0 10px;color:var(--text-muted);'>" + esc(T.estIntro(j.filename, fmtMin(j.duration), n, lipOn)) + "</p>";
   h += '<p class="ld-totalline"><span>' + esc(T.estTotal) + "</span><strong>≈ " + e.total + " " + esc(T.credits) + "</strong>" + q(tip) + "</p>";

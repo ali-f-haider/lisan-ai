@@ -107,7 +107,8 @@ def estimate_view(job):
         return None
     paid = job.get("paid") if isinstance(job.get("paid"), dict) else {}
     already = int(paid.get("fee", 0) or 0) + int(paid.get("analysis", 0) or 0) + int(paid.get("dub", 0) or 0)
-    due = int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("picture", 0) or 0)
+    due = (int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("speech_check", 0) or 0)
+           + int(est.get("picture", 0) or 0))
     return {"job_id": job["id"], "estimated_total_credits": int(est["total"]), "already_paid_credits": already,
             "analysis_due_credits": 0 if paid.get("analysis") else due,
             "exact_dub_price_ready": job.get("status") in ("editing", "confirmed", "dubbing", "done"),

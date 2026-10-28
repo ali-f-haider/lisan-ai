@@ -561,12 +561,17 @@ def compute_estimate(duration_sec, cfg, speakers=2, lipsync=False, lip_res=None,
     # the speaker check (two extra listening requests, see speaker_vote_live.py): flat + per minute, only for videos it can run on
     sc_flat, sc_min = max(0, int(cfg.get("speaker_check_flat", 0) or 0)), max(0.0, float(cfg.get("speaker_check_per_min", 0) or 0))
     speaker_check = (sc_flat + int(math.ceil(minutes * sc_min))) if (sc_flat or sc_min) and speaker_vote_live.fits(duration_sec) else 0
+    # the second listen (speech_second.py), priced the same way
+    sp_flat, sp_min = max(0, int(cfg.get("speech_check_flat", 0) or 0)), max(0.0, float(cfg.get("speech_check_per_min", 0) or 0))
+    import speech_second
+    speech_check = ((sp_flat + int(math.ceil(minutes * sp_min))) if (sp_flat or sp_min) and speech_second.ENABLED
+                    and speaker_vote_live.fits(duration_sec) else 0)
     picture_active = bool(picture and has_video and image_unit.enabled() and image_unit.fits(duration_sec))
     picture_charge = (max(0, int(cfg.get("picture_flat", 0) or 0)) +
                       int(math.ceil(minutes * max(0.0, float(cfg.get("picture_per_min", 0) or 0))))) if picture_active else 0
-    total = fee + analysis + flat + speaker_check + picture_charge + voice + clones + merge + lip
+    total = fee + analysis + flat + speaker_check + speech_check + picture_charge + voice + clones + merge + lip
     return {
-        "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "speaker_check": speaker_check, "voice": voice,
+        "minutes": round(minutes, 2), "fee": fee, "analysis": analysis, "flat": flat, "speaker_check": speaker_check, "speech_check": speech_check, "voice": voice,
         "clones": clones, "clone_each": clone_each, "merge": merge, "total": total,
         **({"picture": picture_charge} if picture_active else {}),
         "speakers": speakers, "assumed_speakers": speakers,
@@ -861,7 +866,8 @@ def accept(job, uid, agreed=False):
     # refunds and the "already paid" line treat it like the rest of that part.
     # Estimates made before the flat fee existed have no "flat" key (= 0).
     # The speaker check (est["speaker_check"], 0 for older estimates) is paid the same way; it is returned if the check cannot run.
-    need_now = int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("picture", 0) or 0)
+    need_now = (int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("speech_check", 0) or 0)
+                + int(est.get("picture", 0) or 0))
     bal = Hooks.get_credits(uid)
     # He must be able to cover the whole estimate (minus what he already paid)
     # to proceed -- the exact voice cost is confirmed later after editing.
@@ -882,9 +888,10 @@ def accept(job, uid, agreed=False):
                 return False, ("Your payment could not be confirmed. Please retry.", 503)
             job["paid"]["analysis"] = need_now
             job["speaker_check_paid"] = int(est.get("speaker_check", 0) or 0)
+            job["speech_check_paid"] = int(est.get("speech_check", 0) or 0)
             if int(est.get("picture", 0) or 0):
                 job["picture_paid"] = int(est["picture"])
-            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits" + (f" (of which {job['speaker_check_paid']} for the speaker check)" if job["speaker_check_paid"] else "") + (f" (of which {job['picture_paid']} for the picture analysis)" if job.get("picture_paid") else ""), need_now)
+            _ev(job, "analysis_fee_charged", "ok", f"{need_now} credits" + (f" (of which {job['speaker_check_paid']} for the speaker check)" if job["speaker_check_paid"] else "") + (f" (of which {job['speech_check_paid']} for the second listen)" if job.get("speech_check_paid") else "") + (f" (of which {job['picture_paid']} for the picture analysis)" if job.get("picture_paid") else ""), need_now)
         job["status"] = "accepted"
         job["stage"] = "queued"
         job["percent"] = 0
@@ -1552,10 +1559,15 @@ SPEAKER_REVIEW_FIELDS = ("speaker_confidence", "speaker_reasons", "speaker_time_
 SPEAKER_CHECK_SHORT_SECONDS = 1.0
 
 # The speaker vote (speaker_vote.py / speaker_vote_live.py): two extra listening checks decide who says each line, together with the
-# app's own detector. It costs us real money per video, so it is a separate line in the estimate (flat + per minute, measured:
-# about $0.05 for 7.8 minutes). The values come from main._ld_pricing; these are only the fallbacks.
+# app's own detector. It costs us real money per video, so it is a separate line in the estimate (flat + per minute). Since 1.82.94 the
+# two checks ask Gemini 4 Argon; priced at its price from 1 Dec 2026 ($4 / $20 per 1M tokens): measured about $0.195 for 8.1 minutes
+# (29k tokens in, 4k out), so 4 + 2.5 per minute (8.1 min: 25 credits). The values come from main._ld_pricing; these are only the fallbacks.
 SPEAKER_CHECK_FLAT = 4
-SPEAKER_CHECK_PER_MIN = 0.4
+SPEAKER_CHECK_PER_MIN = 2.5
+# The second listen (speech_second.py): Argon listens to the whole voice track once more. Priced at the December price too:
+# measured about $0.155 for 8.1 minutes (16k tokens in, 4.6k out), so 2 + 2 per minute (8.1 min: 19 credits). Returned if it cannot run.
+SPEECH_CHECK_FLAT = 2
+SPEECH_CHECK_PER_MIN = 2.0
 VOTE_FIELDS = ("speaker_vote",)
 
 
@@ -1997,6 +2009,25 @@ def _speaker_check_refund(job, why):
         _ev(job, "speaker_check_refunded", "partial", f"{amount} credits not yet confirmed: {why}")
     except Exception as ex:
         print(f"[longdub] speaker check refund skipped: {ex}")
+    return 0
+
+
+def _speech_check_refund(job, why):
+    """The second listen could not run (or was not needed): its charge is returned (once). Never raises."""
+    try:
+        amount = int(job.get("speech_check_paid") or 0)
+        if amount <= 0:
+            return 0
+        if _refund(job, job["uid"], amount, "analysis", "speech_check_unused"):
+            job["speech_check_paid"] = 0
+            _save(job)
+            _ev(job, "speech_check_refunded", "ok", f"{amount} credits: {why}", amount)
+            return amount
+        job["speech_check_refund_pending"] = amount
+        _save(job)
+        _ev(job, "speech_check_refunded", "partial", f"{amount} credits not yet confirmed: {why}")
+    except Exception as ex:
+        print(f"[longdub] second listen refund skipped: {ex}")
     return 0
 
 
@@ -2827,21 +2858,26 @@ def _second_listener(job, rows, wd, vocals_all, turns, label_map, source_languag
     try:
         import speech_second
         if not speech_second.ENABLED or not GEMINI_API_KEY or not vocals_all.exists() or job.get("subtitle") or not rows:
+            _speech_check_refund(job, "your own subtitle gives the words" if job.get("subtitle") else "the second listen could not run on this video")
             return rows
         _mark(job, "build", 86, "Listening once more for anything missed...")
         heard = speech_second.listen(job["id"], vocals_all, wd, GEMINI_API_KEY, (job.get("analysis") or {}).get("audio_duration"),
                                      languages.get(source_language).english_name)
         if not heard.get("lines"):
             _ev(job, "second_listener", "skipped", f"no usable answer ({heard.get('model') or 'no model answered'}); the transcript stays as heard")
+            _speech_check_refund(job, "the second listen gave no usable answer")
             return rows
         plan = speech_second.compare(rows, heard["lines"], clip_end=(job.get("analysis") or {}).get("audio_duration"))
-        import whisper_service as ws
-        at = (lambda t: label_map.get(ws.speaker_at_time(t, turns))) if turns else None
+        at = None
+        if turns:
+            import whisper_service as ws
+            at = lambda t: label_map.get(ws.speaker_at_time(t, turns))
         rows, added, changed = speech_second.apply(rows, plan, speaker_at=at)
         _ev(job, "second_listener", "ok", speech_second.summary(heard, added, changed))
         return rows
     except Exception as ex:
         print(f"[longdub] second listen skipped: {type(ex).__name__}: {ex}")
+        _speech_check_refund(job, "the second listen could not run on this video")
         return rows
 
 

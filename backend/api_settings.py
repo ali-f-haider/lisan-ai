@@ -115,8 +115,8 @@ def limiter_config(settings):
     return {"capacity": s["burst"], "refill_per_second": s["requests_per_minute"] / 60.0}
 
 
-_INT_CREDIT_KEYS = ("fee", "flat", "clone_credits", "merge_credits", "speaker_check_flat", "music_fill_credits", "picture_flat")
-_FLOAT_CREDIT_KEYS = ("analysis_per_min", "speaker_check_per_min", "lipsync_per_sec", "picture_per_min")
+_INT_CREDIT_KEYS = ("fee", "flat", "clone_credits", "merge_credits", "speaker_check_flat", "speech_check_flat", "music_fill_credits", "picture_flat")
+_FLOAT_CREDIT_KEYS = ("analysis_per_min", "speaker_check_per_min", "speech_check_per_min", "lipsync_per_sec", "picture_per_min")
 
 
 def scale_pricing(cfg, percent):

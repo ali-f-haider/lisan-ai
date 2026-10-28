@@ -38,12 +38,13 @@ def numbers_estimate(fee, paid_fee):
 
 
 def numbers_analysis(est, paid):
-    """The analysis amount the website charges when an estimate is accepted (analysis + flat fee + speaker check + picture analysis)."""
-    need = _credits(int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("picture", 0) or 0))
+    """The analysis amount the website charges when an estimate is accepted (analysis + flat fee + speaker check + second listen + picture analysis)."""
+    need = _credits(int(est["analysis"]) + int(est.get("flat", 0) or 0) + int(est.get("speaker_check", 0) or 0) + int(est.get("speech_check", 0) or 0)
+                    + int(est.get("picture", 0) or 0))
     paid_fee, paid_analysis = _credits(int(paid.get("fee", 0))), _credits(int(paid.get("analysis", 0)))
     fixed = 0 if paid_analysis else need
     parts = [("analysis", int(est["analysis"])), ("processing", int(est.get("flat", 0) or 0)), ("speaker_check", int(est.get("speaker_check", 0) or 0)),
-             ("picture_analysis", int(est.get("picture", 0) or 0))]
+             ("second_listen", int(est.get("speech_check", 0) or 0)), ("picture_analysis", int(est.get("picture", 0) or 0))]
     return {"fixed": fixed, "additional_max": 0,
             "required_balance": _credits(max(0, int(est["total"]) - paid_fee)),   # the website asks the balance to cover the whole estimate
             "already_paid": paid_fee + paid_analysis,
