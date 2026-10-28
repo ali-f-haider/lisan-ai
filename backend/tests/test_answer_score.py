@@ -31,6 +31,22 @@ class Score(unittest.TestCase):
         self.assertEqual(len(ref["people"]), 15)
         self.assertGreater(len(ref["turns"]), 100)
 
+    def test_every_answer_sheet_is_usable(self):
+        files = sorted((Path(__file__).resolve().parents[1] / "eval").glob("*_reference.json"))
+        self.assertGreaterEqual(len(files), 2)
+        for f in files:
+            ref = json.loads(f.read_text(encoding="utf-8"))
+            self.assertTrue(ref["clip"] and ref["duration_sec"] > 0, f.name)
+            self.assertEqual(sorted({t["speaker"] for t in ref["turns"]}), sorted(ref["people"]), f.name)
+            for a, b in zip(ref["turns"], ref["turns"][1:]):
+                self.assertLess(a["start"], a["end"], f.name)
+                self.assertLessEqual(a["end"], b["start"] + 0.05, f.name)
+
+    def test_the_air_force_one_answer_sheet_has_nine_people(self):
+        ref = json.loads((Path(__file__).resolve().parents[1] / "eval" / "af1_reference.json").read_text(encoding="utf-8"))
+        self.assertEqual(ref["clip"], "Fighter-Jets-Shoot-SnapYT.App.mp4")
+        self.assertEqual(len(ref["people"]), 9)
+
 
 class InTheLog(unittest.TestCase):
     def test_a_test_clip_gets_its_score_in_the_log_and_others_do_not(self):
@@ -47,6 +63,15 @@ class InTheLog(unittest.TestCase):
             self.assertIsNone(ld._answer_sheet_score({"filename": "other.mp4", "analysis": {"audio_duration": 488.8}}, rows))
             self.assertIsNone(ld._answer_sheet_score({"filename": "C4K Clip.mp4", "analysis": {"audio_duration": 300}}, rows))
         self.assertEqual(len(seen), 1)
+
+    def test_the_air_force_one_clip_is_scored_too(self):
+        import longdub_service as ld
+        from unittest import mock
+        ref = json.loads((Path(__file__).resolve().parents[1] / "eval" / "af1_reference.json").read_text(encoding="utf-8"))
+        rows = [{"segment_id": f"seg_{i}", "start": t["start"], "end": t["end"], "speaker": "S" + t["speaker"]} for i, t in enumerate(ref["turns"])]
+        with mock.patch.object(ld, "_ev", lambda *a: None):
+            sc = ld._answer_sheet_score({"filename": "Fighter-Jets-Shoot-SnapYT.App.mp4", "analysis": {"audio_duration": 441.2}}, rows)
+        self.assertEqual(sc["line_accuracy"], 1.0)
 
 
 if __name__ == "__main__":

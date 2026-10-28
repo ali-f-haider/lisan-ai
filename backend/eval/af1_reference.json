@@ -1,0 +1,736 @@
+{
+ "clip": "Fighter-Jets-Shoot-SnapYT.App.mp4",
+ "duration_sec": 441.2,
+ "labelled_by": "Ali, 28 Oct 2026",
+ "people": [
+  "Cabinet official",
+  "Directory operator",
+  "F-15 pilot",
+  "General",
+  "Hijacker guard",
+  "President Marshall",
+  "Situation Room aide",
+  "Switchboard operator",
+  "Vice President Bennett"
+ ],
+ "turns": [
+  {
+   "start": 6.2,
+   "end": 7.2,
+   "speaker": "President Marshall",
+   "text": "What's the goddamn number?"
+  },
+  {
+   "start": 13.9,
+   "end": 14.8,
+   "speaker": "Directory operator",
+   "text": "What city, please?"
+  },
+  {
+   "start": 15.0,
+   "end": 16.1,
+   "speaker": "President Marshall",
+   "text": "Washington, D.C., please."
+  },
+  {
+   "start": 16.3,
+   "end": 17.1,
+   "speaker": "President Marshall",
+   "text": "The White House."
+  },
+  {
+   "start": 17.4,
+   "end": 18.1,
+   "speaker": "Directory operator",
+   "text": "Just a moment."
+  },
+  {
+   "start": 18.7,
+   "end": 19.4,
+   "speaker": "Directory operator",
+   "text": "Here's the number."
+  },
+  {
+   "start": 19.5,
+   "end": 20.7,
+   "speaker": "President Marshall",
+   "text": "Can you connect me to that number?"
+  },
+  {
+   "start": 21.0,
+   "end": 22.8,
+   "speaker": "Directory operator",
+   "text": "There's a connect fee of one dollar, sir."
+  },
+  {
+   "start": 22.9,
+   "end": 23.1,
+   "speaker": "President Marshall",
+   "text": "Fine."
+  },
+  {
+   "start": 38.5,
+   "end": 39.5,
+   "speaker": "Switchboard operator",
+   "text": "White House switchboard."
+  },
+  {
+   "start": 39.6,
+   "end": 40.8,
+   "speaker": "Switchboard operator",
+   "text": "How may I direct your call?"
+  },
+  {
+   "start": 41.7,
+   "end": 42.3,
+   "speaker": "President Marshall",
+   "text": "All right."
+  },
+  {
+   "start": 42.6,
+   "end": 43.0,
+   "speaker": "President Marshall",
+   "text": "Listen."
+  },
+  {
+   "start": 43.7,
+   "end": 44.5,
+   "speaker": "President Marshall",
+   "text": "Listen carefully."
+  },
+  {
+   "start": 44.6,
+   "end": 46.3,
+   "speaker": "President Marshall",
+   "text": "This is an emergency call from Air Force One."
+  },
+  {
+   "start": 46.7,
+   "end": 47.6,
+   "speaker": "President Marshall",
+   "text": "This is the president."
+  },
+  {
+   "start": 47.9,
+   "end": 49.2,
+   "speaker": "President Marshall",
+   "text": "Connect me to the vice president, please."
+  },
+  {
+   "start": 49.8,
+   "end": 51.3,
+   "speaker": "Switchboard operator",
+   "text": "Who did you say is calling?"
+  },
+  {
+   "start": 54.6,
+   "end": 55.9,
+   "speaker": "President Marshall",
+   "text": "This is the president."
+  },
+  {
+   "start": 56.2,
+   "end": 57.1,
+   "speaker": "Switchboard operator",
+   "text": "Yeah, right."
+  },
+  {
+   "start": 57.2,
+   "end": 58.2,
+   "speaker": "Switchboard operator",
+   "text": "And I'm the first lady."
+  },
+  {
+   "start": 58.3,
+   "end": 59.2,
+   "speaker": "President Marshall",
+   "text": "Don't cut me off."
+  },
+  {
+   "start": 59.2,
+   "end": 59.9,
+   "speaker": "President Marshall",
+   "text": "This is an emergency."
+  },
+  {
+   "start": 60.2,
+   "end": 65.2,
+   "speaker": "Switchboard operator",
+   "text": "Sir, the president doesn't call this particular phone number, so whoever you are, get off the line."
+  },
+  {
+   "start": 65.3,
+   "end": 65.8,
+   "speaker": "President Marshall",
+   "text": "Trace the call."
+  },
+  {
+   "start": 66.8,
+   "end": 69.2,
+   "speaker": "President Marshall",
+   "text": "Follow your standard security procedure"
+  },
+  {
+   "start": 71.1,
+   "end": 72.5,
+   "speaker": "President Marshall",
+   "text": "and trace the goddamn call!"
+  },
+  {
+   "start": 73.4,
+   "end": 74.3,
+   "speaker": "Switchboard operator",
+   "text": "Okay, sir."
+  },
+  {
+   "start": 74.5,
+   "end": 76.3,
+   "speaker": "Switchboard operator",
+   "text": "You want to make a federal case out of this?"
+  },
+  {
+   "start": 76.4,
+   "end": 77.4,
+   "speaker": "Switchboard operator",
+   "text": "Fine by me."
+  },
+  {
+   "start": 87.2,
+   "end": 88.0,
+   "speaker": "President Marshall",
+   "text": "Is anyone there?"
+  },
+  {
+   "start": 88.8,
+   "end": 89.4,
+   "speaker": "Hijacker guard",
+   "text": "Don't move."
+  },
+  {
+   "start": 89.4,
+   "end": 92.3,
+   "speaker": "Switchboard operator",
+   "text": "I traced the call, sir."
+  },
+  {
+   "start": 92.3,
+   "end": 92.5,
+   "speaker": "Hijacker guard",
+   "text": "Give me the gun."
+  },
+  {
+   "start": 92.5,
+   "end": 94.3,
+   "speaker": "Switchboard operator",
+   "text": "Are you there?"
+  },
+  {
+   "start": 94.3,
+   "end": 95.1,
+   "speaker": "Hijacker guard",
+   "text": "Very slowly."
+  },
+  {
+   "start": 95.6,
+   "end": 96.6,
+   "speaker": "Switchboard operator",
+   "text": "Oh, my God."
+  },
+  {
+   "start": 98.5,
+   "end": 99.6,
+   "speaker": "Switchboard operator",
+   "text": "I'll put you right through, Mr. President."
+  },
+  {
+   "start": 106.2,
+   "end": 108.9,
+   "speaker": "Situation Room aide",
+   "text": "The switchboard had the call from someone claiming to be the president."
+  },
+  {
+   "start": 109.4,
+   "end": 111.5,
+   "speaker": "Situation Room aide",
+   "text": "She traced it back to the White House satellite account."
+  },
+  {
+   "start": 111.5,
+   "end": 114.1,
+   "speaker": "Situation Room aide",
+   "text": "The caller's gone, but the line is still active."
+  },
+  {
+   "start": 114.1,
+   "end": 114.6,
+   "speaker": "Vice President Bennett",
+   "text": "Put it through."
+  },
+  {
+   "start": 119.5,
+   "end": 120.4,
+   "speaker": "President Marshall",
+   "text": "Listen to me. Listen to me."
+  },
+  {
+   "start": 120.4,
+   "end": 121.8,
+   "speaker": "President Marshall",
+   "text": "Do you know who I am?"
+  },
+  {
+   "start": 121.8,
+   "end": 125.0,
+   "speaker": "President Marshall",
+   "text": "I'm the president of the United States."
+  },
+  {
+   "start": 125.3,
+   "end": 125.9,
+   "speaker": "Vice President Bennett",
+   "text": "He's alive!"
+  },
+  {
+   "start": 127.3,
+   "end": 130.7,
+   "speaker": "Hijacker guard",
+   "text": "Don't think that means I don't shoot you. Put your hands behind your head and move."
+  },
+  {
+   "start": 141.0,
+   "end": 141.9,
+   "speaker": "President Marshall",
+   "text": "It's your lucky day."
+  },
+  {
+   "start": 142.8,
+   "end": 143.7,
+   "speaker": "President Marshall",
+   "text": "What more can my people do?"
+  },
+  {
+   "start": 143.7,
+   "end": 145.5,
+   "speaker": "President Marshall",
+   "text": "Tell the F-15s to fire at the plane?"
+  },
+  {
+   "start": 145.9,
+   "end": 147.8,
+   "speaker": "President Marshall",
+   "text": "Even if they tried, we're equipped with tactical countermeasures."
+  },
+  {
+   "start": 147.8,
+   "end": 148.6,
+   "speaker": "Vice President Bennett",
+   "text": "He's talking to us."
+  },
+  {
+   "start": 149.0,
+   "end": 150.1,
+   "speaker": "Hijacker guard",
+   "text": "What do you mean?"
+  },
+  {
+   "start": 150.1,
+   "end": 153.5,
+   "speaker": "President Marshall",
+   "text": "I just want you to feel secure that way no one will get hurt."
+  },
+  {
+   "start": 153.5,
+   "end": 156.8,
+   "speaker": "President Marshall",
+   "text": "The computer will fly circles around any missile they fire at us."
+  },
+  {
+   "start": 157.5,
+   "end": 158.7,
+   "speaker": "President Marshall",
+   "text": "No hit, just a shockwave."
+  },
+  {
+   "start": 158.7,
+   "end": 159.9,
+   "speaker": "Vice President Bennett",
+   "text": "He's telling us what to do."
+  },
+  {
+   "start": 160.5,
+   "end": 161.1,
+   "speaker": "President Marshall",
+   "text": "Believe me."
+  },
+  {
+   "start": 161.1,
+   "end": 163.5,
+   "speaker": "President Marshall",
+   "text": "All that'd happen is we'd get knocked off our feet."
+  },
+  {
+   "start": 163.7,
+   "end": 164.2,
+   "speaker": "President Marshall",
+   "text": "That's all."
+  },
+  {
+   "start": 164.3,
+   "end": 165.3,
+   "speaker": "Hijacker guard",
+   "text": "Shut up, goddammit!"
+  },
+  {
+   "start": 167.3,
+   "end": 167.9,
+   "speaker": "Cabinet official",
+   "text": "God."
+  },
+  {
+   "start": 168.1,
+   "end": 169.9,
+   "speaker": "Cabinet official",
+   "text": "Is he saying what I think he's saying?"
+  },
+  {
+   "start": 170.0,
+   "end": 171.4,
+   "speaker": "Vice President Bennett",
+   "text": "If we're going to act, we have to act now."
+  },
+  {
+   "start": 171.7,
+   "end": 172.2,
+   "speaker": "Cabinet official",
+   "text": "That's too risky."
+  },
+  {
+   "start": 172.4,
+   "end": 174.3,
+   "speaker": "Vice President Bennett",
+   "text": "The president is up there with a gun to his head."
+  },
+  {
+   "start": 174.5,
+   "end": 175.9,
+   "speaker": "General",
+   "text": "He's asking us to do that"
+  },
+  {
+   "start": 176.3,
+   "end": 177.5,
+   "speaker": "General",
+   "text": "to Air Force One?"
+  },
+  {
+   "start": 177.5,
+   "end": 178.3,
+   "speaker": "Vice President Bennett",
+   "text": "He's not asking."
+  },
+  {
+   "start": 178.6,
+   "end": 181.2,
+   "speaker": "Vice President Bennett",
+   "text": "Your commander in chief has issued a direct order."
+  },
+  {
+   "start": 181.8,
+   "end": 182.4,
+   "speaker": "Vice President Bennett",
+   "text": "Do it."
+  },
+  {
+   "start": 183.1,
+   "end": 183.8,
+   "speaker": "General",
+   "text": "Get me Tac Command."
+  },
+  {
+   "start": 187.2,
+   "end": 189.4,
+   "speaker": "F-15 pilot",
+   "text": "Well, sir, are you sure that's what you want me to do?"
+  },
+  {
+   "start": 189.8,
+   "end": 190.7,
+   "speaker": "General",
+   "text": "You heard me, Colonel."
+  },
+  {
+   "start": 191.4,
+   "end": 193.4,
+   "speaker": "General",
+   "text": "And let's pray it works the way it's supposed to."
+  },
+  {
+   "start": 193.7,
+   "end": 195.5,
+   "speaker": "F-15 pilot",
+   "text": "Okay, boys, give me some room."
+  },
+  {
+   "start": 195.8,
+   "end": 198.2,
+   "speaker": "F-15 pilot",
+   "text": "I've just been ordered to fire on Air Force One."
+  },
+  {
+   "start": 212.0,
+   "end": 212.8,
+   "speaker": "F-15 pilot",
+   "text": "I'm in position."
+  },
+  {
+   "start": 214.2,
+   "end": 215.1,
+   "speaker": "F-15 pilot",
+   "text": "Missiles are armed."
+  },
+  {
+   "start": 218.8,
+   "end": 219.9,
+   "speaker": "F-15 pilot",
+   "text": "Target is acquired."
+  },
+  {
+   "start": 220.2,
+   "end": 220.9,
+   "speaker": "F-15 pilot",
+   "text": "I have a good lock."
+  },
+  {
+   "start": 223.3,
+   "end": 225.6,
+   "speaker": "General",
+   "text": "God, I hope this works."
+  },
+  {
+   "start": 225.6,
+   "end": 226.6,
+   "speaker": "F-15 pilot",
+   "text": "Fox three."
+  },
+  {
+   "start": 343.4,
+   "end": 344.1,
+   "speaker": "President Marshall",
+   "text": "This is Marshall."
+  },
+  {
+   "start": 344.9,
+   "end": 345.7,
+   "speaker": "President Marshall",
+   "text": "Is anyone there?"
+  },
+  {
+   "start": 346.2,
+   "end": 347.5,
+   "speaker": "General",
+   "text": "We're here, Mr. President."
+  },
+  {
+   "start": 348.0,
+   "end": 348.8,
+   "speaker": "President Marshall",
+   "text": "Where's my family?"
+  },
+  {
+   "start": 348.9,
+   "end": 349.4,
+   "speaker": "President Marshall",
+   "text": "Are they safe?"
+  },
+  {
+   "start": 349.7,
+   "end": 351.2,
+   "speaker": "Vice President Bennett",
+   "text": "Well, the terrorists claim they're holding them."
+  },
+  {
+   "start": 351.2,
+   "end": 351.8,
+   "speaker": "Vice President Bennett",
+   "text": "We can't confirm."
+  },
+  {
+   "start": 352.1,
+   "end": 352.8,
+   "speaker": "President Marshall",
+   "text": "Who are they?"
+  },
+  {
+   "start": 354.2,
+   "end": 355.0,
+   "speaker": "President Marshall",
+   "text": "What do they want?"
+  },
+  {
+   "start": 355.3,
+   "end": 357.5,
+   "speaker": "Vice President Bennett",
+   "text": "They're Russian ultra-nationalist radicals."
+  },
+  {
+   "start": 357.5,
+   "end": 359.4,
+   "speaker": "Vice President Bennett",
+   "text": "They want General Radek released from prison."
+  },
+  {
+   "start": 359.7,
+   "end": 360.1,
+   "speaker": "President Marshall",
+   "text": "Radek?"
+  },
+  {
+   "start": 362.7,
+   "end": 363.4,
+   "speaker": "President Marshall",
+   "text": "What are our tactical options?"
+  },
+  {
+   "start": 363.7,
+   "end": 366.9,
+   "speaker": "General",
+   "text": "We're working on that, Mr. President, yet the bastards do have us in a corner."
+  },
+  {
+   "start": 367.4,
+   "end": 368.7,
+   "speaker": "President Marshall",
+   "text": "There is no rescue attempt?"
+  },
+  {
+   "start": 369.0,
+   "end": 370.3,
+   "speaker": "General",
+   "text": "I ruled out a midair rescue."
+  },
+  {
+   "start": 370.5,
+   "end": 372.4,
+   "speaker": "General",
+   "text": "There's nothing we can do while the plane is still in the air."
+  },
+  {
+   "start": 372.4,
+   "end": 373.8,
+   "speaker": "President Marshall",
+   "text": "Then we got to get this plane on the ground."
+  },
+  {
+   "start": 373.9,
+   "end": 375.8,
+   "speaker": "President Marshall",
+   "text": "Take me off that goddamn speakerphone."
+  },
+  {
+   "start": 376.2,
+   "end": 376.8,
+   "speaker": "President Marshall",
+   "text": "Where's Bennett?"
+  },
+  {
+   "start": 377.9,
+   "end": 378.7,
+   "speaker": "Vice President Bennett",
+   "text": "Mr. President."
+  },
+  {
+   "start": 378.8,
+   "end": 380.2,
+   "speaker": "President Marshall",
+   "text": "We cannot release Radek."
+  },
+  {
+   "start": 381.5,
+   "end": 384.3,
+   "speaker": "Vice President Bennett",
+   "text": "They're gonna shoot a hostage every half hour until we do."
+  },
+  {
+   "start": 384.7,
+   "end": 386.4,
+   "speaker": "Vice President Bennett",
+   "text": "I don't want a plane full of dead people."
+  },
+  {
+   "start": 388.8,
+   "end": 389.9,
+   "speaker": "Vice President Bennett",
+   "text": "Jim, they shot Jack Doherty."
+  },
+  {
+   "start": 392.2,
+   "end": 393.1,
+   "speaker": "President Marshall",
+   "text": "Oh, Christ."
+  },
+  {
+   "start": 394.8,
+   "end": 396.4,
+   "speaker": "President Marshall",
+   "text": "Kathryn, we can't give in to their demands."
+  },
+  {
+   "start": 396.8,
+   "end": 397.8,
+   "speaker": "President Marshall",
+   "text": "It won't end there."
+  },
+  {
+   "start": 398.1,
+   "end": 399.3,
+   "speaker": "Vice President Bennett",
+   "text": "And if you die in that plane,"
+  },
+  {
+   "start": 399.5,
+   "end": 400.4,
+   "speaker": "Vice President Bennett",
+   "text": "does it end there?"
+  },
+  {
+   "start": 400.8,
+   "end": 403.9,
+   "speaker": "President Marshall",
+   "text": "Kathryn, we've got a job to do, whatever the cost."
+  },
+  {
+   "start": 404.2,
+   "end": 404.9,
+   "speaker": "Vice President Bennett",
+   "text": "Mr. President, I..."
+  },
+  {
+   "start": 404.9,
+   "end": 405.8,
+   "speaker": "President Marshall",
+   "text": "Kathryn,"
+  },
+  {
+   "start": 405.8,
+   "end": 409.6,
+   "speaker": "President Marshall",
+   "text": "if you give a mouse a cookie..."
+  },
+  {
+   "start": 412.8,
+   "end": 414.2,
+   "speaker": "Vice President Bennett",
+   "text": "he's gonna want a glass of milk."
+  },
+  {
+   "start": 416.6,
+   "end": 417.5,
+   "speaker": "President Marshall",
+   "text": "We gotta get this plane on the ground."
+  }
+ ],
+ "left_out": [
+  "2:28.6 'Believe me.' (heard twice by the second listen; said once)",
+  "3:55.9-5:02.5 ten lines only the first listen heard ('It's me, Ben' ... 'Thank you'): not said in the video"
+ ]
+}
