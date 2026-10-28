@@ -31,8 +31,6 @@ def source_functions(filename, names, namespace):
     from user_errors import customer_message, customer_payload
     namespace.setdefault('customer_message', customer_message)
     namespace.setdefault('customer_payload', customer_payload)
-    from supabase_keys import sb_auth
-    namespace.setdefault('sb_auth', sb_auth)
     tree = ast.parse((ROOT / filename).read_text(encoding='utf-8-sig'))
     nodes = []
     for node in tree.body:
@@ -117,17 +115,31 @@ class PathTests(unittest.TestCase):
 
 
 class PricingTests(unittest.TestCase):
+    def setUp(self):
+        # Gemini 3.6 Flash prices until 31 Dec 2026 (fixed here so the tests do not change on 1 Jan 2027)
+        import shortdub_billing
+        self._rates = shortdub_billing.flash_rates
+        shortdub_billing.flash_rates = lambda: (0.75, 3.75, 0.75)
+        self.addCleanup(setattr, shortdub_billing, 'flash_rates', self._rates)
+
     def test_quote_includes_analysis_previously_missing_from_badge(self):
-        # $0.0104 analysis at the configured 100 credits/cent = 104 credits.
+        # $0.0156 analysis (4160 tokens at $3.75 per million) at the configured 100 credits/cent = 156 credits.
         q = studio_quote({'elevenlabs': 600}, {'gemini_out': 4160}, {'charsPerCredit': 60, 'geminiCreditsPerCent': 100})
-        self.assertEqual((q['voice_credits'], q['analysis_credits'], q['credits']), (10, 104, 114))
+        self.assertEqual((q['voice_credits'], q['analysis_credits'], q['credits']), (10, 156, 166))
+
+    def test_the_price_follows_the_cost_meter(self):
+        import shortdub_billing, resource_meter
+        from unittest import mock
+        shortdub_billing.flash_rates = self._rates
+        with mock.patch.object(resource_meter, 'flash_rates', lambda today=None: (1.5, 7.5, 1.5)):
+            self.assertAlmostEqual(shortdub_billing.gemini_usd(1_000_000, 1_000_000, 0, 0), 9.0)
 
     def test_thinking_tokens_are_priced_like_output_tokens(self):
-        # 4000 thinking tokens cost the same as 4000 answer tokens ($0.01 = 1 credit at 1 credit/cent).
+        # 4000 thinking tokens cost the same as 4000 answer tokens ($0.015 = 2 credits at 1 credit/cent).
         thought = studio_quote({'elevenlabs': 60}, {'gemini_thoughts': 4000}, {})
         answer = studio_quote({'elevenlabs': 60}, {'gemini_out': 4000}, {})
         self.assertEqual(thought['analysis_credits'], answer['analysis_credits'])
-        self.assertEqual(thought['analysis_credits'], 1)
+        self.assertEqual(thought['analysis_credits'], 2)
 
     def test_engine_rates_round_separately(self):
         q = studio_quote({'elevenlabs': 61, 'inworld': 101}, {}, {'charsPerCredit': 60, 'inworldCharsPerCredit': 100})
@@ -141,7 +153,7 @@ class PricingTests(unittest.TestCase):
         second = studio_quote({'elevenlabs': 60}, bucket, {})
         self.assertEqual(second['credits'], 1)
         bucket['gemini_out'] += 8000
-        self.assertEqual(studio_quote({'elevenlabs': 60}, bucket, {})['analysis_credits'], 2)
+        self.assertEqual(studio_quote({'elevenlabs': 60}, bucket, {})['analysis_credits'], 3)
 
     def test_no_phantom_analysis_fee(self):
         self.assertEqual(studio_quote({'elevenlabs': 60}, {}, {})['analysis_credits'], 0)

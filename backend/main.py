@@ -1581,12 +1581,10 @@ def _watch_and_deduct(job_id, uid, kind):
                 if reported_total > 0:
                     eleven_chars = reported_total
 
-            gemini_usd = (
-                (int(b.get("gemini_in", 0)) + int(b.get("audio_sec", 0) * 258))
-                / 1e6
-                * 0.30
-                + (int(b.get("gemini_out", 0)) + int(b.get("gemini_thoughts", 0))) / 1e6 * 2.50
-            )
+            # Gemini 3.6 Flash prices for today (shortdub_billing.gemini_usd; before 1.83.9 the old 2.5 Flash prices)
+            import shortdub_billing as _sdb
+            gemini_usd = _sdb.gemini_usd(int(b.get("gemini_in", 0)), int(b.get("gemini_out", 0)),
+                                         int(b.get("gemini_thoughts", 0)), b.get("audio_sec", 0) or 0)
 
             eleven_rate = int(cfg.get("charsPerCredit", 60)) or 60
             inworld_rate = int(cfg.get("inworldCharsPerCredit", 60)) or 60
@@ -1600,7 +1598,7 @@ def _watch_and_deduct(job_id, uid, kind):
             amount = (
                 (math.ceil(eleven_chars / eleven_rate) if eleven_chars else 0)
                 + (math.ceil(inworld_chars / inworld_rate) if inworld_chars else 0)
-                + max(1, math.ceil(gemini_usd * _gemini_cpc(cfg.get("geminiCreditsPerCent")) / 0.01))
+                + max(1, math.ceil(round(gemini_usd * _gemini_cpc(cfg.get("geminiCreditsPerCent")) / 0.01, 6)))
             )
 
         # Duration (seconds) of the actual dubbed audio produced by this job â€”
