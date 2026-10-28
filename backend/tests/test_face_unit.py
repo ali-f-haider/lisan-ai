@@ -131,6 +131,20 @@ class Genders(unittest.TestCase):
             self.assertEqual(out, {})
 
 
+class Command(unittest.TestCase):
+    def test_the_video_path_follows_minus_i_and_the_length_comes_before_it(self):
+        # 1.82.86 put the length between -i and the file: ffmpeg read nothing ("no frames could be read") and the face check never ran
+        for dur in (None, 488.8, 99999):
+            cmd = F.frames_command('/w/src.mp4', dur)
+            i = cmd.index('-i')
+            self.assertEqual(cmd[i + 1], '/w/src.mp4')
+            if dur:
+                self.assertLess(cmd.index('-t'), i)
+                self.assertLessEqual(float(cmd[cmd.index('-t') + 1]), F.MAX_SECONDS)
+            else:
+                self.assertNotIn('-t', cmd)
+
+
 class Switch(unittest.TestCase):
     def test_on_by_default_and_the_switch_turns_it_off(self):
         self.assertTrue(F.ENABLED)

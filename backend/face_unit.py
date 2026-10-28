@@ -89,6 +89,15 @@ def _face_row(pts, shapes):
     return dict(box=[round(v, 4) for v in (x0, y0, x1, y1)], lip=round(lip, 4), jaw=round(float(bs.get('jawOpen', 0.0)), 4))
 
 
+def frames_command(video, duration=None):
+    """The ffmpeg command that reads the video as raw frames. The length limit is an INPUT option, so it stands before -i (in 1.82.86 it
+    stood between -i and the file name, ffmpeg then read no frame at all and the face check never ran)."""
+    cmd = ['ffmpeg', '-v', 'error']
+    if duration:
+        cmd += ['-t', f'{min(float(duration), MAX_SECONDS):.3f}']
+    return cmd + ['-i', str(video), '-an', '-vf', f'fps={FPS},scale={WIDTH}:{HEIGHT}', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
+
+
 def scan(video, wd, duration=None):
     """Looks at the video (FPS frames a second) and writes face_frames.jsonl + face_scan.json into wd. Returns the summary dict.
     A finished scan is reused. Raises on failure (the caller treats any failure as 'no face check')."""
@@ -105,9 +114,7 @@ def scan(video, wd, duration=None):
     import mediapipe as mp
     lm = _landmarker()
     part = wd / (FRAMES_FILE + '.part')
-    cmd = ['ffmpeg', '-v', 'error', '-i', str(video), '-an', '-vf', f'fps={FPS},scale={WIDTH}:{HEIGHT}', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-']
-    if duration:
-        cmd[4:4] = ['-t', f'{min(float(duration), MAX_SECONDS):.3f}']
+    cmd = frames_command(video, duration)
     t0 = time.time(); n = 0; faces_seen = 0; prev = None
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     size = WIDTH * HEIGHT * 3
