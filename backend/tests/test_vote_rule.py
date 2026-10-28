@@ -41,6 +41,8 @@ class Rule(unittest.TestCase):
     def test_the_checks_think_hard(self):
         p = svl._payload("dialogue", [{"segment_id": "s0", "start": 0, "end": 1, "text": "hi"}], None, people=2)
         self.assertEqual(p["generationConfig"]["thinkingConfig"], {"thinkingLevel": "high"})
+        p = svl._payload("audio", [{"segment_id": "s0", "start": 0, "end": 1, "text": "hi"}], "QUFB", people=2)
+        self.assertEqual(p["generationConfig"]["thinkingConfig"], {"thinkingLevel": "high"})        # the listening check thinks hard too (1.84.2)
 
     def test_the_app_keeps_the_weighted_majority_by_default(self):
         self.assertEqual(svl.VOTE_RULE, "plurality")

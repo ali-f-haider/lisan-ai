@@ -42,9 +42,16 @@ VOTE_RULE = os.environ.get("LONGDUB_VOTE_RULE", "plurality").strip().lower()
 if VOTE_RULE not in ("listen_first", "plurality"):
     VOTE_RULE = "plurality"
 
-THINKING = os.environ.get("LONGDUB_SPEAKER_THINKING", "high").strip().lower()      # how hard the two checks think (low / medium / high)
-if THINKING not in ("low", "medium", "high"):
-    THINKING = "high"
+def _level(name, default):
+    v = os.environ.get(name, default).strip().lower()
+    return v if v in ("low", "medium", "high") else default
+
+
+# How hard each check thinks. Both think hard (Ali, 28 Oct 2026: "keep deep thinking on listening even if it costs more").
+# Measured: C4K reading 83-85% -> 88%, listening 88% -> 89%; Air Force One replay (1.84.1) listening 93.2% -> 94.9% of the
+# lines, for about a third more cost. (At "medium" with a JSON answer Argon does not think at all.)
+THINKING = _level("LONGDUB_SPEAKER_THINKING", "high")            # the reading check
+LISTEN_THINKING = _level("LONGDUB_LISTEN_THINKING", "high")      # the listening check
 
 STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
@@ -128,7 +135,7 @@ def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=No
     # listening 88% -> 89%.
     return {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": _limit(len(rows), retry),
-                                 "thinkingConfig": {"thinkingLevel": THINKING}}}
+                                 "thinkingConfig": {"thinkingLevel": LISTEN_THINKING if kind == "audio" else THINKING}}}
 
 
 def _answer_text(data):

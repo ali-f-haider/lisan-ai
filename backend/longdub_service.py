@@ -1612,8 +1612,12 @@ SPEAKER_CHECK_SHORT_SECONDS = 1.0
 # two checks ask Gemini 4 Argon, thinking hard (since 1.83.3); priced at its price from 1 Dec 2026 ($4 / $20 per 1M tokens): measured
 # about $0.57 for 8.1 minutes (27k tokens in, 23k out with the thinking), so 4 + 6.5 per minute (8.1 min: 57 credits).
 # The values come from main._ld_pricing; these are only the fallbacks.
+# Since 1.84.2 both checks think hard, which costs more and varies with how much is said: Air Force One (7.4 min, 120-134 lines)
+# measured $0.46 and $0.85 at today's price, i.e. $0.92-$1.70 at the December price. So the charge is a reserve of 4 + 20 per
+# minute, and after the check what it really used (its tokens at the December price, 1 credit per cent) is kept and the rest is
+# given back (_speaker_check_settle).
 SPEAKER_CHECK_FLAT = 4
-SPEAKER_CHECK_PER_MIN = 6.5
+SPEAKER_CHECK_PER_MIN = 20.0
 # The second listen (speech_second.py): Argon listens to the whole voice track once more. Priced at the December price too:
 # measured about $0.155 for 8.1 minutes (16k tokens in, 4.6k out), so 2 + 2 per minute (8.1 min: 19 credits). Returned if it cannot run.
 SPEECH_CHECK_FLAT = 2
@@ -2062,6 +2066,45 @@ def _speaker_check_refund(job, why):
     return 0
 
 
+def _speaker_check_settle(job, usage):
+    """After the speaker check ran: keep what it really used (its tokens at the December price of the strongest model, 1 credit per
+    cent, plus the flat part, scaled like this job's price list) and give back the rest of the reserve. Once. Never raises."""
+    try:
+        paid = int(job.get("speaker_check_paid") or 0)
+        if paid <= 0 or job.get("speaker_check_settled"):
+            return 0
+        an = job.setdefault("analysis", {})
+        if int((usage or {}).get("calls") or 0) > 0:
+            an["speaker_check_usage"] = {k: int(usage.get(k) or 0) for k in ("calls", "tokens_in", "tokens_out", "tokens_thinking")}
+        u = an.get("speaker_check_usage")
+        if not u:
+            return 0          # nothing measured (saved answers from an older version): the reserve stands
+        import datetime as _dt
+        import resource_meter
+        rin, rout = (max(a, b) for a, b in zip(resource_meter._argon_rates(), resource_meter._argon_rates(_dt.date(2026, 12, 1))))
+        usd = u["tokens_in"] / 1e6 * rin + (u["tokens_out"] + u["tokens_thinking"]) / 1e6 * rout
+        cfg = _job_pricing(job)
+        scale = float(cfg.get("speaker_check_per_min", SPEAKER_CHECK_PER_MIN) or SPEAKER_CHECK_PER_MIN) / SPEAKER_CHECK_PER_MIN
+        used = int(cfg.get("speaker_check_flat", SPEAKER_CHECK_FLAT) or 0) + int(math.ceil(usd * 100 * scale))
+        back = paid - used
+        job["speaker_check_settled"] = True
+        if back <= 0:
+            _save(job)
+            _ev(job, "speaker_check_settled", "ok", f"used {used} of {paid} credits (${usd:.3f} at the December price): nothing to give back")
+            return 0
+        if _refund(job, job["uid"], back, "analysis", "speaker_check_unused_part"):
+            job["speaker_check_paid"] = paid - back
+            _save(job)
+            _ev(job, "speaker_check_settled", "ok", f"used {used} of {paid} credits (${usd:.3f} at the December price): {back} credits back", back)
+            return back
+        job["speaker_check_settled"] = False
+        _save(job)
+        _ev(job, "speaker_check_settled", "partial", f"{back} credits not yet confirmed; tried again on the next run")
+    except Exception as ex:
+        print(f"[longdub] speaker check settlement skipped: {ex}")
+    return 0
+
+
 def _speech_check_refund(job, why):
     """The second listen could not run (or was not needed): its charge is returned (once). Never raises."""
     try:
@@ -2296,6 +2339,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
     Changes row["speaker"] (and may add a new speaker); returns a summary dict whose "status" is "ok" only when the vote acted.
     On any problem the rows stay as the detector left them and the charge for the check is returned. Never raises."""
     summary = {"status": "skipped"}
+    usage = {}
     try:
         an = job.setdefault("analysis", {})
         dur = float(an.get("audio_duration") or job.get("duration") or 0)
@@ -2395,6 +2439,8 @@ def _vote_speakers(job, rows, wd, vocals_all):
         for r in rows:
             r.pop("speaker_vote", None)
         _speaker_check_refund(job, "the speaker check could not run on this video")
+    else:
+        _speaker_check_settle(job, usage)
     return summary
 
 

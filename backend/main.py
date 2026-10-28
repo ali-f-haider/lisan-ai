@@ -8817,7 +8817,7 @@ def _assistant_pricing_text():
     try:
         p = _ld_pricing()
         L.append(f"Long dub: videos up to {p['max_min']:g} minutes; analysis {p['analysis_per_min']:g} credits per minute of video plus a flat {p['flat']} credits "
-                 f"plus a speaker check of {p['speaker_check_flat']} credits flat and {p['speaker_check_per_min']:g} per minute (two extra checks of who says each line; returned if the check cannot run) "
+                 f"plus a speaker check of {p['speaker_check_flat']} credits flat and {p['speaker_check_per_min']:g} per minute (two extra checks of who says each line, both thinking hard; a reserve: what they really use is kept, the rest given back, all of it if the check cannot run) "
                  f"plus a second listen of {p['speech_check_flat']} credits flat and {p['speech_check_per_min']:g} per minute (the speech is listened to once more to catch missed or misheard sentences; returned if it cannot run) "
                  f"(shown as the estimate before the user accepts); then the dub itself is priced on the lines and voices and shown before accepting, "
                  f"with a reserve of {p['shorten_per_min']:g} credits per minute for shortening lines that are too long for their time "

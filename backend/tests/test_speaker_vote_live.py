@@ -266,8 +266,9 @@ class VoteStepTests(unittest.TestCase):
         self.assertEqual(s["status"], "ok")
         self.assertEqual([r["speaker"] for r in rows], APP_FIXED)
         refund.assert_not_called()
-        step, status, detail = self.events[-1]
+        step, status, detail = [e for e in self.events if e[0] == "speaker_vote"][-1]
         self.assertEqual((step, status), ("speaker_vote", "ok"))
+        self.assertEqual(self.events[-1][0], "speaker_check_settled")      # then the reserve is settled to what the check used
         self.assertIn("3 lines moved", detail)
         self.assertIn("$0.0470", detail)
         self.assertNotIn("invented line", detail)
