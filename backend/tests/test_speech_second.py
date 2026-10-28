@@ -1,0 +1,131 @@
+"""The second listen: a sentence the speech recognition missed becomes a line, a line it clearly misheard gets the second
+listener's words, small differences stay. Measured cases from the test clip (Oct 2026)."""
+import inspect
+import json
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import speech_second as S
+
+
+def row(i, start, words, speaker="Speaker 1", step=0.4):
+    ws = [{"word": w, "start": round(start + k * step, 2), "end": round(start + (k + 1) * step - 0.05, 2)} for k, w in enumerate(words.split())]
+    return {"segment_id": f"seg_{i}", "start": ws[0]["start"], "end": ws[-1]["end"], "text": words, "speaker": speaker, "words": ws}
+
+
+ROWS = [row(0, 274.2, "you got it mister you try the rest"),
+        row(1, 303.5, "you made the new news", "Speaker 9"),
+        row(2, 330.0, "forty thousand dollars to have him killed"),
+        row(3, 425.6, "When you're hurt, I'd like to shoot you."),
+        row(4, 428.0, "That chief's name is Lemke.")]
+
+HEARD = [{"start": 274.0, "end": 277.0, "text": "You got it, mister, you try the rest."},
+         {"start": 300.4, "end": 303.0, "text": "They're coming this afternoon to fix the elevator."},
+         {"start": 303.4, "end": 305.4, "text": "And congratulations, you made the noon news."},
+         {"start": 330.0, "end": 333.0, "text": "$40,000 to have him killed."},
+         {"start": 425.0, "end": 427.6, "text": "You hear, judge? No problem. Look into what Ancaster's doing here."},
+         {"start": 428.0, "end": 430.0, "text": "Their chief, name's Lempke."}]
+
+
+class Compare(unittest.TestCase):
+    def test_a_missed_sentence_becomes_its_own_line_in_the_pause(self):
+        out, added, changed = S.apply(ROWS, S.compare(ROWS, HEARD, clip_end=489))
+        self.assertEqual(len(added), 1)
+        a = added[0]
+        self.assertTrue(a["text"].startswith("They're coming this afternoon to fix the elevator"))
+        self.assertGreater(a["start"], ROWS[0]["end"]); self.assertLess(a["end"], ROWS[1]["start"])     # inside the pause
+        self.assertEqual(a["text_check"], "added")
+        self.assertEqual([r["segment_id"] for r in out], [f"seg_{i}" for i in range(len(out))])
+        self.assertEqual(out.index(a), 1)                    # in time order
+
+    def test_a_clearly_misheard_line_gets_the_new_words_small_differences_stay(self):
+        out, added, changed = S.apply(ROWS, S.compare(ROWS, HEARD, clip_end=489))
+        texts = {r["start"]: r["text"] for r in out}
+        self.assertIn("You hear, judge?", texts[ROWS[3]["start"]])
+        hit = [r for r in changed if r["start"] == ROWS[3]["start"]][0]
+        self.assertEqual(hit["text_first"], "When you're hurt, I'd like to shoot you.")      # kept for the person to compare
+        self.assertEqual(hit["text_check"], "changed")
+        self.assertEqual(texts[ROWS[4]["start"]], "That chief's name is Lemke.")              # spelling only: stays
+        self.assertEqual(texts[ROWS[2]["start"]], "forty thousand dollars to have him killed")  # numbers written differently: stays
+        self.assertEqual(texts[ROWS[1]["start"]], "you made the new news")                     # one word: stays
+        self.assertEqual(len(changed), 1)
+
+    def test_the_new_line_takes_the_speaker_heard_there(self):
+        out, added, _ = S.apply(ROWS, S.compare(ROWS, HEARD, clip_end=489), speaker_at=lambda t: "Speaker 10")
+        self.assertEqual(added[0]["speaker"], "Speaker 10")
+        out, added, _ = S.apply(ROWS, S.compare(ROWS, HEARD, clip_end=489))
+        self.assertEqual(added[0]["speaker"], "Speaker 1")          # no detector: the line before
+
+    def test_nothing_new_nothing_changed(self):
+        same = [{"start": r["start"], "end": r["end"], "text": r["text"]} for r in ROWS]
+        plan = S.compare(ROWS, same, clip_end=489)
+        self.assertEqual(plan, {"add": [], "change": {}})
+
+    def test_answer_forms(self):
+        self.assertEqual(S.parse('[{"start": 1, "end": 2, "text": "Hi"}]'), [{"start": 1.0, "end": 2.0, "text": "Hi"}])
+        self.assertEqual(S.parse('{"lines": [{"start": 1, "end": 2, "text": "Hi"}]}')[0]["text"], "Hi")
+        self.assertIsNone(S.parse(""))
+        self.assertIsNone(S.parse("not json"))
+
+
+class Listen(unittest.TestCase):
+    def test_one_retry_on_an_empty_answer_and_the_answer_is_saved(self):
+        calls = []
+        good = {"modelVersion": "gemini-4-argon", "candidates": [{"content": {"parts": [{"text": json.dumps({"lines": HEARD})}]}}], "usageMetadata": {}}
+        empty = {"modelVersion": "gemini-4-argon", "candidates": [], "usageMetadata": {}}
+
+        def ask(p):
+            calls.append(1)
+            return (empty if len(calls) == 1 else good), None
+        with tempfile.TemporaryDirectory() as d:
+            voc = Path(d) / "v.wav"; voc.write_bytes(b"RIFF0000")
+            import speaker_vote_live
+            orig = speaker_vote_live._audio_b64
+            speaker_vote_live._audio_b64 = lambda *a, **k: "QUFB"
+            try:
+                got = S.listen("j", voc, d, "key", 489, ask=ask)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(len(got["lines"]), len(HEARD))
+                again = S.listen("j", voc, d, "key", 489, ask=lambda p: self.fail("the saved answer is reused"))
+                self.assertTrue(again["reused"])
+            finally:
+                speaker_vote_live._audio_b64 = orig
+
+    def test_no_key_no_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            voc = Path(d) / "v.wav"; voc.write_bytes(b"x")
+            self.assertIsNone(S.listen("j", voc, d, "", 10, ask=lambda p: self.fail("no request"))["lines"])
+
+
+class Wiring(unittest.TestCase):
+    def test_runs_after_the_lines_are_built_and_before_anything_else(self):
+        import longdub_service as ld
+        src = inspect.getsource(ld._run_analysis)
+        a = src.index("rows = rows_from_raw(raw_all")
+        b = src.index("rows = _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language)")
+        c = src.index("_kept = _kept_start(raw_all, rows)")
+        self.assertLess(a, b); self.assertLess(b, c)
+        self.assertLess(b, src.index("rows = _apply_subtitle(job, rows)"))
+
+    def test_skipped_with_a_subtitle_or_switched_off(self):
+        import longdub_service as ld
+        src = inspect.getsource(ld._second_listener)
+        self.assertIn('job.get("subtitle")', src)
+        self.assertIn("speech_second.ENABLED", src)
+
+    def test_editor_mark_and_its_confirm(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "dub_long.html").read_text(encoding="utf-8")
+        self.assertIn("function textBadge(s)", html)
+        self.assertIn("d.text_ok = true", html)
+        self.assertIn("!!s.text_check", html)
+        self.assertNotIn("Gemini", html[html.index("function textBadge"):html.index("function textBadge") + 2000])
+        import longdub_service as ld
+        self.assertIn('e.get("text_ok") is True and r.get("text_check")', (root / "longdub_service.py").read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    unittest.main()

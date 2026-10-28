@@ -382,7 +382,7 @@ class SwapPlace(unittest.TestCase):
 
     def test_too_few_lines_for_a_new_person_changes_nothing(self):
         r = self.rows()
-        lab = self.votes(extra={f"seg_{i}": "A" for i in range(3, 6)})      # the 'daughter' now has only 2 lines
+        lab = self.votes(extra={f"seg_{i}": "A" for i in range(3, 7)})      # the 'daughter' now has only 1 line
         s = svl.apply(r, lab, allow_new=False, keep=True)
         self.assertEqual(s["swapped"], [])
         self.assertIn("Speaker 3", self.people(r))                  # given back as before, marked 'check speaker'

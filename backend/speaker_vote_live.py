@@ -458,7 +458,7 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
 # speaker, or the judge's lines on the main character, while a separate speaker held half of one 'Mm-hmm' or one 'no'.
 # Such a person may take that place: never more speakers than the user's number.
 SWAP_MAX_LINES = 3        # a speaker with more lines than this is never given away (even when only the detector backs it)
-SWAP_MIN_LINES = 3        # the new person needs this many lines, each one backed by at least SWAP_SUPPORT checks
+SWAP_MIN_LINES = 2        # the new person needs this many lines, each one backed by at least SWAP_SUPPORT checks (2: the channel owner's two closing lines)
 SWAP_SUPPORT = 2
 
 

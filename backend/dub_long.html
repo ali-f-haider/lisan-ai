@@ -2190,6 +2190,30 @@ function cutBadge(s) {
   return b;
 }
 
+// A second listen added this line (missed at first) or heard different words in it: the person checks the words once.
+function textBadge(s) {
+  if (!s.text_check) return null;
+  var ar = LANG === "ar";
+  var b = document.createElement("button"); b.type = "button"; b.className = "ld-spk-check ld-cut-check";
+  b.textContent = ar ? "راجع النص" : "Check text";
+  if (s.text_check === "added") {
+    b.title = ar ? "فاتت هذه الجملة في الاستماع الأول ووجدها استماع ثانٍ. راجع الكلمات والتوقيت، ثم اضغط للتأكيد."
+                 : "This sentence was missed at first and found by a second listen. Check the words and the time, then click to confirm.";
+  } else {
+    var first = String(s.text_first || "");
+    b.title = ar ? "سمع الاستماع الثاني كلمات مختلفة هنا. الاستماع الأول سمع: «" + first + "». صحّح النص إن لزم، ثم اضغط للتأكيد."
+                 : "A second listen heard different words here. The first listen heard: \u201C" + first + "\u201D. Fix the text if needed, then click to confirm.";
+  }
+  b.onclick = function () {
+    s.text_check = null; if (b.parentNode) b.parentNode.removeChild(b);
+    var d = dirty[s.segment_id] || (dirty[s.segment_id] = { segment_id: s.segment_id });
+    d.text_ok = true; setSaved(false);
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(flushSave, 900);
+  };
+  return b;
+}
+
 // The Arabic of this line had to guess a gender (who speaks or who is addressed was unclear): the person looks at it once.
 function genderBadge(s) {
   if (!s.gender_check) return null;
@@ -2211,7 +2235,7 @@ function genderBadge(s) {
 // ---- line focus (begin): which lines need a look (counted and marked). The list itself always shows every line.
 function needsLook(s) {
   if (!s) return false;
-  return s.speaker_confidence === "low" || !!s.cut_check || !!s.gender_check || !!s.picture_gender_check || (s.overlaps || []).length > 0 ||
+  return s.speaker_confidence === "low" || !!s.cut_check || !!s.text_check || !!s.gender_check || !!s.picture_gender_check || (s.overlaps || []).length > 0 ||
          s.heard === false || !String(s.arabic_text || "").trim();
 }
 function lookCount(rows, from, to) {
@@ -2288,6 +2312,7 @@ function buildRow(s) {
   var spkBadge = speakerBadge(s); if (spkBadge) time.appendChild(spkBadge);
   var cutMark = cutBadge(s); if (cutMark) time.appendChild(cutMark);
   var genMark = genderBadge(s); if (genMark) time.appendChild(genMark);
+  var txtMark = textBadge(s); if (txtMark) time.appendChild(txtMark);
   if (s.picture_gender_check) {
     var visual = document.createElement("span"); visual.className = "ld-spk-check"; visual.tabIndex = 0;
     visual.textContent = LANG === "ar" ? "راجع جنس المتحدث" : "Check speaker gender";

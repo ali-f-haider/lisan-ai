@@ -2597,6 +2597,7 @@ def _run_analysis(job):
             except Exception as ex:
                 print(f"[longdub] pause detection failed: {ex}")
         rows = rows_from_raw(raw_all, turns, label_map, silences, source_language=source_language)
+        rows = _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language)      # a second listen fills in what was missed or misheard
         _kept = _kept_start(raw_all, rows)      # every sentence the speech recognition heard must stay in a line (speech_kept.py)
         try:     # what the detector said and what became of it (for the server log; short clips only)
             if len(turns) <= 80:
@@ -2818,6 +2819,30 @@ def remove_subtitle(job):
     _save(job)
     _ev(job, "subtitle_removed", "ok", "")
     return True, None
+
+
+def _second_listener(job, rows, wd, vocals_all, turns, label_map, source_language="en"):
+    """speech_second.py: the strongest model listens to the whole voice track once; a sentence the speech recognition missed becomes
+    a line, a line it clearly misheard gets the second listener's words. Both are marked 'check text'. Never fails the job."""
+    try:
+        import speech_second
+        if not speech_second.ENABLED or not GEMINI_API_KEY or not vocals_all.exists() or job.get("subtitle") or not rows:
+            return rows
+        _mark(job, "build", 86, "Listening once more for anything missed...")
+        heard = speech_second.listen(job["id"], vocals_all, wd, GEMINI_API_KEY, (job.get("analysis") or {}).get("audio_duration"),
+                                     languages.get(source_language).english_name)
+        if not heard.get("lines"):
+            _ev(job, "second_listener", "skipped", f"no usable answer ({heard.get('model') or 'no model answered'}); the transcript stays as heard")
+            return rows
+        plan = speech_second.compare(rows, heard["lines"], clip_end=(job.get("analysis") or {}).get("audio_duration"))
+        import whisper_service as ws
+        at = (lambda t: label_map.get(ws.speaker_at_time(t, turns))) if turns else None
+        rows, added, changed = speech_second.apply(rows, plan, speaker_at=at)
+        _ev(job, "second_listener", "ok", speech_second.summary(heard, added, changed))
+        return rows
+    except Exception as ex:
+        print(f"[longdub] second listen skipped: {type(ex).__name__}: {ex}")
+        return rows
 
 
 def _kept_start(raw_all, rows):
@@ -3555,10 +3580,16 @@ def update_segments(job, edits):
                     _clear_picture_advice(r)      # (only the picture's marks; the audio review stays)
                     for k in line_tidy.CUT_FIELDS:      # the person edited the words: the "check the cut" mark is done
                         r.pop(k, None)
+                    r.pop("text_check", None)       # ... and so is "check text"
+                    r.pop("text_first", None)
                 r["text"] = e["text"][:MAX_TEXT_LEN]
                 changed += 1
             if e.get("gender_ok") is True and r.get("gender_check"):       # "the gender in this Arabic line is right" (pressed on the mark)
                 r.pop("gender_check", None)
+                changed += 1
+            if e.get("text_ok") is True and r.get("text_check"):       # "these words are right" (pressed on the mark)
+                r.pop("text_check", None)
+                r.pop("text_first", None)
                 changed += 1
             if e.get("cut_ok") is True and r.get("cut_check"):       # "this cut is right" (pressed on the mark)
                 for k in line_tidy.CUT_FIELDS:
