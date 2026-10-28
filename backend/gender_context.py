@@ -57,16 +57,32 @@ def _line_pitches(svc, vm, src, pieces, cut, work, n=6):
     return out
 
 
+PITCH_MOST = 0.75             # share of the measured lines that must sit on the speaker's side of PITCH_SPLIT
+PITCH_OTHER_MALE = 190.0      # a "male" speaker with a line this high (or a "female" one with a line this low) may be two people
+PITCH_OTHER_FEMALE = 135.0
+
+
+def _median(values):
+    v = sorted(values)
+    n = len(v)
+    return (v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2) if n else None
+
+
 def pitch_is_sure(gender, f0, seconds, line_pitches, ai=None):
-    """True when the pitch alone settles the gender: clearly outside the middle band, measured on enough clean speech, every measured line
-    on the same side (one voice, not a mix of people), and the listening check (when it answered at all) neither heard a child nor the
-    other gender. A mixed speaker (two men put together) or a boy's voice is exactly what these conditions keep out."""
+    """True when the pitch alone settles the gender: the usual pitch of the speaker's lines (`f0`, the median of the lines measured one
+    by one) is clearly male (140 Hz or lower) or clearly female (200 Hz or higher), measured on enough speech, at least three in four
+    lines sit on that side, no line clearly belongs to the other gender (then two people may be mixed), and the listening check, when it
+    answered at all, heard neither a child nor the other gender. A single noisy or shared line no longer spoils a clear voice."""
     try:
-        if gender not in ("male", "female") or not f0 or seconds < PITCH_SURE_SECONDS:
+        if gender not in ("male", "female") or not f0 or seconds < PITCH_SURE_SECONDS or not line_pitches:
             return False
-        if (gender == "male" and f0 > PITCH_SURE_MALE) or (gender == "female" and f0 < PITCH_SURE_FEMALE):
+        male = gender == "male"
+        if (male and f0 > PITCH_SURE_MALE) or (not male and f0 < PITCH_SURE_FEMALE):
             return False
-        if not line_pitches or any((p < PITCH_SPLIT) != (gender == "male") for p in line_pitches):
+        same = sum(1 for p in line_pitches if (p < PITCH_SPLIT) == male)
+        if same < PITCH_MOST * len(line_pitches):
+            return False
+        if any((p >= PITCH_OTHER_MALE) if male else (p <= PITCH_OTHER_FEMALE) for p in line_pitches):
             return False
         if ai:
             if ai.get("age") == "child":
@@ -140,10 +156,16 @@ def detect_genders(job_id, src, segments, chosen=None, *, work, key=None, cut=No
                     g, source, uncertain = clean(ai.get("gender")), "heard", True
                 if source == "heard" and pitch_g and pitch_g != g:
                     uncertain = True                       # the listener and the pitch disagree
-                if source == "pitch" and uncertain:
-                    lines_f0 = _line_pitches(svc, vm, src, pieces, cut, work)
-                    if pitch_is_sure(g, prof.get("f0_median"), got, lines_f0, ai):
-                        uncertain = False                  # a clearly male or female pitch of one clean voice settles it
+                if uncertain and source in ("pitch", "heard", ""):
+                    # The usual pitch of the speaker's lines measured one by one (as the pitch check does), not of all lines joined: one long
+                    # line with music or another voice in it can pull the joined measurement into the middle band (Speaker 4: 121 Hz per line).
+                    lines_f0 = _line_pitches(svc, vm, src, pieces, cut, work, n=8)
+                    usual = _median(lines_f0)
+                    lg = "male" if usual and usual <= PITCH_SURE_MALE else ("female" if usual and usual >= PITCH_SURE_FEMALE else "")
+                    if lg and (not g or g == lg) and pitch_is_sure(lg, usual, got, lines_f0, ai):
+                        if not g:
+                            g, source = lg, "pitch"
+                        uncertain = False                  # a clearly male or female voice settles it (an unsure listener that agrees stays the source)
                 out[n] = {"gender": g, "source": source if g else "", "uncertain": uncertain if g else True}
             except Exception as ex:
                 print(f"[gender] could not judge {n}: {ex}")

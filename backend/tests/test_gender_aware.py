@@ -61,6 +61,23 @@ class DetectTests(unittest.TestCase):
         out = gc.detect_genders("j", src, SEGS[:1], None, work=Path(self.dir.name) / "w", cut=fake_cut, describe=lambda j, p: {"gender": "", "uncertain": True})
         self.assertEqual(out["A"]["gender"], "")
 
+    def test_a_clearly_male_voice_is_sure_although_one_long_line_pulls_the_joined_pitch_into_the_middle(self):
+        # real run, Speaker 4: 121 Hz line by line, but its long line (music, another voice) made the joined measurement unclear,
+        # and the listener said male but unsure -> it was shown "male, not sure"
+        src = self.two_voices(170, 120)                                    # 0-20 s at 170 Hz, 20-40 s at 120 Hz
+        segs = [{"speaker": "A", "start": 0, "end": 12}] + [{"speaker": "A", "start": 21 + 3 * k, "end": 23 + 3 * k} for k in range(4)]
+        out = gc.detect_genders("j", src, segs, None, work=Path(self.dir.name) / "w", cut=fake_cut,
+                                describe=lambda j, p: {"gender": "male", "uncertain": True})
+        self.assertEqual((out["A"]["gender"], out["A"]["uncertain"]), ("male", False))
+        mixed = self.two_voices(210, 120)                                  # one line clearly a woman: two people may be mixed, stays unsure
+        out = gc.detect_genders("j", mixed, segs, None, work=Path(self.dir.name) / "w", cut=fake_cut,
+                                describe=lambda j, p: {"gender": "male", "uncertain": True})
+        self.assertTrue(out["A"]["uncertain"])
+        f = gc.pitch_is_sure
+        self.assertTrue(f("male", 121, 8, [121, 118, 125, 170]))           # 3 of 4 lines male, the fourth only unclear
+        self.assertFalse(f("male", 121, 8, [121, 118, 170, 172]))          # only half
+        self.assertFalse(f("male", 121, 8, [121, 118, 125, 120, 205]))     # one line clearly female
+
     def test_every_speaker_is_listened_to_not_only_the_six_with_the_most_speech(self):
         segs = [{"speaker": f"S{i}", "start": i * 3.0, "end": i * 3.0 + 3.0} for i in range(12)]
         called = []
