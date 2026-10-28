@@ -72,9 +72,10 @@ class ShortSentencesOnTheVoice(unittest.TestCase):
         plan = S.compare(self.rows(), self.HEARD, voiced=lambda lo, hi: [(125.4, 126.0)])
         self.assertEqual([(a["text"], a["start"]) for a in plan["add"]], [("He's alive!", 125.35)])
 
-    def test_nothing_is_added_where_no_voice_sounds(self):
+    def test_a_short_sentence_is_not_added_where_no_voice_sounds(self):
         plan = S.compare(self.rows(), self.HEARD, voiced=lambda lo, hi: [])
         self.assertEqual(plan["add"], [])
+        self.assertEqual(plan["left_out"], ["He's alive!"])
 
     def test_without_the_voices_short_sentences_stay_out_as_before(self):
         self.assertEqual(S.compare(self.rows(), self.HEARD)["add"], [])
@@ -86,6 +87,26 @@ class ShortSentencesOnTheVoice(unittest.TestCase):
                  {"start": 98.5, "end": 99.6, "text": "I'll put you through."}]
         plan = S.compare(rows, heard, voiced=lambda lo, hi: [(96.7, 97.9)])
         self.assertEqual([(a["text"], a["start"], a["end"]) for a in plan["add"]], [("Oh, my God.", 96.65, 97.95)])
+
+
+class WholeSentencesStay(unittest.TestCase):
+    def test_a_whole_sentence_is_still_added_when_no_voice_is_found_near_it(self):
+        rows = [row(0, [W("very", 94.31, 94.79), W("slowly", 94.79, 95.11)]),
+                row(1, [W("I'll", 98.5, 98.7), W("put", 98.7, 98.9), W("you", 98.9, 99.0), W("through.", 99.0, 99.6)], "Speaker 2")]
+        heard = [{"start": 94.3, "end": 95.1, "text": "very slowly"}, {"start": 95.6, "end": 96.6, "text": "Oh, my God."},
+                 {"start": 98.5, "end": 99.6, "text": "I'll put you through."}]
+        plan = S.compare(rows, heard, voiced=lambda lo, hi: [])
+        self.assertEqual([a["text"] for a in plan["add"]], ["Oh, my God."])        # no voice found at all: placed as before 1.84.1
+        plan = S.compare(rows, heard, voiced=lambda lo, hi: [(98.0, 98.2)])        # a voice, but not near where it was heard
+        self.assertEqual([a["text"] for a in plan["add"]], ["Oh, my God."])
+
+    def test_what_was_not_added_is_listed_for_the_log(self):
+        rows = [row(0, [W("Fox", 225.7, 226.0), W("three.", 226.0, 226.2)]), row(1, [W("This", 343.4, 343.7), W("is", 343.7, 343.9), W("Marshall.", 343.9, 344.1)])]
+        heard = [{"start": 225.6, "end": 226.6, "text": "Fox three."}, {"start": 300.0, "end": 300.4, "text": "Stop!"},
+                 {"start": 343.4, "end": 344.1, "text": "This is Marshall."}]
+        plan = S.compare(rows, heard, voiced=lambda lo, hi: [(320.0, 320.5)])
+        self.assertEqual(plan["add"], [])
+        self.assertEqual(plan.get("left_out"), ["Stop!"])
 
 
 class Unheard(unittest.TestCase):

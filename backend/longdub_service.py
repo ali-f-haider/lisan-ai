@@ -3013,6 +3013,8 @@ def _second_listener(job, rows, wd, vocals_all, turns, label_map, source_languag
             at = lambda t: label_map.get(ws.speaker_at_time(t, turns))
         rows, added, changed = speech_second.apply(rows, plan, speaker_at=at)
         note = speech_second.summary(heard, added, changed)
+        if plan.get("left_out"):      # what the second listener heard but was not added: too short, or no voice sounds there
+            note += "; not added (too short, or no voice sounds there): " + "; ".join(f'"{t[:30]}"' for t in plan["left_out"][:8])
         try:      # one person per line: cut where the second listener heard a new sentence or a new speaker
             rows, cuts = speech_second.cut_at_sentences(rows, heard["lines"])
             if cuts:

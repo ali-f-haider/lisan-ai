@@ -27,7 +27,7 @@ ADD_MIN_TOKENS = 3        # a missed stretch needs at least this many words to b
 ADD_MIN_TOKENS_HEARD = 1  # ... and only this many when the separated voices show speech in that pause (real run, 28 Oct: "He's alive!"
                           # and "Oh, Christ." were two words each and were left out)
 VOICE_MIN_SEC = 0.12      # a stretch of voice shorter than this is a click or a breath
-VOICE_WINDOW = 2.0        # a sentence is placed on voice at most this far from where the second listener heard it
+VOICE_WINDOW = 3.0        # a sentence is placed on voice at most this far from where the second listener heard it
 VOICE_JOIN_GAP = 0.6      # stretches of voice closer than this belong to the same sentence
 UNHEARD_NEAR = 6.0        # a line none of whose words the second listener heard, with nothing it heard within this many seconds,
                           # is marked "maybe not speech" (Whisper makes up words in noise: real run, 28 Oct, 4:21 "I was the team.")
@@ -240,7 +240,7 @@ def _trim(text):
 def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end, voiced=None):
     """New lines for what only the second listener heard, in the pause between Whisper's words a and b (either may be None).
     voiced(lo, hi) -> [(start, end)] where the separated voices really sound: then each sentence is placed on the voice nearest to
-    where the second listener heard it, even a one-word one, and nothing is added where nothing sounds."""
+    where the second listener heard it, even a one-word one; a short one is not added where no voice sounds."""
     lo = a[4] if a is not None else 0.0
     hi = b[3] if b is not None else (float(clip_end) if clip_end else max(lo, float(glines[gtoks[-1][1]]["end"])) + 1.0)
     if hi - lo < ADD_MIN_GAP:
@@ -254,7 +254,15 @@ def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end, voiced=None):
         if spans is not None:
             _add_on_voice(plan, gtoks, a, glines, gwords, spans, lo, hi)
             return
+    _add_by_gap(plan, gtoks, a, lo, hi, glines, gwords)
+
+
+def _add_by_gap(plan, gtoks, a, lo, hi, glines, gwords):
+    """The placement without the voices: the second listener's sentences in Whisper's pause, by its own times (at least
+    ADD_MIN_TOKENS words)."""
     if len(gtoks) < ADD_MIN_TOKENS:
+        if gtoks:
+            plan.setdefault("left_out", []).append(_text_of(gtoks, gwords))
         return
     # one new line per sentence of the second listener (a pause can hold several people: real run, 28 Oct, 4:38-5:03)
     chunks = []
@@ -290,9 +298,8 @@ def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end, voiced=None):
 def _add_on_voice(plan, gtoks, a, glines, gwords, spans, lo, hi):
     """One new line per sentence of the second listener, each on the stretches of voice nearest to where it heard that sentence
     (its own clock can be a second off: real run, 28 Oct, "Oh, my God." was heard 1 s early). A sentence that gets no voice is
-    left out when it is short; nothing is added where no voice sounds at all."""
-    if not spans:
-        return
+    left out when it is short; a whole sentence of three words or more with no voice found near it is placed as before 1.84.1."""
+    spans = spans or []
     chunks = []
     for g in gtoks:
         if chunks and chunks[-1][-1][1] == g[1]:
@@ -302,13 +309,19 @@ def _add_on_voice(plan, gtoks, a, glines, gwords, spans, lo, hi):
     whole = lambda c: c[0][2] == 0 and c[-1][2] == len(gwords[c[-1][1]]) - 1     # the chunk is a whole sentence of the listener
     spans = sorted(spans)
     used = set()
+    no_voice = []
     for c in chunks:
         if (len(c) < ADD_MIN_TOKENS and not whole(c)) or len(c) < ADD_MIN_TOKENS_HEARD:
+            plan.setdefault("left_out", []).append(_text_of(c, gwords))
             continue
         gs, ge = float(glines[c[0][1]]["start"]), float(glines[c[-1][1]]["end"])
         near = [k for k, sp in enumerate(spans) if k not in used and sp[1] >= gs - VOICE_WINDOW and sp[0] <= ge + VOICE_WINDOW]
         if not near:
-            continue          # no voice where the second listener heard it: left out
+            # no voice found where the second listener heard it: a whole sentence of three words or more is still added the way it
+            # was before 1.84.1 (in the pause, by the listener's times; real run, 28 Oct, 1.84.1: "Oh, my God." was lost this way);
+            # a shorter one is left out (it may be noise heard as words)
+            no_voice.append(c)
+            continue
         def closeness(k):
             sp = spans[k]
             ov = max(0.0, min(sp[1], ge) - max(sp[0], gs))
@@ -327,6 +340,14 @@ def _add_on_voice(plan, gtoks, a, glines, gwords, spans, lo, hi):
             continue
         plan["add"].append({"start": round(start, 2), "end": round(end, 2), "text": _trim(_text_of(c, gwords)),
                             "after": a[1] if a is not None else -1, "on_voice": True})
+    for c in no_voice:
+        if len(c) >= ADD_MIN_TOKENS:
+            taken = [(x["start"], x["end"]) for x in plan["add"] if lo <= x["start"] <= hi]
+            free_lo = max([lo] + [e for s_, e in taken if e <= float(glines[c[0][1]]["start"]) + 0.5])
+            free_hi = min([hi] + [s_ for s_, e in taken if s_ >= free_lo])
+            _add_by_gap(plan, c, a, free_lo, free_hi, glines, gwords)
+        else:
+            plan.setdefault("left_out", []).append(_text_of(c, gwords))
 
 
 def compare(rows, glines, clip_end=None, voiced=None):
