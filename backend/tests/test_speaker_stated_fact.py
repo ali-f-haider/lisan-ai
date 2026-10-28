@@ -388,6 +388,35 @@ class SwapPlace(unittest.TestCase):
         self.assertIn("Speaker 3", self.people(r))                  # given back as before, marked 'check speaker'
         self.assertEqual(s["restored"], 1)
 
+    def test_when_the_detector_found_fewer_an_unbacked_speaker_also_gives_its_place(self):
+        # stated 5, the detector found 4: mother+daughter on Speaker 1, the judge on Billy's Speaker 2, a one-line Speaker 3, Speaker 4.
+        r = rows(28, lambda i: "Speaker 1" if i < 8 else "Speaker 2" if i < 20 else "Speaker 3" if i == 20 else "Speaker 4")
+        lab = {f"seg_{i}": ("A" if i < 3 else "D" if i < 8 else "B" if i < 14 else "J" if i < 20 else "B" if i == 20 else "C") for i in range(28)}
+        v = {"dialogue": dict(lab), "audio": dict(lab)}
+        plain = svl.apply([dict(x) for x in r], v, allow_new=True, max_new=1, min_new_lines=2)      # before: one place, the judge stays on Billy
+        self.assertEqual(plain["swapped"], [])
+        s = svl.apply(r, v, allow_new=True, max_new=1, min_new_lines=2, cap=5)
+        self.assertEqual(len(self.people(r)), 5)
+        judge = {x["speaker"] for x in r[14:20]}; billy = {x["speaker"] for x in r[8:14]}
+        self.assertEqual(len(judge), 1); self.assertNotEqual(judge, billy)                  # the judge has his own speaker
+        self.assertEqual(len({x["speaker"] for x in r[:3]} | {x["speaker"] for x in r[3:8]}), 2)      # mother and daughter apart
+        self.assertEqual([d["old"] for d in s["swapped"]], ["Speaker 3"])
+        self.assertEqual(r[20]["speaker"], r[8]["speaker"])                                 # its line went to Billy
+
+    def test_never_more_than_the_users_number(self):
+        r = rows(28, lambda i: "Speaker 1" if i < 8 else "Speaker 2" if i < 20 else "Speaker 3" if i == 20 else "Speaker 4")
+        lab = {f"seg_{i}": ("A" if i < 3 else "D" if i < 8 else "B" if i < 14 else "J" if i < 20 else "B" if i == 20 else "C") for i in range(28)}
+        s = svl.apply(r, {"dialogue": dict(lab), "audio": dict(lab)}, allow_new=True, max_new=1, min_new_lines=2, cap=4)
+        self.assertLessEqual(len(self.people(r)), 4)
+        self.assertEqual(s["swapped"], [])
+
+    def test_the_log_says_who_got_no_place(self):
+        t = ld._vote_why({"candidates": [{"first": "seg_105", "lines": 9, "backed_lines": 8, "reason": "new_speaker_limit"}],
+                          "unbacked": ["Speaker 3"], "rename": {}})
+        self.assertIn("from seg_105 (9 lines, 8 backed by 2 checks: no free place)", t)
+        self.assertIn("detector speakers no check backs: Speaker 3", t)
+        self.assertEqual(ld._vote_why({}), "")
+
     def test_the_log_names_the_swap(self):
         note = ld._swap_note({"swapped": [{"old": "Speaker 8", "old_lines": 1}], "new_speakers": ["Speaker 14"], "rename": {"Speaker 14": "Speaker 13"}})
         self.assertIn("Speaker 8 (1 line(s)) -> Speaker 13", note)

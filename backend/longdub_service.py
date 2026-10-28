@@ -2178,6 +2178,23 @@ def _swap_note(summary):
             + ", ".join(f"{d['old']} ({d['old_lines']} line(s))" for d in sw) + " -> " + ", ".join(new))
 
 
+_CANDIDATE_WHY = {"new_disabled": "no free place", "new_speaker_limit": "no free place", "too_few_lines": "too few lines",
+                  "too_little_support": "the checks did not agree on enough lines"}
+
+
+def _vote_why(summary):
+    """Log text: people the checks found that got no speaker of their own, and the detector's speakers no check backs."""
+    out = ""
+    cands = summary.get("candidates") or []
+    if cands:
+        out += ("; people the checks found but not given a speaker: " + ", ".join(
+            f"from {c.get('first')} ({c.get('lines')} lines, {c.get('backed_lines')} backed by 2 checks: {_CANDIDATE_WHY.get(c.get('reason'), c.get('reason'))})"
+            for c in cands[:6]))
+    if summary.get("unbacked"):
+        out += "; detector speakers no check backs: " + ", ".join(str((summary.get("rename") or {}).get(x, x)) for x in summary["unbacked"])
+    return out
+
+
 KEEP_DETECTED = os.environ.get("LONGDUB_KEEP_DETECTED", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: the vote may merge speakers even when the detector found the user's number
 
 
@@ -2237,8 +2254,8 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 _gap = (int(people) - len({_orig[k] for k in _orig})) if people else None
                 if _gap is not None and _gap > 0:
                     if job.get("speaker_merge_choice") == "keep":      # the user was told what the checks found and insisted on their number: it wins
-                        return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, min_new_lines=1, new_support=1, **extra)
-                    return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, min_new_lines=2, **extra)
+                        return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, min_new_lines=1, new_support=1, cap=int(people), **extra)
+                    return speaker_vote_live.apply(rows, v, allow_new=True, max_new=_gap, min_new_lines=2, cap=int(people), **extra)
                 return speaker_vote_live.apply(rows, v, allow_new=people is None, **extra)
 
             def _n_people():
@@ -2286,7 +2303,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 f"{len(rows)} lines; answers from {len(got)} of 2 checks ({', '.join(got) or 'none'}){' (saved answers reused)' if votes.get('reused') else ''}"
                 f"; people named: " + ", ".join(f"{k} {speaker_vote_live.people_named(votes.get(k))}" for k in ("dialogue", "audio")) + f"; stated {people or 'none'}{reask_note}; "
                 f"result {summary['status']}{' (your number of speakers decided, the detector was not used)' if summary.get('fresh') else ''}"
-                f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied' + _swap_note(summary) + ')' if _same_number and summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
+                f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied)' if _same_number and summary['status'] == 'ok' else ''}{(_swap_note(summary) + _vote_why(summary)) if summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
                 f"cost ${float(usage.get('usd') or 0):.4f}")

@@ -352,7 +352,7 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
 
 # ------------------------------------------------------------------ apply
 
-def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None, fresh=False, keep=False):
+def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines=None, new_support=None, fresh=False, keep=False, cap=None):
     """Run the vote on `rows` (dicts with segment_id, speaker) and write the result into them. allow_new=False: the number of speakers is
     known (the user said it), so the vote only decides who of the existing speakers says a line and never adds a new one.
     fresh: the user's number replaces the detector's grouping: the speakers are the people the two checks tell apart (one letter, one speaker);
@@ -362,13 +362,15 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
     max_new: at most this many new speakers (used when the user's number is higher than the detector found: the vote may fill the gap, no further).
     keep: every speaker the rows start with keeps existing (used when the detector found exactly the user's number): a speaker the vote would
     empty gets back the lines the detector gave it, each marked 'check speaker'. Lines are still corrected between speakers that survive.
+    cap: the user's number of speakers. With keep, or when the vote may fill a gap (max_new), a detector speaker no check backs may give its
+    place to a person the checks agree on, never going above cap (see _swap).
     Returns a summary: status ('ok' or why the vote did not act), counts and the names of new speakers.
     Rows are changed only when status == 'ok'."""
     summary = {"status": "not_run", "changed": 0, "badged": 0, "new_speakers": [], "merged": 0, "voters": []}
     try:
         lines = [{"segment_id": r["segment_id"], "speaker": "Speaker 1" if fresh else r["speaker"],
                   **({"manual_speaker": r["manual_speaker"]} if picture is not None and isinstance(r.get("manual_speaker"), bool) else {})} for r in rows]
-        policy = {"audio_weight": _audio_weight()}
+        policy = {"audio_weight": _audio_weight(), "explain": True}
         extra = {}
         if picture is not None:
             import image_unit
@@ -386,7 +388,10 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
                 policy["new_support"] = max(1, int(new_support))      # ... and when they insisted, one check's word is enough
         voters = {"dialogue": votes.get("dialogue"), "audio": votes.get("audio"), "voice": None, **extra}
         res = speaker_vote.decide(lines, voters, policy)
-        swap = _keep_swap(rows, lines, voters, policy, res) if keep and not fresh and not allow_new else None
+        swap = None
+        unbacked = _unbacked(res, {r["speaker"] for r in rows}) if (res.get("summary") or {}).get("status") == "ok" else set()
+        if not fresh and ((keep and not allow_new) or (allow_new and max_new is not None)):
+            swap = _swap(rows, lines, voters, policy, res, cap if cap else (len({r["speaker"] for r in rows}) if keep else None), keep)
         if swap:
             res = swap["res"]
     except Exception as ex:
@@ -412,12 +417,11 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
                                "badge": bool(d["badge"]), "reasons": list(d["reasons"])}
     after = {r["speaker"] for r in rows}
     restored = 0
-    summary["swapped"] = []
+    summary["swapped"] = [dict(old=o, old_lines=sum(1 for v in start.values() if v == o)) for o in sorted(swap["replaced"])] if swap else []
     if keep and not fresh:
         gone = before - after
         if swap:
             gone = set(swap["restore"])       # the speakers that gave their place to a new person stay gone; only the rest come back
-            summary["swapped"] = [dict(old=o, old_lines=sum(1 for v in start.values() if v == o)) for o in sorted(swap["replaced"])]
         for row in rows:
             if start.get(row["segment_id"]) in gone:
                 row["speaker"] = start[row["segment_id"]]
@@ -430,14 +434,17 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
                    badged=sum(1 for r in rows if isinstance(r.get("speaker_vote"), dict) and r["speaker_vote"].get("badge")) if restored else int(s.get("badged_lines", 0)),
                    new_speakers=[x["label"] for x in (s.get("new_speakers") or [])],
                    merged=max(0, len(before - after) - len(summary["swapped"])),
-                   dropped_small=len(s.get("dropped_small") or []))
+                   dropped_small=len(s.get("dropped_small") or []),
+                   candidates=[{k: x.get(k) for k in ("lines", "backed_lines", "reason", "first")} for x in (s.get("dropped_small") or [])],
+                   unbacked=sorted(unbacked))
     return summary
 
 
-# The detector found exactly the user's number, but one of its speakers is backed by no check at all (the vote takes every line
-# away from it, or it keeps a few lines only the detector stands behind) while the checks agree on a person the detector does not
-# have (in the test video: a mother and her daughter on one speaker, and a separate speaker for half of one 'Mm-hmm').
-# Such a person may take that place: the number of speakers stays the user's number, never more and never fewer.
+# The user said how many people speak. The detector found that number (or fewer, and the vote fills the gap), but one of its
+# speakers is backed by no check at all (the vote takes every line away from it, or it keeps a few lines only the detector stands
+# behind) while the checks agree on a person the detector does not have. In the test video: a mother and her daughter on one
+# speaker, or the judge's lines on the main character, while a separate speaker held half of one 'Mm-hmm' or one 'no'.
+# Such a person may take that place: never more speakers than the user's number.
 SWAP_MAX_LINES = 3        # a speaker with more lines than this is never given away (even when only the detector backs it)
 SWAP_MIN_LINES = 3        # the new person needs this many lines, each one backed by at least SWAP_SUPPORT checks
 SWAP_SUPPORT = 2
@@ -456,30 +463,40 @@ def _unbacked(res, before):
     return out
 
 
-def _keep_swap(rows, lines, voters, policy, res):
-    """keep mode: when the checks agree on a person the detector lacks and a detector speaker is backed by no check, the person
-    takes that place. Returns None (nothing to swap) or {res, replaced: speakers given away, restore: emptied speakers that come back}."""
-    if (res.get("summary") or {}).get("status") != "ok":
+def _swap(rows, lines, voters, policy, res, cap, keep):
+    """When the checks agree on a person the detector lacks and a detector speaker is backed by no check, the person takes that place.
+    keep: the number stays exactly the detector's (= the user's); otherwise (the vote filled a gap) it never goes above cap and never
+    below what the first vote reached, and the swap must add someone. Returns None (nothing to swap) or
+    {res, replaced: the detector's speakers given away, restore: emptied speakers that come back (keep only)}."""
+    s1 = res.get("summary") or {}
+    if s1.get("status") != "ok" or not cap:
         return None
     before = {r["speaker"] for r in rows}
+    first = {d["speaker"] for d in res["lines"]}
+    first_new = len(s1.get("new_speakers") or [])
     places = len(_unbacked(res, before))
-    for n in range(places, 0, -1):
+    start = {}
+    for r in rows:
+        start[r["speaker"]] = start.get(r["speaker"], 0) + 1
+    for n in range(first_new + places, first_new, -1):
         p = dict(policy, allow_new=True, max_new_speakers=n, min_new_lines=SWAP_MIN_LINES, new_support=SWAP_SUPPORT, prefer_backed=True)
         r2 = speaker_vote.decide(lines, voters, p)
         s2 = r2.get("summary") or {}
-        if s2.get("status") != "ok" or not s2.get("new_speakers"):
-            return None       # the checks agree on nobody new: nothing to swap
+        added = len(s2.get("new_speakers") or [])
+        if s2.get("status") != "ok" or added <= first_new:
+            return None       # the checks agree on nobody more: nothing to swap
         final = {d["speaker"] for d in r2["lines"]}
         gone = before - final
-        added = len(s2["new_speakers"])
-        if len(final) > len(before) or len(gone) < added:
-            continue          # more people than the user's number: try with one place fewer
-        start = {}
-        for r in rows:
-            start[r["speaker"]] = start.get(r["speaker"], 0) + 1
-        # More speakers emptied than people added: the biggest of them (most lines from the detector) come back.
-        back = sorted(gone, key=lambda x: (-start.get(x, 0), x))[:len(gone) - added]
-        return {"res": r2, "replaced": gone - set(back), "restore": back}
+        if keep:
+            if len(final) > cap or len(gone) < added:
+                continue      # more people than the user's number: try with one place fewer
+            # More speakers emptied than people added: the biggest of them (most lines from the detector) come back.
+            back = sorted(gone, key=lambda x: (-start.get(x, 0), x))[:len(gone) - added]
+            return {"res": r2, "replaced": gone - set(back), "restore": back}
+        if len(final) > cap or len(final) < len(first):
+            continue
+        # the speakers that made room: the smallest of those emptied, one for each person the swap added
+        return {"res": r2, "replaced": set(sorted(gone, key=lambda x: (start.get(x, 0), x))[:added - first_new]), "restore": []}
     return None
 
 

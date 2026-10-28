@@ -217,6 +217,7 @@ class Policy:
     allow_new: bool = True
     audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
     picture_weight: int = 1   # already aligned per chunk; visual advice remains optional
+    explain: bool = False     # True: each rejected candidate also names its first line (for the log)
     prefer_backed: bool = False   # True: when places for new speakers are limited, the person with the most backed lines gets one first (default: who speaks first)
 
 
@@ -233,7 +234,7 @@ def _policy(value):
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
             (value.min_new_lines, value.max_new_speakers, value.min_support, value.new_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool) or not isinstance(value.prefer_backed, bool)
+            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool) or not isinstance(value.prefer_backed, bool) or not isinstance(value.explain, bool)
             or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3
             or isinstance(value.picture_weight, bool) or not isinstance(value.picture_weight, int) or not 1 <= value.picture_weight <= 2):
         return None
@@ -343,7 +344,8 @@ def decide(lines, voters=None, policy=None):
                   'too_little_support' if backed < chosen.min_new_lines else
                   'new_speaker_limit' if len(accepted) >= chosen.max_new_speakers else None)
         if reason:
-            rejected.append(dict(label=label, lines=len(entries), backed_lines=backed, reason=reason))
+            rejected.append(dict(label=label, lines=len(entries), backed_lines=backed, reason=reason,
+                                 **({'first': rows[entries[0][0]]['segment_id']} if chosen.explain else {})))
         else:
             accepted[label] = f'Speaker {next_number}'
             next_number += 1
