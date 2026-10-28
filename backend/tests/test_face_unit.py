@@ -110,6 +110,9 @@ class Genders(unittest.TestCase):
         res = F.speaker_genders(two_alone, {'f1': 'female', 'f2': 'female', 'f3': 'male', 'f4': 'male', 'f5': 'female'})
         self.assertEqual((res['S1']['gender'], res['S1']['strong']), ('female', True))
         self.assertEqual((res['S2']['gender'], res['S2']['strong']), ('male', False))
+        both_with_others = [dict(id='g1', speaker='S9', alone=False, segment_id='x'), dict(id='g2', speaker='S9', alone=False, segment_id='y')]
+        res = F.speaker_genders(both_with_others, {'g1': 'male', 'g2': 'male'})
+        self.assertEqual((res['S9']['gender'], res['S9']['strong']), ('male', True))     # the old judge: seen speaking twice, once next to others
         self.assertNotIn('S3', res)                                                   # the faces disagree: no answer
 
     def test_the_gemini_answer_is_read_safely_and_only_confident_answers_count(self):
@@ -177,13 +180,16 @@ class Wiring(unittest.TestCase):
     def test_genders_follow_the_rules_of_sure_results(self):
         job = {'id': 'j', 'ext': '.mp4', 'speaker_list': [
             {'name': 'S1', 'gender': 'female', 'gender_source': 'pitch', 'gender_uncertain': True},     # a guess: a strong face sets it
-            {'name': 'S2', 'gender': 'male', 'gender_source': 'heard', 'gender_uncertain': False},      # sure: only flagged
+            {'name': 'S2', 'gender': 'male', 'gender_source': 'heard', 'gender_uncertain': False},      # a sure listener: a strong face still wins (Ali's rule)
             {'name': 'S3', 'gender': '', 'gender_source': '', 'gender_uncertain': True},                # empty: a weak face fills it, not sure
             {'name': 'S4', 'gender': 'male', 'gender_source': 'chosen', 'gender_uncertain': False},     # the person's choice: never touched
-            {'name': 'S5', 'gender': 'male', 'gender_source': 'pitch', 'gender_uncertain': True}]}      # a weak face that agrees: certain
+            {'name': 'S5', 'gender': 'male', 'gender_source': 'pitch', 'gender_uncertain': True},       # a weak face that agrees: certain
+            {'name': 'S6', 'gender': 'female', 'gender_source': 'pitch', 'gender_uncertain': False},    # a 'sure' pitch: a strong face still wins
+            {'name': 'S7', 'gender': 'male', 'gender_source': 'text', 'gender_uncertain': False}]}      # the words: two guaranteed opinions, flagged
         found = {'S1': dict(gender='male', strong=True, seen=2, ids=[]), 'S2': dict(gender='female', strong=True, seen=2, ids=[]),
                  'S3': dict(gender='female', strong=False, seen=1, ids=[]), 'S4': dict(gender='female', strong=True, seen=3, ids=[]),
-                 'S5': dict(gender='male', strong=False, seen=1, ids=[])}
+                 'S5': dict(gender='male', strong=False, seen=1, ids=[]), 'S6': dict(gender='male', strong=True, seen=2, ids=[]),
+                 'S7': dict(gender='female', strong=True, seen=3, ids=[])}
         with mock.patch.object(ld, 'GEMINI_API_KEY', 'k'), mock.patch.object(F, 'load', lambda wd: [{'i': 0, 'cut': 0, 'faces': []}]), \
                 mock.patch.object(F, 'judge', lambda fr, rows: {}), mock.patch.object(F, 'pick_crops', lambda j, r: [dict(id='f1', frame=0, box=[0, 0, 1, 1])]), \
                 mock.patch.object(F, 'crop', lambda *a, **k: True), mock.patch.object(F, 'ask_genders', lambda *a, **k: ({'f1': 'x'}, {})), \
@@ -192,11 +198,13 @@ class Wiring(unittest.TestCase):
             ld._face_genders(job, [], self.wd)
         sp = {s['name']: s for s in job['speaker_list']}
         self.assertEqual((sp['S1']['gender'], sp['S1']['gender_source'], sp['S1']['gender_uncertain']), ('male', 'seen', False))
-        self.assertEqual((sp['S2']['gender'], sp['S2']['gender_source'], sp['S2']['gender_uncertain']), ('male', 'heard', True))
-        self.assertIn('picture_gender_check', sp['S2'])
+        self.assertEqual((sp['S2']['gender'], sp['S2']['gender_source'], sp['S2']['gender_uncertain']), ('female', 'seen', False))
+        self.assertEqual((sp['S7']['gender'], sp['S7']['gender_source'], sp['S7']['gender_uncertain']), ('male', 'text', True))
+        self.assertIn('picture_gender_check', sp['S7'])
         self.assertEqual((sp['S3']['gender'], sp['S3']['gender_uncertain']), ('female', True))
         self.assertEqual((sp['S4']['gender'], sp['S4']['gender_source']), ('male', 'chosen'))
         self.assertEqual((sp['S5']['gender'], sp['S5']['gender_uncertain']), ('male', False))
+        self.assertEqual((sp['S6']['gender'], sp['S6']['gender_source'], sp['S6']['gender_uncertain']), ('male', 'seen', False))
         self.assertFalse((self.wd / 'face_crops').exists())                         # the face pictures are never kept
 
     def test_the_admin_list_and_the_privacy_page_name_the_face_check(self):

@@ -65,18 +65,16 @@ These averages do not invalidate Ali's observation: they hide individual quiet l
 
 Recommended next volume work: inspect the stored per-line voice levels, peak and applied gain for quiet passages; flag target misses; correct quiet lines only where headroom permits, with controlled dynamics when peaks prevent matching. Consider an explicit clearer-playback option for quiet recordings while preserving relative background balance. A blanket German boost or indiscriminately lifting all background/voice audio is not justified by these measurements. No such volume change was applied in this batch.
 
-## Translation: the exported source is already missing the negation
+## Translation: corrected source and the connected Arabic sentence
 
-Ali reported the original **Ich habe damit nicht gerechnet…** (“I did not expect that…”). The export instead contains:
+Ali corrected his original report: the spoken German was affirmative **Ich habe damit gerechnet…** (“I expected that…”), without **nicht**. The earlier missing-negation finding is withdrawn. The export contains:
 
 - 1:10.330–1:11.710: **Nee, ich hab**, Arabic **لا، كنت**.
 - 1:21.440–1:23.640: **damit gerechnet, dass du dich irgendwann melden würdest.**, Arabic **أتوقع أن تتصلي يوما.**
 
-The German source in these exported rows contains no **nicht** and is split by almost ten seconds. Given Ali's report of the spoken negation, it was lost somewhere before this exported source text. “Nee” as a conversational answer does not safely substitute for the missing clause negation. Also, the earlier Arabic **كنت** can supply past tense across the two fragments, so the isolated second subtitle alone is not enough to diagnose a tense reversal.
+**أتوقع** on its own expresses present expectation. However, the preceding Arabic row supplies **كنت**: together the rows read **لا، كنت أتوقع أن تتصلي يومًا**, which expresses past expectation. **Nee / لا** is the opening conversational reply; it does not negate **كنت أتوقع**. The German and Arabic both split the sentence across a gap of almost ten seconds. Reading only the second Arabic row can make its tense appear different, but the full stored sentence does not establish a past-to-present translation error.
 
-The wrong meaning is present in stored subtitles, before speech generation. The log records shortening at 210.5, 313.1 and 318.6 seconds, not this 81.44-second line. It also records repeated retranslation after gender choices, so the final Arabic could have come from a later translation pass. The event log does not retain raw transcript words or each translation request/response; it cannot distinguish the original recognizer from later transcript construction or identify exactly which translation pass emitted this wording. It would be inaccurate to blame Gemini alone from this export.
-
-The next translation investigation should compare the original audio with the raw/transformed German transcript, restore the missing negation, and translate complete connected clauses with context while keeping their separate timing slots. Negation, who did what, and factual content should be checked before accepting shorter wording. No new translation prompt or automatic semantic rewrite was introduced on the evidence of this one sentence.
+This corrected example does not establish a lost negation, a transcription failure, or a translation-provider failure. The event export also cannot prove the exact historical speech request or whether every written word was spoken. No transcription, translation, timing or volume code was changed on the basis of this sentence. The independently reproduced pronoun gender bug at 3:33 and the volume measurements above remain valid.
 
 ## Delivery
 

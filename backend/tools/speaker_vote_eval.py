@@ -15,7 +15,7 @@ if __package__ in (None, ''):
     from speaker_eval import evaluate as score
 else:
     from .speaker_eval import evaluate as score
-from speaker_vote import (VOTERS, Policy, choose_k, cluster_voices, decide,
+from speaker_vote import (CORE_VOTERS, Policy, choose_k, cluster_voices, decide,
                           parse_audio_answer, parse_dialogue_answer)
 
 
@@ -105,7 +105,7 @@ def evaluate_clip(data):
     runs['app_alone'] = _score(rows, baseline_result, baseline)
     runs['all'] = _score(rows, decide(app, voters), baseline)
     for count in (1, 2):
-        for removed in combinations(VOTERS, count):
+        for removed in combinations(CORE_VOTERS, count):
             variant = dict(voters)
             for name in removed:
                 variant[name] = None

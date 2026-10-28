@@ -286,13 +286,12 @@ class AdviceTests(unittest.TestCase):
         sp, _ = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}, three)
         self.assertEqual((sp["gender"], sp["gender_source"]), ("female", "pitch"))
 
-    def test_a_strong_picture_overrules_a_guess_but_not_a_sure_result(self):
+    def test_a_strong_picture_overrules_every_voice_result(self):
+        # Ali's rule: guaranteed evidence overrules everything; a voice (even a sure listener or a sure pitch) can be fooled by noise
         strong = self.sure("male", lines=3, alone=2)
-        sp, _ = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": "heard", "gender_uncertain": True}, strong)
-        self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("male", "seen", False))
-        sp, _ = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": "heard", "gender_uncertain": False}, strong)
-        self.assertEqual((sp["gender"], sp["gender_source"]), ("female", "heard"))
-        self.assertIn("picture_gender_check", sp)
+        for src, unsure in (("heard", True), ("heard", False), ("pitch", False)):
+            sp, _ = self.advise({"name": "Speaker 1", "gender": "female", "gender_source": src, "gender_uncertain": unsure}, strong)
+            self.assertEqual((sp["gender"], sp["gender_source"], sp["gender_uncertain"]), ("male", "seen", False), src)
 
     def test_one_clear_sighting_among_several_lines_is_not_enough(self):
         job = {"picture_option": True, "speaker_list": [{"name": "Speaker 1", "gender": "female", "gender_source": "pitch", "gender_uncertain": True}]}

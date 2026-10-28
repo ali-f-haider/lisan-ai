@@ -1945,7 +1945,10 @@ def _face_genders(job, rows, wd):
         current = sp.get("gender") if sp.get("gender") in ("male", "female") else ""
         # Sure results that a face does not overrule: the words, and a sure listening or picture result. A pitch alone is not among them: an
         # old man's rough voice measured 190-246 Hz line by line (a woman's range) while his face, clearly speaking, was a man's.
-        sure_now = bool(current) and (sp.get("gender_source") == "text" or (not sp.get("gender_uncertain") and sp.get("gender_source") != "pitch"))
+        # Ali's rule: guaranteed evidence overrules everything. A face clearly seen speaking in two lines or more (strong) is guaranteed: it
+        # overrules every voice result -- pitch, the listener, hearing in the scene -- because noise, shouting or a radio can fool them all.
+        # Only the person's own choice (skipped above) and the words (also guaranteed: the person looks) are not overruled.
+        sure_now = bool(current) and (sp.get("gender_source") == "text" or (not strong and not sp.get("gender_uncertain") and sp.get("gender_source") != "pitch"))
         if not sure_now and not strong:
             # two looks that agree beat an unsure voice guess (real run, 28 Oct: the hijacker's face, seen twice, and the picture both
             # said a man; the pitch, unsure, said a woman): the face seen speaking in two lines, or the picture saying the same
@@ -1999,9 +2002,10 @@ def _picture_advice(job, rows, result):
             if not g or s.get("gender_source") == "chosen":
                 continue
             current = s.get("gender") if s.get("gender") in ("male", "female") else ""
-            _heard_sure = s.get("gender_source") in ("heard", "pitch", "seen") and not s.get("gender_uncertain")      # a sure result (heard, a clearly male/female pitch, a face) is not overruled
-            # A voice opinion (words, a sure listener, or any guess when the picture is only weak) that says otherwise: two opinions, so the person looks.
-            if current and current != g and (s.get("gender_source") == "text" or _heard_sure or not strong):
+            # Ali's rule: guaranteed evidence overrules everything. A strong picture is guaranteed: it overrules every voice result (pitch and
+            # listening can be fooled by noise, shouting, a radio); only the person's own choice, and the words (also guaranteed: then two
+            # guaranteed opinions disagree and the person looks), are not overruled. A weak picture never overrules: it is advice, flagged.
+            if current and current != g and (s.get("gender_source") == "text" or not strong):
                 suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
                 _ev(job, "picture_gender_flag", "info", f"{s.get('name')}: the picture shows {g} ({'strong' if strong else 'weak'}) but the {s.get('gender_source') or 'earlier'} result says {current}; nothing changed, the speaker is flagged. Sightings: {_where(s.get('name'))}")
                 continue
