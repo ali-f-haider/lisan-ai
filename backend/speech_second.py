@@ -28,6 +28,7 @@ ADD_MIN_GAP = 0.5         # ... and Whisper must have heard nothing for at least
 SEC_PER_TOKEN = 0.33      # rough speaking speed, to size a new line when the second listener's own time is off
 CHANGE_MIN_TOKENS = 3     # a line is rewritten only when both versions have at least this many words ...
 CHANGE_MAX_SIMILAR = 0.5  # ... and they are less alike than this (0 = nothing in common, 1 = the same words)
+PEEL_MARGIN = 1.0         # a sentence heard this long before / after Whisper's words is its own line, not part of the rewrite
 TIME_SLACK = 3.0          # a rewrite needs the two versions heard within this many seconds of each other
 CHANGE_ROW_MIN_TOKENS = 4  # a line Whisper heard is only rewritten when it has at least this many words ...
 CHANGE_ROW_SHARE = 0.6     # ... and at least this share of them was heard differently (real run, 28 Oct: rewriting the different
@@ -292,21 +293,41 @@ def compare(rows, glines, clip_end=None):
             continue
         if j1 == j2:
             continue      # only Whisper heard these words: Whisper stays
+        # Whole sentences the second listener heard clearly before or after these words of Whisper belong in the pause there, not
+        # in Whisper's line (real run, 28 Oct, job 80209392: everything heard between 4:39 and 5:03, the elevator sentence too,
+        # went into the line "you got it mister..." because the two disagreed on its last words).
+        core = list(G[j1:j2])
+        w_start, w_end = W[i1][3], W[i2 - 1][4]
+        lead = []
+        while core and float(glines[core[0][1]]["end"]) < w_start - PEEL_MARGIN:
+            lead.append(core.pop(0))
+        tail = []
+        while core and float(glines[core[-1][1]]["start"]) > w_end + PEEL_MARGIN:
+            tail.insert(0, core.pop())
+        if lead and i1 > 0 and W[i1 - 1][1] != W[i1][1]:
+            _add_stretch(plan, lead, W[i1 - 1], W[i1], glines, gwords, clip_end)
+        elif lead and i1 == 0:
+            _add_stretch(plan, lead, None, W[i1], glines, gwords, clip_end)
+        if tail and (i2 >= len(W) or W[i2 - 1][1] != W[i2][1]):
+            _add_stretch(plan, tail, W[i2 - 1], W[i2] if i2 < len(W) else None, glines, gwords, clip_end)
+        if not core:
+            continue
+        gt = [g[0] for g in core]
         if min(len(wt), len(gt)) < CHANGE_MIN_TOKENS or _similar(wt, gt) >= CHANGE_MAX_SIMILAR or _same_but_numbers(wt, gt):
             continue      # a small, spelling or number-writing difference: Whisper stays
-        gs = min(float(glines[g[1]]["start"]) for g in G[j1:j2])
-        ge = max(float(glines[g[1]]["end"]) for g in G[j1:j2])
+        gs = min(float(glines[g[1]]["start"]) for g in core)
+        ge = max(float(glines[g[1]]["end"]) for g in core)
         if gs > W[i2 - 1][4] + TIME_SLACK or ge < W[i1][3] - TIME_SLACK:
             # the two heard these words at different times: not the same speech (real run, 28 Oct: the closing lines at 7:56 were
             # 'rewritten' with words heard at 7:15). Whisper's words stay; the other words may still fill a pause near their own time.
             p = sum(1 for w in W if w[3] < gs)
             pa, pb = (W[p - 1] if p > 0 else None), (W[p] if p < len(W) else None)
             if (pa is None or pb is None or pa[1] != pb[1]) and (pa is None or pa[4] - 1.0 <= gs) and (pb is None or gs <= pb[3] + 1.0):
-                _add_stretch(plan, G[j1:j2], pa, pb, glines, gwords, clip_end)
+                _add_stretch(plan, core, pa, pb, glines, gwords, clip_end)
             continue
         # Whisper heard something clearly different here: the second listener's words replace it, shared out in order over the
         # lines Whisper's words belong to (its own times are too loose to place a sentence more exactly than that)
-        G_sub = G[j1:j2]
+        G_sub = core
         by_row = []
         for k in range(i1, i2):
             if not by_row or by_row[-1][0] != W[k][1]:

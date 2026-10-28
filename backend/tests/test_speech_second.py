@@ -121,6 +121,27 @@ class RealRun28OctSecond(unittest.TestCase):
         self.assertEqual(S._trim("Rock and"), "Rock and")
 
 
+class RealRun28OctThird(unittest.TestCase):
+    """Job 80209392 (28 Oct): the two disagreed on the end of 'you got it mister...', and everything heard in the pause after it
+    (the elevator sentence too) was put into that line."""
+    def test_sentences_in_the_pause_after_a_rewritten_line_get_their_own_lines(self):
+        rows = [row(0, 272.2, "you got it mister you try the rest not try the best", "Speaker 3"),
+                row(1, 303.4, "you made the new news", "Speaker 3")]
+        heard = [{"start": 272.2, "end": 279.4, "text": "You got it, mister, you try the rest and I'll try the best."},
+                 {"start": 281.0, "end": 284.0, "text": "Huh? What do you think, huh?"},
+                 {"start": 286.0, "end": 290.0, "text": "Come on, everybody, just come on in. It's fun."},
+                 {"start": 300.0, "end": 302.5, "text": "They're coming this afternoon to fix the elevator."},
+                 {"start": 302.6, "end": 305.4, "text": "And congratulations, you made the new news."}]
+        plan = S.compare(rows, heard, clip_end=489)
+        texts = " | ".join(a["text"] for a in plan["add"])
+        self.assertIn("elevator", texts)
+        self.assertIn("What do you think", texts)
+        self.assertNotIn("elevator", plan["change"].get(0, ""))
+        self.assertNotIn("What do you think", plan["change"].get(0, ""))
+        for a in plan["add"]:
+            self.assertGreater(a["start"], rows[0]["end"]); self.assertLess(a["end"], rows[1]["start"])
+
+
 class Listen(unittest.TestCase):
     def test_one_retry_on_an_empty_answer_and_the_answer_is_saved(self):
         calls = []
