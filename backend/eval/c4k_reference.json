@@ -729,16 +729,10 @@
    "text": "That chief's name is Lemke."
   },
   {
-   "start": 402.9,
-   "end": 403.3,
-   "speaker": "Judge 2",
-   "text": "That's"
-  },
-  {
-   "start": 406.5,
+   "start": 406.0,
    "end": 407.1,
    "speaker": "Judge 2",
-   "text": "good riddance."
+   "text": "That's good riddance."
   },
   {
    "start": 407.4,
@@ -800,5 +794,8 @@
   "4:15.1 'Hey, wait a while, huh?' (not in the video)",
   "3:44 'what this is really all about is uh / Is he?' (no speaker given)",
   "3:53 line 74 (empty)"
+ ],
+ "fixes": [
+  "28 Oct 2026: 'That's' was placed by the speech recognition at 6:42.9; the voice says it at 6:46.0, right before 'good riddance.' (checked on the separated voices): one turn now."
  ]
 }

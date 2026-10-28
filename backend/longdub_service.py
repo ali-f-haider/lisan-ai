@@ -1437,6 +1437,53 @@ def _silence_wav(seconds, out_path):
                              "-acodec", "pcm_s16le", str(out_path)])
 
 
+EARLY_WORD_GAP = 3.0      # a first word this long before the rest of its sentence was placed too early by the recogniser
+
+
+def fix_early_words(segments):
+    """The speech recognition sometimes places the first word of a sentence right after the speech before it, seconds early
+    ("We" at 6:30.5, "can't give in to their demands" at 6:35.2; real run, 28 Oct). That word then makes its line start too
+    early and covers the pause, so a sentence heard in that pause ("Oh, Christ.") has no room. Such a word -- not ending a
+    sentence or a phrase, starting a sentence, more than EARLY_WORD_GAP seconds before the next word, which goes on in small
+    letters -- is moved to just before the next word, into that word's segment. Returns the number of words moved."""
+    flat = []
+    for si, s in enumerate(segments):
+        for wi, w in enumerate(getattr(s, "words", None) or []):
+            if getattr(w, "start", None) is not None and getattr(w, "end", None) is not None:
+                flat.append((si, wi, w))
+    moved = 0
+    touched = set()
+    for k in range(len(flat) - 1):
+        si, wi, w = flat[k]
+        sj, wj, nx = flat[k + 1]
+        word, nxt = str(w.word or "").strip(), str(nx.word or "").strip()
+        if not word or not nxt or float(nx.start) - float(w.end) <= EARLY_WORD_GAP or re.search(r"[.,;:!?\u2026-]$", word):
+            continue
+        if not nxt[:1].islower():
+            continue
+        if k > 0:
+            pw = flat[k - 1][2]
+            begins = bool(re.search(r"[.!?\u2026]$", str(pw.word or "").strip())) or float(w.start) - float(pw.end) > 0.6
+            if not begins:
+                continue
+        d = min(0.5, max(0.1, float(w.end) - float(w.start)))
+        w.start, w.end = round(float(nx.start) - d - 0.05, 3), round(float(nx.start) - 0.05, 3)
+        touched.update((si, sj))
+        if sj != si:                       # the word goes into the next word's segment
+            segments[si].words.remove(w)
+            segments[sj].words.insert(0, w)
+        moved += 1
+    for si in touched:
+        s = segments[si]
+        ws = [w for w in (getattr(s, "words", None) or []) if getattr(w, "start", None) is not None]
+        if ws:
+            s.start = min(float(w.start) for w in ws)
+            s.end = max(float(w.end) for w in ws)
+        s.text = " " + " ".join(str(w.word or "").strip() for w in (getattr(s, "words", None) or [])).strip()
+    segments[:] = [s for s in segments if (getattr(s, "words", None) or str(getattr(s, "text", "") or "").strip())]
+    return moved
+
+
 def _shift_segments(raw, offset):
     out = []
     for s in raw:
@@ -2613,6 +2660,12 @@ def _run_analysis(job):
             (wd / "speech_spans.json").write_text(json.dumps([[round(float(a), 3), round(float(z), 3)] for a, z in _sp]), encoding="utf-8")
         except Exception as ex:
             print(f"[longdub] could not keep the speech map: {ex}")
+        try:
+            _early = fix_early_words(raw_all)
+            if _early:
+                print(f"[longdub] {_early} first word(s) placed seconds too early moved next to their sentence")
+        except Exception as ex:
+            print(f"[longdub] early-word check skipped: {ex}")
         label_map = {}
         for t in sorted(turns, key=lambda x: x["start"]):
             if t["speaker"] not in label_map:
@@ -2906,13 +2959,28 @@ def _second_listener(job, rows, wd, vocals_all, turns, label_map, source_languag
             _ev(job, "second_listener", "skipped", f"no usable answer ({heard.get('model') or 'no model answered'}); the transcript stays as heard")
             _speech_check_refund(job, "the second listen gave no usable answer")
             return rows
-        plan = speech_second.compare(rows, heard["lines"], clip_end=(job.get("analysis") or {}).get("audio_duration"))
+        voiced = (lambda lo, hi: speech_second.voiced_spans(vocals_all, lo, hi)) if vocals_all.exists() else None
+        plan = speech_second.compare(rows, heard["lines"], clip_end=(job.get("analysis") or {}).get("audio_duration"), voiced=voiced)
         at = None
         if turns:
             import whisper_service as ws
             at = lambda t: label_map.get(ws.speaker_at_time(t, turns))
         rows, added, changed = speech_second.apply(rows, plan, speaker_at=at)
-        _ev(job, "second_listener", "ok", speech_second.summary(heard, added, changed))
+        note = speech_second.summary(heard, added, changed)
+        try:      # one person per line: cut where the second listener heard a new sentence or a new speaker
+            rows, cuts = speech_second.cut_at_sentences(rows, heard["lines"])
+            if cuts:
+                note += f"; {cuts} line(s) cut where a new sentence or another person starts"
+        except Exception as ex:
+            print(f"[longdub] sentence cut skipped: {type(ex).__name__}: {ex}")
+        try:      # words heard where the second listener heard nothing at all: maybe not speech (marked, not removed)
+            unheard = speech_second.mark_unheard(rows, heard["lines"])
+            if unheard:
+                note += f"; {len(unheard)} line(s) marked 'check text' (heard by the speech recognition only, maybe not speech): " + \
+                        "; ".join(f'{speech_second.clock(r["start"])} "{str(r.get("text") or "")[:40]}"' for r in unheard[:6])
+        except Exception as ex:
+            print(f"[longdub] unheard check skipped: {type(ex).__name__}: {ex}")
+        _ev(job, "second_listener", "ok", note[:1400])
         return rows
     except Exception as ex:
         print(f"[longdub] second listen skipped: {type(ex).__name__}: {ex}")

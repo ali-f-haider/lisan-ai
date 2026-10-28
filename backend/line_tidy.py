@@ -171,6 +171,32 @@ def _first_sound(vocals, lo, hi):
     return min(found) if found else None
 
 
+def _trusted_start(words):
+    """The latest a line may start: the first word of the first run of words the recogniser heard close together (gaps under
+    LEAD_SILENCE_MIN) that is longer than FRAGMENT_MAX_WORDS, or of the last run. Only a short run placed seconds before the rest
+    ("You know," at 86.3 s, the rest at 91.1 s) may be skipped; a quiet but real start is never cut off (real run, 28 Oct:
+    "Believe me. All that'd happen..." was started 1 s late, "Believe me." lost). None when the words have no times."""
+    ws = []
+    for w in words or []:
+        try:
+            ws.append((float(w["start"]), float(w["end"])))
+        except (KeyError, TypeError, ValueError):
+            return None
+    if not ws:
+        return None
+    runs, cur = [], [ws[0]]
+    for a, b in zip(ws, ws[1:]):
+        if b[0] - a[1] >= LEAD_SILENCE_MIN:
+            runs.append(cur)
+            cur = []
+        cur.append(b)
+    runs.append(cur)
+    for run in runs:
+        if len(run) > FRAGMENT_MAX_WORDS:
+            return run[0][0] - LEAD_MARGIN if run is not runs[0] else run[0][0]
+    return runs[-1][0][0] - (LEAD_MARGIN if len(runs) > 1 else 0.0)
+
+
 def snap_starts(rows, vocals=None):
     """A line whose stated start comes long before its first sound of speech (the recogniser put "You know," at 86.3 s, where the
     person before had just finished, but the voice says it at 91.1 s) is started where the speech really begins. ONLY the start
@@ -198,6 +224,11 @@ def snap_starts(rows, vocals=None):
             if sound is None or sound - start < LEAD_SILENCE_MIN or end - sound < LEAD_MIN_AFTER:
                 continue
             new = round(min(max(start, sound - LEAD_MARGIN), start + LEAD_MAX_SHIFT), 2)
+            cap = _trusted_start(r.get("words"))
+            if cap is not None and new > cap:
+                new = round(max(start, cap), 2)      # never past words the recogniser heard together (a quiet "Believe me." is speech)
+            if new - start < 0.05:
+                continue
             r["start"] = new
             for w in r.get("words") or []:  # the word times that came before the voice follow the line
                 if float(w["start"]) < new:

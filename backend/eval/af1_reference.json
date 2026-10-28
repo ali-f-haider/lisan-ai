@@ -195,8 +195,8 @@
    "text": "Fine by me."
   },
   {
-   "start": 87.2,
-   "end": 88.0,
+   "start": 86.0,
+   "end": 87.0,
    "speaker": "President Marshall",
    "text": "Is anyone there?"
   },
@@ -231,8 +231,8 @@
    "text": "Very slowly."
   },
   {
-   "start": 95.6,
-   "end": 96.6,
+   "start": 96.8,
+   "end": 97.9,
    "speaker": "Switchboard operator",
    "text": "Oh, my God."
   },
@@ -285,8 +285,8 @@
    "text": "I'm the president of the United States."
   },
   {
-   "start": 125.3,
-   "end": 125.9,
+   "start": 125.5,
+   "end": 126.5,
    "speaker": "Vice President Bennett",
    "text": "He's alive!"
   },
@@ -381,8 +381,8 @@
    "text": "Shut up, goddammit!"
   },
   {
-   "start": 167.3,
-   "end": 167.9,
+   "start": 166.6,
+   "end": 167.2,
    "speaker": "Cabinet official",
    "text": "God."
   },
@@ -732,5 +732,6 @@
  "left_out": [
   "2:28.6 'Believe me.' (heard twice by the second listen; said once)",
   "3:55.9-5:02.5 ten lines only the first listen heard ('It's me, Ben' ... 'Thank you'): not said in the video"
- ]
+ ],
+ "timing_note": "28 Oct 2026: four lines only the second listen heard were moved onto the voice they really sound on (checked on the separated voices): 'Is anyone there?' 1:26.0, 'He's alive!' 2:05.5, 'Oh, my God.' 1:36.8, 'God.' 2:46.6."
 }

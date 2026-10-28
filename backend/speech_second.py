@@ -23,7 +23,14 @@ ENABLED = os.environ.get("LONGDUB_SECOND_LISTENER", "1").strip().lower() not in 
 STATE_FILE = "speech_second.json"
 STATE_VERSION = 1
 
-ADD_MIN_TOKENS = 3        # a missed stretch needs at least this many words to become a line ...
+ADD_MIN_TOKENS = 3        # a missed stretch needs at least this many words to become a line (when the voices cannot be read) ...
+ADD_MIN_TOKENS_HEARD = 1  # ... and only this many when the separated voices show speech in that pause (real run, 28 Oct: "He's alive!"
+                          # and "Oh, Christ." were two words each and were left out)
+VOICE_MIN_SEC = 0.12      # a stretch of voice shorter than this is a click or a breath
+VOICE_WINDOW = 2.0        # a sentence is placed on voice at most this far from where the second listener heard it
+VOICE_JOIN_GAP = 0.6      # stretches of voice closer than this belong to the same sentence
+UNHEARD_NEAR = 6.0        # a line none of whose words the second listener heard, with nothing it heard within this many seconds,
+                          # is marked "maybe not speech" (Whisper makes up words in noise: real run, 28 Oct, 4:21 "I was the team.")
 ADD_MIN_GAP = 0.5         # ... and Whisper must have heard nothing for at least this long there
 SEC_PER_TOKEN = 0.33      # rough speaking speed, to size a new line when the second listener's own time is off
 CHANGE_MIN_TOKENS = 3     # a line is rewritten only when both versions have at least this many words ...
@@ -230,13 +237,24 @@ def _trim(text):
     return " ".join(words)
 
 
-def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end):
-    """New lines for what only the second listener heard, in the pause between Whisper's words a and b (either may be None)."""
-    if len(gtoks) < ADD_MIN_TOKENS:
-        return
+def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end, voiced=None):
+    """New lines for what only the second listener heard, in the pause between Whisper's words a and b (either may be None).
+    voiced(lo, hi) -> [(start, end)] where the separated voices really sound: then each sentence is placed on the voice nearest to
+    where the second listener heard it, even a one-word one, and nothing is added where nothing sounds."""
     lo = a[4] if a is not None else 0.0
     hi = b[3] if b is not None else (float(clip_end) if clip_end else max(lo, float(glines[gtoks[-1][1]]["end"])) + 1.0)
     if hi - lo < ADD_MIN_GAP:
+        return
+    if voiced is not None:
+        spans = None
+        try:
+            spans = [sp for sp in voiced(lo + 0.03, hi - 0.03) if sp[1] - sp[0] >= VOICE_MIN_SEC]
+        except Exception:
+            spans = None
+        if spans is not None:
+            _add_on_voice(plan, gtoks, a, glines, gwords, spans, lo, hi)
+            return
+    if len(gtoks) < ADD_MIN_TOKENS:
         return
     # one new line per sentence of the second listener (a pause can hold several people: real run, 28 Oct, 4:38-5:03)
     chunks = []
@@ -269,7 +287,49 @@ def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end):
         cursor = end + 0.05
 
 
-def compare(rows, glines, clip_end=None):
+def _add_on_voice(plan, gtoks, a, glines, gwords, spans, lo, hi):
+    """One new line per sentence of the second listener, each on the stretches of voice nearest to where it heard that sentence
+    (its own clock can be a second off: real run, 28 Oct, "Oh, my God." was heard 1 s early). A sentence that gets no voice is
+    left out when it is short; nothing is added where no voice sounds at all."""
+    if not spans:
+        return
+    chunks = []
+    for g in gtoks:
+        if chunks and chunks[-1][-1][1] == g[1]:
+            chunks[-1].append(g)
+        else:
+            chunks.append([g])
+    whole = lambda c: c[0][2] == 0 and c[-1][2] == len(gwords[c[-1][1]]) - 1     # the chunk is a whole sentence of the listener
+    spans = sorted(spans)
+    used = set()
+    for c in chunks:
+        if (len(c) < ADD_MIN_TOKENS and not whole(c)) or len(c) < ADD_MIN_TOKENS_HEARD:
+            continue
+        gs, ge = float(glines[c[0][1]]["start"]), float(glines[c[-1][1]]["end"])
+        near = [k for k, sp in enumerate(spans) if k not in used and sp[1] >= gs - VOICE_WINDOW and sp[0] <= ge + VOICE_WINDOW]
+        if not near:
+            continue          # no voice where the second listener heard it: left out
+        def closeness(k):
+            sp = spans[k]
+            ov = max(0.0, min(sp[1], ge) - max(sp[0], gs))
+            return (-ov, abs((sp[0] + sp[1]) / 2.0 - (gs + ge) / 2.0))
+        anchor = min(near, key=closeness)
+        group = [anchor]
+        for step in (-1, 1):           # the voice around it, while it goes on without a real pause
+            k = anchor
+            while (k + step) in near and abs(spans[k + step][0 if step > 0 else 1] - spans[k][1 if step > 0 else 0]) < VOICE_JOIN_GAP:
+                k += step
+                group.append(k)
+        used.update(group)
+        start = max(lo + 0.03, min(spans[k][0] for k in group) - 0.05)
+        end = min(hi - 0.03, max(max(spans[k][1] for k in group) + 0.05, start + 0.3))
+        if end - start < 0.25:
+            continue
+        plan["add"].append({"start": round(start, 2), "end": round(end, 2), "text": _trim(_text_of(c, gwords)),
+                            "after": a[1] if a is not None else -1, "on_voice": True})
+
+
+def compare(rows, glines, clip_end=None, voiced=None):
     """What to change: {"add": [{start, end, text, after}], "change": {row index: new text}}. Pure, never changes `rows`."""
     W = _whisper_tokens(rows)
     G, gwords = _gemini_tokens(glines or [])
@@ -284,12 +344,13 @@ def compare(rows, glines, clip_end=None):
         if i1 == i2:      # only the second listener heard something here
             a = W[i1 - 1] if i1 > 0 else None
             b = W[i1] if i1 < len(W) else None
-            if j2 - j1 < ADD_MIN_TOKENS:
+            if j2 - j1 < (ADD_MIN_TOKENS_HEARD if voiced is not None else ADD_MIN_TOKENS):
                 continue
             if a is not None and b is not None and a[1] == b[1]:
-                extra.setdefault(a[1], {})[b[2]] = G[j1:j2]      # inside one line: the skipped words go in there
+                if j2 - j1 >= ADD_MIN_TOKENS:
+                    extra.setdefault(a[1], {})[b[2]] = G[j1:j2]      # inside one line: the skipped words go in there
                 continue
-            _add_stretch(plan, G[j1:j2], a, b, glines, gwords, clip_end)
+            _add_stretch(plan, G[j1:j2], a, b, glines, gwords, clip_end, voiced)
             continue
         if j1 == j2:
             continue      # only Whisper heard these words: Whisper stays
@@ -305,11 +366,11 @@ def compare(rows, glines, clip_end=None):
         while core and float(glines[core[-1][1]]["start"]) > w_end + PEEL_MARGIN:
             tail.insert(0, core.pop())
         if lead and i1 > 0 and W[i1 - 1][1] != W[i1][1]:
-            _add_stretch(plan, lead, W[i1 - 1], W[i1], glines, gwords, clip_end)
+            _add_stretch(plan, lead, W[i1 - 1], W[i1], glines, gwords, clip_end, voiced)
         elif lead and i1 == 0:
-            _add_stretch(plan, lead, None, W[i1], glines, gwords, clip_end)
+            _add_stretch(plan, lead, None, W[i1], glines, gwords, clip_end, voiced)
         if tail and (i2 >= len(W) or W[i2 - 1][1] != W[i2][1]):
-            _add_stretch(plan, tail, W[i2 - 1], W[i2] if i2 < len(W) else None, glines, gwords, clip_end)
+            _add_stretch(plan, tail, W[i2 - 1], W[i2] if i2 < len(W) else None, glines, gwords, clip_end, voiced)
         if not core:
             continue
         gt = [g[0] for g in core]
@@ -323,7 +384,7 @@ def compare(rows, glines, clip_end=None):
             p = sum(1 for w in W if w[3] < gs)
             pa, pb = (W[p - 1] if p > 0 else None), (W[p] if p < len(W) else None)
             if (pa is None or pb is None or pa[1] != pb[1]) and (pa is None or pa[4] - 1.0 <= gs) and (pb is None or gs <= pb[3] + 1.0):
-                _add_stretch(plan, core, pa, pb, glines, gwords, clip_end)
+                _add_stretch(plan, core, pa, pb, glines, gwords, clip_end, voiced)
             continue
         # Whisper heard something clearly different here: the second listener's words replace it, shared out in order over the
         # lines Whisper's words belong to (its own times are too loose to place a sentence more exactly than that)
@@ -425,6 +486,167 @@ def apply(rows, plan, speaker_at=None):
     for i, r in enumerate(out):
         r["segment_id"] = f"seg_{i}"
     return out, added, changed
+
+
+def _line_of_words(rows, glines):
+    """{(row index, word index): the second listener's sentence (line index)} for the words both heard alike (exact word matches)."""
+    W = _whisper_tokens(rows)
+    G, _ = _gemini_tokens(glines or [])
+    out = {}
+    if not W or not G:
+        return out, W, G
+    sm = difflib.SequenceMatcher(None, [w[0] for w in W], [g[0] for g in G], autojunk=False)
+    for blk in sm.get_matching_blocks():
+        for k in range(blk.size):
+            w, g = W[blk.a + k], G[blk.b + k]
+            out.setdefault((w[1], w[2]), g[1])
+    return out, W, G
+
+
+STRAY_MAX_WORDS = 2       # a word or two at the edge of a line that belong to the sentence in the next/previous line move there
+STRAY_MAX_GAP = 1.0
+
+
+def cut_at_sentences(rows, glines):
+    """One person per line: a line that holds words of two of the second listener's sentences (it writes a new one at every
+    sentence and every change of speaker) is cut there, and a word or two at the edge of a line that belong to the next or
+    previous line's sentence move over (real run, 28 Oct, 1:28-1:35: "don't move i | traced the call sir Give me the gun. are |
+    you there very slowly" held the guard and the operator in each line). The words and their times are kept, nothing is lost;
+    the new lines keep the line's speaker for the speaker check to decide. Returns (rows, number of cuts)."""
+    if not rows or not glines:
+        return rows, 0
+    lw, W, G = _line_of_words(rows, glines)
+    if not lw:
+        return rows, 0
+    pieces = []          # [row index, [word dicts], [labels]]
+    for ri, r in enumerate(rows):
+        words = r.get("words") or []
+        if not words:
+            pieces.append([ri, [], [], "keep"])          # a line without word times stays as it is
+            continue
+        if len(words) < 2 or r.get("manual_speaker") or r.get("locked"):
+            pieces.append([ri, list(words), [lw.get((ri, wi)) for wi in range(len(words))], False])
+            continue
+        labels = [lw.get((ri, wi)) for wi in range(len(words))]
+        known = [x for x in labels if x is not None]
+        if not known:
+            pieces.append([ri, list(words), labels, False])
+            continue
+        filled, last = [], None       # a word both did not hear alike belongs to the sentence of the word before it
+        for x in labels:
+            last = x if x is not None else last
+            filled.append(last)
+        first_known = next(x for x in labels if x is not None)
+        filled = [x if x is not None else first_known for x in filled]
+        cur = None
+        for wi, w in enumerate(words):
+            if cur is None or filled[wi] != cur[2][-1]:
+                cur = [ri, [], [], True]
+                pieces.append(cur)
+            cur[1].append(w)
+            cur[2].append(filled[wi])
+    # a word or two at the edge of a line that belong to the sentence in the line next to it go there
+    moved = 0
+    for k in range(len(pieces)):
+        p = pieces[k]
+        if not p[1] or len(p[1]) > STRAY_MAX_WORDS or p[2][0] is None or rows[p[0]].get("manual_speaker") or rows[p[0]].get("locked"):
+            continue
+        prev = next((q for q in reversed(pieces[:k]) if q[1]), None)
+        nxt = next((q for q in pieces[k + 1:] if q[1]), None)
+        if prev is not None and (rows[prev[0]].get("manual_speaker") or rows[prev[0]].get("locked")):
+            prev = None
+        if nxt is not None and (rows[nxt[0]].get("manual_speaker") or rows[nxt[0]].get("locked")):
+            nxt = None
+        if prev is not None and prev[0] != p[0] and prev[2][-1] == p[2][0] \
+                and float(p[1][0]["start"]) - float(prev[1][-1]["end"]) <= STRAY_MAX_GAP:
+            prev[1].extend(p[1]); prev[2].extend(p[2]); p[1], p[2] = [], []
+            moved += 1
+        elif nxt is not None and nxt[0] != p[0] and nxt[2][0] == p[2][-1] \
+                and float(nxt[1][0]["start"]) - float(p[1][-1]["end"]) <= STRAY_MAX_GAP:
+            nxt[1][:0] = p[1]; nxt[2][:0] = p[2]; p[1], p[2] = [], []
+            moved += 1
+    out = []
+    for ri, words, labels, kind in pieces:
+        if kind == "keep":
+            out.append(dict(rows[ri]))
+            continue
+        if not words:
+            continue
+        nr = dict(rows[ri])
+        nr["words"] = words
+        nr["text"] = " ".join(str(w.get("word") or "").strip() for w in words).strip()
+        nr["start"] = round(float(words[0]["start"]), 2)
+        nr["end"] = round(max(float(words[-1]["end"]), float(words[0]["start"]) + 0.2), 2)
+        out.append(nr)
+    cuts = max(0, len(out) - sum(1 for r in rows if r.get("words"))) + moved
+    # a line whose words did not change keeps its own text (spelling, punctuation)
+    for nr in out:
+        src = next((r for r in rows if r.get("segment_id") == nr.get("segment_id")), None)
+        if src is not None and len(src.get("words") or []) == len(nr["words"]) and all(
+                a is b for a, b in zip(src.get("words") or [], nr["words"])):
+            nr["text"], nr["start"], nr["end"] = src.get("text"), src.get("start"), src.get("end")
+    out.sort(key=lambda r: (float(r.get("start") or 0), float(r.get("end") or 0)))
+    for i, r in enumerate(out):
+        r["segment_id"] = f"seg_{i}"
+    return out, cuts
+
+
+def mark_unheard(rows, glines, near=UNHEARD_NEAR):
+    """Marks lines the second listener did not hear at all ("check text", maybe not speech): none of their words were heard alike and
+    nothing was heard within `near` seconds. Returns the marked lines. Only marks; the person decides."""
+    if not rows or not glines:
+        return []
+    lw, W, G = _line_of_words(rows, glines)
+    heard_rows = {ri for (ri, wi) in lw}
+    spans = [(float(g.get("start") or 0), float(g.get("end") or 0)) for g in glines]
+    marked = []
+    for ri, r in enumerate(rows):
+        if ri in heard_rows or r.get("text_check") or r.get("manual_speaker"):
+            continue
+        s, e = float(r.get("start") or 0), float(r.get("end") or 0)
+        if any(gs - near <= e and ge + near >= s for gs, ge in spans):
+            continue
+        r["text_check"] = "unheard"
+        marked.append(r)
+    return marked
+
+
+def voiced_spans(path, lo, hi):
+    """[(start, end)] where the separated voices sound between lo and hi seconds (a level clearly above the quiet around it).
+    Reads only that part of the file. [] when nothing sounds; raises when the file cannot be read."""
+    import numpy as np
+    import soundfile as sf
+    info = sf.info(str(path))
+    sr = info.samplerate
+    a0, a1 = max(0.0, lo - 4.0), min(float(info.duration), hi + 4.0)      # the quiet is judged on a wider stretch
+    if a1 - a0 < 0.1 or hi <= lo:
+        return []
+    x, _ = sf.read(str(path), start=int(a0 * sr), frames=int((a1 - a0) * sr), dtype="float32", always_2d=True)
+    x = x.mean(axis=1)
+    win = max(1, int(0.03 * sr))
+    n = len(x) // win
+    if n < 3:
+        return []
+    db = 20 * np.log10(np.sqrt((x[:n * win].reshape(n, win) ** 2).mean(axis=1)) + 1e-9)
+    floor = float(np.percentile(db, 10))
+    loud = db > max(floor + 12.0, -50.0)
+    out, start = [], None
+    for i, flag in enumerate(loud):
+        t = a0 + i * 0.03
+        if flag and start is None:
+            start = t
+        elif not flag and start is not None:
+            out.append([start, t])
+            start = None
+    if start is not None:
+        out.append([start, a0 + n * 0.03])
+    merged = []
+    for sp in out:          # two stretches less than 0.25 s apart are one
+        if merged and sp[0] - merged[-1][1] < 0.25:
+            merged[-1][1] = sp[1]
+        else:
+            merged.append(sp)
+    return [(round(max(lo, s), 3), round(min(hi, e), 3)) for s, e in merged if e > lo and s < hi and min(hi, e) - max(lo, s) > 0]
 
 
 def clock(t):

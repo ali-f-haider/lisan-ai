@@ -2149,7 +2149,7 @@ function makeEmoPicker(value, onChange) {
 
 function speakerBadge(s) {
   if (s.speaker_confidence !== "low") return null;
-  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], voters_split: ["Not sure who says this line", "لسنا متأكدين ممن يقول هذا السطر"], candidate_rejected: ["May belong to another voice we could not confirm", "قد يعود إلى صوت آخر لم نتمكن من تأكيده"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], picture_disagrees: ["The picture suggests another speaker", "تشير الصورة إلى متحدث آخر"], two_faces: ["Two different people seem to speak as this speaker", "يبدو أن شخصين مختلفين يتكلمان باسم هذا المتحدث"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
+  var ar = LANG === "ar", T2 = { short_reply: ["Short reply", "رد قصير"], voters_split: ["Not sure who says this line", "لسنا متأكدين ممن يقول هذا السطر"], candidate_rejected: ["May belong to another voice we could not confirm", "قد يعود إلى صوت آخر لم نتمكن من تأكيده"], overlapping_speech: ["Voices overlap", "تداخل أصوات"], no_detected_turn: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], word_in_gap: ["Speech outside the detected turns", "كلام خارج الأدوار المكتشفة"], speaker_not_supported: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], word_speaker_disagrees: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], weak_time_coverage: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"], picture_disagrees: ["The picture suggests another speaker", "تشير الصورة إلى متحدث آخر"], pitch_disagrees: ["The pitch of the voice suggests another speaker", "تشير طبقة الصوت إلى متحدث آخر"], two_faces: ["Two different people seem to speak as this speaker", "يبدو أن شخصين مختلفين يتكلمان باسم هذا المتحدث"], smoothed_assignment: ["The detected voice may belong to someone else", "قد يكون الصوت لمتحدث آخر"] };
   var seen = {}, list = [];
   (s.speaker_reasons || []).forEach(function (k) { var n = T2[k]; if (n) { var t = n[ar ? 1 : 0]; if (!seen[t]) { seen[t] = 1; list.push(t); } } });
   var b = document.createElement("span"); b.className = "ld-spk-check"; b.tabIndex = 0;
@@ -2202,6 +2202,9 @@ function textBadge(s) {
   if (s.text_check === "added") {
     b.title = ar ? "فاتت هذه الجملة في الاستماع الأول ووجدها استماع ثانٍ. راجع الكلمات والتوقيت، ثم اضغط للتأكيد."
                  : "This sentence was missed at first and found by a second listen. Check the words and the time, then click to confirm.";
+  } else if (s.text_check === "unheard") {
+    b.title = ar ? "لم يسمع الاستماع الثاني أي كلام هنا، فقد لا يكون هذا كلاماً (ضجيج سُمع كلمات). استمع إليه واحذف السطر إن لم يكن كلاماً، أو اضغط للتأكيد."
+                 : "The second listen heard no speech here, so this may not be speech (noise heard as words). Listen to it and delete the line if nobody speaks, or click to confirm.";
   } else {
     var first = String(s.text_first || "");
     b.title = ar ? "سمع الاستماع الثاني كلمات مختلفة هنا. الاستماع الأول سمع: «" + first + "». صحّح النص إن لزم، ثم اضغط للتأكيد."

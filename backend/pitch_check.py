@@ -19,6 +19,14 @@ What it does, and only this:
      old speaker right before it (or the unfinished start of one that ends right after it), that fragment (at most
      MAX_FRAGMENT_WORDS words, within MAX_FRAGMENT_GAP seconds) moves with it, unless its own pitch says it is the old speaker's.
   5. Undoes everything when it would move more than MAX_MOVED_SHARE of the measured lines (then the measurement is not trusted).
+  6. Two more rules since 1.84.1 (real run, 28 Oct, Air Force One: "I have a good lock." said by the F-15 pilot, given to him by all
+     three voters, was moved to the President because it measured 89 Hz and the pilot's lines 162 Hz -- the pilot talks over the
+     radio with jet noise, and his other lines were read an octave too high):
+     - a low line about an octave below a speaker whose usual pitch is not clearly high is not moved (the measurement of that
+       speaker's lines most likely jumped an octave; a woman's line half as high as her usual pitch would be moved as before);
+     - a line that all the voters gave to its speaker (at least three) is only moved when the voice is of another kind: a low voice
+       (under LOW_VOICE_HZ) against a high one (over HIGH_VOICE_HZ), a man against a woman or a child. Between two men or two
+       women, pitch is not strong enough to overrule all of them; such a line is marked "check speaker" instead.
 Every moved line is marked "check speaker" for the user and listed in the job log with the numbers.
 
 It never touches a line the user set by hand (manual_speaker), never adds or merges a speaker, never costs credits and never raises.
@@ -52,6 +60,10 @@ OTHER_NEAR_ST = 4.0
 SPEAKERS_APART_ST = 8.0
 RANGE_MARGIN_ST = 3.0
 MAX_MOVED_SHARE = 0.25
+OCTAVE_NEAR_ST = 2.0           # a line within this of an octave (12 semitones) above or below its speaker's usual pitch is most likely
+                               # read an octave wrong by the measurement (radio voices, engine noise): not a reason to move it
+LOW_VOICE_HZ = 150.0           # a voice below this is a low (adult man's) voice ...
+HIGH_VOICE_HZ = 180.0          # ... above this a high one (a woman's or a child's); in between it cannot be told by pitch
 MAX_LISTED = 12
 MAX_FRAGMENT_WORDS = 3          # an unfinished beginning/ending of a moved sentence that may follow it to the new speaker
 MAX_FRAGMENT_GAP = 2.5          # seconds between the fragment and the moved line (the times in a transcript are rough)
@@ -216,10 +228,11 @@ def ranges(rows, meas, prof):
     return {sp: (min(v), max(v)) for sp, v in by.items() if len(v) >= MIN_PROFILE_LINES}
 
 
-def decide(rows, meas):
+def decide(rows, meas, held=None):
     """The lines the pitch says belong to someone else: [{"sid", "from", "to", "hz"}]. Pure; changes nothing."""
     prof = profiles(rows, meas)
     moves = []
+    held = held if held is not None else []
     if len(prof) < 2:
         return moves, prof
     span = ranges(rows, meas, prof)
@@ -235,9 +248,32 @@ def decide(rows, meas):
             continue                      # something this speaker does elsewhere in the video, or no range to judge by
         near = [s for s in prof if s != own and semitones(hz, prof[s]) <= OTHER_NEAR_ST]
         near = [s for s in near if semitones(prof[s], prof[own]) >= SPEAKERS_APART_ST]
-        if len(near) == 1:
-            moves.append({"sid": sid, "from": own, "to": near[0], "hz": hz})
+        if len(near) != 1:
+            continue
+        if abs(semitones(hz, prof[own]) - 12.0) <= OCTAVE_NEAR_ST and hz < prof[own] and prof[own] < HIGH_VOICE_HZ:
+            held.append({"sid": sid, "why": "octave"})
+            continue                      # a low line half the pitch of a speaker who is not clearly high: the measurement, not the speaker
+        if unanimous(r) and not other_kind(hz, prof[own]):
+            held.append({"sid": sid, "why": "all voters agree"})
+            continue
+        moves.append({"sid": sid, "from": own, "to": near[0], "hz": hz})
     return moves, prof
+
+
+def unanimous(row):
+    """All the voters (at least three) gave this line to its speaker."""
+    sv = row.get("speaker_vote") if isinstance(row.get("speaker_vote"), dict) else {}
+    try:
+        support, present = int(sv.get("support") or 0), int(sv.get("present") or 0)
+    except (TypeError, ValueError):
+        return False
+    return present >= 3 and support >= present
+
+
+def other_kind(a_hz, b_hz):
+    """One is a low voice and the other a high one (a man against a woman or a child)."""
+    lo, hi = min(a_hz, b_hz), max(a_hz, b_hz)
+    return lo < LOW_VOICE_HZ and hi > HIGH_VOICE_HZ
 
 
 def _words(text):
@@ -305,7 +341,8 @@ def run(rows, wav_path):
         if len({r.get("speaker") for r in rows}) < 2:
             return {"status": "skipped", "moved": 0, "text": "only one speaker, nothing to tell apart"}
         meas, mixed = measure_all(rows, wav_path)
-        moves, prof = decide(rows, meas)
+        held = []
+        moves, prof = decide(rows, meas, held)
         head = "measured %d of %d lines (at least %.2f s of steady voice each)" % (len(meas), len(rows), MIN_VOICED_FRAMES * HOP_SEC)
         if len(prof) < 2:
             return {"status": "skipped", "moved": 0, "text": head + "; fewer than two speakers have %d measured lines, so no usual pitch to compare with" % MIN_PROFILE_LINES}
@@ -316,6 +353,13 @@ def run(rows, wav_path):
         extra = with_fragments(rows, moves, meas, prof)
         moved_ids = {m["sid"] for m in moves + extra}
         flagged = []
+        kept_back = []
+        for h in held:       # the pitch disagrees, but not strongly enough to move it: the person has a look
+            r = by_id.get(h["sid"])
+            if r is not None and not r.get("manual_speaker"):
+                sv = r.get("speaker_vote") if isinstance(r.get("speaker_vote"), dict) else {}
+                r["speaker_vote"] = dict(sv, badge=True, reasons=list(dict.fromkeys(list(sv.get("reasons") or []) + ["pitch_disagrees"])))
+                kept_back.append("%s %s (%s)" % (h["sid"], _clock(r["start"]), h["why"]))
         for r in rows:
             sid = r["segment_id"]
             if sid in mixed and sid not in moved_ids and not r.get("manual_speaker"):
@@ -337,6 +381,9 @@ def run(rows, wav_path):
             text += ": " + " | ".join(listed[:MAX_LISTED]) + (" | ..." if len(listed) > MAX_LISTED else "")
         if flagged:
             text += "; %d line(s) with two different pitches marked 'check speaker' (nothing moved): %s" % (len(flagged), ", ".join(flagged[:MAX_LISTED]))
+        if kept_back:
+            text += "; %d line(s) the pitch would give to someone else kept where the voters put them, marked 'check speaker': %s" % (
+                len(kept_back), ", ".join(kept_back[:MAX_LISTED]))
         return {"status": "ok", "moved": len(moves) + len(extra), "flagged": len(flagged), "text": text[:1400]}
     except Exception as ex:
         return {"status": "error", "moved": 0, "text": "could not run (%s)" % type(ex).__name__}
