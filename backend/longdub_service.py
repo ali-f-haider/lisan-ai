@@ -1560,10 +1560,11 @@ SPEAKER_CHECK_SHORT_SECONDS = 1.0
 
 # The speaker vote (speaker_vote.py / speaker_vote_live.py): two extra listening checks decide who says each line, together with the
 # app's own detector. It costs us real money per video, so it is a separate line in the estimate (flat + per minute). Since 1.82.94 the
-# two checks ask Gemini 4 Argon; priced at its price from 1 Dec 2026 ($4 / $20 per 1M tokens): measured about $0.195 for 8.1 minutes
-# (29k tokens in, 4k out), so 4 + 2.5 per minute (8.1 min: 25 credits). The values come from main._ld_pricing; these are only the fallbacks.
+# two checks ask Gemini 4 Argon, thinking hard (since 1.83.3); priced at its price from 1 Dec 2026 ($4 / $20 per 1M tokens): measured
+# about $0.57 for 8.1 minutes (27k tokens in, 23k out with the thinking), so 4 + 6.5 per minute (8.1 min: 57 credits).
+# The values come from main._ld_pricing; these are only the fallbacks.
 SPEAKER_CHECK_FLAT = 4
-SPEAKER_CHECK_PER_MIN = 2.5
+SPEAKER_CHECK_PER_MIN = 6.5
 # The second listen (speech_second.py): Argon listens to the whole voice track once more. Priced at the December price too:
 # measured about $0.155 for 8.1 minutes (16k tokens in, 4.6k out), so 2 + 2 per minute (8.1 min: 19 credits). Returned if it cannot run.
 SPEECH_CHECK_FLAT = 2

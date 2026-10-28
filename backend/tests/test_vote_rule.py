@@ -38,6 +38,10 @@ class Rule(unittest.TestCase):
         self.assertEqual(V.Policy().rule, "plurality")
         self.assertIsNone(V._policy({"rule": "nonsense"}))
 
+    def test_the_checks_think_hard(self):
+        p = svl._payload("dialogue", [{"segment_id": "s0", "start": 0, "end": 1, "text": "hi"}], None, people=2)
+        self.assertEqual(p["generationConfig"]["thinkingConfig"], {"thinkingLevel": "high"})
+
     def test_the_app_keeps_the_weighted_majority_by_default(self):
         self.assertEqual(svl.VOTE_RULE, "plurality")
 

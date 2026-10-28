@@ -65,7 +65,7 @@ class FitsAndPromptTests(unittest.TestCase):
         self.assertLessEqual(live._limit(5000), 65536)
         self.assertEqual(live._limit(92, retry=True), 65536)
         cfg = live._payload("dialogue", rows_for(APP), None)["generationConfig"]
-        self.assertEqual(cfg["thinkingConfig"], {"thinkingLevel": "medium"})
+        self.assertEqual(cfg["thinkingConfig"], {"thinkingLevel": "high"})      # Argon does not think at medium with a JSON answer (28 Oct 2026)
 
 
 class CollectTests(unittest.TestCase):

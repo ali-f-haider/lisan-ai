@@ -42,6 +42,10 @@ VOTE_RULE = os.environ.get("LONGDUB_VOTE_RULE", "plurality").strip().lower()
 if VOTE_RULE not in ("listen_first", "plurality"):
     VOTE_RULE = "plurality"
 
+THINKING = os.environ.get("LONGDUB_SPEAKER_THINKING", "high").strip().lower()      # how hard the two checks think (low / medium / high)
+if THINKING not in ("low", "medium", "high"):
+    THINKING = "high"
+
 STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
 
@@ -119,10 +123,12 @@ def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=No
     if kind == "audio":
         parts.append({"inline_data": {"mime_type": "audio/mpeg", "data": audio_b64}})
     parts.append({"text": prompt_for(kind, rows, source_language=source_language, people=people) + (extra or "")})
-    # "medium" thinking is what the test clip was measured with (an 8,192-token budget maps to it in gemini_service)
+    # "high" thinking: Gemini 4 Argon does not think at all at "medium" when it must answer in JSON (measured 28 Oct 2026: 0 thinking
+    # tokens). With "high" it thinks (6-12k tokens) and gets more lines right on the labelled C4K clip: reading 83-85% -> 88%,
+    # listening 88% -> 89%.
     return {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": _limit(len(rows), retry),
-                                 "thinkingConfig": {"thinkingLevel": "medium"}}}
+                                 "thinkingConfig": {"thinkingLevel": THINKING}}}
 
 
 def _answer_text(data):
