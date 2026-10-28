@@ -28,6 +28,7 @@ ADD_MIN_GAP = 0.5         # ... and Whisper must have heard nothing for at least
 SEC_PER_TOKEN = 0.33      # rough speaking speed, to size a new line when the second listener's own time is off
 CHANGE_MIN_TOKENS = 3     # a line is rewritten only when both versions have at least this many words ...
 CHANGE_MAX_SIMILAR = 0.5  # ... and they are less alike than this (0 = nothing in common, 1 = the same words)
+TIME_SLACK = 3.0          # a rewrite needs the two versions heard within this many seconds of each other
 CHANGE_ROW_MIN_TOKENS = 4  # a line Whisper heard is only rewritten when it has at least this many words ...
 CHANGE_ROW_SHARE = 0.6     # ... and at least this share of them was heard differently (real run, 28 Oct: rewriting the different
                            # end of a short line split one sentence over two lines: "You would not Try" + "me, sweetheart.")
@@ -220,6 +221,53 @@ def _regions(opcodes, glue=2):
     return [(a, b, c, d) for a, b, c, d, _, _ in out]
 
 
+def _trim(text):
+    """A new line does not end in a lone 'and' / 'but' that belongs to the next sentence ("...fix the elevator. And")."""
+    words = text.split()
+    while len(words) > 1 and words[-1].strip(",.").lower() in ("and", "but", "so", "or") and words[-2][-1:] in ".?!":
+        words.pop()
+    return " ".join(words)
+
+
+def _add_stretch(plan, gtoks, a, b, glines, gwords, clip_end):
+    """New lines for what only the second listener heard, in the pause between Whisper's words a and b (either may be None)."""
+    if len(gtoks) < ADD_MIN_TOKENS:
+        return
+    lo = a[4] if a is not None else 0.0
+    hi = b[3] if b is not None else (float(clip_end) if clip_end else max(lo, float(glines[gtoks[-1][1]]["end"])) + 1.0)
+    if hi - lo < ADD_MIN_GAP:
+        return
+    # one new line per sentence of the second listener (a pause can hold several people: real run, 28 Oct, 4:38-5:03)
+    chunks = []
+    for g in gtoks:
+        if chunks and chunks[-1][-1][1] == g[1]:
+            chunks[-1].append(g)
+        else:
+            chunks.append([g])
+    merged = []
+    for c in chunks:      # a one- or two-word sentence ("Huh?") goes with the sentence before it
+        if merged and len(c) < ADD_MIN_TOKENS:
+            merged[-1] = merged[-1] + c
+        else:
+            merged.append(c)
+    if len(merged) > 1 and len(merged[0]) < ADD_MIN_TOKENS:
+        merged[1] = merged[0] + merged[1]
+        merged.pop(0)
+    cursor = lo + 0.05
+    for ci, c in enumerate(merged):
+        gs, ge = float(glines[c[0][1]]["start"]), float(glines[c[-1][1]]["end"])
+        nxt = float(glines[merged[ci + 1][0][1]]["start"]) if ci + 1 < len(merged) else hi
+        need = max(0.6, SEC_PER_TOKEN * len(c))
+        start = max(cursor, gs) if gs < hi - 0.3 else cursor
+        limit = min(hi - 0.05, max(start + 0.3, nxt - 0.05))
+        end = min(limit, max(start + need, ge))
+        if end - start < 0.3:
+            continue
+        plan["add"].append({"start": round(start, 2), "end": round(end, 2), "text": _trim(_text_of(c, gwords)),
+                            "after": a[1] if a is not None else -1})
+        cursor = end + 0.05
+
+
 def compare(rows, glines, clip_end=None):
     """What to change: {"add": [{start, end, text, after}], "change": {row index: new text}}. Pure, never changes `rows`."""
     W = _whisper_tokens(rows)
@@ -240,44 +288,22 @@ def compare(rows, glines, clip_end=None):
             if a is not None and b is not None and a[1] == b[1]:
                 extra.setdefault(a[1], {})[b[2]] = G[j1:j2]      # inside one line: the skipped words go in there
                 continue
-            lo = a[4] if a is not None else 0.0
-            hi = b[3] if b is not None else (float(clip_end) if clip_end else max(lo, float(glines[G[j2 - 1][1]]["end"])) + 1.0)
-            if hi - lo < ADD_MIN_GAP:
-                continue
-            # one new line per sentence of the second listener (a pause can hold several people: real run, 28 Oct, 4:38-5:03)
-            chunks = []
-            for k in range(j1, j2):
-                if chunks and chunks[-1][-1][1] == G[k][1]:
-                    chunks[-1].append(G[k])
-                else:
-                    chunks.append([G[k]])
-            merged = []
-            for c in chunks:      # a one- or two-word sentence ("Huh?") goes with the sentence before it
-                if merged and len(c) < ADD_MIN_TOKENS:
-                    merged[-1] = merged[-1] + c
-                else:
-                    merged.append(c)
-            if len(merged) > 1 and len(merged[0]) < ADD_MIN_TOKENS:
-                merged[1] = merged[0] + merged[1]
-                merged.pop(0)
-            cursor = lo + 0.05
-            for ci, c in enumerate(merged):
-                gs, ge = float(glines[c[0][1]]["start"]), float(glines[c[-1][1]]["end"])
-                nxt = float(glines[merged[ci + 1][0][1]]["start"]) if ci + 1 < len(merged) else hi
-                need = max(0.6, SEC_PER_TOKEN * len(c))
-                start = max(cursor, gs) if gs < hi - 0.3 else cursor
-                limit = min(hi - 0.05, max(start + 0.3, nxt - 0.05))
-                end = min(limit, max(start + need, ge))
-                if end - start < 0.3:
-                    continue
-                plan["add"].append({"start": round(start, 2), "end": round(end, 2), "text": _text_of(c, gwords),
-                                    "after": a[1] if a is not None else -1})
-                cursor = end + 0.05
+            _add_stretch(plan, G[j1:j2], a, b, glines, gwords, clip_end)
             continue
         if j1 == j2:
             continue      # only Whisper heard these words: Whisper stays
         if min(len(wt), len(gt)) < CHANGE_MIN_TOKENS or _similar(wt, gt) >= CHANGE_MAX_SIMILAR or _same_but_numbers(wt, gt):
             continue      # a small, spelling or number-writing difference: Whisper stays
+        gs = min(float(glines[g[1]]["start"]) for g in G[j1:j2])
+        ge = max(float(glines[g[1]]["end"]) for g in G[j1:j2])
+        if gs > W[i2 - 1][4] + TIME_SLACK or ge < W[i1][3] - TIME_SLACK:
+            # the two heard these words at different times: not the same speech (real run, 28 Oct: the closing lines at 7:56 were
+            # 'rewritten' with words heard at 7:15). Whisper's words stay; the other words may still fill a pause near their own time.
+            p = sum(1 for w in W if w[3] < gs)
+            pa, pb = (W[p - 1] if p > 0 else None), (W[p] if p < len(W) else None)
+            if (pa is None or pb is None or pa[1] != pb[1]) and (pa is None or pa[4] - 1.0 <= gs) and (pb is None or gs <= pb[3] + 1.0):
+                _add_stretch(plan, G[j1:j2], pa, pb, glines, gwords, clip_end)
+            continue
         # Whisper heard something clearly different here: the second listener's words replace it, shared out in order over the
         # lines Whisper's words belong to (its own times are too loose to place a sentence more exactly than that)
         G_sub = G[j1:j2]
@@ -297,7 +323,10 @@ def compare(rows, glines, clip_end=None):
                     cut = min(ends, key=lambda k: abs(k - cut))
                 take = max(0, cut - done)
             mine, theirs = [W[k][0] for k in range(k0, k0 + cnt)], [g[0] for g in G_sub[done:done + take]]
-            if theirs and _similar(mine, theirs) < CHANGE_MAX_SIMILAR and not _same_but_numbers(mine, theirs):
+            part = G_sub[done:done + take]
+            heard_near = bool(part) and (min(float(glines[g[1]]["start"]) for g in part) <= W[k0 + cnt - 1][4] + TIME_SLACK
+                                         and max(float(glines[g[1]]["end"]) for g in part) >= W[k0][3] - TIME_SLACK)
+            if theirs and heard_near and _similar(mine, theirs) < CHANGE_MAX_SIMILAR and not _same_but_numbers(mine, theirs):
                 swap[k0] = G_sub[done:done + take]      # this line is clearly different (a line that only differs in spelling stays)
                 for k in range(k0 + 1, k0 + cnt):
                     swap[k] = []
@@ -331,7 +360,10 @@ def compare(rows, glines, clip_end=None):
                 continue
             parts.append(str(w.get("word") or "").strip())
         text = " ".join(p for p in parts if p).strip()
-        if text and tokens(text) != tokens(rows[ri].get("text")):
+        old, new = tokens(rows[ri].get("text")), tokens(text)
+        if ri in row_swapped and ri not in extra and (len(new) < CHANGE_ROW_MIN_TOKENS or len(new) < 0.7 * len(old)):
+            continue      # a rewrite that leaves a stub ("I'm gonna miss her." -> "How can I") is not trusted
+        if text and new != old:
             plan["change"][ri] = text
     return plan
 

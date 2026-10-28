@@ -97,6 +97,30 @@ class RealRun28Oct(unittest.TestCase):
         self.assertGreaterEqual(b["start"], 299.0)            # near where it was heard, not right after the line before
 
 
+class RealRun28OctSecond(unittest.TestCase):
+    """Job 09f3e558 (28 Oct): the closing lines were 'rewritten' with words heard 40 s earlier, and a line was cut to a stub."""
+    def test_words_heard_at_another_time_never_rewrite_a_line(self):
+        rows = [row(0, 435.0, "Thank you.", "Speaker 9"),
+                row(1, 476.8, "Thank you for clicking on our video everybody if you like what you saw", "Speaker 13"),
+                row(2, 485.0, "We're an independent company and we appreciate all of your support", "Speaker 13")]
+        heard = [{"start": 435.0, "end": 436.0, "text": "Thank you."},
+                 {"start": 437.5, "end": 441.0, "text": "One of Ancaster's neighbors is bound to have a half-decent meal."}]
+        plan = S.compare(rows, heard, clip_end=489)
+        self.assertEqual(plan["change"], {})
+        self.assertEqual(len(plan["add"]), 1)                      # the missed sentence goes in its own pause instead
+        self.assertIn("Ancaster", plan["add"][0]["text"])
+        self.assertLess(plan["add"][0]["end"], 476.8)
+
+    def test_a_rewrite_that_leaves_a_stub_is_not_made(self):
+        rows = [row(0, 333.2, "I'm gonna miss her today", "Speaker 1"), row(1, 336.0, "All right.", "Speaker 10")]
+        heard = [{"start": 333.2, "end": 334.4, "text": "How can I"}, {"start": 336.0, "end": 336.5, "text": "All right."}]
+        self.assertEqual(S.compare(rows, heard, clip_end=489)["change"], {})
+
+    def test_a_trailing_and_is_left_for_the_next_line(self):
+        self.assertEqual(S._trim("They're coming this afternoon to fix the elevator. And"), "They're coming this afternoon to fix the elevator.")
+        self.assertEqual(S._trim("Rock and"), "Rock and")
+
+
 class Listen(unittest.TestCase):
     def test_one_retry_on_an_empty_answer_and_the_answer_is_saved(self):
         calls = []
