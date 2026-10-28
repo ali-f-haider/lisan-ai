@@ -109,10 +109,10 @@ def _payload_for(payload, model_name):
         return payload
 
 
-def call_gemini(api_key: str, payload: dict, timeout: int = 120):
-    """Call Gemini, falling back across models. Returns (data, None) or (None, error)."""
+def call_gemini(api_key: str, payload: dict, timeout: int = 120, models=None):
+    """Call Gemini, falling back across models (models: the list to try instead of GEMINI_MODELS). Returns (data, None) or (None, error)."""
     last_error = None
-    for model_name in GEMINI_MODELS:
+    for model_name in (models or GEMINI_MODELS):
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
         sent = _payload_for(payload, model_name)
         payload_bytes = json.dumps(sent).encode("utf-8")

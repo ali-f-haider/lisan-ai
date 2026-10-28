@@ -2305,7 +2305,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 f"result {summary['status']}{' (your number of speakers decided, the detector was not used)' if summary.get('fresh') else ''}"
                 f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied)' if _same_number and summary['status'] == 'ok' else ''}{(_swap_note(summary) + _vote_why(summary)) if summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
-                f"{usage.get('calls', 0)} requests, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
+                f"{usage.get('calls', 0)} requests{(' (' + ', '.join(f'{k}: {m}' for k, m in sorted((votes.get('models') or {}).items())) + ')') if votes.get('models') else ''}, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
                 f"cost ${float(usage.get('usd') or 0):.4f}")
     except Exception as ex:
         print(f"[longdub] speaker vote skipped: {type(ex).__name__}: {ex}")

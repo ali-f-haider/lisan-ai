@@ -235,9 +235,28 @@ GEMINI_AUDIO_IN_USD_PER_M = _env_float("GEMINI_AUDIO_IN_USD_PER_M", 1.00)   # au
 _trim = {"runs": 0, "freed_gb_total": 0.0, "last_ts": None, "last_freed_gb": None, "last_files": 0}
 
 
+# Google's strongest model (used only for the speaker checks) has its own price, per 1M tokens, audio included in the input price
+# (Google's price list, read 28 Oct 2026: $2 / $10 until 30 Nov 2026, then $4 / $20).
+ARGON_PRICES = ((_dt.date(2026, 12, 1), _env_float("ARGON_IN_USD_PER_M", 4.0), _env_float("ARGON_OUT_USD_PER_M", 20.0)),
+                (_dt.date(2000, 1, 1), 2.0, 10.0))
+
+
+def _argon_rates(today=None):
+    day = today or _dt.date.today()
+    for start, rin, rout in ARGON_PRICES:
+        if day >= start:
+            return rin, rout
+    return ARGON_PRICES[-1][1], ARGON_PRICES[-1][2]
+
+
 def gemini_usd(data):
     """Price in dollars of one Gemini answer, from its own usageMetadata (prompt, answer and thinking tokens)."""
     try:
+        if str((data or {}).get("modelVersion") or "").startswith("gemini-4-argon"):
+            u = (data or {}).get("usageMetadata") or {}
+            rin, rout = _argon_rates()
+            return (int(u.get("promptTokenCount", 0) or 0) / 1e6 * rin
+                    + (int(u.get("candidatesTokenCount", 0) or 0) + int(u.get("thoughtsTokenCount", 0) or 0)) / 1e6 * rout)
         u = (data or {}).get("usageMetadata") or {}
         tin = int(u.get("promptTokenCount", 0) or 0)
         tout = int(u.get("candidatesTokenCount", 0) or 0) + int(u.get("thoughtsTokenCount", 0) or 0)

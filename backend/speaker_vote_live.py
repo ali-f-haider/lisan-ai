@@ -124,9 +124,15 @@ def _answer_text(data):
         return ""
 
 
+def speaker_models():
+    """The models the speaker checks try, in order: the strongest first (config.SPEAKER_MODELS), then the usual ones."""
+    import config
+    return list(dict.fromkeys(list(getattr(config, "SPEAKER_MODELS", []) or []) + list(config.GEMINI_MODELS)))
+
+
 def _default_ask(api_key, payload, timeout):
     import gemini_service
-    return gemini_service.call_gemini(api_key, payload, timeout=timeout)
+    return gemini_service.call_gemini(api_key, payload, timeout=timeout, models=speaker_models())
 
 
 def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en", people=None, extra=""):
@@ -153,6 +159,8 @@ def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_langua
         except Exception:
             pass
         u = (data.get("usageMetadata") or {}) if isinstance(data, dict) else {}
+        if isinstance(data, dict) and data.get("modelVersion"):
+            usage["model"] = str(data["modelVersion"])[:60]      # which model answered (for the log; not summed)
         usage["calls"] += 1
         usage["tokens_in"] += int(u.get("promptTokenCount", 0) or 0)
         usage["tokens_out"] += int(u.get("candidatesTokenCount", 0) or 0)
@@ -232,7 +240,8 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
     state_path = Path(work_dir) / STATE_FILE
     saved = _load_state(state_path, fp)
     if saved:
-        return {"dialogue": saved.get("dialogue"), "audio": saved.get("audio"), "usage": saved.get("usage") or {}, "reused": True}
+        return {"dialogue": saved.get("dialogue"), "audio": saved.get("audio"), "usage": saved.get("usage") or {}, "reused": True,
+                "models": saved.get("models") or {}}
     usage = {"usd": 0.0, "calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0}
     if not api_key:
         return {"dialogue": None, "audio": None, "usage": usage, "reused": False}
@@ -244,9 +253,11 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
         res = _one_voter(kind, job_id, rows, audio_b64, api_key, ask, u, source_language=source_language, people=people)
         with locks:
             results[kind] = res
+            models[kind] = u.get("model")
             for k in usage:
                 usage[k] += u[k]
 
+    models = {}
     kinds = ["dialogue"] + (["audio"] if audio_b64 else [])
     threads = [threading.Thread(target=run, args=(k,), daemon=True) for k in kinds]
     for t in threads:
@@ -254,10 +265,11 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
     for t in threads:
         t.join()
     usage["usd"] = round(usage["usd"], 5)
-    out = {"dialogue": results.get("dialogue"), "audio": results.get("audio"), "usage": usage, "reused": False}
+    out = {"dialogue": results.get("dialogue"), "audio": results.get("audio"), "usage": usage, "reused": False,
+           "models": {k: v for k, v in models.items() if v}}
     try:
         _save_state(state_path, {"v": STATE_VERSION, "fp": fp, "dialogue": out["dialogue"], "audio": out["audio"],
-                                 "usage": usage, "at": time.time()})
+                                 "usage": usage, "models": out["models"], "at": time.time()})
     except Exception as ex:
         print(f"[speaker_vote] could not save the answers: {type(ex).__name__}")
     return out
