@@ -217,6 +217,7 @@ class Policy:
     allow_new: bool = True
     audio_weight: int = 2     # the voter that listens counts this many times (the others read words or follow a detector)
     picture_weight: int = 1   # already aligned per chunk; visual advice remains optional
+    rule: str = 'plurality'   # 'listen_first': the listening check decides unless two other voters agree on one other person
     explain: bool = False     # True: each rejected candidate also names its first line (for the log)
     prefer_backed: bool = False   # True: when places for new speakers are limited, the person with the most backed lines gets one first (default: who speaks first)
 
@@ -234,7 +235,7 @@ def _policy(value):
     if (any(isinstance(n, bool) or not isinstance(n, int) for n in
             (value.min_new_lines, value.max_new_speakers, value.min_support, value.new_support))
             or value.min_new_lines < 1 or value.max_new_speakers < 0
-            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool) or not isinstance(value.prefer_backed, bool) or not isinstance(value.explain, bool)
+            or not 1 <= value.min_support <= len(CORE_VOTERS) or not 1 <= value.new_support <= len(CORE_VOTERS) or not isinstance(value.allow_new, bool) or not isinstance(value.app_votes, bool) or not isinstance(value.prefer_backed, bool) or not isinstance(value.explain, bool) or value.rule not in ('plurality', 'listen_first')
             or isinstance(value.audio_weight, bool) or not isinstance(value.audio_weight, int) or not 1 <= value.audio_weight <= 3
             or isinstance(value.picture_weight, bool) or not isinstance(value.picture_weight, int) or not 1 <= value.picture_weight <= 2):
         return None
@@ -322,6 +323,16 @@ def decide(lines, voters=None, policy=None):
                 winner = votes['dialogue'] if votes['dialogue'] in tied else tied[0]
                 if len(tied) > 1:
                     reasons.append('tie_broken_by_dialogue')
+            if chosen.rule == 'listen_first' and 'audio' in votes:
+                # The check that listens decides, unless at least two of the others agree on one other person (labelled C4K clip,
+                # 28 Oct 2026: 88.6% of lines right, the same as the weighted majority; listening alone 87.7%)
+                others = Counter(label for name, label in votes.items() if name != 'audio' and label != votes['audio'])
+                best = sorted(others.items(), key=lambda kv: (-kv[1], kv[0] != votes['dialogue'], kv[0]))
+                if best and best[0][1] >= 2:
+                    winner = best[0][0]
+                    reasons.append('listen_overruled')
+                else:
+                    winner = votes['audio']
             if sum(label == winner for label in votes.values()) < chosen.min_support:
                 winner = app_frame[sid]
                 reasons.append('insufficient_support')

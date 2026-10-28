@@ -33,6 +33,15 @@ def _audio_weight():
     return n if 1 <= n <= 3 else 2
 
 
+# How the voters' answers are combined (LONGDUB_VOTE_RULE): 'plurality' (default) = the weighted majority, the listening check
+# counting twice; 'listen_first' = the listening check decides unless two of the other voters agree on one other person.
+# Measured on the labelled C4K clip (28 Oct 2026) with the voters' names matched the way the app matches them: both 88.6%
+# (listening alone 87.7%). On the Dutch clip the listening check was right alone against two others on 14 lines, which favours
+# the weighted majority, so it stays the default until a second labelled clip says otherwise.
+VOTE_RULE = os.environ.get("LONGDUB_VOTE_RULE", "plurality").strip().lower()
+if VOTE_RULE not in ("listen_first", "plurality"):
+    VOTE_RULE = "plurality"
+
 STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
 
@@ -382,7 +391,7 @@ def apply(rows, votes, allow_new=True, picture=None, max_new=None, min_new_lines
     try:
         lines = [{"segment_id": r["segment_id"], "speaker": "Speaker 1" if fresh else r["speaker"],
                   **({"manual_speaker": r["manual_speaker"]} if picture is not None and isinstance(r.get("manual_speaker"), bool) else {})} for r in rows]
-        policy = {"audio_weight": _audio_weight(), "explain": True}
+        policy = {"audio_weight": _audio_weight(), "explain": True, "rule": VOTE_RULE}
         extra = {}
         if picture is not None:
             import image_unit
