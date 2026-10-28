@@ -31,6 +31,9 @@
   <li><strong>Basic technical data:</strong> standard web request data (such as IP address and browser type) generated automatically when you use the site, used only for security and troubleshooting.</li>
 </ul>
 
+<h2>Optional picture analysis</h2>
+<p>For video projects, picture analysis is on by default and can be switched off before you accept the estimate. If enabled, we send a small silent copy of each video section, with timed transcript lines and an optional speaker count, to our processing service to help review speakers, shot changes, visible names and delivery. We do not use faces to name or identify people. Appearance is used only to judge whether a speaker is male or female (and roughly the age): a gender is set from the picture only when several clear sightings all agree, otherwise you are only told to check, and your own selected voice or gender is never changed. Temporary silent copies are removed when processing finishes, including handled errors. After an interrupted server process, temporary copies are removed during job cleanup. Anonymous text advice may be kept with the project; no face embeddings or separate face images are retained. Our processing service may keep request and response data under its own retention and safety rules.</p>
+
 <h2>How we use your information</h2>
 <ul>
   <li>To provide the dubbing service: transcription, translation, voice generation, and video merging.</li>
@@ -59,11 +62,15 @@
   <li><strong>Stripe</strong> — payment processing.</li>
   <li><strong>Supabase</strong> — account authentication and database hosting.</li>
   <li><strong>Google</strong> — "Sign in with Google" authentication.</li>
-  <li><strong>Translation AI provider</strong> — used for translation, tashkeel, and emotion detection when selected.</li>
+  <li><strong>AI provider for language and analysis</strong> — used for translation, tashkeel and emotion detection, and for the checks of who says each line: it reads the transcript and listens to a compressed copy of the separated voices, and short voice samples are used to judge whether a speaker sounds male or female. If you choose picture analysis, it also receives a silent copy of your video (see "Optional picture analysis"), and for the face check a few small face pictures (see "Faces in your video").</li>
   <li><strong>Voice engine provider</strong> — used for AI voice generation and cloning.</li>
+  <li><strong>Music provider</strong> — when you remove speech from a part of a long video and choose to fill the gap with music, the background sound around that gap (without voices) is sent to generate matching music.</li>
   <li><strong>Lip-sync provider</strong> — used to generate a lip-synced video when you choose that option (an alpha feature, available for short dubs only); your uploaded video is sent to this provider for that processing only.</li>
   <li><strong>Sentry</strong> — automated error monitoring so we can catch and fix bugs; receives limited technical error data, not your media content.</li>
   <li><strong>Cloudflare R2</strong> — off-site backup storage for finished dubbing outputs.</li>
+  <li><strong>Hosting provider</strong> — runs our servers and stores your files and projects for as long as described above.</li>
+  <li><strong>Email provider</strong> — sends account, job and reminder e-mails and the messages of the contact form (your e-mail address and the message).</li>
+  <li><strong>Google Analytics</strong> — only when visit statistics are switched on: counts visits to the public pages (see "Cookies &amp; local storage"); it never receives your videos, audio or texts.</li>
 </ul>
 
 <h2>Voice data &amp; cloning</h2>
@@ -73,7 +80,7 @@
 <p>For video projects, our own server looks at the faces in your video to find whose mouth moves while each line is spoken, so that each line goes to the right speaker and is voiced as a man or a woman. This step runs on our server with an open-source tool (Google MediaPipe); nothing is sent to anyone else for it. For a few lines per speaker in which one face clearly speaks, a small still picture of that face is sent to our AI provider, which only answers whether the person looks male or female. We never recognise, name or identify anyone: a face is only followed within one continuous shot, and no face description ("face print") is created or kept. The temporary face pictures are deleted as soon as that answer arrives; only the position of the faces and numbers about mouth movement for each frame are kept with your project, and they are deleted together with it. A gender you choose for a speaker yourself is never changed.</p>
 
 <h2>Cookies &amp; local storage</h2>
-<p>We use essential cookies/local storage only to keep you signed in and to remember your in-progress project. We do not use third-party advertising or tracking cookies.</p>
+<p>We use essential cookies/local storage to keep you signed in and to remember your in-progress project. We do not use advertising cookies. When visit statistics are switched on, the public pages (not your account or your projects) load Google Analytics, which sets its own cookies to count visits and see which pages are used.</p>
 
 <h2>Data security</h2>
 <p>Connections to the site are encrypted (HTTPS), and access to account and payment data is restricted. No method of transmission or storage is 100% secure, but we take reasonable measures to protect your information.</p>
@@ -105,6 +112,9 @@
   <li><strong>بيانات تقنية أساسية:</strong> بيانات الطلبات المعتادة على الويب (مثل عنوان IP ونوع المتصفح) التي تنشأ تلقائياً عند استخدامك للموقع، وتُستخدم فقط للأمان وإصلاح الأعطال.</li>
 </ul>
 
+<h2>تحليل الصورة (اختياري)</h2>
+<p>يُفعَّل تحليل الصورة افتراضياً لمشاريع الفيديو، ويمكن إيقافه قبل الموافقة على التقدير. عند تفعيله نرسل نسخة صامتة مصغّرة من كل جزء، مع نص الكلام وتوقيته وعدد المتحدثين إن أدخلته، إلى خدمة المعالجة للمساعدة في مراجعة المتحدثين وانتقالات اللقطات والأسماء الظاهرة وطريقة الأداء. لا نستخدم الوجوه لتسمية الأشخاص أو التعرف إلى هوياتهم. تقدير الجنس والعمر من المظهر ملاحظة غير مؤكدة، ولا يغيّر الصوت أو الجنس الذي اخترته. تُحذف النسخ الصامتة المؤقتة عند انتهاء المعالجة، بما في ذلك الأخطاء التي يعالجها النظام. وإذا توقفت عملية الخادم فجأة، تُحذف الملفات المؤقتة خلال تنظيف المشروع. قد تُحفظ الملاحظات النصية مع المشروع دون بصمات وجوه أو صور منفصلة للوجوه. وقد تحتفظ خدمة المعالجة ببيانات الطلب والنتيجة وفق قواعد الاحتفاظ والأمان الخاصة بها.</p>
+
 <h2>كيف نستخدم معلوماتك</h2>
 <ul>
   <li>لتقديم خدمة الدبلجة: التفريغ والترجمة وتوليد الصوت ودمج الفيديو.</li>
@@ -133,11 +143,15 @@
   <li><strong>Stripe</strong> — معالجة المدفوعات.</li>
   <li><strong>Supabase</strong> — مصادقة الحسابات واستضافة قاعدة البيانات.</li>
   <li><strong>Google</strong> — المصادقة عبر «تسجيل الدخول باستخدام Google».</li>
-  <li><strong>مزوّد الذكاء الاصطناعي للترجمة</strong> — يُستخدم للترجمة والتشكيل واكتشاف المشاعر عند اختيارها.</li>
+  <li><strong>مزوّد الذكاء الاصطناعي للغة والتحليل</strong> — يُستخدم للترجمة والتشكيل واكتشاف المشاعر، ولفحص من يقول كل سطر: يقرأ نص الكلام ويستمع إلى نسخة مضغوطة من الأصوات المعزولة، وتُستخدم عيّنات صوتية قصيرة لتقدير إن كان المتحدث يبدو رجلاً أم امرأة. وإذا اخترت تحليل الصورة يتلقى أيضاً نسخة صامتة من الفيديو (انظر «تحليل الصورة (اختياري)»)، ولفحص الوجوه بضع صور صغيرة للوجوه (انظر «الوجوه في الفيديو»).</li>
   <li><strong>مزوّد محرك الصوت</strong> — يُستخدم لتوليد الأصوات بالذكاء الاصطناعي واستنساخها.</li>
+  <li><strong>مزوّد الموسيقى</strong> — عندما تحذف الكلام من جزء من فيديو طويل وتختار ملء الفراغ بالموسيقى، يُرسل صوت الخلفية المحيط بذلك الفراغ (من دون أصوات المتحدثين) لتوليد موسيقى مناسبة.</li>
   <li><strong>مزوّد مزامنة الشفاه</strong> — يُستخدم لإنشاء فيديو بمزامنة الشفاه عند اختيارك لهذا الخيار (ميزة تجريبية ألفا للدبلجات القصيرة فقط)؛ يُرسل الفيديو الذي رفعته إلى هذا المزوّد لهذه المعالجة فقط.</li>
   <li><strong>Sentry</strong> — مراقبة آلية للأخطاء لنتمكن من اكتشاف الأعطال وإصلاحها؛ تتلقى بيانات تقنية محدودة عن الأخطاء، لا محتوى وسائطك.</li>
   <li><strong>Cloudflare R2</strong> — تخزين نسخ احتياطية خارج الموقع لمخرجات الدبلجة الجاهزة.</li>
+  <li><strong>مزوّد الاستضافة</strong> — يشغّل خوادمنا ويخزّن ملفاتك ومشاريعك طوال المدة الموضّحة أعلاه.</li>
+  <li><strong>مزوّد البريد الإلكتروني</strong> — يرسل رسائل الحساب والمشاريع والتذكير ورسائل نموذج التواصل (عنوان بريدك والرسالة).</li>
+  <li><strong>Google Analytics</strong> — فقط عند تفعيل إحصاءات الزيارات: يحصي الزيارات للصفحات العامة (انظر «ملفات تعريف الارتباط والتخزين المحلي»)؛ ولا يتلقى أبداً مقاطعك أو أصواتك أو نصوصك.</li>
 </ul>
 
 <h2>بيانات الصوت والاستنساخ</h2>
@@ -147,7 +161,7 @@
 <p>في مشاريع الفيديو يفحص خادمنا الوجوه في الفيديو ليعرف أيَّ فمٍ يتحرك أثناء قول كل سطر، حتى يُنسب كل سطر إلى المتحدث الصحيح ويُؤدّى بصوت رجل أو امرأة. تجري هذه الخطوة على خادمنا بأداة مفتوحة المصدر (Google MediaPipe)، ولا يُرسَل فيها شيء إلى أي جهة أخرى. ولعدد قليل من الأسطر لكل متحدث، حيث يتكلم وجه واحد بوضوح، تُرسَل صورة ثابتة صغيرة لذلك الوجه إلى مزوّد الذكاء الاصطناعي لدينا، فيجيب فقط إن كان الشخص يبدو رجلاً أم امرأة. لا نتعرّف إلى أي شخص ولا نسمّيه ولا نحدد هويته: يُتتبَّع الوجه داخل اللقطة المتصلة الواحدة فقط، ولا تُنشأ أي بصمة للوجه ولا تُحفظ. تُحذف صور الوجوه المؤقتة فور وصول الإجابة، ولا يُحفظ مع مشروعك إلا موضع الوجوه وأرقام عن حركة الفم في كل إطار، وتُحذف مع المشروع. ولا نغيّر أبداً جنس المتحدث الذي تختاره بنفسك.</p>
 
 <h2>ملفات تعريف الارتباط والتخزين المحلي</h2>
-<p>نستخدم ملفات تعريف الارتباط/التخزين المحلي الأساسية فقط لإبقائك مسجّل الدخول ولتذكّر مشروعك الجاري. ولا نستخدم ملفات تعريف ارتباط إعلانية أو تتبعية تابعة لأطراف ثالثة.</p>
+<p>نستخدم ملفات تعريف الارتباط/التخزين المحلي الأساسية لإبقائك مسجّل الدخول ولتذكّر مشروعك الجاري. ولا نستخدم ملفات تعريف ارتباط إعلانية. وعند تفعيل إحصاءات الزيارات تُحمِّل الصفحات العامة (لا حسابك ولا مشاريعك) خدمة Google Analytics، التي تضع ملفات تعريف ارتباط خاصة بها لإحصاء الزيارات ومعرفة الصفحات المستخدمة.</p>
 
 <h2>أمان البيانات</h2>
 <p>الاتصالات بالموقع مشفّرة (HTTPS)، والوصول إلى بيانات الحساب والدفع مقيَّد. لا توجد وسيلة نقل أو تخزين آمنة بنسبة 100%، لكننا نتخذ إجراءات معقولة لحماية معلوماتك.</p>

@@ -434,9 +434,10 @@ class PageTests(unittest.TestCase):
         priv = (ROOT / "privacy.html").read_text(encoding="utf-8")
         help_ = (ROOT / "help.html").read_text(encoding="utf-8")
         facts = (ROOT / "assistant_service.py").read_text(encoding="utf-8")
-        said = ["Optional picture analysis" in priv, "تحليل الصورة (اختياري)" in priv, "Also analyse the picture" in help_,
-                "تحليل الصورة أيضاً" in help_, "PICTURE ANALYSIS" in facts]
-        self.assertEqual(said, [on_by_default] * 5)
+        said = ["Also analyse the picture" in help_, "تحليل الصورة أيضاً" in help_, "PICTURE ANALYSIS" in facts]
+        self.assertEqual(said, [on_by_default] * 3)
+        # The privacy text is on the page already (the owner's decision, 2026-10-28): telling more than is switched on is never a problem.
+        self.assertTrue("Optional picture analysis" in priv and "تحليل الصورة (اختياري)" in priv)
 
     def test_the_ready_wording_is_kept_for_the_day_it_goes_live(self):
         folder = ROOT / "docs" / "picture-go-live"
