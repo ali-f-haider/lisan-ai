@@ -2079,6 +2079,15 @@ async function loadResourceUsage() {
   if (d.now_gb != null) bits.push('Now: ' + d.now_gb + ' GB held' + (d.now_anon_gb != null ? ' (' + d.now_anon_gb + ' GB of it real program memory, the rest is cached files)' : '') + '.');
   if (l) bits.push('Last 24 h (' + l.hours + ' h measured): average ' + l.avg_gb + ' GB, highest ' + l.peak_gb + ' GB, idle floor ' + l.idle_floor_gb + ' GB, which alone costs about ' + money((l.idle_floor_gb || 0) * d.mem_usd_per_gb_month) + ' a month.');
   if (c.hours) bits.push('Billing month from ' + c.start + ': ' + money(c.usage_usd) + ' measured so far over ' + c.hours + ' h' + (c.projected_usd != null ? ', about ' + money(c.projected_usd) + ' projected to ' + c.end : '') + '. Compare with the Railway bill.');
+  const nw = d.network;
+  if (nw && nw.by_place) {
+    const places = nw.by_place.map(p => p.place + ' ' + p.gb + ' GB').join(', ');
+    bits.push('<b>Network sent out</b> since ' + nw.since + ' (' + nw.days_measured + ' day(s) measured; Railway bills ' + money(nw.usd_per_gb) + ' per GB): ' +
+      (nw.total_gb != null ? nw.total_gb + ' GB in total, about ' + money(nw.total_usd || 0) + '. ' : '') +
+      (places ? 'By where it went: ' + places + (nw.not_attributed_gb ? ', not attributed ' + nw.not_attributed_gb + ' GB (mostly what visitors download: pages, finished videos, previews)' : '') + '.' : 'Nothing counted yet.'));
+  }
+  const sl = d.sleep;
+  if (sl) bits.push('<b>Sleeping when idle</b>: ' + (sl.quiet ? 'the site is quiet now (no request for ' + sl.minutes_since_last_request + ' min, no job), so background work stays offline and Railway can put the server to sleep if Serverless is on.' : (sl.busy ? 'a job is running or waiting: the server stays awake (' + sl.heartbeats_sent + ' keep-awake packet(s) sent since the last start).' : 'last request ' + sl.minutes_since_last_request + ' min ago; the server counts as quiet after ' + sl.quiet_min + ' min without requests or jobs.')));
   const ct = d.cache_trim;
   if (ct && ct.enabled) bits.push('Cached-file clean-up: ' + (ct.runs ? ('ran ' + ct.runs + ' time(s) since the last restart, freed ' + (ct.freed_gb_total || 0) + ' GB in total, the last run ' + (ct.last_freed_gb != null ? ct.last_freed_gb + ' GB' : 'nothing measurable') + '. Compare "Now" above with the memory graph in Railway to see whether it lowers what is billed.') : 'not run yet (it runs every 5 minutes when no dubbing is in progress).'));
   const names = { longdub_analysis: 'long dub analysis', longdub_dub: 'long dub dubbing', shortdub_transcribe: 'short dub transcription', shortdub_clone: 'short dub voice cloning', shortdub_generate: 'short dub voice generation', shortdub_rebuild: 'short dub rebuild of the MP3', shortdub_merge: 'short dub merge into video' };

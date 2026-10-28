@@ -308,7 +308,8 @@ def _worker():
             # blip kill this thread -- if it dies, monitoring silently
             # stops until the next deploy restarts the process.
             print(f"[railway-monitor] worker error: {ex}")
-        _time.sleep(_next_sleep_seconds(result))
+        import keep_awake
+        keep_awake.sleep(_next_sleep_seconds(result))      # no Railway API call while the site is quiet: the server may sleep
 
 
 def start():

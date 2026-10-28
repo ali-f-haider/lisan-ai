@@ -65,6 +65,13 @@ import emotion_review
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 from shortdub_paths import line_audio_path, begin_operation, finish_operation, operation_active
 from shortdub_billing import studio_quote, debit_confirmed
+import net_meter
+net_meter.install()                # counts what the server sends out, and to whom (Railway bills every GB sent)
+import keep_awake
+# the server may sleep when nobody uses it (Railway "Serverless"), never while a job runs or waits for its turn
+keep_awake.add_busy_check(lambda: whisper_service._transcribe_queue.running() + whisper_service._transcribe_queue.waiting_count() > 0)
+keep_awake.add_busy_check(lambda: len(longdub_service._RUNNING) > 0)
+keep_awake.start()
 
 # Sentry: reports unhandled exceptions from the live server automatically.
 # Wrapped in try/except so a missing package or bad DSN never takes the app
@@ -1352,7 +1359,7 @@ def _credit_recovery():
             reconcile_clones(_sb_rpc, DATA_DIR)
         except Exception:
             print("[credits] settlement recovery will retry later")
-        _time.sleep(60)
+        keep_awake.sleep(60)          # offline while the site is quiet (keep_awake.py)
 
 
 def _paid_uid(request: Request):
@@ -3585,7 +3592,7 @@ def _cleanup_worker():
     except Exception as e:
         print("[register-backup] first run error:", e)
     while True:
-        _time.sleep(CLEANUP_INTERVAL_MIN * 60)
+        keep_awake.sleep(CLEANUP_INTERVAL_MIN * 60)      # backups and clean-up go online: they wait while the site is quiet
         try:
             r2_backup.backup_final_outputs(OUTPUT_DIR, _is_final_output)
         except Exception as e:
@@ -5636,7 +5643,7 @@ def _longdub_refund_recovery():
                         longdub_service._picture_refund(picture_job)
         except Exception:
             print("[credits] long-video refund recovery will retry later")
-        _time.sleep(60)
+        keep_awake.sleep(60)
 
 
 threading.Thread(target=_longdub_refund_recovery, daemon=True, name="longdub-refund-recovery").start()
@@ -7487,7 +7494,7 @@ def _apply_concurrency(cfg=None):
 
 def _concurrency_refresher():
     while True:
-        _time.sleep(60)
+        keep_awake.sleep(60)          # reads the settings from the database: not while the site is quiet
         _apply_concurrency()
         _apply_assistant()
 
@@ -8416,6 +8423,14 @@ def admin_resource_usage(request: Request):
         out["queue"] = whisper_service.queue_state()
     except Exception:
         out["queue"] = None
+    try:
+        out["network"] = net_meter.summary()          # GB sent out this billing month, by where it went
+    except Exception as ex:
+        out["network"] = {"error": str(ex)[:200]}
+    try:
+        out["sleep"] = keep_awake.state()             # whether the server may sleep right now
+    except Exception:
+        out["sleep"] = None
     return out
 
 @app.get("/api/admin/railway_memory")
@@ -9796,6 +9811,13 @@ from contextlib import contextmanager, ExitStack
 
 _voice_admin_state_lock = threading.Lock()
 _voice_admin_state = {'running': False, 'requests': 0, 'token': '', 'error': ''}
+
+
+@app.middleware("http")
+async def keep_awake_touch(request, call_next):
+    """Every request from outside counts as the site being used (see keep_awake.py)."""
+    keep_awake.touch()
+    return await call_next(request)
 
 
 @app.middleware("http")

@@ -460,7 +460,8 @@ def _worker():
             _poll_inworld_once()
         except Exception as ex:
             print(f"[service-usage-monitor] Inworld worker error: {ex}")
-        _time.sleep(MONITOR_INTERVAL_MIN * 60)
+        import keep_awake
+        keep_awake.sleep(MONITOR_INTERVAL_MIN * 60)        # no provider call while the site is quiet: the server may sleep
 
 
 def start():

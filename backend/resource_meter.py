@@ -618,6 +618,11 @@ def metered(kind, job_id_of, after=None, stage_of=None):
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(*a, **k):
+            import keep_awake
+            with keep_awake.hold():          # the server stays awake while a job runs (keep_awake.py)
+                return _measured(*a, **k)
+
+        def _measured(*a, **k):
             if not ENABLED:
                 return fn(*a, **k)
             try:

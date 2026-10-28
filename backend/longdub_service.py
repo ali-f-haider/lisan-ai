@@ -6547,8 +6547,9 @@ def sweep_orphan_voices(force=False):
 
 def start_housekeeping():
     def _loop():
+        import keep_awake
         while True:
-            time.sleep(3600)
+            keep_awake.sleep(3600)        # the voice sweeps go online: not while the site is quiet
             try:
                 sweep_stale()
                 sweep_voices()
