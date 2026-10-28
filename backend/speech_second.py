@@ -28,6 +28,9 @@ ADD_MIN_GAP = 0.5         # ... and Whisper must have heard nothing for at least
 SEC_PER_TOKEN = 0.33      # rough speaking speed, to size a new line when the second listener's own time is off
 CHANGE_MIN_TOKENS = 3     # a line is rewritten only when both versions have at least this many words ...
 CHANGE_MAX_SIMILAR = 0.5  # ... and they are less alike than this (0 = nothing in common, 1 = the same words)
+CHANGE_ROW_MIN_TOKENS = 4  # a line Whisper heard is only rewritten when it has at least this many words ...
+CHANGE_ROW_SHARE = 0.6     # ... and at least this share of them was heard differently (real run, 28 Oct: rewriting the different
+                           # end of a short line split one sentence over two lines: "You would not Try" + "me, sweetheart.")
 
 _TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
 
@@ -241,14 +244,35 @@ def compare(rows, glines, clip_end=None):
             hi = b[3] if b is not None else (float(clip_end) if clip_end else max(lo, float(glines[G[j2 - 1][1]]["end"])) + 1.0)
             if hi - lo < ADD_MIN_GAP:
                 continue
-            gs, ge = float(glines[G[j1][1]]["start"]), float(glines[G[j2 - 1][1]]["end"])
-            need = max(0.6, SEC_PER_TOKEN * (j2 - j1))
-            start = gs if lo < gs < hi - 0.3 else lo + 0.1
-            end = min(hi - 0.05, max(start + min(need, hi - 0.05 - start), min(ge, hi - 0.05)))
-            if end - start < 0.3:
-                continue
-            plan["add"].append({"start": round(start, 2), "end": round(end, 2), "text": _text_of(G[j1:j2], gwords),
-                                "after": a[1] if a is not None else -1})
+            # one new line per sentence of the second listener (a pause can hold several people: real run, 28 Oct, 4:38-5:03)
+            chunks = []
+            for k in range(j1, j2):
+                if chunks and chunks[-1][-1][1] == G[k][1]:
+                    chunks[-1].append(G[k])
+                else:
+                    chunks.append([G[k]])
+            merged = []
+            for c in chunks:      # a one- or two-word sentence ("Huh?") goes with the sentence before it
+                if merged and len(c) < ADD_MIN_TOKENS:
+                    merged[-1] = merged[-1] + c
+                else:
+                    merged.append(c)
+            if len(merged) > 1 and len(merged[0]) < ADD_MIN_TOKENS:
+                merged[1] = merged[0] + merged[1]
+                merged.pop(0)
+            cursor = lo + 0.05
+            for ci, c in enumerate(merged):
+                gs, ge = float(glines[c[0][1]]["start"]), float(glines[c[-1][1]]["end"])
+                nxt = float(glines[merged[ci + 1][0][1]]["start"]) if ci + 1 < len(merged) else hi
+                need = max(0.6, SEC_PER_TOKEN * len(c))
+                start = max(cursor, gs) if gs < hi - 0.3 else cursor
+                limit = min(hi - 0.05, max(start + 0.3, nxt - 0.05))
+                end = min(limit, max(start + need, ge))
+                if end - start < 0.3:
+                    continue
+                plan["add"].append({"start": round(start, 2), "end": round(end, 2), "text": _text_of(c, gwords),
+                                    "after": a[1] if a is not None else -1})
+                cursor = end + 0.05
             continue
         if j1 == j2:
             continue      # only Whisper heard these words: Whisper stays
@@ -280,6 +304,15 @@ def compare(rows, glines, clip_end=None):
             done += take
     if not swap and not extra:
         return plan
+    row_total, row_swapped = {}, {}
+    for w in W:
+        row_total[w[1]] = row_total.get(w[1], 0) + 1
+    for k in swap:
+        row_swapped[W[k][1]] = row_swapped.get(W[k][1], 0) + 1
+    for ri in list(row_swapped):      # only a line that was heard differently as a whole is rewritten
+        if row_total[ri] < CHANGE_ROW_MIN_TOKENS or row_swapped[ri] < CHANGE_ROW_SHARE * row_total[ri]:
+            for k in [k for k in swap if W[k][1] == ri]:
+                del swap[k]
     touched = {W[k][1] for k in swap} | set(extra)
     for ri in sorted(touched):
         words = rows[ri].get("words") or [{"word": w} for w in str(rows[ri].get("text") or "").split()]

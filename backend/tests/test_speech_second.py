@@ -71,6 +71,32 @@ class Compare(unittest.TestCase):
         self.assertIsNone(S.parse("not json"))
 
 
+class RealRun28Oct(unittest.TestCase):
+    """What went wrong in the first real run of the second listen (job b9a2face, 28 Oct)."""
+    def test_a_different_end_of_a_short_line_does_not_split_a_sentence_over_two_lines(self):
+        rows = [row(0, 49.4, "You would not Promise", "Speaker 12"), row(1, 50.9, "we don't", "Speaker 1"),
+                row(2, 333.1, "They're gonna miss her.", "Speaker 1"), row(3, 334.2, "All right.", "Speaker 10")]
+        heard = [{"start": 49.4, "end": 50.5, "text": "You would not."}, {"start": 50.6, "end": 51.6, "text": "Try me, sweetheart."},
+                 {"start": 333.1, "end": 334.6, "text": "How can I miss her?"}]
+        plan = S.compare(rows, heard, clip_end=489)
+        self.assertEqual(plan["change"], {})
+
+    def test_two_sentences_in_one_pause_become_two_lines(self):
+        rows = [row(0, 272.2, "you got it mister you try the rest", "Speaker 3"), row(1, 303.2, "congratulations you made the new news", "Speaker 3")]
+        heard = [{"start": 272.2, "end": 275.0, "text": "You got it, mister, you try the rest."},
+                 {"start": 278.0, "end": 286.0, "text": "Huh? What do you think, huh? Come on, everybody!"},
+                 {"start": 299.9, "end": 302.9, "text": "They're coming this afternoon to fix the elevator."},
+                 {"start": 303.2, "end": 305.4, "text": "Congratulations, you made the new news."}]
+        plan = S.compare(rows, heard, clip_end=489)
+        self.assertEqual(len(plan["add"]), 2)
+        a, b = plan["add"]
+        self.assertIn("What do you think", a["text"]); self.assertNotIn("elevator", a["text"])
+        self.assertIn("elevator", b["text"])
+        self.assertLessEqual(a["end"], b["start"])
+        self.assertLess(b["end"], 303.2)                     # before the line that follows
+        self.assertGreaterEqual(b["start"], 299.0)            # near where it was heard, not right after the line before
+
+
 class Listen(unittest.TestCase):
     def test_one_retry_on_an_empty_answer_and_the_answer_is_saved(self):
         calls = []
