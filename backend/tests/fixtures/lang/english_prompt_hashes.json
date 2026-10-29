@@ -19,7 +19,7 @@
         }
       }
     },
-    "sha256": "25af6f05df3c2c38c8b84517cf25e1d3e1f389a5943277769bf5f4c131bc2862"
+    "sha256": "67ad01cec6326be28d22bd4d9bf4fce83d31faf98bd2392d055f1867f1e39cd3"
   },
   {
     "text": "Wait…",
@@ -41,7 +41,7 @@
         }
       }
     },
-    "sha256": "73e1924652c4fdaaf0f12184619c9ed02623787149fe0190ace43bff1b3e0ce8"
+    "sha256": "d13608e1d343bb271655eee0c8ddb0756a27dfb9415ccd2a3708beccf7eedc37"
   },
   {
     "text": "Wait—",
@@ -63,7 +63,7 @@
         }
       }
     },
-    "sha256": "7372e41912ebefb64719ed688844a3df7d0d76a5b40ef756d73157527cc176d7"
+    "sha256": "c36f3ee78a26d83859d9cd762f1ed876158f9273a6ed244c1f5aad6c6d589112"
   },
   {
     "text": "Wait -",
@@ -85,7 +85,7 @@
         }
       }
     },
-    "sha256": "e97d1a9b18a4903694b1cc42d1a707b04fc4a43b8663e6093605584b80c8e927"
+    "sha256": "e8a97f045321eb469aac5d9977cbf0eaf21246ff6ebcfb89291acc3d6a1e9110"
   },
   {
     "text": "I-If this works, ask Dr. Lane.",
@@ -107,7 +107,7 @@
         }
       }
     },
-    "sha256": "ccae4ba416abda3b66861ec79c2cd5cbeaf4bde59134e1f0834ccc6babc94f88"
+    "sha256": "ae334d71d71d3fc17fcb6d5944c55fb20f3643364e03404696d315c55b65b703"
   },
   {
     "text": "The price is 3.5 dollars.",
@@ -129,6 +129,6 @@
         }
       }
     },
-    "sha256": "4a438ef839ec878a367e77ff0cc94e7aaab22730881c0d568639706b4460ccc7"
+    "sha256": "c6bb013d740762948f19a53e7b45af3de93cc008911c96b205e02eb2be92dfe4"
   }
 ]

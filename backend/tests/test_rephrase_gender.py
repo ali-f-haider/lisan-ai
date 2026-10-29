@@ -94,6 +94,7 @@ class TimingRewriteTests(unittest.TestCase):
             out.write_bytes(b"fitted")
             return {"dur": 2, "raw": 2, "tempo": 1}
         with mock.patch.object(gs, "shorten_arabic_line", return_value=answer) as shorten, \
+             mock.patch.object(gs, "check_shortened_arabic", return_value={"same": True, "lost": ""}), \
              mock.patch.object(ld, "_tts_with_retry", return_value=(b"audio", "")) as speak, \
              mock.patch.object(ld, "_fit_line", side_effect=fit), \
              mock.patch.object(ld, "_ev") as event, \

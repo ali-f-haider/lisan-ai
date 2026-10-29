@@ -36,7 +36,7 @@ class LanguagePromptTests(unittest.TestCase):
                 self.assertEqual(P.scene_prompt(sec,frames,'en'),old(sec,frames))
 
     def test_speaker_prompt_read_only_source(self):
-        old=source_namespace('speaker_vote_live.py',('_row_json','transcript','prompt_for'))['prompt_for']
+        old=source_namespace('speaker_vote_live.py',('_row_json','transcript','prompt_for','_prompt_en','exact_people'))['prompt_for']
         for kind in ('audio','dialogue','other'):
             self.assertEqual(P.speaker_prompt(kind,rows(),'en'),old(kind,rows()))
 

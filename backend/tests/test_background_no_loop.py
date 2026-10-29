@@ -57,8 +57,10 @@ class SceneTimes(unittest.TestCase):
         note = {}
         self.assertEqual(sc._clean_scenes([{"t0": 0, "t1": 100, "setting": "vehicle"}], 441.2, note), [])
         self.assertIn("rejected", note)
-        # the 83 s dining room case: too short to be sure it was minutes, so it is not used at all
-        self.assertEqual(sc._clean_scenes([{"t0": 0, "t1": 1, "setting": "medium_room"}], 83.0), [])
+        # the 83 s dining room case: one place in a short video is that video's place, so it is stretched (test_room_ceiling.py)
+        self.assertEqual([(s["t0"], s["t1"]) for s in sc._clean_scenes([{"t0": 0, "t1": 1, "setting": "medium_room"}], 83.0)], [(0.0, 83.0)])
+        # several places that all end in the first minute of a 7-minute video are not stretched over it
+        self.assertEqual(sc._clean_scenes([{"t0": 0, "t1": 20, "setting": "vehicle"}, {"t0": 20, "t1": 60, "setting": "large_room"}], 441.2), [])
 
     def test_the_question_uses_seconds_everywhere(self):
         self.assertEqual(sc._transcript([{"start": 105.3, "text": "Get me TAC command right now please"}]),

@@ -31,6 +31,10 @@ def source_functions(filename, names, namespace):
     from user_errors import customer_message, customer_payload
     namespace.setdefault('customer_message', customer_message)
     namespace.setdefault('customer_payload', customer_payload)
+    from supabase_keys import sb_auth          # main.py imports it at the top (the database key header, old and new key styles)
+    namespace.setdefault('sb_auth', sb_auth)
+    import landing_look                         # also imported at the top of main.py (the home page design setting)
+    namespace.setdefault('landing_look', landing_look)
     tree = ast.parse((ROOT / filename).read_text(encoding='utf-8-sig'))
     nodes = []
     for node in tree.body:

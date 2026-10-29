@@ -35,7 +35,8 @@ class PricingSchemaTests(unittest.TestCase):
 
     def environment(self):
         return source_functions('main.py', ['_save_pricing_config', '_http_error_detail', '_conc_cfg', '_assistant_cfg', '_gemini_cpc'],
-                                dict(SUPABASE_URL='https://example.test', SUPABASE_SERVICE_KEY='synthetic', json=json, time=time))
+                                dict(SUPABASE_URL='https://example.test', SUPABASE_SERVICE_KEY='synthetic', json=json, time=time,
+                                     _get_pricing_config=lambda: {}))      # the saved home page design is read to see whether it changed
 
     def write(self, payload, fail_request=None):
         bodies = []

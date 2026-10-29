@@ -33,6 +33,7 @@ function context(fetchImpl) {
         window: { currentLang: 'en' }, document: doc, messages,
         segmentsData: [{ segment_id: 's1', text: 'Hi', locked: false }], currentJobId: 'a'.repeat(32),
         notify(type, text) { messages.push({ type, text }); }, fetchUsage() {}, renderTable() {}, sanitizeStyle: v => v || '',
+        translateBody: rows => ({ segments: rows }), adoptHeardGenders() {},      // added to the page after this test was written
         fetch: fetchImpl
     });
     vm.runInContext('function subsText(en, ar) { return window.currentLang === "ar" ? ar : en; }', c);

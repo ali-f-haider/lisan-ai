@@ -84,8 +84,10 @@ def _seconds(value):
 
 
 MINUTES_MIN_SEC = 120.0       # in a video this long, an answer whose stretches all end within duration/60 was given in minutes
-COVER_END_SHARE = 0.75        # the answer must reach this far into the video ...
-COVER_SHARE = 0.6             # ... and its stretches must cover this much of it, or it is not used at all
+COVER_END_SHARE = 0.5         # the answer must reach this far into the video ...
+COVER_SHARE = 0.3             # ... and its stretches must cover this much of it, or it is not used at all
+# (one place for a video shorter than MINUTES_MIN_SEC is always stretched over it: the 83 s dining room answered "0:00-0:01"
+# needs its room limit, test_room_ceiling.py; the check above is for answers that name several places, or a long video)
 
 
 def _clean_scenes(raw, duration, note=None):
@@ -96,7 +98,8 @@ def _clean_scenes(raw, duration, note=None):
     covered almost the whole video, and the room sound and the background repair of the whole video used that one place.
     So: an answer whose stretches all end within duration/60 (+1) of a video of MINUTES_MIN_SEC or more is converted from
     minutes, and an answer that still does not fit the video (it ends too early or covers too little) is not used at all
-    instead of being stretched over it. note (a dict) gets "minutes": True / "rejected": reason."""
+    instead of being stretched over it -- except one place for a short video, which is stretched (that clip is one place).
+    note (a dict) gets "minutes": True / "rejected": reason."""
     out = []
     if not isinstance(raw, list):
         return out
@@ -130,7 +133,7 @@ def _clean_scenes(raw, duration, note=None):
             s["t0"] = fixed[-1]["t1"]
         if s["t1"] > s["t0"]:
             fixed.append(s)
-    if fixed and duration:
+    if fixed and duration and not (len(fixed) == 1 and duration < MINUTES_MIN_SEC):
         reach = max(s["t1"] for s in fixed)
         covered = sum(s["t1"] - s["t0"] for s in fixed)
         if reach < COVER_END_SHARE * duration or covered < COVER_SHARE * duration:

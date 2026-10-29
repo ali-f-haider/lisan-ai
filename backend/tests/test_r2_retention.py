@@ -160,6 +160,9 @@ class ScriptTests(unittest.TestCase):
     def test_dry_run_deletes_nothing_and_yes_deletes(self):
         import r2_cleanup
         b = bucket_with()
+        # the script counts from today (not from NOW): keep the newest copy 5 days younger than today, or this test fails once
+        # NOW is more than 15 days in the past
+        b.objects["new_final_dubbed_video.mp4"] = (700, dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=5))
         with patch.object(r2_backup, "_enabled", return_value=True), patch.object(r2_backup, "_get_client", return_value=b), \
                 patch.object(r2_backup, "R2_BUCKET_NAME", "b"):
             self.assertEqual(r2_cleanup.main(["--older-than-days", "20"]), 0)

@@ -309,7 +309,8 @@ class VoteStepTests(unittest.TestCase):
         ld._init_speakers(job, rows)
         ld._review_speakers(job, rows, [], {}, vote=vote)
         self.assertTrue(all(r["speaker_confidence"] in ("low", "high") for r in rows))
-        self.assertEqual(job["warnings"], [live.ADDED_SPEAKER_MESSAGE])
+        # the user's number of speakers is a fact: no "another speaker was found" message any more; the figures are in speaker_count_review
+        self.assertNotIn(live.ADDED_SPEAKER_MESSAGE, job.get("warnings") or [])
         self.assertEqual(job["speaker_count_review"], {"stated": 2, "detected": 3, "needs_review": True})
 
     def test_a_user_edit_drops_the_vote_evidence_too(self):
