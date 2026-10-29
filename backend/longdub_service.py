@@ -413,7 +413,7 @@ def public_view(job):
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
     v["voice_retention_days"] = retention_days(DATA_DIR)
     if "speaker_list" in v and (not image_unit.enabled() or image_unit.GENDER_MODE == "off"):
-        v["speaker_list"] = [{k: val for k, val in s.items() if k not in ("picture_gender_check", "picture_advice")} for s in v["speaker_list"]]
+        v["speaker_list"] = [{k: val for k, val in s.items() if k not in ("picture_gender_check", "picture_advice", "picture_gender_hint")} for s in v["speaker_list"]]
     v["source_language"] = languages.get(job.get("source_language")).code
     if "picture_option" in job:
         v["picture_option"] = bool(job["picture_option"])
@@ -1658,6 +1658,7 @@ def _refresh_picture_speakers(job, rows):
                 changed = True
             if s.get("picture_advice") and s.get("name") not in seen:
                 s.pop("picture_advice", None)
+                s.pop("picture_gender_hint", None)
                 changed = True
         if changed:
             _save(job)
@@ -1931,7 +1932,8 @@ def _face_genders(job, rows, wd):
             out = tmp / f"{c['id']}.jpg"
             if face_unit.crop(src, c["frame"], c["box"], out):
                 ready.append(dict(c, path=str(out)))
-        answers, usage = face_unit.ask_genders(job["id"], ready, GEMINI_API_KEY)
+        points = {}
+        answers, usage = face_unit.ask_genders(job["id"], ready, GEMINI_API_KEY, details=points)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)      # the face pictures are never kept
     found = face_unit.speaker_genders(ready, answers)
@@ -1953,7 +1955,8 @@ def _face_genders(job, rows, wd):
             # two looks that agree beat an unsure voice guess (real run, 28 Oct: the hijacker's face, seen twice, and the picture both
             # said a man; the pitch, unsure, said a woman): the face seen speaking in two lines, or the picture saying the same
             seen_twice = int(res.get("seen") or 0) >= 2
-            picture_same = (sp.get("picture_gender_check") or {}).get("visual_advice") == g
+            picture_same = ((sp.get("picture_gender_check") or {}).get("visual_advice") == g
+                            or (sp.get("picture_gender_hint") or {}).get("gender") == g)
             strong = seen_twice or picture_same
         where = ", ".join(f"{s} {_clock(by_id[s].get('start'))}" for s in res["ids"] if s in by_id)
         if current and current != g and (sure_now or not strong):
@@ -1968,8 +1971,13 @@ def _face_genders(job, rows, wd):
             told.append(f"{sp.get('name')}: {g} (was {before}){'' if not sp['gender_uncertain'] else ', still marked not sure'}; {res['seen']} face(s) seen speaking: {where}")
     _save(job)
     u = usage or {}
-    _ev(job, "face_gender", "ok", f"{len(ready)} face crops looked at by Gemini ({len(answers)} clear answers), tokens in {int(u.get('promptTokenCount') or 0)} / "
-        f"out {int(u.get('candidatesTokenCount') or 0)}; " + ("; ".join(told) if told else "no gender changed"))
+    # each face's points (face_features: one point per visible male or female feature), so the decision can be checked
+    seg_of = {c["id"]: c.get("segment_id") for c in ready}
+    counted = "; ".join(f"{cid} ({seg_of.get(cid)} {_clock(by_id[seg_of[cid]].get('start')) if seg_of.get(cid) in by_id else '?'}) "
+                        f"{s.get('gender')} M{s.get('M')} F{s.get('F')}" for cid, s in sorted(points.items()))
+    _ev(job, "face_gender", "ok", f"{len(ready)} face crops looked at by Gemini ({len(answers)} decided by the points of visible features), tokens in "
+        f"{int(u.get('promptTokenCount') or 0)} / out {int(u.get('candidatesTokenCount') or 0) + int(u.get('thoughtsTokenCount') or 0)}; "
+        + ("; ".join(told) if told else "no gender changed") + (f"; points per face: {counted}" if counted else ""))
     return found
 
 
@@ -2002,17 +2010,19 @@ def _picture_advice(job, rows, result):
             if not g or s.get("gender_source") == "chosen":
                 continue
             current = s.get("gender") if s.get("gender") in ("male", "female") else ""
-            # Ali's rule: guaranteed evidence overrules everything. A strong picture is guaranteed: it overrules every voice result (pitch and
-            # listening can be fooled by noise, shouting, a radio); only the person's own choice, and the words (also guaranteed: then two
-            # guaranteed opinions disagree and the person looks), are not overruled. A weak picture never overrules: it is advice, flagged.
-            if current and current != g and (s.get("gender_source") == "text" or not strong):
+            # The video picture never sets a gender on its own (1.85.2). It watches a small, silent copy of the whole video and once called the
+            # F-15 pilot a woman five times "alone in the frame, high confidence" while his face was hidden by a helmet and an oxygen mask
+            # (one of the five frames showed nobody at all). Its answer is kept as a hint: the face check (a face really found and cut out,
+            # then judged by the points of its visible features) uses it as a second look that agrees; a different answer only flags.
+            s["picture_gender_hint"] = {"gender": g, "strong": bool(strong), "lines": attributes[s["name"]].get("gender_lines"),
+                                        "alone": attributes[s["name"]].get("gender_alone_lines")}
+            if current and current != g:
                 suspicious[s["name"]] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
-                _ev(job, "picture_gender_flag", "info", f"{s.get('name')}: the picture shows {g} ({'strong' if strong else 'weak'}) but the {s.get('gender_source') or 'earlier'} result says {current}; nothing changed, the speaker is flagged. Sightings: {_where(s.get('name'))}")
+                _ev(job, "picture_gender_flag", "info", f"{s.get('name')}: the picture suggests {g} but the {s.get('gender_source') or 'earlier'} result says {current}; "
+                    f"the picture alone never decides, nothing changed, the speaker is flagged. Sightings: {_where(s.get('name'))}")
                 continue
-            before = (s.get("gender") or "?", s.get("gender_source") or "none", bool(s.get("gender_uncertain")))
-            s["gender"], s["gender_source"], s["gender_uncertain"] = g, "seen", False
-            _ev(job, "picture_gender", "ok", f"{s.get('name')}: {g} (was {before[0]} from {before[1]}{', unsure' if before[2] else ''}); seen speaking in "
-                f"{attributes[s['name']].get('gender_lines')} lines, all showing the same{', alone in the frame in ' + str(attributes[s['name']].get('gender_alone_lines')) if attributes[s['name']].get('gender_alone_lines') else ''}. Sightings: {_where(s.get('name'))}")
+            _ev(job, "picture_gender_hint", "info", f"{s.get('name')}: the picture suggests {g}" + (f", the same as the {s.get('gender_source') or 'earlier'} result" if current else "")
+                + f"; a hint only, nothing changed. Sightings: {_where(s.get('name'))}")
     pitch = {s["name"]: s.get("gender") for s in speakers}
     chosen = {s["name"]: s.get("gender") for s in speakers if s.get("gender_source") == "chosen"}
     conflicts = image_unit.gender_conflicts(attributes, pitch, chosen)

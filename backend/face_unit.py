@@ -384,9 +384,47 @@ SCHEMA = {'type': 'OBJECT', 'properties': {'faces': {'type': 'ARRAY', 'items': {
     'confidence': {'type': 'STRING', 'enum': ['high', 'low']}}, 'required': ['id', 'gender', 'confidence']}}}, 'required': ['faces']}
 
 
-def ask_genders(job_id, crops, api_key, ask=None):
-    """One Gemini request for all crops (each with its 'path'). Returns ({crop id: 'male'|'female'}, usage report or None).
-    Only confident answers count."""
+FEATURE_BATCH = 8           # faces per request when the visible features are counted (63 film faces were all judged right in batches of 8)
+
+
+def ask_genders(job_id, crops, api_key, ask=None, details=None):
+    """The gender of each crop (each with its 'path') by counting visible features (face_features.py, 1.85.2): Gemini only answers
+    yes / no / can't see to plain questions about the face, every male or female feature it sees gives that side one point, and the side
+    with more points wins. A crop with equal points or no visible face gives no answer. Returns ({crop id: 'male'|'female'}, usage summed
+    over the requests, or None). details (a dict, optional) receives {crop id: points} for the job log. (Before 1.85.2 Gemini was asked
+    "male or female?" directly; the counting asks for what it sees, not for a verdict.)"""
+    import face_features
+    if ask is None:
+        import gemini_service
+        ask = lambda key, p, timeout: gemini_service.call_gemini(key, p, timeout=timeout)
+
+    def call(key, payload, timeout):
+        data, err = ask(key, payload, timeout)
+        try:
+            from app_state import record_gemini
+            record_gemini(job_id, data)
+        except Exception:
+            pass
+        return data, err
+
+    ready = [c for c in crops if c.get('path')]
+    out, total = {}, {}
+    for i in range(0, len(ready), FEATURE_BATCH):
+        answers, usage = face_features.ask(ready[i:i + FEATURE_BATCH], api_key, call=call)
+        for k in ('promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount'):
+            total[k] = total.get(k, 0) + int((usage or {}).get(k) or 0)
+        for cid, a in answers.items():
+            s = face_features.score(a)
+            if details is not None:
+                details[cid] = s
+            if s['gender'] in ('male', 'female'):
+                out[cid] = s['gender']
+    return out, (total if any(total.values()) else None)
+
+
+def ask_genders_direct(job_id, crops, api_key, ask=None):
+    """The old way (before 1.85.2), kept for comparison: one Gemini request for all crops, "male or female?". Returns ({crop id: gender},
+    usage report or None). Only confident answers count."""
     parts = []
     for c in crops:
         try:

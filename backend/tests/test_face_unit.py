@@ -115,21 +115,33 @@ class Genders(unittest.TestCase):
         self.assertEqual((res['S9']['gender'], res['S9']['strong']), ('male', True))     # the old judge: seen speaking twice, once next to others
         self.assertNotIn('S3', res)                                                   # the faces disagree: no answer
 
-    def test_the_gemini_answer_is_read_safely_and_only_confident_answers_count(self):
+    def test_the_gender_comes_from_counting_visible_features_and_is_read_safely(self):
+        # 1.85.2: Gemini answers only yes / no / can't see about the face; each male or female feature it sees is one point
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / 'f1.jpg'; p.write_bytes(b'\xff\xd8jpeg')
-            crops = [dict(id='f1', path=str(p)), dict(id='f2', path=str(p))]
+            crops = [dict(id=f'f{i}', path=str(p)) for i in range(1, 11)]          # 10 faces: two requests of at most 8
             sent = []
+            man = {'G1': 'yes', 'M2': 'yes', 'C2': 'M', 'C3': 'M', 'C7': 'F'}           # stubble, brow ridge, jaw; full lips: 3 to 1
+            woman = {'G1': 'yes', 'F1': 'yes', 'F2': 'yes', 'C5': 'F', 'C3': 'M'}      # lipstick, eye makeup, cheeks; square jaw: 3 to 1
+            masked = {'G1': 'yes'}                                                        # nothing visible: no points, no answer
+            no_face = {'G1': 'no', 'F1': 'yes'}
 
             def ask(key, payload, timeout):
                 sent.append(payload)
-                body = {'faces': [{'id': 'f1', 'gender': 'female', 'confidence': 'high'}, {'id': 'f2', 'gender': 'male', 'confidence': 'low'},
-                                  {'id': 'zz', 'gender': 'male', 'confidence': 'high'}]}
-                return {'candidates': [{'content': {'parts': [{'text': json.dumps(body)}]}}], 'usageMetadata': {'promptTokenCount': 600}}, None
-            out, usage = F.ask_genders('j', crops, 'k', ask=ask)
-            self.assertEqual(out, {'f1': 'female'})
+                ids = [part['text'].split()[1].rstrip(':') for part in payload['contents'][0]['parts'] if part.get('text', '').startswith('Image ')]
+                plan = {'f1': man, 'f2': woman, 'f3': masked, 'f4': no_face}
+                body = {'faces': [{'id': i, 'answers': plan.get(i, masked)} for i in ids] + [{'id': 'zz', 'answers': man}]}
+                return {'candidates': [{'content': {'parts': [{'text': json.dumps(body)}]}}], 'usageMetadata': {'promptTokenCount': 600, 'candidatesTokenCount': 50}}, None
+            points = {}
+            out, usage = F.ask_genders('j', crops, 'k', ask=ask, details=points)
+            self.assertEqual(out, {'f1': 'male', 'f2': 'female'})
+            self.assertEqual((points['f1']['M'], points['f1']['F'], points['f3']['gender'], points['f4']['gender']), (3, 1, 'unsure', 'cannot_judge'))
+            self.assertEqual(len(sent), 2)
+            self.assertEqual(usage['promptTokenCount'], 1200)
+            prompt = sent[0]['contents'][0]['parts'][-1]['text']
+            self.assertIn('never name, recognise or identify anyone', prompt)
+            self.assertIn('Do not say whether the person is male or female', prompt)
             self.assertIn('responseSchema', sent[0]['generationConfig'])
-            self.assertIn('Never name, recognise or identify anyone.', sent[0]['contents'][0]['parts'][-1]['text'])
             out, _ = F.ask_genders('j', crops, 'k', ask=lambda *a: (None, 'down'))
             self.assertEqual(out, {})
 
