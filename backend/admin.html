@@ -343,6 +343,8 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <button class="btn-sm" onclick="pcFill()">Fill the price fields below with these values</button>
           <button class="btn-sm" onclick="pcFillAndSave()" title="Fill the fields with these values and save all prices at once">💾 Fill and save</button>
           <button class="btn-sm" onclick="pcReload()" title="Put the saved values back into the fields">Undo (reload saved values)</button>
+          <button class="btn-sm" onclick="pcShowBackups()" title="Bring back the prices of an earlier day, read from the daily database backup">↺ Restore earlier prices</button>
+          <div id="pcBackups" style="display:none; margin:8px 0;"></div>
           <span class="muted">The factor is always applied to the original prices (×1), never to prices that were already raised: ×6 after ×5 gives 6 × the original prices. The last factor saved is shown here when the page opens. A price you change by hand and save becomes its new original price (divided by the factor in force). Lip-sync is not changed. After filling, check the fields, then press Save on each card (the example under Dub Long Video shows the new total).</span>
         </div>
         <div style="overflow-x:auto;"><table class="biz-table" id="pcTable"></table></div>
@@ -1481,6 +1483,60 @@ function pcFill() {
   renderPriceCheck();
 }
 async function pcReload() { await loadPricing(); toast('Saved values loaded back into the fields.'); }
+// "Restore earlier prices": the price fields as they were saved on an earlier day, read from the daily database backup (R2).
+// The day offered first is the newest one whose prices differ from today's. Restoring saves them as the original prices (×1).
+const PC_BACKUP_NAMES = { transcribeCredits: 'estimate fee', mergeCredits: 'merge', longDubAnalysisPerMin: 'analysis per minute',
+  longDubFlatCredits: 'processing fee', inworldCharsPerCredit: 'Inworld characters per credit', inworldCloneCredits: 'Inworld clone',
+  charsPerCredit: 'ElevenLabs characters per credit', cloneCredits: 'ElevenLabs clone', geminiCreditsPerCent: 'Gemini credits per cent' };
+let PC_BACKUP_SETS = [];
+async function pcShowBackups() {
+  const box = document.getElementById('pcBackups');
+  box.style.display = '';
+  box.textContent = 'Reading the daily backups...';
+  if (!pricingLoaded) { box.textContent = 'The saved prices have not loaded yet — reload the page.'; return; }
+  let r = null;
+  try { r = await api('/api/admin/price_backups'); } catch (e) {}
+  const list = (r && r.ok && r.data && Array.isArray(r.data.backups)) ? r.data.backups : [];
+  if (!list.length) { box.textContent = (r && r.data && (r.data.note || r.data.error)) || 'No backup with saved prices was found.'; return; }
+  const same = p => Object.keys(p).every(k => Math.abs(Number(p[k]) - pcNum(k)) < 1e-6);
+  PC_BACKUP_SETS = [];
+  list.forEach(b => {                                   // one entry per different set of prices (newest day of each run)
+    const key = JSON.stringify(b.prices);
+    if (!PC_BACKUP_SETS.length || PC_BACKUP_SETS[PC_BACKUP_SETS.length - 1].key !== key) PC_BACKUP_SETS.push({ key: key, date: b.date, prices: b.prices, current: same(b.prices) });
+  });
+  const pick = Math.max(0, PC_BACKUP_SETS.findIndex(s => !s.current));
+  box.textContent = '';
+  const sel = document.createElement('select');
+  sel.id = 'pcBackupSel';
+  PC_BACKUP_SETS.forEach((s, i) => {
+    const o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = 'Backup of ' + s.date + (s.current ? ' (same as now)' : '');
+    if (i === pick) o.selected = true;
+    sel.appendChild(o);
+  });
+  const show = document.createElement('div');
+  show.className = 'muted';
+  show.style.margin = '6px 0';
+  const describe = () => {
+    const s = PC_BACKUP_SETS[Number(sel.value)];
+    show.textContent = Object.keys(PC_BACKUP_NAMES).filter(k => s.prices[k] != null).map(k => PC_BACKUP_NAMES[k] + ' ' + s.prices[k] + ' (now ' + pcNum(k) + ')').join(' · ');
+  };
+  sel.onchange = describe;
+  const btn = document.createElement('button');
+  btn.className = 'btn-sm';
+  btn.textContent = '💾 Restore these prices and save';
+  btn.onclick = () => pcRestoreBackup(Number(sel.value));
+  box.appendChild(sel); box.appendChild(btn); box.appendChild(show);
+  describe();
+}
+async function pcRestoreBackup(i) {
+  const s = PC_BACKUP_SETS[i];
+  if (!s) return;
+  if (!confirm('Put back the prices saved in the backup of ' + s.date + ' and save them now?\n\nThey become the original prices (×1) and apply to every new job right away. Lip-sync and all other settings are not changed.')) return;
+  Object.keys(s.prices).forEach(id => { const el = document.getElementById(id); if (el) { el.value = s.prices[id]; el.dispatchEvent(new Event('input', { bubbles: true })); } });
+  if (await savePricing(1)) document.getElementById('pcBackups').style.display = 'none';
+}
 // "Fill and save": the same filling as pcFill, then the same save as every other Save button on this page (it saves all fields).
 // The factor applies to the ORIGINAL prices, so ×6 after ×5 gives original × 6, not original × 30.
 async function pcFillAndSave() {

@@ -78,5 +78,51 @@ class PriceFactor(unittest.TestCase):
         self.assertNotIn("Saving again with a factor multiplies the new prices again", page)
 
 
+class PricesFromBackups(unittest.TestCase):
+    """"Restore earlier prices" reads only the price fields of each day's pricing backup."""
+
+    def test_each_backup_day_gives_its_prices_newest_first(self):
+        import io
+        import sys
+        from unittest import mock
+        sys.path.insert(0, str(ROOT))
+        import r2_backup
+
+        files = {
+            "db-backups/2026-10-28/pricing_config.json": [{"id": "singleton", "transcribe_credits": 5, "merge_credits": 2,
+                                                            "long_dub_analysis_per_min": 19.0, "inworld_chars_per_credit": 50,
+                                                            "gemini_credits_per_cent": 2.5, "packs": [{"x": 1}]}],
+            "db-backups/2026-10-29/pricing_config.json": [{"id": "singleton", "transcribe_credits": 180, "merge_credits": 72}],
+            "db-backups/2026-10-27/profiles.json": [],        # a day without a pricing copy is left out
+        }
+
+        class Pages:
+            def paginate(self, **kw):
+                return [{"CommonPrefixes": [{"Prefix": "db-backups/2026-10-27/"}, {"Prefix": "db-backups/2026-10-28/"},
+                                            {"Prefix": "db-backups/2026-10-29/"}]}]
+
+        class Client:
+            def get_paginator(self, name):
+                return Pages()
+
+            def get_object(self, Bucket, Key):
+                if Key not in files:
+                    raise KeyError(Key)
+                return {"Body": io.BytesIO(json.dumps(files[Key]).encode())}
+
+        with mock.patch.object(r2_backup, "_enabled", lambda: True), mock.patch.object(r2_backup, "_get_client", lambda: Client()):
+            got = r2_backup.price_backups()
+        self.assertEqual([g["date"] for g in got], ["2026-10-29", "2026-10-28"])
+        self.assertEqual(got[1]["prices"], {"transcribeCredits": 5, "mergeCredits": 2, "longDubAnalysisPerMin": 19,
+                                            "inworldCharsPerCredit": 50, "geminiCreditsPerCent": 2.5})
+        with mock.patch.object(r2_backup, "_enabled", lambda: False):
+            self.assertEqual(r2_backup.price_backups(), [])
+
+    def test_the_admin_page_offers_the_restore(self):
+        page = (ROOT / "admin.html").read_text(encoding="utf-8")
+        self.assertIn("/api/admin/price_backups", page)
+        self.assertIn("await savePricing(1)", page)
+
+
 if __name__ == "__main__":
     unittest.main()

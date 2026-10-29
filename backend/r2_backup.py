@@ -421,6 +421,57 @@ def backup_db_tables(supabase_url, service_key, force=False):
         return {"status": "error", "message": str(e)[:300]}
 
 
+# The price fields of pricing_config (database column -> admin field) that "Restore earlier prices" can bring back.
+PRICE_COLUMNS = {
+    "transcribe_credits": "transcribeCredits", "merge_credits": "mergeCredits",
+    "inworld_chars_per_credit": "inworldCharsPerCredit", "inworld_clone_credits": "inworldCloneCredits",
+    "long_dub_analysis_per_min": "longDubAnalysisPerMin", "long_dub_flat_credits": "longDubFlatCredits",
+    "chars_per_credit": "charsPerCredit", "clone_credits": "cloneCredits", "gemini_credits_per_cent": "geminiCreditsPerCent",
+}
+
+
+def price_backups(max_days=30):
+    """The prices saved in each complete daily backup, newest first: [{"date", "prices": {admin field: value}}].
+    Only the price fields (PRICE_COLUMNS), nothing else of the settings. [] when R2 is not configured or nothing is
+    found. Never raises."""
+    if not _enabled():
+        return []
+    client = _get_client()
+    if client is None:
+        return []
+    import json as _json
+    out = []
+    try:
+        days = set()
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=DB_BACKUP_PREFIX, Delimiter="/"):
+            for cp in page.get("CommonPrefixes", []):
+                days.add(cp["Prefix"][len(DB_BACKUP_PREFIX):].strip("/"))
+        for day in sorted(days, reverse=True)[:max_days]:
+            try:
+                o = client.get_object(Bucket=R2_BUCKET_NAME, Key=f"{DB_BACKUP_PREFIX}{day}/pricing_config.json")
+                rows = _json.loads(o["Body"].read().decode("utf-8"))
+                row = next((r for r in rows if isinstance(r, dict) and r.get("id") == "singleton"), None) or \
+                      next((r for r in rows if isinstance(r, dict)), None)
+                if not row:
+                    continue
+                prices = {}
+                for col, field in PRICE_COLUMNS.items():
+                    try:
+                        v = float(row.get(col))
+                    except (TypeError, ValueError):
+                        continue
+                    if v > 0:
+                        prices[field] = int(v) if v == int(v) else v
+                if prices:
+                    out.append({"date": day, "prices": prices})
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[db-backup] reading the saved prices failed: {e}")
+    return out
+
+
 def latest_db_backup():
     """For the admin Health panel: the newest completed snapshot as
     {"date": ..., "rows": {...}} or None."""

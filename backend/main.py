@@ -8113,6 +8113,18 @@ async def admin_save_price_factor(request: Request):
     return {"ok": True, **_price_factor_state()}
 
 
+@app.get("/api/admin/price_backups")
+def admin_price_backups(request: Request):
+    """"Restore earlier prices": the price fields as saved in each daily database backup (R2), newest first."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    import r2_backup
+    found = r2_backup.price_backups()
+    if not found:
+        return {"backups": [], "note": "No database backup with saved prices was found (is R2 configured?)."}
+    return {"backups": found}
+
+
 @app.get("/api/admin/audit")
 def admin_audit(request: Request):
     if not _admin_check(request):
