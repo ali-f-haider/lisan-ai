@@ -32,7 +32,7 @@ from pathlib import Path
 
 ENABLED = os.environ.get("SCENE_CONTEXT", "1").strip() not in ("0", "false", "False", "")
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2                 # 2: times in seconds (version 1 sometimes got its answer in minutes, see _clean_scenes)
 MAX_TEXT_CHARS = 90000            # transcript sent to Gemini; longer ones are thinned out evenly (about 25k tokens)
 MAX_FRAMES = 10
 FRAME_WIDTH = 384
@@ -68,18 +68,53 @@ def _fmt_t(t):
 
 # ---------------------------------------------------------------- reading the answer
 
-def _clean_scenes(raw, duration):
-    """Gemini's list -> consecutive stretches that cover [0, duration], every one with a known kind of place or UNKNOWN."""
+def _seconds(value):
+    """A time from the answer: a number, or text such as "105", "105 s", "1:45" or "1:02:03" -> seconds. None when unreadable."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip().lower().rstrip("s").strip()
+    if re.fullmatch(r"\d+(\.\d+)?", text):
+        return float(text)
+    m = re.fullmatch(r"(?:(\d+):)?(\d{1,2}):(\d{1,2}(?:\.\d+)?)", text)
+    if m:
+        return float(m.group(1) or 0) * 3600 + float(m.group(2)) * 60 + float(m.group(3))
+    return None
+
+
+MINUTES_MIN_SEC = 120.0       # in a video this long, an answer whose stretches all end within duration/60 was given in minutes
+COVER_END_SHARE = 0.75        # the answer must reach this far into the video ...
+COVER_SHARE = 0.6             # ... and its stretches must cover this much of it, or it is not used at all
+
+
+def _clean_scenes(raw, duration, note=None):
+    """Gemini's list -> consecutive stretches that cover [0, duration], every one with a known kind of place or UNKNOWN.
+
+    The times must be seconds. Twice an answer came back in MINUTES (a dining room "0:00-0:01" of an 83 second scene; an
+    Air Force One clip of 441 s split into nine places that all ended before second 5): read as seconds, the last stretch then
+    covered almost the whole video, and the room sound and the background repair of the whole video used that one place.
+    So: an answer whose stretches all end within duration/60 (+1) of a video of MINUTES_MIN_SEC or more is converted from
+    minutes, and an answer that still does not fit the video (it ends too early or covers too little) is not used at all
+    instead of being stretched over it. note (a dict) gets "minutes": True / "rejected": reason."""
     out = []
     if not isinstance(raw, list):
         return out
+    items = []
     for it in raw:
         if not isinstance(it, dict):
             continue
-        try:
-            t0, t1 = float(it.get("t0")), float(it.get("t1"))
-        except (TypeError, ValueError):
+        t0, t1 = _seconds(it.get("t0")), _seconds(it.get("t1"))
+        if t0 is None or t1 is None:
             continue
+        items.append((t0, t1, it))
+    if not items:
+        return out
+    if duration and duration >= MINUTES_MIN_SEC and max(t1 for _, t1, _ in items) <= duration / 60.0 + 1.0:
+        items = [(t0 * 60.0, t1 * 60.0, it) for t0, t1, it in items]
+        if note is not None:
+            note["minutes"] = True
+    for t0, t1, it in items:
         if not (t1 > t0) or t0 < -1 or t0 > duration + 5:
             continue
         key = str(it.get("setting") or "").strip().lower()
@@ -95,6 +130,13 @@ def _clean_scenes(raw, duration):
             s["t0"] = fixed[-1]["t1"]
         if s["t1"] > s["t0"]:
             fixed.append(s)
+    if fixed and duration:
+        reach = max(s["t1"] for s in fixed)
+        covered = sum(s["t1"] - s["t0"] for s in fixed)
+        if reach < COVER_END_SHARE * duration or covered < COVER_SHARE * duration:
+            if note is not None:
+                note["rejected"] = f"the answer covers only {covered:.0f} s of {duration:.0f} s"
+            return []
     return _cover(fixed, duration)
 
 
@@ -184,7 +226,7 @@ def _transcript(rows):
                 keep.append(ln)
                 acc -= step
         lines = keep or lines[:1]
-    return "\n".join(f"[{_fmt_t(t)}] {text}" for t, text in lines)
+    return "\n".join(f"[{t:.0f} s] {text}" for t, text in lines)      # seconds, like the answer must be (not 1:45: answers came back in minutes)
 
 
 def _frames(video_path, duration, n):
@@ -224,6 +266,7 @@ Rules:
 - Say "confidence": "high" only when the transcript or a frame clearly shows the place. Otherwise "low".
 - "place" is two to four words, for example "apartment kitchen" or "courtroom".
 - Never invent anything the transcript and frames do not support.
+- "t0" and "t1" are SECONDS from the start of the video, like the times in the transcript ({duration:.0f} is the end). Never minutes.
 Return ONLY valid JSON, a list: [{{"t0": seconds, "t1": seconds, "setting": "<kind>", "confidence": "high"|"low", "place": "..."}}]"""
 
 
@@ -293,7 +336,7 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
             frames = _frames(video_path, duration, n_frames)
         parts = [{"text": _prompt(duration, bool(frames), source_language)}, {"text": "TRANSCRIPT:\n" + text}]
         for t, jpg in frames:
-            parts.append({"text": f"Frame at {_fmt_t(t)} (about {t:.0f} s):"})
+            parts.append({"text": f"Frame at {t:.0f} s:"})
             parts.append({"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(jpg).decode("ascii")}})
         payload = {"contents": [{"parts": parts}],
                    "generationConfig": {"maxOutputTokens": 3072, "responseMimeType": "application/json",
@@ -309,12 +352,17 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
         except Exception as ex:
             print(f"[scene] {job_id}: could not read the answer ({type(ex).__name__})")
             return {"scenes": [], "cost_usd": cost["cost_usd"], "reused": False, "summary": f"unreadable answer, no limit (${cost['cost_usd']:.4f})"}
-        scenes = _clean_scenes(raw, duration)
+        note = {}
+        scenes = _clean_scenes(raw, duration, note)
         try:
             cache.write_text(json.dumps({"key": key, "scenes": scenes, "cost": cost}), encoding="utf-8")
         except Exception:
             pass
         s = _summary(scenes, cost["cost_usd"], False)
+        if note.get("minutes"):
+            s += "; the answer was in minutes, converted to seconds"
+        if note.get("rejected"):
+            s += "; answer not used: " + note["rejected"]
         if frames:
             s += f"; {len(frames)} frames"
         return {"scenes": scenes, "cost_usd": cost["cost_usd"], "tokens_in": cost["tokens_in"],

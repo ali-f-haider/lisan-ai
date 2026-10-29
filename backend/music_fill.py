@@ -65,6 +65,13 @@ GAIN_MAX_DB = 6.0                        # amplification limit; attenuation matc
 GEN_MIN_DB = -60.0             # a result quieter than this is silence
 MAX_CLIPPED_SHARE = 0.10       # reject severe saturation before attenuation can hide its level
 SEAM_MAX_DB = 9.0              # level difference allowed between a seam and the music beside it
+# Never louder than what was there: the separated background BEFORE the voices were silenced ("ceiling" in fill()) is the most
+# the background can have been in a hole (whatever leaked of the voice only adds to it). A hole is filled at most to that level;
+# a hole where it was quieter than CEILING_SILENT_DB had no background to give back, and the model is not asked for a hole
+# where it was CEILING_MODEL_DB or more under the music around it (the film itself had the music down there: the Air Force One
+# clip had it at -50 dB under the voices, and the music copied into it at -35 dB was heard as a loop).
+CEILING_SILENT_DB = -60.0
+CEILING_MODEL_DB = 10.0
 MAX_FILE_SEC = 3600.0
 CALL_TIMEOUT_SEC = 240
 MAX_WALL_SEC = float(os.environ.get("MUSIC_FILL_MAX_WALL_SEC", "900") or 900)     # all holes of one job together
@@ -319,9 +326,10 @@ def _seg_db(x):
     return float(_db(((x.astype(np.float32) / 32768.0) ** 2).mean()))
 
 
-def _clean_context(pcm, db, g0, g1, ctx_db, band=None, look_sec=None):
+def _clean_context(pcm, db, g0, g1, ctx_db, band=None, look_sec=None, timed=False):
     """The clean sound next to the hole: up to CTX_LOOK_SEC before and after it, only 100 ms frames that are at the level of
-    the surrounding sound. Returns a list of float32 (n, 2) arrays, one per uninterrupted stretch of at least 0.4 s."""
+    the surrounding sound. Returns a list of float32 (n, 2) arrays, one per uninterrupted stretch of at least 0.4 s
+    (timed=True: (start second, array) pairs, so the pieces used can be told apart from the ones still free)."""
     hop = int(RATE * HOP_SEC)
     s, e = int(round(g0 / HOP_SEC)), int(round(g1 / HOP_SEC))
     look = int((look_sec or CTX_LOOK_SEC) / HOP_SEC)
@@ -338,12 +346,13 @@ def _clean_context(pcm, db, g0, g1, ctx_db, band=None, look_sec=None):
             while j < b and good[j]:
                 j += 1
             if (j - i) * HOP_SEC >= 0.4:
-                out.append(pcm[i * hop:j * hop].astype(np.float32) / 32768.0)
+                seg = pcm[i * hop:j * hop].astype(np.float32) / 32768.0
+                out.append((i * HOP_SEC, seg) if timed else seg)
             i = j
     return out
 
 
-def _bed_context(pcm, db, g0, g1, bed, only=None):
+def _bed_context(pcm, db, g0, g1, bed, only=None, timed=False):
     """All the clean engine sound of the track (frames within BED_BAND_DB of its usual level, stretches of 0.4 s and more), the
     stretches nearest to the hole first, up to BED_POOL_SEC. The engine is the same everywhere in the track, so the sound far away
     is as good as the sound beside a hole - and in a track where people speak most of the time there is no sound beside it."""
@@ -358,7 +367,8 @@ def _bed_context(pcm, db, g0, g1, bed, only=None):
     runs.sort(key=lambda r: 0.0 if r[0] <= mid < r[1] else min(abs(r[0] - mid), abs(r[1] - mid)))
     out, tot = [], 0.0
     for a, b in runs:
-        out.append(pcm[a * hop:b * hop].astype(np.float32) / 32768.0)
+        seg = pcm[a * hop:b * hop].astype(np.float32) / 32768.0
+        out.append((a * HOP_SEC, seg) if timed else seg)        # timed: (start second, array)
         tot += (b - a) * HOP_SEC
         if tot >= BED_POOL_SEC:
             break
@@ -503,12 +513,20 @@ def tonal_lines(x):
         return 0
 
 
-def _matching_pieces(timed, g0, g1, near=None):
+def _overlaps(a, b, taken):
+    """True when a..b (seconds) overlaps a stretch in `taken` (a list of (start, end) seconds already laid into a hole)."""
+    return any(min(b, y) - max(a, x) > 0.0 for x, y in taken or ())
+
+
+def _matching_pieces(timed, g0, g1, near=None, taken=None, timed_out=False):
     """The real sound that may be laid into the hole g0..g1 (seconds): only pieces of the pauses that sound like the real sound
     right beside it. Whatever else the pauses hold (the closing music of a scene, a laugh, a bang) is not what was in the hole, so it is
     never used: the hole stays as it is rather than getting something that does not belong.
     timed = _pause_audio(..., timed=True); near = clean sound beside the hole in the track itself (list of arrays), used when no pause is
-    near enough. Returns (list of float32 (n, 2) stretches, note)."""
+    near enough. Returns (list of float32 (n, 2) stretches, note).
+    Only pauses within MATCH_LOOK_SEC of the hole give pieces (before, the pieces could come from anywhere: the Air Force One clip
+    got the same few pieces from up to a minute away in every hole), and a piece already laid into an earlier hole of this
+    job (taken: (start, end) seconds) is never used again. timed_out=True: (start second, piece) pairs."""
     chunks = []
     for t0, seg in timed:
         k = int(MATCH_CHUNK_SEC * RATE)
@@ -519,7 +537,7 @@ def _matching_pieces(timed, g0, g1, near=None):
                 end = len(seg)
             part = seg[pos:end]
             sh = _band_shape(part) if len(part) >= 4096 else None
-            if sh is not None:
+            if sh is not None and not _overlaps(t0 + pos / RATE, t0 + end / RATE, taken):
                 chunks.append((t0 + pos / RATE, t0 + end / RATE, pos, end, seg, sh, tonal_lines(part) >= TONAL_MIN))
             pos = end
     if not chunks:
@@ -537,24 +555,30 @@ def _matching_pieces(timed, g0, g1, near=None):
             ref = np.median(np.stack(shapes), axis=0)
             tones = [tonal_lines(x) >= TONAL_MIN for x in near if len(x) >= int(0.8 * RATE)]
             ref_music = bool(tones) and sum(tones) * 2 > len(tones)
+    if not close:
+        return [], f"no unused real sound of this scene within {MATCH_LOOK_SEC:g} s of the hole"
     if ref is None:
         return [], "no real sound beside the hole to compare the pieces with"
     # what is beside the hole decides what it is: music (lasting tones) only gets music, anything else only gets sound that is not music
-    keep = [c for c in chunks if c[6] == ref_music and float(np.mean(np.abs(c[5] - ref))) <= MATCH_MAX_DB]
+    keep = [c for c in close if c[6] == ref_music and float(np.mean(np.abs(c[5] - ref))) <= MATCH_MAX_DB]
     if not keep:
-        return [], "none of the real sound sounds like what is beside the hole" + (" (it is music there)" if ref_music else " (the pauses hold music, which was not there)")
+        if not close:
+            return [], f"no unused real sound of this scene within {MATCH_LOOK_SEC:g} s of the hole"
+        return [], "none of the real sound near the hole sounds like what is beside it" + (" (it is music there)" if ref_music else " (the pauses hold music, which was not there)")
     keep.sort(key=lambda c: (id(c[4]), c[2]))
-    pieces, cur, last = [], [], None
+    pieces, cur, last, cur_t = [], [], None, None
     for t_a, t_b, a, b, seg, _sh, _mu in keep:       # neighbouring chunks of one stretch become one piece again
         if last is not None and last[0] is seg and last[1] == a:
             cur.append(seg[a:b])
         else:
             if cur:
-                pieces.append(np.concatenate(cur))
-            cur = [seg[a:b]]
+                pieces.append((cur_t, np.concatenate(cur)))
+            cur, cur_t = [seg[a:b]], t_a
         last = (seg, b)
     if cur:
-        pieces.append(np.concatenate(cur))
+        pieces.append((cur_t, np.concatenate(cur)))
+    if not timed_out:
+        pieces = [p for _, p in pieces]
     return pieces, f"{len(keep)} of {len(chunks)} pieces of real sound sound like the hole's surroundings"
 
 
@@ -683,11 +707,32 @@ def _synth_long(pool, need):
     return out
 
 
-def _texture_fill(pcm, g0, g1, ctx_db, segs, allow_synth=True):
+def _free_parts(t, x, taken):
+    """The parts of the piece x (starting at second t) that no earlier hole used: [(start second, array)], each 0.5 s or more."""
+    if t is None or not taken:
+        return [(t, x)]
+    cuts = sorted((max(0, int(round((a - t) * RATE))), min(len(x), int(round((b - t) * RATE)))) for a, b in taken
+                  if b > t and a < t + len(x) / RATE)
+    out, pos = [], 0
+    for a, b in cuts + [(len(x), len(x))]:
+        if a - pos >= int(0.5 * RATE):
+            out.append((t + pos / RATE, x[pos:a]))
+        pos = max(pos, b)
+    return out
+
+
+def _texture_fill(pcm, g0, g1, ctx_db, segs, allow_synth=True, taken=None, cap_db=None):
     """Fills the hole g0..g1 (seconds) from the clean sound beside it, matched to the level around the hole. Only for steady
     sounds. With plenty of clean sound, overlapping pieces of it are laid one after the other at random places; with little of
-    it (a loop would be heard) a new stretch of the same sound is made from its spectrum instead."""
-    pool = [x for x in segs if len(x) >= int(0.5 * RATE)]
+    it (a loop would be heard) a new stretch of the same sound is made from its spectrum instead.
+    segs may hold (start second, array) pairs; with `taken` (a list of (start, end) seconds, shared by all holes of a job) a part
+    already laid into an earlier hole is never laid again, and the parts laid here are added to it. cap_db: see _place_fill."""
+    items = [s if isinstance(s, tuple) else (None, s) for s in segs]
+    if taken is not None:
+        items = [p for t, x in items for p in _free_parts(t, x, taken)]
+    items = [(t, x) for t, x in items if len(x) >= int(0.5 * RATE)]
+    pool = [x for _, x in items]
+    segs = pool
     have = sum(len(x) for x in pool) / RATE
     if have < 0.6:
         return False, "not enough steady sound next to the hole"
@@ -702,7 +747,9 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs, allow_synth=True):
         spool = [x for x in segs if len(x) >= SYNTH_FFT * 2] or pool
         synth = _synth_sound(spool, need) if need <= SYNTH_CHUNK_SEC * RATE * 1.5 else _synth_long(spool, need)
         if synth is not None:
-            return _place_fill(pcm, g0, g1, ctx_db, synth, "made new from its sound")
+            return _place_fill(pcm, g0, g1, ctx_db, synth, "made new from its sound", cap_db=cap_db)
+    if taken is not None:
+        return _lay_in_order(pcm, g0, g1, ctx_db, items, need, taken, cap_db)
     grain = int(min(GRAIN_SEC, max(0.5, have / 2.0)) * RATE)
     fade = grain // 3
     rng = np.random.default_rng(int(g0 * 1000) % (2 ** 32))
@@ -724,9 +771,9 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs, allow_synth=True):
             if not clash:
                 break
             st = int(rng.integers(0, len(seg) - g + 1))
-        used.append((k, st, st + g))
         if last is not None and last == (k, st // (RATE // 2)) and len(seg) - g > RATE // 2:
             st = (st + RATE // 2) % (len(seg) - g + 1)
+        used.append((k, st, st + g))        # where the piece really comes from (after the move just above)
         last = (k, st // (RATE // 2))
         chunk = seg[st:st + g]
         if pos == 0:
@@ -735,13 +782,50 @@ def _texture_fill(pcm, g0, g1, ctx_db, segs, allow_synth=True):
             out[pos:pos + fade] = out[pos:pos + fade] * fout + chunk[:fade] * fin
             out[pos + fade:pos + g] = chunk[fade:]
         pos += g - fade
-    return _place_fill(pcm, g0, g1, ctx_db, out[:need], "from the sound beside it")
+    return _place_fill(pcm, g0, g1, ctx_db, out[:need], "from the sound beside it", cap_db=cap_db)
 
 
-def _place_fill(pcm, g0, g1, ctx_db, fillv, how):
+def _lay_in_order(pcm, g0, g1, ctx_db, items, need, taken, cap_db):
+    """The real sound laid into the hole as it is, piece after piece in the order given (the nearest first), each part of it
+    once: nothing is laid twice, in this hole or in any other hole of the job (`taken`). Joins are cross-faded."""
+    fade = int(0.15 * RATE)
+    out = np.zeros((need, CH), dtype=np.float32)
+    pos, laid = 0, []
+    for t, x in items:
+        if pos >= need:
+            break
+        if len(x) <= 2 * fade:
+            continue
+        take = min(len(x), need - pos + (fade if pos else 0))
+        chunk = x[:take]
+        if pos == 0:
+            out[:take] = chunk
+            pos = take
+        else:
+            ramp = np.linspace(0.0, np.pi / 2, fade, dtype=np.float32)[:, None]
+            a = pos - fade
+            out[a:pos] = out[a:pos] * np.cos(ramp) + chunk[:fade] * np.sin(ramp)
+            rest = chunk[fade:][:need - pos]
+            out[pos:pos + len(rest)] = rest
+            pos += len(rest)
+        laid.append((t, take))
+    if pos < need:
+        return False, "not enough unused real sound to fill the hole without laying a piece twice"
+    ok, note = _place_fill(pcm, g0, g1, ctx_db, out, "from the sound beside it, nothing laid twice", cap_db=cap_db)
+    if ok:
+        for t, take in laid:
+            if t is not None:
+                taken.append((t, t + take / RATE))
+    return ok, note
+
+
+def _place_fill(pcm, g0, g1, ctx_db, fillv, how, cap_db=None):
+    """cap_db: the most the background had in this hole (see CEILING_SILENT_DB): the fill is never set louder than that."""
     got_db = _seg_db((fillv * 32768.0))
     gain_db = float(np.clip(ctx_db - got_db, -GAIN_MAX_DB, GAIN_MAX_DB)) if np.isfinite(got_db) else 0.0
     gain_db += LOCAL_FILL_DB
+    if cap_db is not None and np.isfinite(got_db) and got_db + gain_db > cap_db:
+        gain_db = float(cap_db - got_db)
     fillv = fillv * 10 ** (gain_db / 20.0) * 32768.0
     seam = int(SEAM_SEC * RATE)
     a, b = int(round(g0 * RATE)) - seam, int(round(g1 * RATE)) + seam
@@ -763,7 +847,7 @@ def _place_fill(pcm, g0, g1, ctx_db, fillv, how):
     return True, f"steady sound: filled {g1 - g0:.1f} s {how} (set to {got_db + gain_db:.0f} dB)"
 
 
-def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
+def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log, cap_db=None):
     """Fills the hole g0..g1 (seconds) in the s16 array `pcm` in place. Returns (ok, reason)."""
     total = pcm.shape[0] / RATE
     need = max(MIN_WINDOW_SEC, (g1 - g0) + 2 * CONTEXT_SEC)
@@ -797,6 +881,8 @@ def _fill_one(pcm, g0, g1, ctx_db, key, prompt, runner, log):
     if gen_db < GEN_MIN_DB:
         return False, f"the model made silence ({gen_db:.0f} dB)"
     target = ctx_db - TARGET_BELOW_CTX_DB
+    if cap_db is not None:
+        target = min(target, cap_db)          # never louder than the background was in this hole
     gain_db = target - gen_db
     if not np.isfinite(gain_db) or gain_db > GAIN_MAX_DB:
         return False, f"the result is {gen_db:.0f} dB against music of {ctx_db:.0f} dB around it (needs {gain_db:+.0f} dB)"
@@ -865,7 +951,7 @@ def steady_engine(muted_path, reference_path, spans):
 
 
 def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=None, runner=None, log=None,
-         allow=None, on_filled=None, progress=None, reference=None, reference_pad=0.15):
+         allow=None, on_filled=None, progress=None, reference=None, reference_pad=0.15, ceiling=None):
     """Fills the holes in the background track `bg_path` (the one that voices were silenced in) and writes the result to
     `out_path`. spans = [(start_sec, end_sec)] where the original voices speak. Returns
     {"filled": bool, "reason", "gaps": [{start, end, ok, note}], "filled_sec", "sent_sec", "prompt"}; never raises.
@@ -875,12 +961,15 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
     progress(done, total) is called before each hole is attempted (for a progress bar; errors in it are ignored).
     reference = the same background BEFORE the voices were silenced (optional): the sound of a steady engine, wind or room tone
     is learned from it - its pauses between the speakers, which are real, untouched sound of the whole track - and not only
-    from the little that is left in `bg_path`."""
+    from the little that is left in `bg_path`.
+    ceiling = the separated background before the voices were silenced (optional): no hole is filled louder than it was there
+    (see CEILING_SILENT_DB). A piece of real sound is laid into one hole only, never into a second one."""
     info = {"filled": False, "reason": "", "gaps": [], "filled_sec": 0.0, "sent_sec": 0.0, "prompt": "", "found": 0}
     runner = runner or _fal_run
     say = log or (lambda m: None)
     raw = Path(str(out_path) + ".mf.pcm")
     ref_raw = Path(str(out_path) + ".mf.ref.pcm")
+    ceil_raw = Path(str(out_path) + ".mf.ceil.pcm")
     pcm = None
     ref_pcm = None
     try:
@@ -919,6 +1008,29 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 if ref_pcm is not None:
                     ref_pcm._mmap.close()
                 ref_pcm = ref_db = ref_pause = None
+        ceil_db = None
+        if ceiling:
+            try:
+                _to_pcm(ceiling, ceil_raw)
+                cn = ceil_raw.stat().st_size // (2 * CH)
+                if abs(cn - n) <= RATE:
+                    cpcm = np.memmap(ceil_raw, dtype="<i2", mode="r", shape=(cn, CH))
+                    try:
+                        ceil_db = _levels(cpcm)
+                    finally:
+                        cpcm._mmap.close()
+            except Exception as ex:
+                say(f"background before the silencing not readable: {str(ex)[:120]}")
+                ceil_db = None
+
+        def cap_of(g0, g1):
+            """The level the background had in the hole before the voices were silenced (None: not known)."""
+            if ceil_db is None:
+                return None
+            s0 = int(g0 / HOP_SEC)
+            v = ceil_db[s0:max(s0 + 1, int(g1 / HOP_SEC))]
+            return float(np.median(v)) if v.size else None          # the median: the edges of a hole still hold the sound around it
+
         ref_level = np.where(ref_pause, ref_db, -120.0) if ref_pcm is not None else None     # levels of the pauses before muting
         gaps, gi = find_gaps(db, spans, min_len=LOCAL_MIN_GAP_SEC if LOCAL_FILL else None,
                              keep_unfillable=LOCAL_FILL, level_db=ref_level)
@@ -953,6 +1065,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         t_start = time.time()
         todo = sorted(gaps)
         local_done = []
+        taken = []                 # (start, end) seconds of real sound already laid into a hole: never laid into another one
         short_set = set(gi.get("short_gaps", []))
         local_only_set = set(gi.get("local_only", []))
 
@@ -980,13 +1093,13 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         bed = _bed_db(ref_db if ref_pcm is not None else db, spans) if LOCAL_FILL else None
         level_db = np.where(ref_pause, ref_db, -120.0) if ref_pcm is not None else db     # the level the pauses (real sound) have
 
-        def engine_pool(g0, g1):
+        def engine_pool(g0, g1, timed=False):
             """The clean engine sound a hole is rebuilt from: the pauses of the whole track (with the reference), else what is left."""
             if bed is None:
                 return []
             if ref_pcm is not None:
-                return _bed_context(ref_pcm, ref_db, g0, g1, bed, only=ref_pause)     # the pauses only: real sound, no leaked voice
-            return _bed_context(pcm, db, g0, g1, bed)
+                return _bed_context(ref_pcm, ref_db, g0, g1, bed, only=ref_pause, timed=timed)     # the pauses only: real sound, no leaked voice
+            return _bed_context(pcm, db, g0, g1, bed, timed=timed)
 
         if LOCAL_FILL:
             for g0, g1 in todo:
@@ -1021,6 +1134,16 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 continue
             # level of the sound right around this hole
             ctx_db = level_around(g0, g1, db)
+            cap = cap_of(g0, g1)
+            model_hole = not short and (g0, g1) not in local_only_set
+            if cap is not None:
+                rec["ceiling_db"] = round(cap, 1)
+                if cap < CEILING_SILENT_DB:
+                    rec["optional"] = True
+                    rec["note"] = f"the background was silent here before the voices were silenced ({cap:.0f} dB): nothing to give back"
+                    if model_hole:
+                        info["found"] = max(0, int(info["found"]) - 1)
+                    continue
             score = steady_of.get((g0, g1))
             local = False
             ok, note = False, ""
@@ -1029,16 +1152,18 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 try:
                     if not synth_ok:
                         # the scene has a life of its own (people, dishes, traffic): only real pieces of it are used, never a made-up sound
-                        pieces, why = _matching_pieces(real_timed, g0, g1, _clean_context(pcm, db, g0, g1, ctx_db))
+                        pieces, why = _matching_pieces(real_timed, g0, g1, _clean_context(pcm, db, g0, g1, ctx_db), taken=taken, timed_out=True)
                         if pieces:
-                            ok, note = _texture_fill(pcm, g0, g1, level_of.get((g0, g1), ctx_db), pieces, allow_synth=False)
+                            ok, note = _texture_fill(pcm, g0, g1, level_of.get((g0, g1), ctx_db), pieces, allow_synth=False,
+                                                     taken=taken, cap_db=cap)
                         else:
                             ok, note = False, why
                     elif (g0, g1) in level_of:      # the engine itself, at its usual level: not a louder event next to the hole
                         ok, note = _texture_fill(pcm, g0, g1, level_of[(g0, g1)],
-                                                 engine_pool(g0, g1))
+                                                 engine_pool(g0, g1, timed=True), taken=taken, cap_db=cap)
                     else:
-                        ok, note = _texture_fill(pcm, g0, g1, ctx_db, _clean_context(pcm, db, g0, g1, ctx_db))
+                        ok, note = _texture_fill(pcm, g0, g1, ctx_db, _clean_context(pcm, db, g0, g1, ctx_db, timed=True),
+                                                 taken=taken, cap_db=cap)
                 except Exception as ex:
                     ok, note = False, f"local fill failed: {str(ex)[:160]}"
                 local = ok
@@ -1058,6 +1183,12 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 # not asked: the hole stays silent rather than getting a sound that does not belong.
                 rec["note"] = "not music and no steady clean sound to rebuild it from; the model is not used for that"
                 continue
+            if not local and cap is not None and cap < ctx_db - TARGET_BELOW_CTX_DB - CEILING_MODEL_DB:
+                # the film itself had the background far down here: rebuilding the music around it would add what was not there
+                rec["optional"] = True
+                rec["note"] = f"the background was {cap:.0f} dB here before the voices were silenced, the music around it {ctx_db:.0f} dB: the model is not asked"
+                info["found"] = max(0, int(info["found"]) - 1)
+                continue
             if not local:
                 if allow is not None:
                     try:
@@ -1068,7 +1199,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                         rec["note"] = "not enough credits to repair this one"
                         continue
                 try:
-                    ok, note = _fill_one(pcm, g0, g1, ctx_db, key, get_prompt(), runner, say)
+                    ok, note = _fill_one(pcm, g0, g1, ctx_db, key, get_prompt(), runner, say, cap_db=cap)
                 except Exception as ex:
                     ok, note = False, f"call failed: {str(ex)[:160]}"
                 info["sent_sec"] = round(info["sent_sec"] + min(MAX_WINDOW_SEC, max(MIN_WINDOW_SEC, ln + 2 * CONTEXT_SEC)), 1)
@@ -1118,7 +1249,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 ref_pcm._mmap.close()
             except Exception:
                 pass
-        for p in (raw, ref_raw, Path(str(out_path) + ".mf.tmp.wav")):
+        for p in (raw, ref_raw, ceil_raw, Path(str(out_path) + ".mf.tmp.wav")):
             try:
                 if p.exists():
                     p.unlink()

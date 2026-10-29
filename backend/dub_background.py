@@ -175,14 +175,16 @@ def prepare(bg, vocals, dub, work, tag, spans, key='', gemini_key='', allow=None
     if key and did_mute and (required or short):
         # reference=bg: the sound of a steady engine / wind is learned from the whole track (its pauses), not only from what is left
         # nothing quoted (required == 0): only the free local rebuild may run, the model is never called, so nothing unquoted is charged
+        # ceiling=bg: no hole is filled louder than the separated background was there before the voices were silenced
         info = section_background.fill(clean, repaired, spans, key, sections=sections, gemini_key=gemini_key,
                                allow=allow if required else (lambda: False), on_filled=on_filled, progress=progress, log=log,
-                               reference=reference, reference_pad=0.4 if reference is not bg else 0.15)
+                               reference=reference, reference_pad=0.4 if reference is not bg else 0.15, ceiling=bg)
         if info['filled']:
             clean = repaired
         # a short hole the local rebuild could not close is optional (the model is not asked for it): it never makes the repair incomplete
         wanted = [g for g in info['gaps'] if not g.get('optional')]
-        incomplete = required and (not info['filled'] or any(not g['ok'] for g in wanted) or
+        # a hole where the background was silent or far down before the silencing is optional (nothing to give back): not missing
+        incomplete = required and ((not info['filled'] and (wanted or int(info.get('found', 0)))) or any(not g['ok'] for g in wanted) or
                                    int(info.get('found', 0)) > sum(bool(g['ok']) for g in wanted))
         if incomplete:
             gap_notes = '; '.join(f"{g['start']}-{g['end']} s: {g['note']}" for g in wanted if not g['ok'])

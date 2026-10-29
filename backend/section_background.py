@@ -166,9 +166,11 @@ def fill(source, target, spans, key, sections=None, **kwargs):
     source_info = sf.info(source)
     frames = round(source_info.frames * RATE / source_info.samplerate)
     clip, ref, fixed = [Path(str(target) + suffix) for suffix in ('.section.wav', '.reference.wav', '.fixed.wav')]
+    ceil = Path(str(target) + '.ceiling.wav')
     part = Path(str(target) + '.part.wav')
     result = {'filled': False, 'reason': '', 'gaps': [], 'found': 0, 'filled_sec': 0.0, 'sent_sec': 0.0}
     reference = kwargs.get('reference')
+    ceiling = kwargs.get('ceiling')
     charged = kwargs.get('on_filled')
     completed, attempts, elapsed_audio = 0, 0, 0.0
     import time
@@ -182,6 +184,9 @@ def fill(source, target, spans, key, sections=None, **kwargs):
                 if reference:
                     _clip(reference, ref, a, b)
                     local['reference'] = ref
+                if ceiling:
+                    _clip(ceiling, ceil, a, b)
+                    local['ceiling'] = ceil
                 offset = a / RATE
                 if charged:
                     local['on_filled'] = lambda s, e, offset=offset: charged(s + offset, e + offset)
@@ -219,5 +224,5 @@ def fill(source, target, spans, key, sections=None, **kwargs):
             part.replace(target)
         return result
     finally:
-        for path in (raw, clip, ref, fixed, part):
+        for path in (raw, clip, ref, fixed, part, ceil):
             path.unlink(missing_ok=True)
