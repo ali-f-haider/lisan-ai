@@ -50,6 +50,7 @@ import dub_audio
 import dub_background
 import delivery
 import emotion_listen
+import addressee_ask
 import dub_review
 from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
@@ -3358,10 +3359,73 @@ def _gender_args(job, rows_all, batch):
         if code != "en":
             return language_prompts.gender_context(rows_all, ids, genders, code, roles=roles)
         return {"speakers": gender_context.speaker_table(genders, roles),
-                "lines": gender_context.build_context(rows_all, ids, genders, roles)}
+                "lines": gender_context.build_context(rows_all, ids, genders, roles, asked=_addressee_answers(job, rows_all, ids, genders))}
     except Exception as ex:
         print(f"[longdub] gender context skipped: {ex}")
         return None
+
+
+def _addressee_answers(job, rows_all, ids, genders):
+    """{segment_id: who the line is said to} from the question asked before the translation (addressee_ask.py), for the lines
+    `ids` whose English is still the one that was asked about. Never raises."""
+    try:
+        saved = (job.get("analysis") or {}).get("addressees") or {}
+        if not saved:
+            return None
+        names = {sp.get("id"): sp.get("name") for sp in (job.get("speaker_list") or []) if sp.get("id")}
+        by_id = {r.get("segment_id"): r for r in rows_all or []}
+        out = {}
+        for sid in ids:
+            r = by_id.get(sid) or {}
+            got = addressee_ask.resolve(saved.get(sid), r.get("text"), names, genders)
+            if got and not (got.get("said_to") and got["said_to"] == r.get("speaker")):     # never "said to himself"
+                out[sid] = got
+        return out
+    except Exception as ex:
+        print(f"[longdub] addressee answers skipped: {ex}")
+        return None
+
+
+def _ask_addressees(job, rows):
+    """Before the translation (English videos): for every line that says "you" or gives a command and has no sir / ma'am / title,
+    the AI reads the conversation around it and says who it is said to (addressee_ask.py). Asked once per line: a resumed run or a
+    second translation uses the saved answer while the line's English is the same. Its price goes onto the job. Never raises."""
+    try:
+        if not addressee_ask.ENABLED or not GEMINI_API_KEY or languages.get(job.get("source_language")).code != "en":
+            return 0
+        an = job.setdefault("analysis", {})
+        saved = dict(an.get("addressees") or {})
+        genders = _speaker_genders(job)
+        roles = {sp["name"]: sp["role"] for sp in (job.get("speaker_list") or []) if sp.get("name") and sp.get("role")}
+        todo = []
+        for r in rows:
+            t = str(r.get("text") or "").strip()
+            if not t or not addressee_ask.needs_question(t) or gender_context.address_cue(t):
+                continue
+            if gender_context._role_speaker(t, r.get("speaker"), genders, roles):
+                continue
+            old = saved.get(r["segment_id"])
+            if old and str(old.get("text") or "").strip() == t:
+                continue
+            todo.append(r["segment_id"])
+        if not todo:
+            return 0
+        _mark(job, "translate", 88, "Reading the conversation...")
+        import gemini_service
+        from app_state import record_gemini
+        order = sorted(rows, key=lambda r: float(r.get("start") or 0))
+        got = addressee_ask.ask(order, todo, GEMINI_API_KEY,
+                                lambda key, payload, timeout: gemini_service.call_gemini(key, payload, timeout=timeout),
+                                record=lambda data: record_gemini(job["id"], data))
+        saved.update(got)
+        an["addressees"] = saved
+        _save(job)
+        _ev(job, "addressees_asked", "ok" if len(got) == len(todo) else "partial",
+            f"who each line is said to: {addressee_ask.summary(got)}" + (f"; {len(todo) - len(got)} of {len(todo)} not answered (they keep the neighbour hint)" if len(got) < len(todo) else ""))
+        return len(got)
+    except Exception as ex:
+        print(f"[longdub] addressee question skipped: {type(ex).__name__}: {ex}")
+        return 0
 
 
 def _apply_gender_flags(batch, flags):
@@ -3572,6 +3636,7 @@ def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
 def _translate_all(job, rows):
     total = len(rows)
     missing = 0
+    _ask_addressees(job, rows)          # who each "you" / command is said to, read from the conversation (English videos)
     paces = _row_paces(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
     for i in range(0, total, TRANSLATE_BATCH):
         batch = rows[i:i + TRANSLATE_BATCH]

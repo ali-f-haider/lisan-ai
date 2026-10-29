@@ -215,11 +215,14 @@ def speaker_table(genders, roles=None):
     return table
 
 
-def build_context(rows_all, ids, genders, roles=None):
+def build_context(rows_all, ids, genders, roles=None, asked=None):
     """{segment_id: {"speaker_gender", "before": [...], "after": [...]}} for the lines `ids`, from ALL lines in time order.
     Each neighbour is {"speaker", "gender", "english"}. rows_all: [{segment_id, start, speaker, text}].
     A line also gets "addressee_is" (a certain gender: the line says sir / ma'am, or it uses a title like "Your Honor" and the
-    speaker with that role, e.g. the judge, is known) and "probably_said_to" (the speaker of the line just before, else after)."""
+    speaker with that role, e.g. the judge, is known) and "probably_said_to" (the speaker of the line just before, else after).
+    asked: {segment_id: what the question about the conversation found (addressee_ask.resolve)}: for a line with no sir / ma'am /
+    title it gives the certain addressee ("male", "female" or "group" with "group_of") or says it is said to nobody, and then
+    the neighbour hint is left out (it was the cause of the wrong "you" forms in phone calls and three-person scenes)."""
     order = sorted((r for r in rows_all or [] if str(r.get("text") or "").strip() or r.get("segment_id") in ids),
                    key=lambda r: float(r.get("start") or 0))
     pos = {r.get("segment_id"): i for i, r in enumerate(order)}
@@ -243,6 +246,10 @@ def build_context(rows_all, ids, genders, roles=None):
             sure = by_role[1]
         if sure:
             out[sid]["addressee_is"] = sure
+        found = (asked or {}).get(sid) if not sure else None
+        if found:
+            out[sid].update({k: v for k, v in found.items() if k in ("addressee_is", "group_of", "said_to") and v})
+            continue
         for other in ([order[i - 1]] if i else []) + ([order[i + 1]] if i + 1 < len(order) else []):
             if other.get("speaker") != me.get("speaker"):
                 out[sid]["probably_said_to"] = {"speaker": other.get("speaker"), "gender": view(other)["gender"]}
