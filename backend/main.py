@@ -2258,6 +2258,7 @@ def billing_sync(request: Request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     stripe.api_key = STRIPE_SECRET_KEY
     added = 0
+    review = []          # earlier purchases from before the current credit ledger (see below)
     try:
         sessions = stripe.checkout.Session.list(limit=100)
         for s in sessions.data:
@@ -2275,7 +2276,13 @@ def billing_sync(request: Request):
                 credits = int((s.get("metadata") or {}).get("credits", 0))
                 res = _fulfill_order(uid, s.get("id", ""), credits)
                 if res == "needs-review":
-                    return JSONResponse({"error": "A previous credit purchase needs review. Please contact support."}, status_code=503)
+                    # A purchase recorded by the old credit system, before the current ledger: it is never granted again
+                    # automatically (the old system may already have granted it). It is listed for the admin under Billing
+                    # health -> "Earlier packs needing review". It is no reason to stop this check or to show the customer
+                    # an error: before, every check (also on opening "Buy credits") ended here, even right after a new
+                    # purchase had been credited correctly.
+                    review.append(s.get("id", ""))
+                    continue
                 if res is None:
                     return JSONResponse({"error": "Your credit purchase is still pending. Please try again later."}, status_code=503)
                 if type(res) is int:
@@ -2307,7 +2314,9 @@ def billing_sync(request: Request):
                         return JSONResponse({"error": "The subscription plan update is pending. Please retry later."}, status_code=503)
         except Exception:
             return JSONResponse({"error": "Subscription credit delivery is pending. Please try again later."}, status_code=503)
-    return {"added_sessions_credits": added}
+    if review:
+        print(f"[billing-sync] {uid}: {len(review)} earlier purchase(s) need review (Billing health): {', '.join(review)[:400]}")
+    return {"added_sessions_credits": added, **({"needs_review": len(review)} if review else {})}
 
 def _as_id(v):
     """Stripe fields are either an id string or an expanded object."""
