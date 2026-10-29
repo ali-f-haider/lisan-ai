@@ -413,7 +413,7 @@ def public_view(job):
     from voice_admin import retention_days
     v = {k: job.get(k) for k in PUBLIC_FIELDS if k in job}
     v["voice_retention_days"] = retention_days(DATA_DIR)
-    if "speaker_list" in v and (not image_unit.enabled() or image_unit.GENDER_MODE == "off"):
+    if "speaker_list" in v and not image_unit.enabled():      # (the face check's gender mark uses the same field, so the picture's gender switch no longer hides it)
         v["speaker_list"] = [{k: val for k, val in s.items() if k not in ("picture_gender_check", "picture_advice", "picture_gender_hint")} for s in v["speaker_list"]]
     v["source_language"] = languages.get(job.get("source_language")).code
     if "picture_option" in job:
@@ -1953,12 +1953,9 @@ def _face_genders(job, rows, wd):
         # Only the person's own choice (skipped above) and the words (also guaranteed: the person looks) are not overruled.
         sure_now = bool(current) and (sp.get("gender_source") == "text" or (not strong and not sp.get("gender_uncertain") and sp.get("gender_source") != "pitch"))
         if not sure_now and not strong:
-            # two looks that agree beat an unsure voice guess (real run, 28 Oct: the hijacker's face, seen twice, and the picture both
-            # said a man; the pitch, unsure, said a woman): the face seen speaking in two lines, or the picture saying the same
-            seen_twice = int(res.get("seen") or 0) >= 2
-            picture_same = ((sp.get("picture_gender_check") or {}).get("visual_advice") == g
-                            or (sp.get("picture_gender_hint") or {}).get("gender") == g)
-            strong = seen_twice or picture_same
+            # two looks that agree beat an unsure voice guess (real run, 28 Oct: the hijacker's face, seen twice, said a man; the pitch, unsure,
+            # said a woman): the face seen speaking in two lines. (Since 1.86.1 the picture check gives no gender, so it is no second look.)
+            strong = int(res.get("seen") or 0) >= 2
         where = ", ".join(f"{s} {_clock(by_id[s].get('start'))}" for s in res["ids"] if s in by_id)
         if current and current != g and (sure_now or not strong):
             sp["picture_gender_check"] = {"reason": "gender_looks_different", "visual_advice": g, "pitch_advice": current, "manual_choice_unchanged": False}
@@ -1997,7 +1994,7 @@ def _picture_advice(job, rows, result):
     attributes = image_unit.person_attributes(result, final)
     speakers = job.get("speaker_list") or []
     suspicious = {}
-    if image_unit.GENDER_DECIDE and image_unit.GENDER_MODE != "off":
+    if image_unit.GENDER_DECIDE and image_unit.GENDER_MODE != "off":      # off since 1.86.1: the picture check no longer judges gender
         # What the picture shows without any doubt is set now, before the translation (Arabic marks gender). The person's own choice is never touched,
         # a gender the WORDS proved or a sure listening result is not overruled by a face, and a picture that is only weak (see image_unit.sighting_genders)
         # never overrules any voice opinion: those cases are flagged for the person instead.
@@ -3167,7 +3164,7 @@ def read_segments(job):
         return []
     try:
         value = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(value, list) and (not image_unit.enabled() or image_unit.GENDER_MODE == "off"):
+        if isinstance(value, list) and not image_unit.enabled():
             for row in value:
                 if isinstance(row, dict):
                     row.pop("picture_gender_check", None)

@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.86.0"
+APP_VERSION = "1.86.1"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -233,7 +233,7 @@ SHORTEN_MODELS = [m.strip() for m in os.environ.get("LONGDUB_SHORTEN_MODELS", "g
 # IMAGE_UNIT=0 (OFF until proven; set 1 to turn it on), IMAGE_FPS=2, IMAGE_MEDIA_RESOLUTION=default,
 # IMAGE_CHUNK_SEC=600, IMAGE_MAX_PARALLEL=2 (maximum 3),
 # IMAGE_CLIP_LONG_SIDE=480, IMAGE_CUT_THRESHOLD=.30, IMAGE_PICTURE_WEIGHT=1,
-# IMAGE_GENDER_MODE=flag (or off); no automatic gender/voice change exists.
+# The picture check judges no gender since 1.86.1 (IMAGE_GENDER_MODE / IMAGE_GENDER_DECIDE are no longer read); the face check does (face_unit.py).
 # Proposed prices (4 credits flat + 3 per minute of video); they only matter once IMAGE_UNIT=1. Env PICTURE_FLAT_CREDITS / PICTURE_CREDITS_PER_MIN override.
 PICTURE_FLAT_CREDITS = 4
 PICTURE_CREDITS_PER_MIN = 3.0

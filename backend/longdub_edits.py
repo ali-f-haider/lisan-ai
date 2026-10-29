@@ -39,7 +39,7 @@ def active(parent):
 def rows(parent):
     # An empty draft is an intentional deletion of its lines, not a request to restore the original.
     value = copy.deepcopy(parent['correction_draft'] if 'correction_draft' in parent else ld.read_segments(parent))
-    if not ld.image_unit.enabled() or ld.image_unit.GENDER_MODE == 'off':
+    if not ld.image_unit.enabled():
         for row in value:
             row.pop('picture_gender_check', None)
     return value
