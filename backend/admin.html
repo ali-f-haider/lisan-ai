@@ -339,11 +339,11 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <p class="muted" style="margin-bottom:10px;">Cost = measured on the server (Railway, per job) or from the prices on the Economics page (Inworld voice, lip-sync, Gemini). "Multiple" = what the customer pays divided by what it costs you (at the cheapest and the dearest credit pack). Fixed monthly costs are <b>not</b> in these numbers. Nothing here is saved until you press a Save button below.</p>
         <div class="form-group" style="margin-bottom:8px;">
           <label>Raise the prices by a factor of</label>
-          <input type="number" id="pcFactor" value="5" min="1" max="20" step="0.5" style="width:90px;">
+          <input type="number" id="pcFactor" value="1" min="1" max="100" step="0.5" style="width:90px;" title="Applied to the original prices (×1). The last factor saved is shown here when the page opens.">
           <button class="btn-sm" onclick="pcFill()">Fill the price fields below with these values</button>
           <button class="btn-sm" onclick="pcFillAndSave()" title="Fill the fields with these values and save all prices at once">💾 Fill and save</button>
           <button class="btn-sm" onclick="pcReload()" title="Put the saved values back into the fields">Undo (reload saved values)</button>
-          <span class="muted">Lip-sync is not changed. After filling, check the fields, then press Save on each card (the example under Dub Long Video shows the new total).</span>
+          <span class="muted">The factor is always applied to the original prices (×1), never to prices that were already raised: ×6 after ×5 gives 6 × the original prices. The last factor saved is shown here when the page opens. A price you change by hand and save becomes its new original price (divided by the factor in force). Lip-sync is not changed. After filling, check the fields, then press Save on each card (the example under Dub Long Video shows the new total).</span>
         </div>
         <div style="overflow-x:auto;"><table class="biz-table" id="pcTable"></table></div>
         <p class="muted" id="pcNote" style="margin-top:8px;"></p>
@@ -1357,6 +1357,43 @@ const pcNum = id => { const v = parseFloat(document.getElementById(id)?.value); 
 let PC_BASE = {};                                    // the SAVED values, taken when the prices load: every "raise by a factor" starts from these, so pressing Fill twice never compounds
 const PC_IDS = ['transcribeCredits', 'mergeCredits', 'inworldCharsPerCredit', 'inworldCloneCredits', 'longDubAnalysisPerMin', 'longDubFlatCredits', 'charsPerCredit', 'cloneCredits', 'lipsyncCreditsPerSec', 'geminiCreditsPerCent'];
 const pcBase = id => (PC_BASE[id] != null ? PC_BASE[id] : pcNum(id));
+// The factor is applied to the ORIGINAL prices (factor 1), never to prices that were already raised: the saved prices are always
+// original × PC_FACTOR. The server keeps the originals and the factor (/api/admin/price_factor), so the page opens with the factor
+// last used. A price changed by hand and saved becomes the new original (divided by the factor in force).
+let PC_FACTOR = 1;
+let PC_FILLED_FACTOR = null;                         // set by Fill: the factor the fields were filled with, used by the next Save
+function pcRowOf(id) { return pcRows().find(r => r.id === id); }
+function pcPriceAt(id, f) { const row = pcRowOf(id); return row ? pcNew(row, f) : pcNum(id); }
+function pcOriginalFrom(id, saved, f) {              // the original price a saved price stands for at factor f
+  const row = pcRowOf(id);
+  if (!row) return saved;
+  return row.kind === 'chars' ? saved * f : saved / f;
+}
+async function pcLoadFactor() {
+  let st = null;
+  try { const r = await api('/api/admin/price_factor'); if (r.ok && r.data && !r.data.error) st = r.data; } catch (e) {}
+  PC_FACTOR = st && Number(st.factor) >= 1 ? Number(st.factor) : 1;
+  PC_FILLED_FACTOR = null;
+  const base = (st && st.base) || {};
+  PC_BASE = {};
+  PC_IDS.forEach(id => { PC_BASE[id] = Number(base[id]) > 0 ? Number(base[id]) : pcOriginalFrom(id, pcNum(id), PC_FACTOR); });
+  // a price changed somewhere else since the factor was saved: its original follows that price
+  PC_IDS.forEach(id => { if (pcRowOf(id) && Math.abs(pcPriceAt(id, PC_FACTOR) - pcNum(id)) > 1e-6) PC_BASE[id] = pcOriginalFrom(id, pcNum(id), PC_FACTOR); });
+  const fe = document.getElementById('pcFactor');
+  if (fe) fe.value = PC_FACTOR;
+}
+async function pcSaveFactor(f) {
+  // a field changed by hand (it is not original × factor): its original follows the new value
+  PC_IDS.forEach(id => { if (pcRowOf(id) && Math.abs(pcPriceAt(id, f) - pcNum(id)) > 1e-6) PC_BASE[id] = pcOriginalFrom(id, pcNum(id), f); });
+  const base = {};
+  PC_IDS.forEach(id => { if (pcRowOf(id) && PC_BASE[id] > 0) base[id] = PC_BASE[id]; });
+  let r = null;
+  try { r = await api('/api/admin/price_factor', { method: 'POST', body: JSON.stringify({ factor: f, base: base }) }); } catch (e) {}
+  if (!(r && r.ok && r.data && r.data.ok)) { toast('The prices were saved, but the factor was not: ' + ((r && r.data && r.data.error) || 'unknown error'), true); return false; }
+  PC_FACTOR = f;
+  PC_FILLED_FACTOR = null;
+  return true;
+}
 function pcJob(kind) {
   const j = PC_MEASURED && PC_MEASURED.cycle && PC_MEASURED.cycle.jobs && PC_MEASURED.cycle.jobs[kind];
   return j && j.n ? (j.avg_usd_full != null ? j.avg_usd_full : j.avg_usd) : null;
@@ -1412,7 +1449,7 @@ async function renderPriceCheck() {
   const priceOf = (row, v) => row.kind === 'chars' ? (v > 0 ? 1000 / v : 0) : v;               // credits for one unit
   const range = c => pcUsd(c * r.lo) + ' – ' + pcUsd(c * r.hi);
   const mult = (row, v) => row.free ? 'no provider cost' : (row.cost && row.cost > 0 && priceOf(row, v) > 0) ? (priceOf(row, v) * r.lo / row.cost).toFixed(1) + '× – ' + (priceOf(row, v) * r.hi / row.cost).toFixed(1) + '×' : '—';
-  let h = '<tr><th>Step</th><th>Your cost</th><th>Saved price (credits)</th><th>Customer pays (saved)</th><th>Multiple (saved)</th><th>New value ×' + f + '</th><th>Customer pays</th><th>Multiple after</th></tr>';
+  let h = '<tr><th>Step</th><th>Your cost</th><th>Original price (×1, credits)</th><th>Customer pays (×1)</th><th>Multiple (×1)</th><th>Price ×' + f + '</th><th>Customer pays</th><th>Multiple</th></tr>';
   pcRows().forEach(row => {
     if (row.gem) {
       const cur = pcBase('geminiCreditsPerCent') || 1, nv = pcNew(row, f), cr = pcBadge(row.badge, cur), cr2 = pcBadge(row.badge, nv);
@@ -1431,26 +1468,27 @@ async function renderPriceCheck() {
   t.innerHTML = h;
   const un = pcRows().filter(x => x.cost == null).length;
   const gemBase = pcBase('geminiCreditsPerCent') || 1, freeSum = pcRows().filter(x => x.gem).reduce((t, x) => t + (x.cost || 0), 0), freeCr = pcRows().filter(x => x.gem).reduce((t, x) => t + pcBadge(x.badge, gemBase), 0);
-  document.getElementById('pcNote').textContent = 'Credit value used: ' + usd(r.lo) + ' – ' + usd(r.hi) + ' per credit (cheapest and dearest pack). ' + (un ? un + ' step(s) have no cost yet (not measured on the live server yet, or not tracked). ' : '') + 'Translate, tashkeel and detect emotions show ' + freeCr + ' credits together on their buttons for a typical video (' + pcUsd(freeCr * r.lo) + ' – ' + pcUsd(freeCr * r.hi) + ') and cost you about ' + pcUsd(freeSum) + '. ' + 'With the new values a customer gets about ' + (100 / f).toFixed(0) + '% as much for the same money, since pack and subscription credit amounts are not changed here.';
+  document.getElementById('pcNote').textContent = 'Prices saved now: ×' + PC_FACTOR + ' the original prices. ' + 'Credit value used: ' + usd(r.lo) + ' – ' + usd(r.hi) + ' per credit (cheapest and dearest pack). ' + (un ? un + ' step(s) have no cost yet (not measured on the live server yet, or not tracked). ' : '') + 'Translate, tashkeel and detect emotions show ' + freeCr + ' credits together on their buttons for a typical video (' + pcUsd(freeCr * r.lo) + ' – ' + pcUsd(freeCr * r.hi) + ') and cost you about ' + pcUsd(freeSum) + '. ' + 'With the new values a customer gets about ' + (100 / f).toFixed(0) + '% as much for the same money, since pack and subscription credit amounts are not changed here.';
 }
 function pcFill() {
   if (!pricingLoaded) { toast('The saved prices have not loaded yet — reload the page.', true); return; }
   const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 5);
   const vals = {};
-  pcRows().forEach(row => { vals[row.id] = pcNew(row, f); });             // all from the CURRENT field values, then written together
+  pcRows().forEach(row => { vals[row.id] = pcNew(row, f); });             // all from the ORIGINAL prices (×1), then written together
   Object.keys(vals).forEach(id => { const el = document.getElementById(id); if (el) { el.value = vals[id]; el.dispatchEvent(new Event('input', { bubbles: true })); } });
-  toast('Fields filled with ×' + f + ' prices (lip-sync unchanged). Check them, then press Save.');
+  PC_FILLED_FACTOR = f;
+  toast('Fields filled with ×' + f + ' the original prices (lip-sync unchanged). Check them, then press Save.');
   renderPriceCheck();
 }
 async function pcReload() { await loadPricing(); toast('Saved values loaded back into the fields.'); }
 // "Fill and save": the same filling as pcFill, then the same save as every other Save button on this page (it saves all fields).
-// The factor always applies to the SAVED prices; after saving, those become the new saved prices, so a second ×5 multiplies again.
+// The factor applies to the ORIGINAL prices, so ×6 after ×5 gives original × 6, not original × 30.
 async function pcFillAndSave() {
   if (!pricingLoaded) { toast('The saved prices have not loaded yet — reload the page.', true); return; }
-  const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 5);
-  if (!confirm('Multiply the saved prices by ' + f + ' (lip-sync unchanged) and save them now?\n\nThey apply to every new job right away. Saving again with a factor multiplies the new prices again.')) return;
+  const f = Math.max(1, parseFloat(document.getElementById('pcFactor').value) || 1);
+  if (!confirm('Set the prices to ' + f + ' × the original prices (lip-sync unchanged) and save them now?\n\nThey apply to every new job right away.')) return;
   pcFill();
-  await savePricing();
+  await savePricing(f);
 }
 document.addEventListener('input', e => {
   const id = e.target && e.target.id;
@@ -1518,11 +1556,11 @@ async function loadPricing() {
   });
   document.getElementById('plansTable').innerHTML = planHtml || '<tr><td colspan="8" class="muted">No tiers</td></tr>';
   updateLdExample(); updateLipRates();
-  PC_BASE = {}; PC_IDS.forEach(id => { PC_BASE[id] = pcNum(id); });
+  await pcLoadFactor();
   renderPriceCheck();
 }
 
-async function savePricing() {
+async function savePricing(factor) {
   // Every Save button saves ALL settings at once, so never save before the current values have been loaded.
   if (!pricingLoaded) { toast('The current settings have not loaded yet — please reload the page.', true); return; }
   // Build packs fresh from the input fields (don't trust cached state)
@@ -1638,10 +1676,17 @@ async function savePricing() {
     // The server answers HTTP 200 with {ok:false, error} when a save is refused or fails: that is NOT a saved price.
     if (res.ok && res.data && res.data.ok === true) {
       toast('Pricing saved (' + packs.length + ' packs)');
+      if (typeof pcSaveFactor === 'function') {
+        // the factor these prices carry: the one just filled in, else the one in force
+        const f = typeof factor === 'number' && factor >= 1 ? factor : (PC_FILLED_FACTOR || PC_FACTOR);
+        if (await pcSaveFactor(f) && f !== 1) toast('The prices are now ×' + f + ' the original prices.');
+      }
       // Reload to verify
       setTimeout(() => loadPricing(), 500);
+      return true;
     } else {
       toast('Failed: ' + (res.data.error || 'unknown error'), true);
+      return false;
     }
   } catch (e) {
     console.error('Save error:', e);

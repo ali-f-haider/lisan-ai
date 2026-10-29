@@ -8060,6 +8060,59 @@ async def admin_save_pricing(request: Request):
     # nothing but the server logs ever saw the actual exception.
     return {"ok": ok, "error": err}
 
+# "Raise the prices by a factor" (admin Pricing tab): the ORIGINAL prices (factor 1) and the factor last applied to them.
+# The prices saved in pricing_config are always original x factor, so applying a new factor replaces the old one instead of
+# multiplying the already raised prices again. Kept on the server's own disk (the volume), next to site_gate_state.json.
+PRICE_FACTOR_FILE = DATA_DIR / "price_factor.json"
+PRICE_FACTOR_IDS = ("transcribeCredits", "mergeCredits", "inworldCharsPerCredit", "inworldCloneCredits", "longDubAnalysisPerMin",
+                    "longDubFlatCredits", "charsPerCredit", "cloneCredits", "geminiCreditsPerCent")
+
+
+def _price_factor_state():
+    try:
+        d = json.loads(PRICE_FACTOR_FILE.read_text(encoding="utf-8"))
+        factor = float(d.get("factor") or 1)
+        base = {k: float(v) for k, v in (d.get("base") or {}).items() if k in PRICE_FACTOR_IDS and float(v) > 0}
+        return {"factor": factor if 1 <= factor <= 100 else 1.0, "base": base, "saved_at": d.get("saved_at")}
+    except Exception:
+        return {"factor": 1.0, "base": {}, "saved_at": None}
+
+
+@app.get("/api/admin/price_factor")
+def admin_get_price_factor(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return _price_factor_state()
+
+
+@app.post("/api/admin/price_factor")
+async def admin_save_price_factor(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+        factor = float(body.get("factor"))
+        if not (1 <= factor <= 100):
+            raise ValueError("The factor must be between 1 and 100.")
+        base = {}
+        for k, v in (body.get("base") or {}).items():
+            if k in PRICE_FACTOR_IDS:
+                v = float(v)
+                if not (v > 0 and v < 1e7):
+                    raise ValueError(f"The original price of {k} is not a positive number.")
+                base[k] = round(v, 4)
+    except Exception as ex:
+        return JSONResponse({"ok": False, "error": str(ex) or "Could not read the factor."}, status_code=400)
+    try:
+        tmp = PRICE_FACTOR_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"factor": factor, "base": base,
+                                   "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}), encoding="utf-8")
+        os.replace(tmp, PRICE_FACTOR_FILE)
+    except Exception as ex:
+        return JSONResponse({"ok": False, "error": f"The factor could not be saved: {ex}"}, status_code=500)
+    return {"ok": True, **_price_factor_state()}
+
+
 @app.get("/api/admin/audit")
 def admin_audit(request: Request):
     if not _admin_check(request):
