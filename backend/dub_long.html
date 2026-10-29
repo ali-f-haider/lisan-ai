@@ -897,11 +897,14 @@ function loadList() {
 }
 
 function pickInitial() {
+  // The project open last time opens again. Otherwise only a project that is still on its way (uploading, waiting for the
+  // price to be accepted, being processed) opens by itself: a project in review ("editing") opens only when the person picks it,
+  // so one that was closed with "Close project" does not come back every time the page is opened.
   var stored = null;
   try { stored = localStorage.getItem(LS_KEY); } catch (e) {}
   var j = null;
   if (stored) j = jobs.filter(function (x) { return x.id === stored; })[0] || null;
-  if (!j) j = jobs.filter(function (x) { return isOpen(x.status); })[0] || null;
+  if (!j) j = jobs.filter(function (x) { return isOpen(x.status) && x.status !== "editing"; })[0] || null;
   return j;
 }
 
