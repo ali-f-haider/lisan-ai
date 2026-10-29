@@ -1,0 +1,15 @@
+{
+  "id": "/dub-long",
+  "name": "Lisan AI",
+  "short_name": "Lisan AI",
+  "description": "Dub your videos into Arabic.",
+  "start_url": "/dub-long",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a237e",
+  "icons": [
+    {"src": "/app_icon_192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/app_icon_512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

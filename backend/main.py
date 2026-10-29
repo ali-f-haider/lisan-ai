@@ -631,7 +631,7 @@ PUBLIC_PATHS = frozenset([
     "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
     "/api/maintenance", "/api/limits", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete", "/api/cost_per_minute"
-, "/help.html", "/admin", "/api-docs"])
+, "/help.html", "/admin", "/api-docs", "/manifest.webmanifest"])
 
 # Security review (2026-09-30): upload endpoints used to accept a body of ANY
 # size -- FastAPI spools the whole multipart body to disk before the route
@@ -3915,6 +3915,34 @@ def styles():
 @app.get("/logo.png")
 def logo():
     return FileResponse(BASE_DIR / "logo.png", media_type="image/png")
+
+
+# Lisan AI as a computer app (an installable web app, 1.87.0). pwa.js adds the manifest and the service worker only on a
+# computer-sized screen with a mouse; the service worker keeps no copies (every page comes from the server) and only shows a
+# short note when there is no internet. The manifest is public: the browser fetches it before anyone is logged in.
+@app.get("/manifest.webmanifest")
+def pwa_manifest():
+    return FileResponse(BASE_DIR / "manifest.webmanifest", media_type="application/manifest+json", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/sw.js")
+def pwa_service_worker():
+    return FileResponse(BASE_DIR / "sw.js", media_type="application/javascript", headers={**_NO_CACHE_HEADERS, "Service-Worker-Allowed": "/"})
+
+
+@app.get("/pwa.js")
+def pwa_script():
+    return FileResponse(BASE_DIR / "pwa.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/app_icon_192.png")
+def pwa_icon_192():
+    return FileResponse(BASE_DIR / "app_icon_192.png", media_type="image/png")
+
+
+@app.get("/app_icon_512.png")
+def pwa_icon_512():
+    return FileResponse(BASE_DIR / "app_icon_512.png", media_type="image/png")
 
 def privacy_page():
     return FileResponse(BASE_DIR / "privacy.html")
