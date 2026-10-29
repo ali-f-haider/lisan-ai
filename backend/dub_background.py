@@ -44,6 +44,25 @@ def mute(bg, vocals, destination, spans):
     return Path(destination)
 
 
+def _levels_of(path, frames, raw):
+    """Per 100 ms levels of `path` when it is as long as the track (frames samples, one second's difference allowed), else None."""
+    tmp = Path(str(raw) + '.ceiling')
+    pcm = None
+    try:
+        music_fill._to_pcm(path, tmp)
+        n = tmp.stat().st_size // 4
+        if not n or abs(n - frames) > music_fill.RATE:
+            return None
+        pcm = np.memmap(tmp, dtype='<i2', mode='r', shape=(n, 2))
+        return np.array(music_fill._levels(pcm))
+    except Exception:
+        return None
+    finally:
+        if pcm is not None:
+            pcm._mmap.close()
+        tmp.unlink(missing_ok=True)
+
+
 def count_repairs(muted, spans, raw, original=None, recording=None, vocals=None, scenes=None, sections=None):
     # The quote runs the same free bed as generation before counting paid holes.
     if recording is not None and (vocals is not None or speech_removal.forced(spans)):
@@ -62,7 +81,18 @@ def count_repairs(muted, spans, raw, original=None, recording=None, vocals=None,
         if n == 0:
             return 0
         pcm = np.memmap(raw, dtype='<i2', mode='r', shape=(n, 2))
-        gaps, info = music_fill.find_gaps(music_fill._levels(pcm), spans)
+        levels = music_fill._levels(pcm)
+        gaps, info = music_fill.find_gaps(levels, spans, keep_unfillable=True)
+        unfillable = set(info.get('local_only', []))
+        # The same rule the repair uses (music_fill.ceiling_skip): a hole where the separated background (`original`, before the voices
+        # were silenced) was silent, or far under the music around it, is left alone by the repair, so it is not counted in the price.
+        ceil_db = _levels_of(original, n, raw) if original is not None else None
+        if ceil_db is not None:
+            ctx_ref = music_fill._ctx_ref(levels, info.get('ref_db') or -40.0)
+            gaps = [(a, b) for a, b in gaps if not music_fill.ceiling_skip(music_fill.ceiling_level(ceil_db, a, b),
+                                                                            music_fill._level_around(levels, a, b, ctx_ref))]
+        unfillable = [g for g in gaps if g in unfillable]
+        gaps = [g for g in gaps if g not in unfillable]
         # A steady sound (engine, wind, room tone ...) in the pauses is rebuilt locally, for free, in holes of any length and
         # even when nothing is left beside them: then these holes are not a reason to give up the background.
         engine_ok = original is not None and music_fill.steady_engine(muted, original, spans)['ok']
@@ -80,7 +110,7 @@ def count_repairs(muted, spans, raw, original=None, recording=None, vocals=None,
                 if source is not None:
                     source._mmap.close()
                 check.unlink(missing_ok=True)
-        if info['found'] > len(gaps) and not engine_ok:
+        if unfillable and not engine_ok:
             raise ValueError('Some silent music sections are too long or lack clean music context for reliable repair.')
         if len(gaps) > music_fill.MAX_GAPS and not engine_ok:
             raise ValueError('This file needs more music repairs than the per-project limit.')

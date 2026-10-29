@@ -131,6 +131,44 @@ def _levels(pcm):
     return out
 
 
+def _ctx_ref(db, fallback=-40.0):
+    """The usual level of the music in a track (median of its audible 100 ms frames)."""
+    audible = db[db >= REF_FLOOR_DB]
+    return float(np.median(audible)) if audible.size else float(fallback)
+
+
+def _level_around(levels, g0, g1, ctx_ref):
+    """The level of the music within 6 s around the hole g0..g1 (frames not far under the track's usual music level)."""
+    hop = int(1 / HOP_SEC)
+    s0, e0 = int(g0 / HOP_SEC), int(g1 / HOP_SEC)
+    near = np.concatenate([levels[max(0, s0 - 6 * hop):s0], levels[e0:e0 + 6 * hop]])
+    near = near[near >= ctx_ref - CTX_MUSIC_REL_DB]
+    return float(np.median(near)) if near.size else ctx_ref
+
+
+def ceiling_level(ceil_db, g0, g1):
+    """The level the background had in the hole g0..g1 before the voices were silenced (None: not known). The median: the edges
+    of a hole still hold the sound around it."""
+    if ceil_db is None:
+        return None
+    s0 = int(g0 / HOP_SEC)
+    v = ceil_db[s0:max(s0 + 1, int(g1 / HOP_SEC))]
+    return float(np.median(v)) if v.size else None
+
+
+def ceiling_skip(cap, ctx_db, model=True):
+    """Why a hole is left alone because of what the background had there (None: it is not). The same rule decides the price
+    (dub_background.count_repairs) and the repair (fill), so the price shown before the dub counts only the holes the music model
+    will really be asked about."""
+    if cap is None:
+        return None
+    if cap < CEILING_SILENT_DB:
+        return f"the background was silent here before the voices were silenced ({cap:.0f} dB): nothing to give back"
+    if model and ctx_db is not None and cap < ctx_db - TARGET_BELOW_CTX_DB - CEILING_MODEL_DB:
+        return f"the background was {cap:.0f} dB here before the voices were silenced, the music around it {ctx_db:.0f} dB: the model is not asked"
+    return None
+
+
 def find_gaps(db, spans, min_len=None, keep_unfillable=False, level_db=None):
     """Holes in the music: stretches inside the speech spans where the track is far under the music level.
     Returns (gaps [(start_sec, end_sec)], info). Gaps need real music next to them.
@@ -1024,12 +1062,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 ceil_db = None
 
         def cap_of(g0, g1):
-            """The level the background had in the hole before the voices were silenced (None: not known)."""
-            if ceil_db is None:
-                return None
-            s0 = int(g0 / HOP_SEC)
-            v = ceil_db[s0:max(s0 + 1, int(g1 / HOP_SEC))]
-            return float(np.median(v)) if v.size else None          # the median: the edges of a hole still hold the sound around it
+            return ceiling_level(ceil_db, g0, g1)
 
         ref_level = np.where(ref_pause, ref_db, -120.0) if ref_pcm is not None else None     # levels of the pauses before muting
         gaps, gi = find_gaps(db, spans, min_len=LOCAL_MIN_GAP_SEC if LOCAL_FILL else None,
@@ -1058,8 +1091,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             info["prompt"] = prompt_box["text"]
             return prompt_box["text"]
 
-        audible = db[db >= REF_FLOOR_DB]
-        ctx_ref = float(np.median(audible)) if audible.size else float(gi.get("ref_db") or -40.0)
+        ctx_ref = _ctx_ref(db, gi.get("ref_db") or -40.0)
         budget = MAX_TOTAL_SEC
         ok_n = 0
         t_start = time.time()
@@ -1070,11 +1102,7 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
         local_only_set = set(gi.get("local_only", []))
 
         def level_around(g0, g1, levels):
-            hop = int(1 / HOP_SEC)
-            s0, e0 = int(g0 / HOP_SEC), int(g1 / HOP_SEC)
-            near = np.concatenate([levels[max(0, s0 - 6 * hop):s0], levels[e0:e0 + 6 * hop]])
-            near = near[near >= ctx_ref - CTX_MUSIC_REL_DB]
-            return float(np.median(near)) if near.size else ctx_ref
+            return _level_around(levels, g0, g1, ctx_ref)
 
         # Judge every hole's surroundings before anything is filled, so a filled hole can never count as evidence.
         # The engine itself is what counts: sound near the usual quiet level of the track. A loud event beside the hole (a plane
@@ -1138,9 +1166,10 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
             model_hole = not short and (g0, g1) not in local_only_set
             if cap is not None:
                 rec["ceiling_db"] = round(cap, 1)
-                if cap < CEILING_SILENT_DB:
+                silent = ceiling_skip(cap, None, model=False)
+                if silent:
                     rec["optional"] = True
-                    rec["note"] = f"the background was silent here before the voices were silenced ({cap:.0f} dB): nothing to give back"
+                    rec["note"] = silent
                     if model_hole:
                         info["found"] = max(0, int(info["found"]) - 1)
                     continue
@@ -1183,10 +1212,11 @@ def fill(bg_path, out_path, spans, key, gemini_key=None, prompt=None, work_dir=N
                 # not asked: the hole stays silent rather than getting a sound that does not belong.
                 rec["note"] = "not music and no steady clean sound to rebuild it from; the model is not used for that"
                 continue
-            if not local and cap is not None and cap < ctx_db - TARGET_BELOW_CTX_DB - CEILING_MODEL_DB:
+            down = ceiling_skip(cap, ctx_db) if not local else None
+            if down:
                 # the film itself had the background far down here: rebuilding the music around it would add what was not there
                 rec["optional"] = True
-                rec["note"] = f"the background was {cap:.0f} dB here before the voices were silenced, the music around it {ctx_db:.0f} dB: the model is not asked"
+                rec["note"] = down
                 info["found"] = max(0, int(info["found"]) - 1)
                 continue
             if not local:

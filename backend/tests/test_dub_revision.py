@@ -443,11 +443,12 @@ class OneSecondMusicTests(unittest.TestCase):
         rate=music_fill.RATE;t=np.arange(rate*6)/rate;tone=np.repeat((np.sin(2*np.pi*220*t)*2200).astype('<i2')[:,None],2,axis=1)
         muted=tone.copy();muted[rate:]=0
         src=DATA/'one-second-context.wav';out=DATA/'one-second-repaired.wav';music_fill._write_wav(src,muted)
-        self.assertEqual(dub_background.count_repairs(src,[(1,6)],DATA/'one-second.pcm',original=src),1)
+        full=DATA/'one-second-full.wav';music_fill._write_wav(full,tone)     # the background before the voices were silenced
+        self.assertEqual(dub_background.count_repairs(src,[(1,6)],DATA/'one-second.pcm',original=full),1)
         data=io.BytesIO()
         with wave.open(data,'wb') as audio:audio.setnchannels(2);audio.setsampwidth(2);audio.setframerate(rate);audio.writeframes(tone.tobytes())
         charges=[];runner=Mock(return_value=data.getvalue())
-        result=music_fill.fill(src,out,[(1,6)],'fake',prompt='instrumental',runner=runner,on_filled=lambda *a:charges.append(a))
+        result=music_fill.fill(src,out,[(1,6)],'fake',prompt='instrumental',runner=runner,on_filled=lambda *a:charges.append(a),ceiling=full)
         self.assertTrue(result['filled'],result['reason']);self.assertEqual(runner.call_count,1);self.assertEqual(len(charges),1)
         self.assertTrue(out.exists());self.assertFalse(Path(str(out)+'.mf.pcm').exists())
 

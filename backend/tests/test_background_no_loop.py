@@ -156,6 +156,58 @@ class Wiring(unittest.TestCase):
         self.assertIn("taken=taken, cap_db=cap", fill_src)
 
 
+def music(sec, seed=1):
+    """Notes that change every 0.4 s over a little noise: music, not a steady engine."""
+    rng = np.random.default_rng(seed)
+    n = int(sec * SR)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    step = int(0.4 * SR)
+    for k in range(0, n, step):
+        seg = slice(k, min(n, k + step))
+        tt = t[seg] - t[k]
+        for f in rng.choice([220, 247, 262, 294, 330, 349, 392, 440, 494, 523], 3):
+            x[seg] += 0.03 * np.sin(2 * np.pi * f * tt) * np.exp(-tt * 3)
+    x += 0.003 * rng.standard_normal(n)
+    return stereo(x)
+
+
+class PriceMatchesTheRepair(unittest.TestCase):
+    """The price shown before the dub counts only the holes the music model will really be asked about."""
+
+    def _files(self, d, cap):
+        x = music(30)
+        muted = x.copy()
+        muted[10 * SR:14 * SR] = 0
+        ceil = x.copy()
+        if cap is not None:
+            ceil[int(9.5 * SR):int(14.5 * SR)] *= 10 ** ((cap - db(x[10 * SR:14 * SR])) / 20)
+        sf.write(str(d / "muted.wav"), muted, SR, subtype="PCM_16")
+        sf.write(str(d / "ceil.wav"), ceil, SR, subtype="PCM_16")
+
+    def _count_and_calls(self, cap):
+        import dub_background
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            self._files(d, cap)
+            spans = [(10.0, 14.0)]
+            count = dub_background.count_repairs(d / "muted.wav", spans, d / "raw.pcm", original=d / "ceil.wav")
+            calls = []
+            with unittest.mock.patch.object(mf, "LOCAL_FILL", False), \
+                 unittest.mock.patch.object(mf, "_fill_one", lambda *a, **k: (calls.append(a[1:3]) or (True, "mock"))):
+                mf.fill(d / "muted.wav", d / "out.wav", spans, "key", allow=lambda: True, ceiling=d / "ceil.wav", prompt="instrumental")
+            return count, len(calls)
+
+    def test_a_hole_with_music_under_the_voice_is_priced_and_repaired(self):
+        self.assertEqual(self._count_and_calls(None), (1, 1))
+
+    def test_a_hole_where_the_film_had_the_music_down_is_neither_priced_nor_repaired(self):
+        self.assertEqual(self._count_and_calls(-50.0), (0, 0))
+
+    def test_a_silent_hole_is_neither_priced_nor_repaired(self):
+        self.assertEqual(self._count_and_calls(-70.0), (0, 0))
+
+
 import unittest.mock  # noqa: E402
 
 if __name__ == "__main__":
