@@ -51,6 +51,7 @@ import dub_background
 import delivery
 import emotion_listen
 import addressee_ask
+import arabic_rewrite_guard
 import dub_review
 from shortdub_billing import debit_confirmed as _debit_ok
 import lang_check
@@ -3510,11 +3511,102 @@ def _translate_batch(job_id, batch, glossary=None, paces=None, gender=None, flag
                             flags[str(it["segment_id"])] = gender_context.read_flags(it)
                 if flags is not None and gender:
                     _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, _again, source_language=source_language)
+                if _again:          # (not again for a line the addressee check had translated a second time: it is in this batch)
+                    _check_tashkeel(job_id, out, gender)
                 return out
         except Exception as ex:
             print(f"[longdub] translate batch failed (attempt {attempt + 1}): {ex}")
         time.sleep(3)
     return {}
+
+
+TASHKEEL_CHECK = os.environ.get("LONGDUB_TASHKEEL_CHECK", "1").strip() != "0"     # "0": the translator's marks are used as they come
+TASHKEEL_CHECK_MAX_SHARE = 0.4      # a proofread line that changes more than this share of its words is not taken (it was re-vowelled, not corrected)
+_TASHKEEL_LOG = {}                  # job id -> [(segment id, old word, new word)], read by _translate_all for the job's log
+_WORD_SPLIT = re.compile(r"(\s+)")
+_PROTECTED_END = ("\u062a", "\u0643")      # ت, ك: their last vowel says who speaks / who is spoken to (قلتَ/قلتِ, لَكَ/لَكِ)
+
+
+def _last_letter_re():
+    return re.compile("([\u0621-\u064A\u0671-\u06D3])([" + _MARKS + "]*)([^\u0621-\u064A\u0671-\u06D3]*)$")     # (_MARKS is defined further down)
+
+
+def _last_letter_marks(word):
+    """(last Arabic letter, the marks on it) of a word that may end in punctuation."""
+    m = _last_letter_re().search(word)
+    return (m.group(1), "".join(sorted(m.group(2)))) if m else ("", "")
+
+
+def _with_ending_of(new, old):
+    """`new` with the marks on its last letter taken from `old` (same letters)."""
+    m, k = _last_letter_re().search(new), _last_letter_re().search(old)
+    if not m or not k:
+        return old
+    return new[:m.start(2)] + k.group(2) + new[m.end(2):]
+
+
+def _merge_proofread(old, new, speaker_gender=None, addressee=None):
+    """The translator's line with the proofreader's corrections, word by word. A word is taken only when its letters are the
+    same. The ENDING (the marks on the last letter) is the translator's: the proofreader may add one where there was none,
+    never change one (the grammatical ending can be read two ways in many lines and the proofreader changed its mind from one
+    run to the next; a final ت / ك / أنت says who speaks and who is spoken to; the spoken stop form is made later, arabic_waqf).
+    A line whose words do not line up, that would change the gender of who speaks or is spoken to, or that changes too many
+    words, is kept as it was. Returns (text, [(old word, new word)])."""
+    a, b = _WORD_SPLIT.split(old or ""), _WORD_SPLIT.split(new or "")
+    if len(a) != len(b) or not _same_letters(old, new):
+        return old, []
+    out, changes = [], []
+    for x, y in zip(a, b):
+        if x == y or not y.strip() or not _same_letters(x, y) or x.strip() != x:
+            out.append(x)
+            continue
+        lx, mx = _last_letter_marks(x)
+        ly, my = _last_letter_marks(y)
+        bare = _strip_marks(x).strip("\u060c\u061b\u061f.,!?:;\"'\u00ab\u00bb()")
+        if bare[:1] in ("\u0648", "\u0641") and _strip_marks(bare[1:]) in ("\u0623\u0646\u062a", "\u0627\u0646\u062a"):
+            bare = bare[1:]
+        if re.match("(?:[\u0648\u0641][\u064b-\u0652]*)?\u0627[\u064f\u0650]", x):
+            out.append(x)           # a command that starts with a plain alif keeps the translator's vowels (it follows the alif rule;
+            continue                # the proofreader once made «اِخْرَسْ» «اُخْرُسْ», a verb that does not exist)
+        if mx != my and (mx or lx in _PROTECTED_END or bare in ("\u0623\u0646\u062a", "\u0627\u0646\u062a")):
+            y = _with_ending_of(y, x)          # the ending stays the translator's; a correction inside the word is still taken
+            if y == x:
+                out.append(x)
+                continue
+        out.append(y)
+        changes.append((x, y))
+    words = sum(1 for w in a if w.strip() and _AR_LETTER.search(w))
+    if not changes or len(changes) > max(2, int(TASHKEEL_CHECK_MAX_SHARE * words)):
+        return old, []
+    text = "".join(out)
+    if arabic_rewrite_guard.conflict(old, text, speaker_gender, addressee):
+        return old, []
+    return text, changes
+
+
+def _check_tashkeel(job_id, out, gender=None):
+    """After the translation: a second, separate request proofreads the vowel marks the translator wrote (it sometimes
+    writes «المَكَالَمَة» for «المُكَالَمَة» in one line and right in the next). Only corrections that pass _merge_proofread are
+    taken. Changes `out` {segment_id: (arabic, emotion)} in place. Never raises; with no answer the lines stay as they are."""
+    if not TASHKEEL_CHECK or not GEMINI_API_KEY:
+        return
+    try:
+        import gemini_service
+        items = [{"segment_id": sid, "arabic_text": ar} for sid, (ar, _emo) in out.items() if ar and _MARK_RE.search(ar)]
+        got = gemini_service.check_tashkeel_lines(job_id, items, GEMINI_API_KEY) if items else None
+        lines = (gender or {}).get("lines") or {}
+        for sid, new in (got or {}).items():
+            if sid not in out or not new:
+                continue
+            ar, emo = out[sid]
+            ctx = lines.get(sid) or {}
+            addressee = ctx.get("addressee_is") if ctx.get("addressee_is") in ("male", "female") else None
+            fixed, changes = _merge_proofread(ar, new, ctx.get("speaker_gender") if ctx.get("speaker_gender") in ("male", "female") else None, addressee)
+            if changes:
+                out[sid] = (fixed, emo)
+                _TASHKEEL_LOG.setdefault(job_id, []).extend((sid, x, y) for x, y in changes)
+    except Exception as ex:
+        print(f"[longdub] tashkeel check skipped: {type(ex).__name__}: {ex}")
 
 
 def _settle_addressees(job_id, batch, gender, glossary, paces, flags, out, again, source_language="en"):
@@ -3647,6 +3739,10 @@ def _translate_all(job, rows):
             else:
                 missing += 1
     _ground_rows(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
+    fixed = _TASHKEEL_LOG.pop(job["id"], [])
+    if TASHKEEL_CHECK:
+        _ev(job, "tashkeel_checked", "ok", f"{len(fixed)} word(s) in {len({sid for sid, _x, _y in fixed})} line(s) corrected"
+            + ("".join(f"; {sid} \u00ab{x}\u00bb -> \u00ab{y}\u00bb" for sid, x, y in fixed[:60]) if fixed else ""))
     if missing:
         job.setdefault("warnings", []).append(
             f"{missing} line(s) could not be translated automatically. Please type the Arabic for them, or use 'Translate again'.")
