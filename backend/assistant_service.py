@@ -125,7 +125,7 @@ def _is_arabic_line(s):
     return ar / len(letters) > 0.3
 
 
-_SITE_PAGES = (("HELP PAGE", "help.html", None, 24000), ("FAQ ON THE HOME PAGE", "landing.html", "faq", 6000),
+_SITE_PAGES = (("HELP PAGE", "help.html", None, 32000), ("FAQ ON THE HOME PAGE", "landing.html", "faq", 6000),
                ("TERMS OF USE", "terms.html", None, 7000), ("PRIVACY POLICY", "privacy.html", None, 7000))
 
 
@@ -179,6 +179,7 @@ def help_text():
 FACTS = """WHERE THINGS ARE
 - Main app (short dubs, up to 30 seconds): the home page after sign-in. The green box in Step 1 shows credits used.
 - Dub Long Video: the page /dub-long (button "Dub Long Video" in the app). For videos of several minutes, works in the background, we email when done.
+- Text to voice: the page /text-voice ("From text" in the switch at the top of the app). For people who only have a text: it is translated into Arabic (or, if already Arabic, given diacritics) and spoken as one MP3, with our voices, their saved voices or their own voice.
 - Account page: /account - credits balance, subscription (change or cancel), finished files (play, download, delete), storage used.
 - Buy menu (the "Buy" / "+" button in the app) and the Pricing page /pricing: credit packs and monthly subscription tiers.
 - Help page: /help.

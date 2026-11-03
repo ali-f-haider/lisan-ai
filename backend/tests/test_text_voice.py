@@ -391,5 +391,16 @@ class Routes(unittest.TestCase):
             self.assertIn(needle, src)
 
 
+
+class HelpPage(unittest.TestCase):
+    def test_the_help_page_explains_it_in_both_languages_and_the_helper_reads_it(self):
+        import assistant_service as a
+        page = (ROOT / "help.html").read_text(encoding="utf-8")
+        for needle in ('id="text-voice"', 'id="text-voice-ar"', "What is Text to voice?", "\u0645\u0627 \u062e\u062f\u0645\u0629"):
+            self.assertIn(needle, page)
+        text = a._page_text("help.html", None, 10 ** 7)
+        self.assertIn("Can I use my own voice?", text)
+        self.assertIn("/text-voice", a.FACTS)
+
 if __name__ == "__main__":
     unittest.main()

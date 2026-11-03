@@ -38,7 +38,7 @@ class Helper(unittest.TestCase):
         for needle in ("Publish your dub on YouTube", "The page of the finished dub", "Review step: lines that need a look are marked",
                        "Nothing is skipped: every line is dubbed"):
             self.assertIn(needle, text, needle)
-        self.assertLessEqual(len(a._page_text("help.html", None, 10 ** 7)), 24000)       # the page still fits in what the helper reads
+        self.assertLessEqual(len(a._page_text("help.html", None, 10 ** 7)), 32000)       # the page still fits in what the helper reads
 
     def test_the_words_the_helper_quotes_are_the_words_on_the_page(self):
         # the names of buttons and cards in the facts must exist in the page the customer sees
