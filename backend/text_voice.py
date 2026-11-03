@@ -52,7 +52,7 @@ BATCH_LINES = 30
 TRANSLATE_PER_1000 = _env_num("TEXT_VOICE_TRANSLATE_PER_1000", 5)
 ARABIC_PER_1000 = _env_num("TEXT_VOICE_ARABIC_PER_1000", 2)
 PAUSES = {"same": 0.35, "turn": 0.6, "para": 0.9}       # seconds of silence before a line: same speaker, new speaker, new paragraph
-KEEP_DAYS = 30
+KEEP_DAYS = 30                 # the text of a project, after its last change
 WORKERS = threading.Semaphore(2)                       # projects being worked on at once (whole server)
 NARRATOR = "Narrator"
 
@@ -64,6 +64,8 @@ class Hooks:
     chars_per_credit = staticmethod(lambda: 60)
     voice_status = staticmethod(lambda voice_id: "ready")     # "ready" | "preparing" | "failed" (own voices getting the accent)
     log = staticmethod(lambda uid, job_id, step, status, detail="": None)
+    # hours a finished MP3 is kept: the same rule as every other finished file (30 days with a subscription, else 48 hours)
+    keep_hours = staticmethod(lambda uid: KEEP_DAYS * 24)
 
 
 def configure(**kwargs):
@@ -361,16 +363,110 @@ def delete_job(job):
     return True, None
 
 
+def _drop_audio(job):
+    """The spoken lines and the MP3 of a project are removed (its text stays)."""
+    shutil.rmtree(_dir(job["id"]) / "lines", ignore_errors=True)
+    (_dir(job["id"]) / "final.mp3").unlink(missing_ok=True)
+    for ln in job["lines"]:
+        ln["audio"] = ""
+    job["audio"] = {}
+
+
 def cleanup_old(now=None):
-    """Projects not changed for KEEP_DAYS days are removed (text and audio). Never raises."""
+    """Projects not changed for KEEP_DAYS days are removed (text and audio). The audio of the others is removed once it is
+    older than the account's retention for finished files (Hooks.keep_hours). Never raises."""
     try:
-        limit = (now or _now()) - KEEP_DAYS * 86400
+        now = now or _now()
+        limit = now - KEEP_DAYS * 86400
+        keep = {}
         for d in (ROOT.iterdir() if ROOT.is_dir() else []):
             job = load(d.name) if d.is_dir() else None
-            if job and not job.get("busy") and float(job.get("updated") or 0) < limit and d.name not in _RUNNING:
+            if not job or job.get("busy") or d.name in _RUNNING:
+                continue
+            if float(job.get("updated") or 0) < limit:
                 shutil.rmtree(d, ignore_errors=True)
+                continue
+            files = [p for p in [d / "final.mp3"] + list((d / "lines").glob("*.mp3")) if p.is_file()]
+            if not files:
+                continue
+            uid = job.get("uid")
+            if uid not in keep:
+                try:
+                    keep[uid] = float(Hooks.keep_hours(uid))
+                except Exception:
+                    keep[uid] = None            # could not ask: nothing is removed this time
+            if keep[uid] is not None and max(p.stat().st_mtime for p in files) < now - keep[uid] * 3600:
+                with _lock_for(job["id"]):
+                    _drop_audio(job)
+                    job["notes"] = [n for n in job.get("notes") or [] if n != "audio_expired"] + ["audio_expired"]
+                    _save_keep_updated(job)          # not a change by the person: the text is kept as long as before
     except Exception as ex:
         print(f"[text-voice] cleanup skipped: {ex}")
+
+
+def _save_keep_updated(job):
+    """_save without touching "updated"."""
+    d = _dir(job["id"])
+    tmp = d / ("job.json." + uuid.uuid4().hex + ".tmp")
+    tmp.write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, d / "job.json")
+
+
+def _jobs_of(uid):
+    for d in (ROOT.iterdir() if ROOT.is_dir() else []):
+        job = load(d.name) if d.is_dir() else None
+        if job and str(job.get("uid")) == str(uid):
+            yield job
+
+
+def audio_bytes(uid):
+    """Storage used by this account's spoken lines and MP3s (they count toward the account's storage like other files)."""
+    total = 0
+    try:
+        for job in _jobs_of(uid):
+            d = _dir(job["id"])
+            for p in [d / "final.mp3"] + list((d / "lines").glob("*.mp3")):
+                if p.is_file():
+                    total += p.stat().st_size
+    except Exception as ex:
+        print(f"[text-voice] storage count skipped: {ex}")
+    return total
+
+
+def finished_for(uid, keep_hours=None):
+    """The finished MP3s of this account, for the Account page: [{job_id, title, created_at, bytes, expires_at}]."""
+    out = []
+    for job in _jobs_of(uid):
+        p = audio_path(job)
+        if not p:
+            continue
+        mtime = p.stat().st_mtime
+        d = _dir(job["id"])
+        size = sum(x.stat().st_size for x in [p] + list((d / "lines").glob("*.mp3")) if x.is_file())
+        hours = float(keep_hours if keep_hours is not None else KEEP_DAYS * 24)
+        out.append({"job_id": job["id"], "kind": "text", "title": job.get("title") or "", "bytes": size,
+                    "seconds": (job.get("audio") or {}).get("seconds"),
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(mtime)),
+                    "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(min(mtime + hours * 3600,
+                                                                                         float(job.get("updated") or mtime) + KEEP_DAYS * 86400)))})
+    return out
+
+
+def busy_for(uid):
+    """True while a project of this account is being worked on (an account is never deleted under a running step)."""
+    return any(job.get("busy") or job["id"] in _RUNNING for job in _jobs_of(uid))
+
+
+def delete_all_for(uid):
+    """Every project of this account ("Delete all my files", deleting the account). (removed, busy and kept)."""
+    removed = skipped = 0
+    for job in list(_jobs_of(uid)):
+        if job.get("busy") or job["id"] in _RUNNING:
+            skipped += 1
+            continue
+        shutil.rmtree(_dir(job["id"]), ignore_errors=True)
+        removed += 1
+    return removed, skipped
 
 
 def set_speakers(job, updates):
@@ -393,6 +489,46 @@ def set_speakers(job, updates):
             sp["voice_name"] = str(u.get("voice_name") or "").strip()[:80]
     _save(job)
     return True, None
+
+
+def tashkeel_line(job, line_id):
+    """The Tashkeel button of one line: the words of its Arabic that have no marks get them (words that have marks are kept,
+    letters never change; the same word-by-word merge the long dub uses). Free. (ok, (message, code) or None, project)."""
+    import gemini_service
+    import longdub_service as ld
+    if job.get("busy"):
+        return False, ("Please wait until the current step has finished.", 409), job
+    ln = next((x for x in job["lines"] if x["id"] == line_id), None)
+    if not ln:
+        return False, ("Line not found.", 404), job
+    text = (ln.get("arabic") or "").strip()
+    if not text:
+        return False, ("There is no Arabic text on this line yet.", 400), job
+    if not any(ld._word_needs_tashkeel(w) for w in text.split()):
+        return True, None, job            # every word already has its marks
+    got = None
+    for attempt in range(2):
+        try:
+            got = gemini_service.add_tashkeel_lines(job["id"], [{"segment_id": line_id, "arabic_text": text}], GEMINI_API_KEY)
+        except Exception as ex:
+            print(f"[text-voice] tashkeel button failed (attempt {attempt + 1}): {ex}")
+            got = None
+        if got is not None:
+            break
+        time.sleep(1.5)
+    if got is None:
+        return False, ("We couldn't add the diacritics just now. Please try again in a moment.", 503), job
+    new = ld.merge_tashkeel(text, got.get(line_id, ""))
+    if new == text:
+        return False, ("The diacritics could not be added to this line. Please try again.", 503), job
+    with _lock_for(job["id"]):
+        fresh = load(job["id"]) or job
+        row = next((x for x in fresh["lines"] if x["id"] == line_id), None)
+        if row is None or (row.get("arabic") or "").strip() != text:
+            return False, ("The line was changed while the diacritics were being added. Please try again.", 409), fresh
+        row["arabic"] = new
+        _save(fresh)
+    return True, None, fresh
 
 
 def set_lines(job, edits):
@@ -730,6 +866,7 @@ def _run_speak(job_id, todo, price):
                 _save(job)
                 seconds = _assemble(job)
                 job["audio"] = {"hash": _final_hash(job), "seconds": round(seconds, 1), "at": _now()}
+                job["notes"] = [n for n in job.get("notes") or [] if n != "audio_expired"]
         with _lock_for(job_id):
             if failed and price:
                 # the lines that were not spoken are given back (their share of the characters)

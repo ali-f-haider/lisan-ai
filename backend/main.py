@@ -2150,9 +2150,12 @@ def delete_account(request: Request, response: Response):
         return JSONResponse({"error": "Login required."}, status_code=401)
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         return JSONResponse({"error": "This feature is temporarily unavailable. Please try again later."}, status_code=503)
+    if text_voice.busy_for(uid):
+        return JSONResponse({"error": "Your Text to voice project is still being worked on. Please wait until it has finished, then try again."}, status_code=409)
     with longdub_service.account_lock(uid):
         try:
             longdub_service.delete_account_jobs(uid)
+            text_voice.delete_all_for(uid)
         except ValueError as ex:
             return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
         except Exception:
@@ -5859,8 +5862,19 @@ text_voice.configure(
     # the same voice rate as the long dub (Inworld), whatever the Voice Engine switch says: Text to voice always speaks with Inworld
     chars_per_credit=_text_voice_cpc,
     voice_status=text_voice.voice_status,
+    # a finished MP3 is kept like every other finished file: 30 days with a subscription, otherwise 48 hours
+    keep_hours=lambda uid: CLEANUP_FINAL_OUTPUT_DAYS * 24 if _subscription_active(uid) else PAYONCE_OUTPUT_HOURS,
 )
 threading.Thread(target=text_voice.recover, daemon=True, name="text-voice-recover").start()
+
+
+def _text_voice_cleanup_loop():
+    while True:
+        text_voice.cleanup_old()
+        keep_awake.sleep(3600)
+
+
+threading.Thread(target=_text_voice_cleanup_loop, daemon=True, name="text-voice-cleanup").start()
 
 
 def _own_inworld_voices(uid):
@@ -5976,7 +5990,7 @@ def text_voice_delete(job_id: str, request: Request):
     if not uid:
         return job
     ok, err = text_voice.delete_job(job)
-    return {"deleted": True} if ok else JSONResponse({"error": err[0]}, status_code=err[1])
+    return {"status": "success", "deleted": True} if ok else JSONResponse({"error": err[0]}, status_code=err[1])
 
 
 @app.post("/api/text_voice/{job_id}/speakers")
@@ -6030,6 +6044,20 @@ def text_voice_speak(job_id: str, request: Request):
             if vid not in own:
                 return JSONResponse({"error": f"The voice chosen for {sp['name']} is no longer in your voices. Please choose another one."}, status_code=400)
     return _text_voice_answer(text_voice.start_speak(job), job_id, uid)
+
+
+@app.post("/api/text_voice/{job_id}/line/{line_id}/tashkeel")
+def text_voice_line_tashkeel(job_id: str, line_id: str, request: Request):
+    """The Tashkeel button of one line (free, like the one in Dub Long Video)."""
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    if _rate_limited(request, "text_voice_tashkeel", 60, 600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    ok, err, fresh = text_voice.tashkeel_line(job, line_id)
+    if not ok:
+        return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
+    return text_voice.public(fresh)
 
 
 @app.get("/api/text_voice/{job_id}/audio")
@@ -7036,6 +7064,7 @@ def _storage_summary(uid, job_ids=None):
     except Exception as ex:
         print("[storage] plan lookup error:", ex)
         return None
+    used += text_voice.audio_bytes(uid)          # the spoken lines and MP3s of Text to voice
     # Reference clips belong to the owner and count toward storage, too.
     for project in longdub_service.list_jobs_for_uid(uid):
         refdir = longdub_service.job_dir(project["id"]) / "editrefs"
@@ -7127,6 +7156,10 @@ def my_jobs(request: Request):
                 if (OUTPUT_DIR / f"{jid}{_MY_JOB_FILE_SUFFIXES[k]}").exists()),
             "expires_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(newest_mtime + CLEANUP_FINAL_OUTPUT_DAYS * 86400)),
         })
+    try:            # the MP3s made with Text to voice (text_voice.py), kept by the same rule
+        jobs += text_voice.finished_for(uid, CLEANUP_FINAL_OUTPUT_DAYS * 24 if _subscription_active(uid) else PAYONCE_OUTPUT_HOURS)
+    except Exception as ex:
+        print(f"[my_jobs] text to voice files not listed: {ex}")
     jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
     return {"jobs": jobs, "storage": _storage_summary(uid, latest_seen)}
 
@@ -7293,6 +7326,9 @@ def delete_all_my_files(request: Request):
             skipped += 1
         else:
             files_removed += result
+    tv_removed, tv_busy = text_voice.delete_all_for(uid)      # Text to voice projects: their text and their MP3s
+    files_removed += tv_removed
+    skipped += tv_busy
     try:
         sm = _storage_summary(uid)
     except Exception:

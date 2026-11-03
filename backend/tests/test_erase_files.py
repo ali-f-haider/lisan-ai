@@ -190,7 +190,9 @@ class EndpointTests(unittest.TestCase):
         self.limited = False
         self.jobs = {}
         self.ld = FakeLongDub([])
+        self.tv = (0, 0)          # Text to voice projects removed / busy and kept
         self.w.ns.update({
+            "text_voice": type("TV", (), {"delete_all_for": staticmethod(lambda uid: self.tv)}),
             "_current_uid": lambda request: self.uid,
             "_rate_limited": lambda request, bucket, n, window: self.limited,
             "_user_job_ids": lambda uid: self.jobs,
@@ -221,6 +223,11 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.ld.deleted, [long_id])
         self.assertFalse((self.w.out / f"{short}_final_dubbed.mp3").exists())
         self.assertTrue((self.w.out / f"{long_id}_final_dubbed.mp3").exists())
+
+    def test_text_to_voice_projects_are_removed_too(self):
+        self.tv = (2, 1)
+        out = self.call()
+        self.assertEqual((out["files_removed"], out["skipped_busy"]), (2, 1))
 
     def test_busy_or_failing_projects_and_running_short_jobs_are_kept_and_reported(self):
         self.w.job_files(JOB)

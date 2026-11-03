@@ -392,6 +392,98 @@ class Routes(unittest.TestCase):
 
 
 
+class LineTashkeel(Base):
+    def job(self, arabic):
+        job, _ = tv.new_job(UID, "Hello there.", "en")
+        job["prepared"] = True
+        job["lines"][0]["arabic"] = arabic
+        tv._save(job)
+        return job
+
+    def test_the_button_fills_only_words_without_marks_and_is_free(self):
+        job = self.job("ذَهَبَ الولد إلى المَدْرَسَةِ")
+        with mock.patch("gemini_service.add_tashkeel_lines", lambda j, items, k: {"l1": "ذَهَبَ الوَلَدُ إِلَى المَدْرَسَةِ"}):
+            ok, err, fresh = tv.tashkeel_line(job, "l1")
+        self.assertTrue(ok, err)
+        self.assertEqual(tv.load(job["id"])["lines"][0]["arabic"], "ذَهَبَ الوَلَدُ إِلَى المَدْرَسَةِ")
+        self.assertEqual(self.ledger.charges, {})
+
+    def test_letters_never_change_and_a_marked_line_is_left_alone(self):
+        job = self.job("ذهب الولد")
+        with mock.patch("gemini_service.add_tashkeel_lines", lambda j, items, k: {"l1": "ذَهَبَتِ البِنْتُ"}):
+            ok, err, _ = tv.tashkeel_line(job, "l1")
+        self.assertFalse(ok)
+        self.assertEqual(tv.load(job["id"])["lines"][0]["arabic"], "ذهب الولد")
+        job = self.job("ذَهَبَ الوَلَدُ")
+        with mock.patch("gemini_service.add_tashkeel_lines") as call:
+            ok, err, _ = tv.tashkeel_line(job, "l1")
+        self.assertTrue(ok)
+        call.assert_not_called()
+        self.assertEqual(tv.tashkeel_line(job, "l9")[1][1], 404)
+
+    def test_route_is_rate_limited_and_private(self):
+        src = ast.get_source_segment((ROOT / "main.py").read_text(encoding="utf-8"), next(
+            n for n in ast.parse((ROOT / "main.py").read_text(encoding="utf-8")).body
+            if isinstance(n, ast.FunctionDef) and n.name == "text_voice_line_tashkeel"))
+        self.assertIn("_text_voice_job(request, job_id)", src)
+        self.assertIn('_rate_limited(request, "text_voice_tashkeel"', src)
+
+
+class AccountFiles(Base):
+    def made(self, uid=UID):
+        job, _ = tv.new_job(uid, "Hello there.", "en", "My narration")
+        job["prepared"] = True
+        job["lines"][0].update(arabic="مَرْحَبًا", emotion="neutral", audio="")
+        tv._save(job)
+        job["lines"][0]["audio"] = tv._line_hash(job, 0)
+        (tv._dir(job["id"]) / "lines").mkdir(parents=True, exist_ok=True)
+        tv._line_file(job, job["lines"][0]).write_bytes(b"x" * 100)
+        (tv._dir(job["id"]) / "final.mp3").write_bytes(b"y" * 1000)
+        job["audio"] = {"hash": tv._final_hash(job), "seconds": 1.0, "at": time.time()}
+        tv._save(job)
+        return job
+
+    def test_the_mp3_is_listed_counted_and_removed_with_all_files(self):
+        job = self.made()
+        self.made("someone-else")
+        got = tv.finished_for(UID, 48)
+        self.assertEqual([(g["job_id"], g["kind"], g["title"], g["bytes"]) for g in got], [(job["id"], "text", "My narration", 1100)])
+        self.assertEqual(tv.audio_bytes(UID), 1100)
+        self.assertFalse(tv.busy_for(UID))
+        self.assertEqual(tv.delete_all_for(UID), (1, 0))
+        self.assertEqual(tv.finished_for(UID), [])
+        self.assertEqual(len(list(tv._jobs_of("someone-else"))), 1)
+
+    def test_the_mp3_follows_the_retention_of_finished_files_and_the_text_stays(self):
+        job = self.made()
+        with mock.patch.object(tv.Hooks, "keep_hours", staticmethod(lambda uid: 48)):
+            tv.cleanup_old(now=time.time() + 47 * 3600)
+            self.assertTrue(tv.public(tv.load(job["id"]))["audio_ready"])
+            tv.cleanup_old(now=time.time() + 49 * 3600)
+        left = tv.load(job["id"])
+        self.assertIsNotNone(left)
+        self.assertEqual(left["lines"][0]["arabic"], "مَرْحَبًا")
+        self.assertFalse(tv.public(left)["audio_ready"])
+        self.assertIn("audio_expired", tv.public(left)["notes"])
+        self.assertEqual(tv.audio_bytes(UID), 0)
+        self.assertAlmostEqual(left["updated"], job["updated"], places=3)      # not counted as a change by the person
+
+    def test_the_account_page_and_the_account_routes_include_text_to_voice(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(main)
+
+        def src(name):
+            return ast.get_source_segment(main, next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name))
+        self.assertIn("text_voice.finished_for(uid", src("my_jobs"))
+        self.assertIn("text_voice.audio_bytes(uid)", src("_storage_summary"))
+        self.assertIn("text_voice.delete_all_for(uid)", src("delete_all_my_files"))
+        self.assertIn("text_voice.delete_all_for(uid)", src("delete_account"))
+        self.assertIn("text_voice.busy_for(uid)", src("delete_account"))
+        page = (ROOT / "account.html").read_text(encoding="utf-8")
+        for needle in ('j.kind === "text"', "/api/text_voice/", "deleteTextVoice(", "/text-voice?open="):
+            self.assertIn(needle, page)
+
+
 class HelpPage(unittest.TestCase):
     def test_the_help_page_explains_it_in_both_languages_and_the_helper_reads_it(self):
         import assistant_service as a

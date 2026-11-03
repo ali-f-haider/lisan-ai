@@ -88,10 +88,17 @@ class AccountTests(unittest.TestCase):
             cleanup=Mock(side_effect=failure);delete_auth=Mock()
             env=dict(Request=NS,Response=NS,_current_uid=lambda request:'uid',SUPABASE_URL='https://fixture.invalid',SUPABASE_SERVICE_KEY='fake',
                 longdub_service=NS(account_lock=lambda uid:threading.RLock(),delete_account_jobs=cleanup),_delete_account_run=delete_auth,
+                text_voice=NS(busy_for=lambda uid:False,delete_all_for=lambda uid:(0,0)),
                 JSONResponse=lambda data,status_code:NS(status_code=status_code))
             extract('main.py',['delete_account'],env)
             result=env['delete_account'](NS(),NS())
             self.assertEqual(result.status_code,status);cleanup.assert_called_once_with('uid');delete_auth.assert_not_called()
+        # a Text to voice project still being worked on stops it before anything is deleted
+        cleanup=Mock();delete_auth=Mock()
+        env.update(longdub_service=NS(account_lock=lambda uid:threading.RLock(),delete_account_jobs=cleanup),_delete_account_run=delete_auth,
+                   text_voice=NS(busy_for=lambda uid:True,delete_all_for=Mock()))
+        extract('main.py',['delete_account'],env)
+        self.assertEqual(env['delete_account'](NS(),NS()).status_code,409);cleanup.assert_not_called();delete_auth.assert_not_called()
     def test_known_account_balance_outage_does_not_show_guest(self):
         env=dict(_current_uid=Mock(return_value='uid'),_user_info_cache={'uid':{'name':'Ali'}},_email_for_uid=Mock(return_value=None),get_credits=Mock(return_value=None),_read_subscription_profile=Mock(return_value={}),SUPABASE_SERVICE_KEY='',LIPSYNC_ENABLED=False,_wm_needed=Mock(return_value=False),Request=object,JSONResponse=lambda data,status_code=200:NS(data=data,status_code=status_code))
         extract('main.py',['user_info'],env)

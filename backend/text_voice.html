@@ -211,7 +211,10 @@ var T = {
     busyPrepTr: "Translating…", busyPrepAr: "Adding the diacritics…", busySpeak: "Making the audio…",
     linesHeading: "3. Check the Arabic", linesNote: "Correct anything you like. Your changes are saved by themselves. A line marked \"check\" uses a male or female form we could not be sure about.",
     check: "check", emotion: "Delivery", saved: "Saved", playLine: "▶",
+    tashkeel: "Tashkeel", tashkeelTip: "Add the diacritics to the words of this line that have none (free)",
+    tashkeelBusy: "…", tashkeelNone: "Every word of this line already has its diacritics.",
     audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are made and paid.",
+    audioExpired: "Your earlier audio was removed when the storage time of finished files ended. Make it again to listen to it or download it.",
     speak: function (c, n) { return "Make the audio (" + cr(c) + ", " + n + (n === 1 ? " line)" : " lines)"); },
     speakFree: "Make the audio (free: nothing changed)",
     needVoice: function (n) { return "Please choose a voice for " + n + "."; },
@@ -264,7 +267,10 @@ var T = {
     busyPrepTr: "جارٍ الترجمة…", busyPrepAr: "جارٍ إضافة التشكيل…", busySpeak: "جارٍ صنع الصوت…",
     linesHeading: "٣. مراجعة النص العربي", linesNote: "صحّح ما تشاء، وتُحفظ تغييراتك تلقائيًا. السطر المعلَّم بـ\"راجِع\" فيه صيغة مذكر أو مؤنث لم نكن متأكدين منها.",
     check: "راجِع", emotion: "طريقة الأداء", saved: "تم الحفظ", playLine: "▶",
+    tashkeel: "تشكيل", tashkeelTip: "إضافة التشكيل إلى كلمات هذا السطر غير المشكولة (مجانًا)",
+    tashkeelBusy: "…", tashkeelNone: "كل كلمات هذا السطر مشكولة بالفعل.",
     audioHeading: "٤. الصوت", audioNote: "تُصنع وتُدفع فقط الأسطر الجديدة أو التي تغيّرت منذ آخر مرة.",
+    audioExpired: "حُذف صوتك السابق بانتهاء مدة حفظ الملفات المكتملة. اصنعه من جديد لتستمع إليه أو تنزّله.",
     speak: function (c, n) { return "اصنع الصوت (" + c + " رصيد، " + arLines(n) + ")"; },
     speakFree: "اصنع الصوت (مجانًا: لم يتغيّر شيء)",
     needVoice: function (n) { return "يرجى اختيار صوت لـ" + n + "."; },
@@ -610,6 +616,7 @@ function renderLines() {
     return '<div class="tv-line"><div class="tv-line-head"><span>' + (i + 1) + "</span>" + (multi ? "<b>" + esc(names[ln.speaker_id]) + "</b>" : "") +
       (ln.gender_check ? '<span class="tv-badge">' + esc(T.check) + "</span>" : "") +
       "<span>" + esc(T.emotion) + '</span><select data-emo="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + opts + "</select>" +
+      '<button type="button" class="btn-plain" style="padding:3px 10px;" data-tash="' + esc(ln.id) + '" title="' + esc(T.tashkeelTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.tashkeel) + "</button>" +
       (ln.spoken ? '<button type="button" class="btn-plain" style="padding:3px 10px;" data-play="' + esc(ln.id) + '">' + T.playLine + "</button>" : "") +
       '<span class="tv-saved" id="saved_' + esc(ln.id) + '"></span></div>' +
       (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + esc(ln.text) + "</div>") +
@@ -623,6 +630,29 @@ function renderLines() {
   });
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-play]"), function (b) {
     b.onclick = function () { playPreview("/api/text_voice/" + job.id + "/line/" + encodeURIComponent(b.getAttribute("data-play")) + "?t=" + Date.now()); };
+  });
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-tash]"), function (b) {
+    b.onclick = function () { tashkeelLine(b.getAttribute("data-tash"), b); };
+  });
+}
+
+function tashkeelLine(lineId, btn) {
+  var box = document.querySelector('textarea[data-ar="' + lineId + '"]');
+  var before = box ? box.value.trim() : "";
+  btn.disabled = true; btn.textContent = T.tashkeelBusy;
+  flushSave(lineId).then(function () {
+    return api("POST", "/api/text_voice/" + job.id + "/line/" + encodeURIComponent(lineId) + "/tashkeel");
+  }).then(function (r) {
+    btn.disabled = false; btn.textContent = T.tashkeel;
+    if (!r.ok) { alertMsg(r.data.error || T.netErr); return; }
+    job = r.data;
+    var ln = job.lines.filter(function (l) { return l.id === lineId; })[0];
+    if (!ln) return;
+    if (ln.arabic.trim() === before) { alertMsg(T.tashkeelNone); return; }
+    if (box) box.value = ln.arabic;
+    var s = $("saved_" + lineId);
+    if (s) { s.textContent = T.saved; setTimeout(function () { if (s) s.textContent = ""; }, 1500); }
+    renderAudio();
   });
 }
 
@@ -652,6 +682,8 @@ function renderAudio() {
   b.disabled = !!job.busy;
   b.textContent = job.speak_price ? T.speak(job.speak_price, job.lines_to_speak) : T.speakFree;
   err($("speakErr"), !job.busy && job.prepared && job.error ? job.error : "");
+  var expired = !job.audio_ready && (job.notes || []).indexOf("audio_expired") >= 0;
+  $("audioNote").textContent = expired ? T.audioNote + " " + T.audioExpired : T.audioNote;
   show($("audioBox"), job.audio_ready);
   if (job.audio_ready) {
     var url = "/api/text_voice/" + job.id + "/audio?v=" + encodeURIComponent(String(job.updated || ""));
@@ -710,6 +742,7 @@ api("GET", "/api/text_voice/config").then(function (r) {
   updateCount();
   var last = null;
   try { last = localStorage.getItem("lisan_text_voice_open"); } catch (e) {}
+  try { var asked = new URLSearchParams(location.search).get("open"); if (asked && /^[0-9a-f]{32}$/.test(asked)) last = asked; } catch (e) {}   // "Open project" on the Account page
   if (last) openJob(last);
   loadList();
 });
