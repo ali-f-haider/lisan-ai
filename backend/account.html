@@ -327,6 +327,7 @@ var T = {
     del: "🗑️ Delete", deduction: "deduction",
     confirmDelete: "Delete this file permanently? This can't be undone.",
     tvLabel: "📝 Text to voice", tvOpen: "Open project", confirmDeleteText: "Delete this Text to voice project and its audio? This can't be undone.",
+    tvOld: "Made before your latest changes. Open the project and make the audio again to update it.",
     deleteFailed: "Couldn't delete this file. Please try again.",
     eraseHeading: "🔒 Your files and your privacy",
     eraseNote: "We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Dub Long Video and Text to voice projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.",
@@ -409,6 +410,7 @@ var T = {
     del: "🗑️ حذف", deduction: "خصم",
     confirmDelete: "حذف هذا الملف نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.",
     tvLabel: "📝 من نص إلى صوت", tvOpen: "فتح المشروع", confirmDeleteText: "هل تريد حذف هذا المشروع النصي وصوته؟ لا يمكن التراجع عن ذلك.",
+    tvOld: "صُنع قبل تغييراتك الأخيرة. افتح المشروع واصنع الصوت من جديد لتحديثه.",
     deleteFailed: "تعذّر حذف هذا الملف. حاول مرة أخرى.",
     eraseHeading: "🔒 ملفاتك وخصوصيتك",
     eraseNote: "لا نستخدم فيديوهاتك ولا تسجيلاتك الصوتية لتدريب نماذج الذكاء الاصطناعي. يحذف زر «احذف كل ملفاتي» ملفاتك الجاهزة وأي ملفات عمل ومشاريع «دبلجة فيديو طويل» و«من نص إلى صوت» من خوادمنا ومن نسخنا الاحتياطية. وللأصوات المحفوظة زر حذف خاص بها في تبويب «الأصوات المحفوظة». أما حسابك ورصيدك وسجل مشترياتك فيبقى كما هو.",
@@ -756,6 +758,7 @@ function renderMyJobs(jobs) {
       var tv = "/api/text_voice/" + encodeURIComponent(j.job_id);
       var title = String(j.title || "").replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
       preview += '<div style="font-weight:600;margin:4px 0 6px;">' + T.tvLabel + (title ? ' · ' + title : '') + '</div>' +
+                 (j.outdated ? '<div style="font-size:13px;color:#6b7280;margin-bottom:6px;">' + T.tvOld + '</div>' : '') +
                  '<audio controls preload="none" src="' + tv + '/audio"></audio>';
       buttons += '<a class="blue" href="' + tv + '/audio" download>' + T.dlMp3 + '</a>' +
                  '<a href="/text-voice?open=' + encodeURIComponent(j.job_id) + '">' + T.tvOpen + '</a>' +

@@ -215,6 +215,7 @@ var T = {
     tashkeelBusy: "…", tashkeelNone: "Every word of this line already has its diacritics.",
     audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are made and paid.",
     audioExpired: "Your earlier audio was removed when the storage time of finished files ended. Make it again to listen to it or download it.",
+    audioOld: "This audio was made before your latest changes. Make the audio again to update it.",
     speak: function (c, n) { return "Make the audio (" + cr(c) + ", " + n + (n === 1 ? " line)" : " lines)"); },
     speakFree: "Make the audio (free: nothing changed)",
     needVoice: function (n) { return "Please choose a voice for " + n + "."; },
@@ -271,6 +272,7 @@ var T = {
     tashkeelBusy: "…", tashkeelNone: "كل كلمات هذا السطر مشكولة بالفعل.",
     audioHeading: "٤. الصوت", audioNote: "تُصنع وتُدفع فقط الأسطر الجديدة أو التي تغيّرت منذ آخر مرة.",
     audioExpired: "حُذف صوتك السابق بانتهاء مدة حفظ الملفات المكتملة. اصنعه من جديد لتستمع إليه أو تنزّله.",
+    audioOld: "صُنع هذا الصوت قبل تغييراتك الأخيرة. اصنع الصوت من جديد لتحديثه.",
     speak: function (c, n) { return "اصنع الصوت (" + c + " رصيد، " + arLines(n) + ")"; },
     speakFree: "اصنع الصوت (مجانًا: لم يتغيّر شيء)",
     needVoice: function (n) { return "يرجى اختيار صوت لـ" + n + "."; },
@@ -682,10 +684,11 @@ function renderAudio() {
   b.disabled = !!job.busy;
   b.textContent = job.speak_price ? T.speak(job.speak_price, job.lines_to_speak) : T.speakFree;
   err($("speakErr"), !job.busy && job.prepared && job.error ? job.error : "");
-  var expired = !job.audio_ready && (job.notes || []).indexOf("audio_expired") >= 0;
+  var expired = !job.audio_file && (job.notes || []).indexOf("audio_expired") >= 0;
   $("audioNote").textContent = expired ? T.audioNote + " " + T.audioExpired : T.audioNote;
-  show($("audioBox"), job.audio_ready);
-  if (job.audio_ready) {
+  show($("audioBox"), job.audio_file);
+  if (job.audio_outdated) $("audioNote").textContent = T.audioNote + " " + T.audioOld;
+  if (job.audio_file) {
     var url = "/api/text_voice/" + job.id + "/audio?v=" + encodeURIComponent(String(job.updated || ""));
     if ($("finalAudio").getAttribute("data-src") !== url) { $("finalAudio").src = url; $("finalAudio").setAttribute("data-src", url); }
     $("dlLink").href = url;

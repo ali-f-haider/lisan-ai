@@ -337,7 +337,10 @@ def public(job):
         "chars": _text_chars(job), "prepared": bool(job.get("prepared")),
         "prepare_price": prepare_price(job), "speak_price": price, "lines_to_speak": len(todo),
         "busy": job.get("busy") or "", "percent": int(job.get("percent") or 0), "message": job.get("message") or "",
-        "error": job.get("error") or "", "audio_ready": current, "audio_seconds": audio.get("seconds") if current else None,
+        "error": job.get("error") or "", "audio_ready": current,
+        # the last MP3 stays to listen to and download after a correction, until the new one is made (Ali, 3 Nov 2026)
+        "audio_file": bool(audio_path(job)), "audio_outdated": bool(audio_path(job)) and not current,
+        "audio_seconds": audio.get("seconds") if audio_path(job) else None,
         "notes": job.get("notes") or [],
     }
 
@@ -445,6 +448,7 @@ def finished_for(uid, keep_hours=None):
         size = sum(x.stat().st_size for x in [p] + list((d / "lines").glob("*.mp3")) if x.is_file())
         hours = float(keep_hours if keep_hours is not None else KEEP_DAYS * 24)
         out.append({"job_id": job["id"], "kind": "text", "title": job.get("title") or "", "bytes": size,
+                    "outdated": audio_path(job, current=True) is None,
                     "seconds": (job.get("audio") or {}).get("seconds"),
                     "created_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime(mtime)),
                     "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(min(mtime + hours * 3600,
@@ -962,10 +966,15 @@ def _assemble(job):
         shutil.rmtree(work, ignore_errors=True)
 
 
-def audio_path(job):
-    """The finished MP3, only while it matches the text and voices as they are now."""
+def audio_path(job, current=False):
+    """The last finished MP3. It stays after a correction (to listen to and download) until the new one is made; with
+    current=True only while it matches the text and voices as they are now."""
     p = _dir(job["id"]) / "final.mp3"
-    return p if p.is_file() and (job.get("audio") or {}).get("hash") == _final_hash(job) and not _to_speak(job) else None
+    if not p.is_file() or not (job.get("audio") or {}).get("hash"):
+        return None
+    if current and ((job.get("audio") or {}).get("hash") != _final_hash(job) or _to_speak(job)):
+        return None
+    return p
 
 
 def line_audio_path(job, line_id):

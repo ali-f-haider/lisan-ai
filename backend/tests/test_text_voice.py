@@ -293,7 +293,10 @@ class TheVoice(Base):
         # one line corrected: only that line is spoken and paid
         tv.set_lines(job, [{"id": "l2", "arabic": "مَسَاءُ الخَيْرِ"}])
         job = tv.load(job["id"])
-        self.assertIsNone(tv.audio_path(job))        # the old file no longer matches the text
+        self.assertIsNone(tv.audio_path(job, current=True))        # the old file no longer matches the text ...
+        self.assertIsNotNone(tv.audio_path(job))                     # ... but it stays to listen to and download until the new one
+        self.assertTrue(tv.public(job)["audio_outdated"])
+        self.assertEqual([(f["job_id"], f["outdated"]) for f in tv.finished_for(UID)], [(job["id"], True)])
         self.assertEqual(tv.public(job)["lines_to_speak"], 1)
         sent.clear()
         job = self.speak(job, tts)
