@@ -46,7 +46,7 @@ class Manifest(unittest.TestCase):
             self.assertEqual([r for r in rules if fnmatch.fnmatch(name, r)], [], name)
 
     def test_the_main_pages_load_the_script(self):
-        for page in ("landing.html", "index.html", "dub_long.html", "account.html", "pricing.html", "help.html", "dub_long_edit.html"):
+        for page in ("landing.html", "index.html", "dub_long.html", "account.html", "pricing.html", "help.html", "dub_long_edit.html", "text_voice.html"):
             self.assertIn('<script src="/pwa.js" defer></script>', (ROOT / page).read_text(encoding="utf-8"), page)
 
 

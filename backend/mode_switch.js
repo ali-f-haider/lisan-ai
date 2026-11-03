@@ -1,6 +1,6 @@
-/* Lisan AI: the "Short clip | Full video" switch under the top bar of the app and of the Long Dub page.
+/* Lisan AI: the "Short clip | Full video | From text" switch under the top bar of the app, the Long Dub page and Text to voice.
  *
- * A page puts <div id="modeSwitch" data-mode="short"></div> (or data-mode="full") under its top bar and loads this file.
+ * A page puts <div id="modeSwitch" data-mode="short"></div> (or data-mode="full" / "text") under its top bar and loads this file.
  * The numbers in the captions come from /api/limits, the same ones the server enforces, so the switch can never promise
  * a length the upload would refuse. If that call fails the captions stay generic ("Quick dubs" / "Full-length dubs").
  * The language follows the page: Arabic when <html lang> is "ar" or the saved choice (lisan_lang) is Arabic, and the
@@ -10,7 +10,8 @@
   var host = document.getElementById("modeSwitch");
   if (!host) return;
 
-  var mode = host.getAttribute("data-mode") === "full" ? "full" : "short";
+  var mode = host.getAttribute("data-mode");
+  if (mode !== "full" && mode !== "text") mode = "short";
   var limits = null;
 
   function lang() {
@@ -59,7 +60,8 @@
     host.setAttribute("dir", l === "ar" ? "rtl" : "ltr");
     host.innerHTML =
       tab("short", "/app", "⚡", l === "ar" ? "مقطع قصير" : "Short clip", shortCaption(l)) +
-      tab("full", "/dub-long", "🎞️", l === "ar" ? "فيديو كامل" : "Full video", fullCaption(l));
+      tab("full", "/dub-long", "🎞️", l === "ar" ? "فيديو كامل" : "Full video", fullCaption(l)) +
+      tab("text", "/text-voice", "📝", l === "ar" ? "من نص" : "From text", l === "ar" ? "نص إلى صوت عربي" : "Script to Arabic voice");
   }
 
   render();

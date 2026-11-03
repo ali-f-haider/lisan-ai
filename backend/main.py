@@ -5394,7 +5394,8 @@ def download_voice_sample(job_id: str, speaker: str, request: Request):
     return FileResponse(p, media_type="audio/wav", filename=f"{speaker}_voice_sample.wav")
 
 @app.post("/api/upload_custom_voice")
-async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form("")):
+async def upload_custom_voice(request: Request, file: UploadFile = File(...), speaker: str = Form("Speaker 1"), job_id: str = Form(""),
+                              for_text_voice: str = Form(""), sample_language: str = Form(""), voice_consent: str = Form("")):
     uid = _current_uid(request)
     if not uid: return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     paused = _billing_pause_response()
@@ -5403,17 +5404,29 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     _g = _job_guard(request, job_id)
     if _g:
         return _g
+    # Text to voice (text_voice.py) always speaks with Inworld, so its own-voice clone is made there whatever the Voice Engine switch
+    # says. The sample may be in any of the app's languages (or a recording from the page) and then gets the Arabic accent.
+    for_text = for_text_voice.strip().lower() in ("true", "1", "yes", "on")
+    sample_lang = "ar"
+    if for_text:
+        if voice_consent.strip().lower() not in ("true", "1", "yes", "on"):
+            return JSONResponse({"error": "Please confirm that this is your own voice or that you have permission to use it."}, status_code=400)
+        try:
+            sample_lang = text_voice.clean_language(sample_language or "ar")
+        except ValueError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
     # Which engine will actually create this voice -- resolved BEFORE the
     # authorize gate (used to be after) so the gate's ElevenLabs shared-quota
     # check only applies when ElevenLabs is actually the engine being used;
     # also feeds the cost check below so it uses THIS engine's own rate --
     # same reasoning as /api/clone above.
-    engine = _active_voice_engine()
+    engine = "inworld" if for_text else _active_voice_engine()
     ok, plan_or_error = _authorize_new_clones(uid, 1, engine=engine)
     if not ok:
         return JSONResponse({"error": customer_message(plan_or_error)}, status_code=402)
     nm = (file.filename or "").lower()
-    if not nm.endswith((".mp3", ".wav")): return {"error": "Only MP3 or WAV files are allowed."}
+    if not nm.endswith((".mp3", ".wav", ".webm", ".ogg", ".m4a") if for_text else (".mp3", ".wav")):
+        return {"error": "Only MP3, WAV or a recording made on this page can be used." if for_text else "Only MP3 or WAV files are allowed."}
     data = await file.read()
     if len(data) > 10 * 1024 * 1024: return {"error": "File too large (max 10 MB / 20 seconds)."}
     # Uploading a custom voice hits the same ElevenLabs POST /v1/voices/add
@@ -5445,7 +5458,8 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
         return JSONResponse({"error": message, "operation_id": debit_id}, status_code=402 if balance is False else 503)
     try:
         if engine == "inworld":
-            res = inworld_service.add_custom_voice(job_id or "custom", speaker, tmp, INWORLD_API_KEY)
+            res = inworld_service.add_custom_voice(job_id or "custom", speaker, tmp, INWORLD_API_KEY,
+                                                   **({"language_code": sample_lang} if for_text else {}))
         else:
             res = eleven_service.add_custom_voice(job_id or "custom", speaker, tmp, ELEVENLABS_API_KEY)
     except Exception as e:
@@ -5465,7 +5479,12 @@ async def upload_custom_voice(request: Request, file: UploadFile = File(...), sp
     if engine == "inworld":
         _tag_voice_engine(res, engine)
     _increment_clone_usage(uid, 1)
-    return {"status": "success", "voice_id": res, "credits_charged": clone_cost, "credits_refunded": 0, "operation_id": debit_id}
+    preparing = False
+    if for_text and sample_lang != "ar":
+        text_voice.localize_later(res)          # the Arabic accent, about two minutes, in the background
+        preparing = True
+    return {"status": "success", "voice_id": res, "credits_charged": clone_cost, "credits_refunded": 0, "operation_id": debit_id,
+            **({"preparing": True} if preparing else {})}
 
 def account_summary(request: Request):
     uid = _current_uid(request)
@@ -5815,6 +5834,225 @@ def _ld_job(request: Request, job_id: str):
     if not job or job.get("uid") != uid:
         return uid, None, JSONResponse({"error": "We couldn't find that project."}, status_code=404)
     return uid, job, None
+
+
+# ===== TEXT TO VOICE (text_voice.py): a text in any of the app's languages, or Arabic, spoken in Arabic =====
+import text_voice
+
+_tv_rate = {"at": 0.0, "cpc": 60}
+
+
+def _text_voice_cpc():
+    """The voice rate, read at most once a minute (the page asks for the price every few seconds while it waits)."""
+    if _time.time() - _tv_rate["at"] > 60:
+        try:
+            _tv_rate["cpc"] = int(_ld_pricing()["chars_per_credit"]) or 60
+            _tv_rate["at"] = _time.time()
+        except Exception as ex:
+            print(f"[text-voice] price list not read, keeping {_tv_rate['cpc']}: {ex}")
+    return _tv_rate["cpc"]
+
+
+text_voice.configure(
+    charge=lambda uid, amount, action, job_id, operation_id=None: deduct_credits(uid, int(amount), action, job_id, None, operation_id),
+    refund=lambda uid, amount, job_id, debit_id=None, key=None: _ld_refund(uid, amount, job_id, debit_id=debit_id, key=key),
+    # the same voice rate as the long dub (Inworld), whatever the Voice Engine switch says: Text to voice always speaks with Inworld
+    chars_per_credit=_text_voice_cpc,
+    voice_status=text_voice.voice_status,
+)
+threading.Thread(target=text_voice.recover, daemon=True, name="text-voice-recover").start()
+
+
+def _own_inworld_voices(uid):
+    """[{voice_id, name}] of this account's saved voices made with Inworld (the only ones Text to voice can speak with), or None
+    when the list could not be read."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    rows = None
+    for sel in ("elevenlabs_voice_id,name,voice_engine", "elevenlabs_voice_id,name"):
+        try:
+            req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/user_voices?uid=eq.{uid}&select={sel}&order=created_at.desc",
+                                         headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                rows = json.load(r)
+            break
+        except Exception as ex:
+            print(f"[text-voice] own voices not read ({sel}): {ex}")
+    if rows is None:
+        return None
+    return [{"voice_id": r["elevenlabs_voice_id"], "name": r.get("name") or "", "status": text_voice.voice_status(r["elevenlabs_voice_id"])}
+            for r in rows if r.get("elevenlabs_voice_id") and r.get("voice_engine") == "inworld"]
+
+
+def _text_voice_job(request, job_id):
+    """(uid, project) or (None, ready response)."""
+    uid = _current_uid(request)
+    if not uid:
+        return None, JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    job = text_voice.owned(job_id, uid)
+    if not job:
+        return None, JSONResponse({"error": "not found"}, status_code=404)
+    return uid, job
+
+
+def _text_voice_answer(ok_err, job_id, uid=None):
+    ok, err = ok_err
+    if not ok:
+        return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
+    out = text_voice.public(text_voice.load(job_id))
+    if uid:
+        out["credits"] = get_credits(uid)
+    return out
+
+
+@app.get("/text-voice")
+def text_voice_page():
+    html = (BASE_DIR / "text_voice.html").read_text(encoding="utf-8")
+    if (_get_pricing_config().get("uiStyle") or "classic") == "new":
+        html = html.replace("<body>", '<body class="ui-new">', 1)
+    return HTMLResponse(html, headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/api/text_voice/config")
+def text_voice_config(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    p = _ld_pricing()
+    return {"enabled": text_voice.ENABLED, "languages": text_voice.source_languages(), "max_chars": text_voice.MAX_CHARS,
+            "translate_per_1000": text_voice.TRANSLATE_PER_1000, "arabic_per_1000": text_voice.ARABIC_PER_1000,
+            "chars_per_credit": p["chars_per_credit"], "clone_credits": p["clone_credits"],
+            "can_clone": bool(_subscription_active(uid)), "credits": get_credits(uid)}
+
+
+@app.get("/api/text_voice/voices")
+def text_voice_voices(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    got = inworld_service.fetch_library(INWORLD_API_KEY)
+    rows = [dict(v) for v in (got.get("voices") or [])]
+    if rows:
+        import voice_numbers
+        voice_numbers.assign("inworld", rows)            # the same numbers as everywhere else ("Male voice 17")
+        rows.sort(key=lambda v: (v.get("arabic") is False, v.get("number") or 0))
+    mine = _own_inworld_voices(uid)
+    return {"library": [{k: v.get(k) for k in ("voice_id", "name", "gender", "age", "arabic", "number", "preview_url")} for v in rows],
+            "mine": mine or [], **({"error": got.get("error")} if not rows and got.get("error") else {})}
+
+
+@app.get("/api/text_voice/projects")
+def text_voice_projects(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    return {"projects": text_voice.list_jobs(uid)}
+
+
+@app.post("/api/text_voice/new")
+def text_voice_new(request: Request, payload: dict):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "text_voice_new", 30, 3600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    job, err = text_voice.new_job(uid, (payload or {}).get("text"), (payload or {}).get("source_language"), (payload or {}).get("title"))
+    if err:
+        return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
+    return text_voice.public(job)
+
+
+@app.get("/api/text_voice/{job_id}")
+def text_voice_get(job_id: str, request: Request):
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    return text_voice.public(job)
+
+
+@app.delete("/api/text_voice/{job_id}")
+def text_voice_delete(job_id: str, request: Request):
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    ok, err = text_voice.delete_job(job)
+    return {"deleted": True} if ok else JSONResponse({"error": err[0]}, status_code=err[1])
+
+
+@app.post("/api/text_voice/{job_id}/speakers")
+def text_voice_speakers(job_id: str, request: Request, payload: dict):
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    updates = (payload or {}).get("speakers") or []
+    wanted = {str((u or {}).get("voice_id") or "").strip() for u in updates if isinstance(u, dict)} - {""}
+    if wanted:
+        # only a stock voice or one of this account's own voices: a voice id of somebody else is never accepted
+        own = {v["voice_id"] for v in (_own_inworld_voices(uid) or [])}
+        for vid in wanted:
+            if vid not in own and not inworld_service.is_library_voice(vid, INWORLD_API_KEY):
+                return JSONResponse({"error": "This voice cannot be used here. Please choose another one."}, status_code=400)
+    return _text_voice_answer(text_voice.set_speakers(job, updates), job_id)
+
+
+@app.post("/api/text_voice/{job_id}/lines")
+def text_voice_lines(job_id: str, request: Request, payload: dict):
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    return _text_voice_answer(text_voice.set_lines(job, (payload or {}).get("lines") or []), job_id)
+
+
+@app.post("/api/text_voice/{job_id}/prepare")
+def text_voice_prepare(job_id: str, request: Request):
+    uid, _no = _paid_uid(request)
+    if _no is not None:
+        return _no
+    job = text_voice.owned(job_id, uid)
+    if not job:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return _text_voice_answer(text_voice.start_prepare(job), job_id, uid)
+
+
+@app.post("/api/text_voice/{job_id}/speak")
+def text_voice_speak(job_id: str, request: Request):
+    uid, _no = _paid_uid(request)
+    if _no is not None:
+        return _no
+    job = text_voice.owned(job_id, uid)
+    if not job:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    own = None
+    for sp in job["speakers"]:          # a saved voice may have been deleted since it was chosen
+        vid = sp.get("voice_id")
+        if vid and not inworld_service.is_library_voice(vid, INWORLD_API_KEY):
+            own = own if own is not None else {v["voice_id"] for v in (_own_inworld_voices(uid) or [])}
+            if vid not in own:
+                return JSONResponse({"error": f"The voice chosen for {sp['name']} is no longer in your voices. Please choose another one."}, status_code=400)
+    return _text_voice_answer(text_voice.start_speak(job), job_id, uid)
+
+
+@app.get("/api/text_voice/{job_id}/audio")
+def text_voice_audio(job_id: str, request: Request):
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    path = text_voice.audio_path(job)
+    if not path:
+        return JSONResponse({"error": "The audio is not ready yet."}, status_code=404)
+    name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
+    return FileResponse(path, media_type="audio/mpeg", filename=name + ".mp3")
+
+
+@app.get("/api/text_voice/{job_id}/line/{line_id}")
+def text_voice_line_audio(job_id: str, line_id: str, request: Request):
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    path = text_voice.line_audio_path(job, line_id)
+    if not path:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(path, media_type="audio/mpeg")
 
 
 @app.get("/dub-long")

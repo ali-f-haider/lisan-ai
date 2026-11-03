@@ -762,11 +762,12 @@ def clone_voices(job_id: str, segments: list, api_key: str, speakers_to_clone: l
     return {"status": "success", "cloned_voices": cloned_voices, "warnings": warnings}
 
 
-def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
+def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str, language_code: str = DEFAULT_LANGUAGE):
     """Same shape as eleven_service.add_custom_voice: returns a voice_id
     string on success, or an "ERROR: ..." string on failure -- never raises,
     matching the existing convention main.py's /api/upload_custom_voice
-    already handles."""
+    already handles. language_code: the language spoken in the sample
+    (Text to voice passes it; the voice then gets the Arabic accent there)."""
     if not _configured(api_key):
         return "ERROR: Voice cloning is temporarily unavailable. Please try again later."
     safe = "".join(c for c in speaker if c.isalnum()).strip() or "spk"
@@ -788,7 +789,7 @@ def add_custom_voice(job_id: str, speaker: str, src_path, api_key: str):
             pass
         wav = pad
     try:
-        voice_id = clone_voice_from_file(f"Custom_{speaker}", wav, api_key)
+        voice_id = clone_voice_from_file(f"Custom_{speaker}", wav, api_key, language_code=language_code or DEFAULT_LANGUAGE)
         return voice_id
     except Exception as e:
         return "ERROR: " + _cust(e, "custom voice")

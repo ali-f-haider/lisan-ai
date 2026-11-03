@@ -141,6 +141,19 @@ class Behaviour(unittest.TestCase):
         self.assertIn("Short clip", r["html"])
         self.assertIn("مقطع قصير", r["flipped"])      # the harness flips <html lang> to ar and fires the observer
 
+    def test_the_text_tab_links_to_text_to_voice_and_is_current_there(self):
+        h = _run("short", "en", LIMITS)["html"]
+        self.assertIn('href="/text-voice"', h)
+        self.assertIn("From text", h)
+        h = _run("text", "ar", LIMITS)["html"]
+        self.assertRegex(h, r'class="ms-tab on" data-mode="text"')
+        self.assertIn("من نص", h)
+        self.assertIn('href="/app"', h)
+        self.assertIn('href="/dub-long"', h)
+        page = _read("text_voice.html")
+        self.assertEqual(len(re.findall(r'id="modeSwitch" data-mode="text"', page)), 1)
+        self.assertIn('<script src="/mode_switch.js"></script>', page)
+
     def test_page_text_is_escaped(self):
         js = _read("mode_switch.js")
         self.assertIn("function esc", js)

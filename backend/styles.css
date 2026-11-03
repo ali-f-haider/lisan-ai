@@ -1078,7 +1078,7 @@ body button.tl-play:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(99
    Everything is in the theme variables, so Classic, Studio and dark mode all follow. The anchor selectors repeat the body
    prefixes for the same reason a.btn-logout does above: "body a" link colours would otherwise win. */
 .mode-switch {
-    display: flex; gap: 4px; max-width: 560px; width: calc(100% - 32px); margin: 14px auto 0; padding: 4px;
+    display: flex; gap: 4px; max-width: 760px; width: calc(100% - 32px); margin: 14px auto 0; padding: 4px;
     background: var(--muted-surface); border: 1px solid var(--border); border-radius: 14px;
 }
 .mode-switch .ms-tab {

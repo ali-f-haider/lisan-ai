@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lisan AI — Text to voice</title>
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="stylesheet" href="/styles.css">
+<style>
+.tv-wrap { max-width: 980px; margin: 0 auto; padding: 0 12px 60px; }
+html[dir="rtl"] .tv-wrap { direction: rtl; }
+.tv-wrap label { display: block; font-weight: 600; margin: 12px 0 4px; }
+.tv-wrap input[type=text], .tv-wrap select, .tv-wrap textarea { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--input-bg); color: var(--text); font: inherit; }
+.tv-wrap textarea#tvText { min-height: 220px; resize: vertical; line-height: 1.6; }
+.tv-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+.tv-grid2 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .tv-grid2 { grid-template-columns: 1fr; } }
+.tv-count { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.tv-err { color: var(--error); font-weight: 600; margin-top: 10px; white-space: pre-wrap; }
+.tv-ok { color: var(--success); font-weight: 600; margin-top: 10px; }
+.btn-plain { background: var(--logout-bg); color: var(--text-muted); border: 1px solid var(--border); }
+.btn-plain:hover { background: var(--logout-hover-bg); }
+.tv-spk { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin: 10px 0; background: var(--muted-surface); }
+.tv-spk-head { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.tv-spk-head strong { font-size: 15px; min-width: 120px; }
+.tv-spk-head select { width: auto; min-width: 130px; }
+.tv-voice-name { font-size: 13px; color: var(--text-muted); }
+.tv-panel { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 10px; }
+.tv-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.tv-tabs button { padding: 6px 12px; font-size: 13px; }
+.tv-tabs button.on { background: var(--primary); color: #fff; }
+.tv-vlist { max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.tv-vrow { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.tv-vrow:last-child { border-bottom: none; }
+.tv-vrow span { font-size: 14px; }
+.tv-vrow button { padding: 5px 10px; font-size: 13px; }
+.tv-line { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.tv-line-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
+.tv-line-head b { color: var(--text); }
+.tv-line-src { font-size: 14px; color: var(--text-muted); margin-bottom: 6px; white-space: pre-wrap; }
+.tv-line textarea { direction: rtl; text-align: right; font-size: 18px; line-height: 1.9; min-height: 52px; resize: vertical; }
+.tv-line select { width: auto; font-size: 13px; padding: 4px 8px; }
+.tv-badge { background: var(--warning); color: #111; border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; }
+.tv-proj { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.tv-proj:last-child { border-bottom: none; }
+.tv-proj .meta { font-size: 12px; color: var(--text-muted); }
+.tv-bar { height: 10px; background: var(--muted-surface); border-radius: 6px; overflow: hidden; margin-top: 10px; border: 1px solid var(--border); }
+.tv-bar > div { height: 100%; background: var(--primary); width: 0; transition: width .4s; }
+.tv-wrap audio { width: 100%; margin-top: 12px; }
+.tv-rec { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.tv-consent { display: flex !important; gap: 8px; align-items: flex-start; font-weight: 500 !important; }
+.tv-consent input { margin-top: 4px; }
+</style>
+<script src="/pwa.js" defer></script>
+</head>
+<body>
+<div id="userBar">
+  <div class="brand-row" style="display:flex;align-items:center;gap:10px;">
+    <img src="/logo.png" style="height:30px;" alt="">
+    <strong id="pageTitle" style="color:#1a237e;">Lisan AI — Text to voice</strong>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <button id="langBtn" class="btn-logout" title="Language" onclick="window._toggleLang()">العربية</button>
+    <button id="darkModeBtn" class="btn-logout" title="Toggle dark mode" onclick="window._toggleDarkMode()">🌙</button>
+    <span class="credits-badge" style="display:inline-block;">💰 <span id="creditsNum">–</span> <span id="creditsWord">credits</span></span>
+    <button id="backBtn" class="btn-logout" onclick="location.href='/app'">← Back to App</button>
+    <button id="logoutBtn" class="btn-logout" onclick="try{sessionStorage.removeItem('lisan_notify_log');sessionStorage.removeItem('lisan_notify_log_owner');}catch(e){};fetch('/api/logout',{method:'POST'}).then(function(){location.href='/login'})">Log Out</button>
+  </div>
+</div>
+
+<div id="modeSwitch" data-mode="text"></div>
+<script src="/mode_switch.js"></script>
+
+<div class="tv-wrap">
+  <div class="card" id="introCard">
+    <h3 id="introHeading"></h3>
+    <p id="introText" class="note"></p>
+    <ol id="introSteps" style="margin:10px 22px;line-height:1.7;font-size:14px;"></ol>
+  </div>
+
+  <div class="card hidden" id="offCard"><p id="offText"></p></div>
+
+  <div class="card" id="newCard">
+    <h3 id="newHeading"></h3>
+    <div class="tv-grid2">
+      <div><label for="tvTitle" id="titleLabel"></label><input type="text" id="tvTitle" maxlength="120" autocomplete="off"></div>
+      <div><label for="tvLang" id="langLabel"></label><select id="tvLang"></select></div>
+    </div>
+    <label for="tvText" id="textLabel"></label>
+    <textarea id="tvText"></textarea>
+    <div class="tv-count" id="tvCount"></div>
+    <p class="note" id="scriptTip" style="margin-top:10px;white-space:pre-line;"></p>
+    <div class="tv-row"><button id="btnNew" class="green"></button></div>
+    <div id="newErr" class="tv-err hidden"></div>
+  </div>
+
+  <div class="card hidden" id="jobCard">
+    <h3 id="jobHeading"></h3>
+    <div id="jobTitle" style="font-weight:700;margin-bottom:6px;"></div>
+    <div class="tv-row" style="margin-top:0;"><button class="btn-plain" id="btnClose"></button><button class="btn-plain" id="btnDelete"></button></div>
+    <h4 id="spkHeading" style="margin-top:18px;"></h4>
+    <p class="note" id="spkNote"></p>
+    <div id="spkList"></div>
+    <div class="tv-row"><button id="btnPrepare" class="green"></button></div>
+    <p class="note hidden" id="prepareWarn"></p>
+    <div id="busyBox" class="hidden"><div id="busyText" style="margin-top:10px;font-weight:600;"></div><div class="tv-bar"><div id="busyBar"></div></div></div>
+    <div id="jobErr" class="tv-err hidden"></div>
+  </div>
+
+  <div class="card hidden" id="linesCard">
+    <h3 id="linesHeading"></h3>
+    <p class="note" id="linesNote"></p>
+    <div id="lineList"></div>
+  </div>
+
+  <div class="card hidden" id="audioCard">
+    <h3 id="audioHeading"></h3>
+    <p class="note" id="audioNote"></p>
+    <div class="tv-row"><button id="btnSpeak" class="green"></button></div>
+    <div id="speakErr" class="tv-err hidden"></div>
+    <div id="audioBox" class="hidden">
+      <audio id="finalAudio" controls preload="none"></audio>
+      <div class="tv-row"><a id="dlLink" class="btn-logout" href="#" download></a><span id="audioLen" style="font-size:13px;color:var(--text-muted);"></span></div>
+    </div>
+  </div>
+
+  <div class="card" id="listCard">
+    <h3 id="listHeading"></h3>
+    <div id="listBody"></div>
+  </div>
+</div>
+
+<script src="/dialogs.js"></script>
+<script>
+(function () {
+  function apply(on) {
+    try {
+      document.body.classList.toggle("dark", !!on);
+      localStorage.setItem("lisan_dark_mode", on ? "1" : "0");
+      var db = document.getElementById("darkModeBtn");
+      if (db) db.textContent = on ? "☀️" : "🌙";
+    } catch (e) {}
+  }
+  window._toggleDarkMode = function () { apply(!document.body.classList.contains("dark")); };
+  var saved;
+  try { saved = localStorage.getItem("lisan_dark_mode"); } catch (e) { saved = null; }
+  apply(saved === null || saved === "1");
+})();
+
+var LANG = "en";
+try { LANG = (localStorage.getItem("lisan_lang") === "ar") ? "ar" : "en"; } catch (e) {}
+window._toggleLang = function () {
+  try { localStorage.setItem("lisan_lang", LANG === "ar" ? "en" : "ar"); } catch (e) {}
+  location.reload();
+};
+
+var EMOTIONS = ["neutral", "narrative", "conversational", "announcer", "happy", "sad", "angry", "fearful", "surprised", "excited", "serious", "confident",
+  "thoughtful", "playful", "sarcastic", "mocking", "pleading", "commanding", "anxious", "relieved", "tired", "frustrated", "annoyed", "sorrowful", "curious",
+  "deadpan", "whispering", "shouting", "softly", "booming", "crying", "laughing", "terrified", "regretful", "awe"];
+var EMO_AR = {"neutral": "محايد", "narrative": "سردي", "conversational": "حواري", "announcer": "مذيع", "happy": "سعيد", "sad": "حزين", "angry": "غاضب", "fearful": "خائف",
+  "surprised": "متفاجئ", "excited": "متحمس", "serious": "جاد", "confident": "واثق", "thoughtful": "متأمل", "playful": "مرح", "sarcastic": "ساخر",
+  "mocking": "مستهزئ", "pleading": "متوسل", "commanding": "آمر", "anxious": "قلق", "relieved": "مرتاح", "tired": "متعب", "frustrated": "محبط", "annoyed": "منزعج",
+  "sorrowful": "كئيب", "curious": "فضولي", "deadpan": "ببرود", "whispering": "يهمس", "shouting": "يصيح", "softly": "بصوت خافت", "booming": "بصوت جهوري",
+  "crying": "يبكي", "laughing": "يضحك أثناء الكلام", "terrified": "مرعوب", "regretful": "نادم", "awe": "مبهور"};
+
+function cr(c) { return c + (c === 1 ? " credit" : " credits"); }
+function arLines(n) { return n === 1 ? "سطر واحد" : n === 2 ? "سطران" : (n >= 3 && n <= 10) ? n + " أسطر" : n + " سطرًا"; }
+
+var T = {
+  en: {
+    title: "Lisan AI — Text to voice", credits: "credits", back: "← Back to App", logout: "Log Out",
+    introHeading: "📝 Text to voice",
+    introText: "You only have a text? Paste it here and get it spoken in Arabic. Your text can be in any of the languages Lisan AI supports, or already in Arabic.",
+    introSteps: [
+      "Paste your text and choose its language. A script with several speakers is written one line per speaker, as \"Name: text\".",
+      "Choose male or female for each speaker. We translate the text into Arabic with full diacritics (an Arabic text keeps its words and only gets the missing diacritics).",
+      "Check and correct the Arabic, and choose a voice for each speaker: one of our voices, one of your saved voices, or your own voice.",
+      "We make the audio and you download one MP3. After a correction, only the changed lines are made and paid again."
+    ],
+    newHeading: "1. Your text", titleLabel: "Project name (optional)", titlePh: "For example: Product video narration",
+    langLabel: "Language of the text", textLabel: "Text",
+    textPh: "Paste or type your text here.",
+    count: function (n, max) { return n.toLocaleString() + " / " + max.toLocaleString() + " characters"; },
+    scriptTip: "Several speakers? Start each line with the speaker's name and a colon:\nSara: Good morning, how can I help you?\nAdam: I'd like to book a table for two.\nWithout names, the whole text is read by one narrator.",
+    btnNew: "Continue (free)", needText: "Please paste or type your text first.",
+    jobHeading: "2. Speakers", close: "Close project", del: "Delete project",
+    delConfirm: "Delete this project and its audio? This cannot be undone.",
+    spkHeading: "Speakers", spkNoteTr: "Arabic uses different forms for men and women, so please choose male or female for every speaker before the translation.",
+    spkNoteAr: "Choose a voice for every speaker. You can also do this after checking the text.",
+    narrator: "Narrator", gender: "Gender", male: "Male", female: "Female", choose: "Choose…",
+    voiceNone: "No voice chosen yet", voiceBtn: "Choose voice", voiceHide: "Hide voices",
+    tabLib: "Our voices", tabMine: "My voices", tabOwn: "My own voice",
+    preview: "▶ Listen", select: "Choose", chosen: "✓ Chosen", libEmpty: "The voice list is not available right now. Please try again in a moment.",
+    mineEmpty: "You have no saved voices yet.", accentWait: "getting the Arabic accent…",
+    voiceNo: function (g, n) { return (g === "female" ? "Female voice " : "Male voice ") + n; },
+    ownIntro: "Record or upload 10 to 20 seconds of clear speech, without music or other voices. We make an Arabic voice that sounds like you and save it in your voices.",
+    ownSub: "Your own voice is part of the subscription plans.", ownSubLink: "See the plans",
+    sampleLang: "Language spoken in the recording", rec: "● Record", recStop: "■ Stop", recAgain: "● Record again", upload: "Upload a file (MP3 or WAV)",
+    recReady: function (s) { return "Recording ready (" + s + " s)."; }, fileReady: function (n) { return "File chosen: " + n; },
+    recShort: "The recording is too short. Please speak for at least 5 seconds.", micDenied: "The microphone could not be used. Please allow it in your browser, or upload a file.",
+    consent: "This is my own voice, or I have the permission of the person who speaks.",
+    makeOwn: function (c) { return "Make my voice (" + cr(c) + ")"; }, making: "Making your voice…",
+    ownMade: "Your voice is ready and chosen for this speaker.", ownAccent: "Your voice is made. It is now getting the Arabic accent; this takes about two minutes.",
+    needSample: "Please record or choose a file first.", needConsent: "Please confirm that this is your own voice or that you have permission.",
+    prepTr: function (c) { return "Translate into Arabic (" + cr(c) + ")"; }, prepAr: function (c) { return "Add the diacritics (" + cr(c) + ")"; },
+    prepAgainTr: function (c) { return "Translate again (" + cr(c) + ")"; }, prepAgainAr: function (c) { return "Add the diacritics again (" + cr(c) + ")"; },
+    prepareWarn: "Doing this again replaces the Arabic text, including your corrections.",
+    againConfirm: "This replaces the Arabic text, including your corrections. Continue?",
+    needGender: "Please choose male or female for every speaker first.",
+    busyPrepTr: "Translating…", busyPrepAr: "Adding the diacritics…", busySpeak: "Making the audio…",
+    linesHeading: "3. Check the Arabic", linesNote: "Correct anything you like. Your changes are saved by themselves. A line marked \"check\" uses a male or female form we could not be sure about.",
+    check: "check", emotion: "Delivery", saved: "Saved", playLine: "▶",
+    audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are made and paid.",
+    speak: function (c, n) { return "Make the audio (" + cr(c) + ", " + n + (n === 1 ? " line)" : " lines)"); },
+    speakFree: "Make the audio (free: nothing changed)",
+    needVoice: function (n) { return "Please choose a voice for " + n + "."; },
+    download: "⬇ Download MP3", length: function (s) { return Math.round(s) + " seconds"; },
+    listHeading: "My text projects", listEmpty: "No projects yet.", open: "Open",
+    lines: function (n) { return n + (n === 1 ? " line" : " lines"); }, ready: "audio ready",
+    off: "Text to voice is not available right now.",
+    netErr: "We couldn't reach the server. Please check your connection and try again."
+  },
+  ar: {
+    title: "Lisan AI — من نص إلى صوت", credits: "رصيد", back: "→ العودة إلى التطبيق", logout: "تسجيل الخروج",
+    introHeading: "📝 من نص إلى صوت",
+    introText: "لديك نص فقط؟ الصقه هنا لتحصل عليه مقروءًا بصوت عربي. يمكن أن يكون نصك بأي لغة يدعمها Lisan AI، أو بالعربية مباشرة.",
+    introSteps: [
+      "الصق نصك واختر لغته. إذا كان في النص أكثر من متحدث، فاكتب كل سطر بهذا الشكل: \"الاسم: النص\".",
+      "حدّد لكل متحدث إن كان ذكرًا أو أنثى. نترجم النص إلى العربية مع التشكيل الكامل (أما النص العربي فتبقى كلماته كما هي ونضيف التشكيل الناقص فقط).",
+      "راجع النص العربي وصحّحه، واختر صوتًا لكل متحدث: أحد أصواتنا، أو صوتًا من أصواتك المحفوظة، أو صوتك أنت.",
+      "نصنع الصوت وتنزّله ملف MP3 واحدًا. بعد أي تصحيح، تُصنع الأسطر التي تغيّرت فقط وتُدفع وحدها."
+    ],
+    newHeading: "١. نصك", titleLabel: "اسم المشروع (اختياري)", titlePh: "مثلًا: التعليق الصوتي لفيديو المنتج",
+    langLabel: "لغة النص", textLabel: "النص",
+    textPh: "الصق نصك أو اكتبه هنا.",
+    count: function (n, max) { return n.toLocaleString("ar") + " / " + max.toLocaleString("ar") + " حرف"; },
+    scriptTip: "أكثر من متحدث؟ ابدأ كل سطر باسم المتحدث ثم نقطتين:\nسارة: صباح الخير، كيف أستطيع مساعدتك؟\nآدم: أريد حجز طاولة لشخصين.\nبدون أسماء، يقرأ النصَّ كلَّه راوٍ واحد.",
+    btnNew: "متابعة (مجانًا)", needText: "يرجى لصق نصك أو كتابته أولًا.",
+    jobHeading: "٢. المتحدثون", close: "إغلاق المشروع", del: "حذف المشروع",
+    delConfirm: "هل تريد حذف هذا المشروع وصوته؟ لا يمكن التراجع عن ذلك.",
+    spkHeading: "المتحدثون", spkNoteTr: "تختلف صيغ الكلام في العربية بين المذكر والمؤنث، لذا يرجى تحديد ذكر أو أنثى لكل متحدث قبل الترجمة.",
+    spkNoteAr: "اختر صوتًا لكل متحدث. يمكنك فعل ذلك أيضًا بعد مراجعة النص.",
+    narrator: "الراوي", gender: "الجنس", male: "ذكر", female: "أنثى", choose: "اختر…",
+    voiceNone: "لم يُختر صوت بعد", voiceBtn: "اختيار الصوت", voiceHide: "إخفاء الأصوات",
+    tabLib: "أصواتنا", tabMine: "أصواتي", tabOwn: "صوتي أنا",
+    preview: "▶ استماع", select: "اختيار", chosen: "✓ تم الاختيار", libEmpty: "قائمة الأصوات غير متاحة الآن. يرجى المحاولة بعد قليل.",
+    mineEmpty: "ليست لديك أصوات محفوظة بعد.", accentWait: "يجري إكسابه اللكنة العربية…",
+    voiceNo: function (g, n) { return (g === "female" ? "صوت أنثى " : "صوت ذكر ") + n; },
+    ownIntro: "سجّل أو ارفع من 10 إلى 20 ثانية من كلام واضح، بدون موسيقى أو أصوات أخرى. نصنع صوتًا عربيًا يشبه صوتك ونحفظه في أصواتك.",
+    ownSub: "صوتك الخاص متاح ضمن خطط الاشتراك.", ownSubLink: "عرض الخطط",
+    sampleLang: "لغة الكلام في التسجيل", rec: "● تسجيل", recStop: "■ إيقاف", recAgain: "● تسجيل من جديد", upload: "رفع ملف (MP3 أو WAV)",
+    recReady: function (s) { return "التسجيل جاهز (" + s + " ث)."; }, fileReady: function (n) { return "الملف المختار: " + n; },
+    recShort: "التسجيل قصير جدًا. يرجى الكلام لمدة 5 ثوانٍ على الأقل.", micDenied: "تعذّر استخدام الميكروفون. يرجى السماح به في المتصفح، أو رفع ملف.",
+    consent: "هذا صوتي أنا، أو لديّ إذن من صاحب الصوت.",
+    makeOwn: function (c) { return "اصنع صوتي (" + c + " رصيد)"; }, making: "جارٍ صنع صوتك…",
+    ownMade: "صوتك جاهز وتم اختياره لهذا المتحدث.", ownAccent: "تم صنع صوتك، ويجري الآن إكسابه اللكنة العربية؛ يستغرق ذلك نحو دقيقتين.",
+    needSample: "يرجى التسجيل أو اختيار ملف أولًا.", needConsent: "يرجى التأكيد أن هذا صوتك أو أن لديك إذنًا.",
+    prepTr: function (c) { return "الترجمة إلى العربية (" + c + " رصيد)"; }, prepAr: function (c) { return "إضافة التشكيل (" + c + " رصيد)"; },
+    prepAgainTr: function (c) { return "الترجمة من جديد (" + c + " رصيد)"; }, prepAgainAr: function (c) { return "إضافة التشكيل من جديد (" + c + " رصيد)"; },
+    prepareWarn: "إعادة هذه الخطوة تستبدل النص العربي، بما فيه تصحيحاتك.",
+    againConfirm: "سيُستبدل النص العربي، بما فيه تصحيحاتك. هل تريد المتابعة؟",
+    needGender: "يرجى تحديد ذكر أو أنثى لكل متحدث أولًا.",
+    busyPrepTr: "جارٍ الترجمة…", busyPrepAr: "جارٍ إضافة التشكيل…", busySpeak: "جارٍ صنع الصوت…",
+    linesHeading: "٣. مراجعة النص العربي", linesNote: "صحّح ما تشاء، وتُحفظ تغييراتك تلقائيًا. السطر المعلَّم بـ\"راجِع\" فيه صيغة مذكر أو مؤنث لم نكن متأكدين منها.",
+    check: "راجِع", emotion: "طريقة الأداء", saved: "تم الحفظ", playLine: "▶",
+    audioHeading: "٤. الصوت", audioNote: "تُصنع وتُدفع فقط الأسطر الجديدة أو التي تغيّرت منذ آخر مرة.",
+    speak: function (c, n) { return "اصنع الصوت (" + c + " رصيد، " + arLines(n) + ")"; },
+    speakFree: "اصنع الصوت (مجانًا: لم يتغيّر شيء)",
+    needVoice: function (n) { return "يرجى اختيار صوت لـ" + n + "."; },
+    download: "⬇ تنزيل MP3", length: function (s) { return Math.round(s) + " ثانية"; },
+    listHeading: "مشاريعي النصية", listEmpty: "لا توجد مشاريع بعد.", open: "فتح",
+    lines: function (n) { return arLines(n); }, ready: "الصوت جاهز",
+    off: "خدمة «من نص إلى صوت» غير متاحة الآن.",
+    netErr: "تعذّر الاتصال بالخادم. يرجى التحقق من اتصالك والمحاولة مرة أخرى."
+  }
+}[LANG];
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+function show(el, on) { el.classList.toggle("hidden", !on); }
+function alertMsg(m) { if (window.LisanDialog && LisanDialog.alert) return LisanDialog.alert(m); alert(m); return Promise.resolve(); }
+function confirmMsg(m, danger) { if (window.LisanDialog && LisanDialog.confirm) return LisanDialog.confirm(m, { danger: !!danger }); return Promise.resolve(confirm(m)); }
+
+function api(method, url, body) {
+  var init = { method: method, headers: {} };
+  if (body !== undefined && body !== null) {
+    if (body instanceof FormData) init.body = body;
+    else { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(body); }
+  }
+  return fetch(url, init).then(function (r) {
+    if (r.status === 401) { location.href = "/login"; return new Promise(function () {}); }
+    return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, status: r.status, data: d || {} }; });
+  }, function () { return { ok: false, status: 0, data: { error: T.netErr } }; });
+}
+
+var cfg = null, job = null, voices = null, openPanel = null, pollTimer = null, voicePoll = null;
+var own = { blob: null, name: "", rec: null, chunks: [], started: 0, stream: null };
+
+function setCredits(n) { if (n !== undefined && n !== null) $("creditsNum").textContent = n; }
+
+function applyStaticText() {
+  document.documentElement.lang = LANG;
+  document.documentElement.dir = LANG === "ar" ? "rtl" : "ltr";
+  document.title = T.title;
+  $("pageTitle").textContent = T.title;
+  $("langBtn").textContent = LANG === "ar" ? "English" : "العربية";
+  $("creditsWord").textContent = T.credits;
+  $("backBtn").textContent = T.back;
+  $("logoutBtn").textContent = T.logout;
+  $("introHeading").textContent = T.introHeading;
+  $("introText").textContent = T.introText;
+  $("introSteps").innerHTML = T.introSteps.map(function (s) { return "<li>" + esc(s) + "</li>"; }).join("");
+  $("newHeading").textContent = T.newHeading;
+  $("titleLabel").textContent = T.titleLabel; $("tvTitle").placeholder = T.titlePh;
+  $("langLabel").textContent = T.langLabel; $("textLabel").textContent = T.textLabel; $("tvText").placeholder = T.textPh;
+  $("scriptTip").textContent = T.scriptTip;
+  $("btnNew").textContent = T.btnNew;
+  $("jobHeading").textContent = T.jobHeading; $("btnClose").textContent = T.close; $("btnDelete").textContent = T.del;
+  $("spkHeading").textContent = T.spkHeading; $("prepareWarn").textContent = T.prepareWarn;
+  $("linesHeading").textContent = T.linesHeading; $("linesNote").textContent = T.linesNote;
+  $("audioHeading").textContent = T.audioHeading; $("audioNote").textContent = T.audioNote;
+  $("dlLink").textContent = T.download;
+  $("listHeading").textContent = T.listHeading;
+  $("offText").textContent = T.off;
+}
+
+function langName(l) { return LANG === "ar" ? l.arabic : (l.code === "en" || l.code === "ar" ? l.name : l.name + " (" + l.native + ")"); }
+
+function updateCount() {
+  var n = $("tvText").value.length, max = cfg ? cfg.max_chars : 20000;
+  $("tvCount").textContent = T.count(n, max);
+  $("tvCount").style.color = n > max ? "var(--error)" : "";
+}
+
+function err(box, msg) { box.textContent = msg || ""; show(box, !!msg); }
+
+// ---------------------------------------------------------------- projects list
+function loadList() {
+  api("GET", "/api/text_voice/projects").then(function (r) {
+    var list = (r.data && r.data.projects) || [];
+    if (!list.length) { $("listBody").innerHTML = '<p class="note">' + esc(T.listEmpty) + "</p>"; return; }
+    $("listBody").innerHTML = list.map(function (p) {
+      var d = new Date((p.updated || 0) * 1000);
+      return '<div class="tv-proj"><div><b>' + esc(p.title) + '</b><div class="meta">' + esc(d.toLocaleString(LANG === "ar" ? "ar" : undefined)) + " · " +
+        esc(T.lines(p.lines)) + (p.audio_ready ? " · " + esc(T.ready) : "") + '</div></div><button class="btn-plain" data-open="' + esc(p.id) + '">' + esc(T.open) + "</button></div>";
+    }).join("");
+    Array.prototype.forEach.call($("listBody").querySelectorAll("[data-open]"), function (b) {
+      b.onclick = function () { openJob(b.getAttribute("data-open")); };
+    });
+  });
+}
+
+// ---------------------------------------------------------------- new project
+$("btnNew").onclick = function () {
+  var text = $("tvText").value;
+  if (!text.trim()) { err($("newErr"), T.needText); return; }
+  err($("newErr"), "");
+  $("btnNew").disabled = true;
+  api("POST", "/api/text_voice/new", { text: text, source_language: $("tvLang").value, title: $("tvTitle").value }).then(function (r) {
+    $("btnNew").disabled = false;
+    if (!r.ok) { err($("newErr"), r.data.error || T.netErr); return; }
+    $("tvText").value = ""; $("tvTitle").value = ""; updateCount();
+    showJob(r.data);
+    loadList();
+  });
+};
+$("tvText").addEventListener("input", updateCount);
+
+function openJob(id) {
+  api("GET", "/api/text_voice/" + encodeURIComponent(id)).then(function (r) {
+    if (r.ok) showJob(r.data); else alertMsg(r.data.error || T.netErr);
+  });
+}
+
+$("btnClose").onclick = function () {
+  job = null; openPanel = null; stopPoll();
+  try { localStorage.removeItem("lisan_text_voice_open"); } catch (e) {}
+  show($("jobCard"), false); show($("linesCard"), false); show($("audioCard"), false); show($("newCard"), true);
+  loadList();
+};
+$("btnDelete").onclick = function () {
+  if (!job) return;
+  confirmMsg(T.delConfirm, true).then(function (yes) {
+    if (!yes) return;
+    api("DELETE", "/api/text_voice/" + job.id).then(function (r) {
+      if (!r.ok) { alertMsg(r.data.error || T.netErr); return; }
+      $("btnClose").onclick();
+    });
+  });
+};
+
+// ---------------------------------------------------------------- the project
+function speakerName(sp) { return sp.name === "Narrator" ? T.narrator : sp.name; }
+
+function showJob(j) {
+  job = j;
+  if (j.credits !== undefined) setCredits(j.credits);
+  try { localStorage.setItem("lisan_text_voice_open", j.id); } catch (e) {}
+  show($("newCard"), false); show($("jobCard"), true);
+  $("jobTitle").textContent = j.title;
+  var arabicSource = j.source_language === "ar";
+  $("spkNote").textContent = arabicSource ? T.spkNoteAr : T.spkNoteTr;
+  renderSpeakers();
+  var busy = !!j.busy;
+  var p = $("btnPrepare");
+  p.textContent = j.prepared ? (arabicSource ? T.prepAgainAr(j.prepare_price) : T.prepAgainTr(j.prepare_price))
+                             : (arabicSource ? T.prepAr(j.prepare_price) : T.prepTr(j.prepare_price));
+  p.className = j.prepared ? "btn-plain" : "green";
+  p.disabled = busy;
+  show($("prepareWarn"), j.prepared);
+  show($("busyBox"), busy);
+  if (busy) {
+    $("busyText").textContent = j.busy === "speak" ? T.busySpeak : (arabicSource ? T.busyPrepAr : T.busyPrepTr);
+    $("busyBar").style.width = Math.max(3, j.percent || 0) + "%";
+  }
+  err($("jobErr"), !busy && !j.prepared ? j.error : "");      // after the Arabic is made, messages show at the audio step
+  show($("linesCard"), j.prepared);
+  show($("audioCard"), j.prepared);
+  if (j.prepared) { renderLines(); renderAudio(); }
+  if (busy) startPoll(); else stopPoll();
+}
+
+function renderSpeakers() {
+  var arabicSource = job.source_language === "ar";
+  $("spkList").innerHTML = job.speakers.map(function (sp) {
+    var g = '<select data-gender="' + esc(sp.id) + '"' + (job.busy ? " disabled" : "") + '><option value="">' + esc(T.choose) + "</option>" +
+      '<option value="male"' + (sp.gender === "male" ? " selected" : "") + ">" + esc(T.male) + "</option>" +
+      '<option value="female"' + (sp.gender === "female" ? " selected" : "") + ">" + esc(T.female) + "</option></select>";
+    return '<div class="tv-spk"><div class="tv-spk-head"><strong>' + esc(speakerName(sp)) + "</strong>" +
+      "<span>" + esc(T.gender) + "</span>" + g +
+      '<span class="tv-voice-name">' + esc(sp.voice_name || T.voiceNone) + "</span>" +
+      '<button class="btn-plain" data-voice="' + esc(sp.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(openPanel === sp.id ? T.voiceHide : T.voiceBtn) + "</button></div>" +
+      (openPanel === sp.id ? '<div class="tv-panel" id="panel_' + esc(sp.id) + '"></div>' : "") + "</div>";
+  }).join("");
+  Array.prototype.forEach.call($("spkList").querySelectorAll("[data-gender]"), function (s) {
+    s.onchange = function () { saveSpeaker({ id: s.getAttribute("data-gender"), gender: s.value }); };
+  });
+  Array.prototype.forEach.call($("spkList").querySelectorAll("[data-voice]"), function (b) {
+    b.onclick = function () {
+      var id = b.getAttribute("data-voice");
+      openPanel = openPanel === id ? null : id;
+      renderSpeakers();
+    };
+  });
+  if (openPanel) renderPanel(openPanel, "lib");
+}
+
+function saveSpeaker(update) {
+  return api("POST", "/api/text_voice/" + job.id + "/speakers", { speakers: [update] }).then(function (r) {
+    if (!r.ok) { alertMsg(r.data.error || T.netErr); return false; }
+    showJob(r.data);
+    return true;
+  });
+}
+
+function loadVoices(force) {
+  if (voices && !force) return Promise.resolve(voices);
+  return api("GET", "/api/text_voice/voices").then(function (r) { voices = r.ok ? r.data : { library: [], mine: [] }; return voices; });
+}
+
+var previewAudio = null;
+function playPreview(url) {
+  try { if (previewAudio) previewAudio.pause(); previewAudio = new Audio(url); previewAudio.play(); } catch (e) {}
+}
+
+function voiceLabel(v) { return v.number ? T.voiceNo(v.gender, v.number) : (v.name || v.voice_id); }
+
+function renderPanel(spId, tab) {
+  var box = $("panel_" + spId);
+  if (!box) return;
+  var sp = job.speakers.filter(function (s) { return s.id === spId; })[0];
+  var tabs = '<div class="tv-tabs">' + [["lib", T.tabLib], ["mine", T.tabMine], ["own", T.tabOwn]].map(function (t) {
+    return '<button type="button" class="btn-plain' + (t[0] === tab ? " on" : "") + '" data-tab="' + t[0] + '">' + esc(t[1]) + "</button>";
+  }).join("") + "</div>";
+  box.innerHTML = tabs + '<div id="panelBody_' + esc(spId) + '"><p class="note">…</p></div>';
+  Array.prototype.forEach.call(box.querySelectorAll("[data-tab]"), function (b) { b.onclick = function () { renderPanel(spId, b.getAttribute("data-tab")); }; });
+  var body = $("panelBody_" + spId);
+  if (tab === "own") { renderOwn(sp, body); return; }
+  loadVoices(tab === "mine").then(function (v) {
+    var rows = tab === "lib" ? (v.library || []).filter(function (x) { return !sp.gender || x.gender === sp.gender; }) : (v.mine || []);
+    if (!rows.length) { body.innerHTML = '<p class="note">' + esc(tab === "lib" ? T.libEmpty : T.mineEmpty) + "</p>"; return; }
+    body.innerHTML = '<div class="tv-vlist">' + rows.map(function (x) {
+      var label = tab === "lib" ? voiceLabel(x) : x.name;
+      var wait = x.status === "preparing" ? ' <span class="note" style="display:inline;border:none;background:none;padding:0;">(' + esc(T.accentWait) + ")</span>" : "";
+      return '<div class="tv-vrow"><span>' + esc(label) + wait + "</span><span>" +
+        (x.preview_url ? '<button type="button" class="btn-plain" data-prev="' + esc(x.preview_url) + '">' + esc(T.preview) + "</button> " : "") +
+        '<button type="button" data-pick="' + esc(x.voice_id) + '" data-name="' + esc(label) + '"' + (sp.voice_id === x.voice_id ? " disabled" : "") + ">" +
+        esc(sp.voice_id === x.voice_id ? T.chosen : T.select) + "</button></span></div>";
+    }).join("") + "</div>";
+    Array.prototype.forEach.call(body.querySelectorAll("[data-prev]"), function (b) { b.onclick = function () { playPreview(b.getAttribute("data-prev")); }; });
+    Array.prototype.forEach.call(body.querySelectorAll("[data-pick]"), function (b) {
+      b.onclick = function () {
+        openPanel = null;
+        saveSpeaker({ id: spId, voice_id: b.getAttribute("data-pick"), voice_name: b.getAttribute("data-name") });
+      };
+    });
+  });
+}
+
+function renderOwn(sp, body) {
+  if (!cfg.can_clone) {
+    body.innerHTML = '<p class="note">' + esc(T.ownSub) + ' <a href="/pricing">' + esc(T.ownSubLink) + "</a></p>";
+    return;
+  }
+  var langs = cfg.languages.map(function (l) {
+    var def = job.source_language === l.code;
+    return '<option value="' + esc(l.code) + '"' + (def ? " selected" : "") + ">" + esc(langName(l)) + "</option>";
+  }).join("");
+  body.innerHTML = '<p class="note">' + esc(T.ownIntro) + "</p>" +
+    '<label for="ownLang">' + esc(T.sampleLang) + '</label><select id="ownLang">' + langs + "</select>" +
+    '<div class="tv-rec"><button type="button" id="ownRec">' + esc(own.blob ? T.recAgain : T.rec) + '</button>' +
+    '<label class="btn-plain" style="margin:0;padding:8px 14px;border-radius:8px;cursor:pointer;font-weight:500;">' + esc(T.upload) +
+    '<input type="file" id="ownFile" accept=".mp3,.wav,audio/mpeg,audio/wav" class="hidden"></label><span id="ownState" style="font-size:13px;color:var(--text-muted);"></span></div>' +
+    '<label class="tv-consent"><input type="checkbox" id="ownConsent"><span>' + esc(T.consent) + "</span></label>" +
+    '<div class="tv-row"><button type="button" class="green" id="ownMake">' + esc(T.makeOwn(cfg.clone_credits)) + "</button></div>" +
+    '<div id="ownErr" class="tv-err hidden"></div><div id="ownOk" class="tv-ok hidden"></div>';
+  if (own.blob) $("ownState").textContent = own.name.indexOf("recording") === 0 ? T.recReady(own.secs) : T.fileReady(own.name);
+  $("ownFile").onchange = function () {
+    var f = this.files && this.files[0];
+    if (!f) return;
+    own.blob = f; own.name = f.name; $("ownState").textContent = T.fileReady(f.name);
+  };
+  $("ownRec").onclick = function () { toggleRecord(); };
+  $("ownMake").onclick = function () { makeOwn(sp); };
+}
+
+function toggleRecord() {
+  if (own.rec && own.rec.state === "recording") { own.rec.stop(); return; }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { err($("ownErr"), T.micDenied); return; }
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+    own.stream = stream; own.chunks = [];
+    var rec = new MediaRecorder(stream);
+    own.rec = rec;
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) own.chunks.push(e.data); };
+    rec.onstop = function () {
+      try { stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+      var secs = Math.round((Date.now() - own.started) / 1000);
+      var type = rec.mimeType || "audio/webm";
+      var ext = type.indexOf("mp4") >= 0 ? "m4a" : (type.indexOf("ogg") >= 0 ? "ogg" : "webm");
+      $("ownRec").textContent = T.recAgain;
+      if (secs < 5) { own.blob = null; err($("ownErr"), T.recShort); $("ownState").textContent = ""; return; }
+      own.blob = new Blob(own.chunks, { type: type }); own.name = "recording." + ext; own.secs = secs;
+      $("ownState").textContent = T.recReady(secs);
+    };
+    own.started = Date.now();
+    rec.start();
+    err($("ownErr"), "");
+    $("ownRec").textContent = T.recStop;
+    setTimeout(function () { if (rec.state === "recording") rec.stop(); }, 20000);
+  }, function () { err($("ownErr"), T.micDenied); });
+}
+
+function makeOwn(sp) {
+  if (!own.blob) { err($("ownErr"), T.needSample); return; }
+  if (!$("ownConsent").checked) { err($("ownErr"), T.needConsent); return; }
+  err($("ownErr"), "");
+  var fd = new FormData();
+  fd.append("file", own.blob, own.name);
+  fd.append("speaker", speakerName(sp) + " (" + (job.title || "").slice(0, 40) + ")");
+  fd.append("for_text_voice", "true");
+  fd.append("sample_language", $("ownLang").value);
+  fd.append("voice_consent", "true");
+  $("ownMake").disabled = true; $("ownMake").textContent = T.making;
+  api("POST", "/api/upload_custom_voice", fd).then(function (r) {
+    if (!r.ok || r.data.error || !r.data.voice_id) {
+      $("ownMake").disabled = false; $("ownMake").textContent = T.makeOwn(cfg.clone_credits);
+      err($("ownErr"), r.data.error || T.netErr);
+      return;
+    }
+    own.blob = null;
+    var label = speakerName(sp) + " (" + (job.title || "").slice(0, 40) + ")";
+    openPanel = null;
+    voices = null;
+    saveSpeaker({ id: sp.id, voice_id: r.data.voice_id, voice_name: label }).then(function () {
+      alertMsg(r.data.preparing ? T.ownAccent : T.ownMade);
+    });
+    api("GET", "/api/text_voice/config").then(function (c) { if (c.ok) setCredits(c.data.credits); });
+  });
+}
+
+$("btnPrepare").onclick = function () {
+  if (!job) return;
+  var arabicSource = job.source_language === "ar";
+  if (!arabicSource && job.speakers.some(function (s) { return s.gender !== "male" && s.gender !== "female"; })) { err($("jobErr"), T.needGender); return; }
+  (job.prepared ? confirmMsg(T.againConfirm) : Promise.resolve(true)).then(function (yes) {
+    if (!yes) return;
+    err($("jobErr"), "");
+    $("btnPrepare").disabled = true;
+    api("POST", "/api/text_voice/" + job.id + "/prepare").then(function (r) {
+      if (!r.ok) { $("btnPrepare").disabled = false; err($("jobErr"), r.data.error || T.netErr); return; }
+      showJob(r.data);
+    });
+  });
+};
+
+// ---------------------------------------------------------------- the Arabic lines
+var saveTimers = {};
+function renderLines() {
+  var arabicSource = job.source_language === "ar";
+  var names = {};
+  job.speakers.forEach(function (s) { names[s.id] = speakerName(s); });
+  var multi = job.speakers.length > 1;
+  $("lineList").innerHTML = job.lines.map(function (ln, i) {
+    var opts = EMOTIONS.map(function (e) {
+      return '<option value="' + e + '"' + ((ln.emotion || "") === e ? " selected" : "") + ">" + esc(LANG === "ar" ? (EMO_AR[e] || e) : e) + "</option>";
+    }).join("");
+    if (ln.emotion && EMOTIONS.indexOf(ln.emotion) < 0) opts = '<option value="' + esc(ln.emotion) + '" selected>' + esc(ln.emotion) + "</option>" + opts;
+    if (!ln.emotion) opts = '<option value="" selected>' + esc(LANG === "ar" ? EMO_AR.neutral : "neutral") + "</option>" + opts;
+    return '<div class="tv-line"><div class="tv-line-head"><span>' + (i + 1) + "</span>" + (multi ? "<b>" + esc(names[ln.speaker_id]) + "</b>" : "") +
+      (ln.gender_check ? '<span class="tv-badge">' + esc(T.check) + "</span>" : "") +
+      "<span>" + esc(T.emotion) + '</span><select data-emo="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + opts + "</select>" +
+      (ln.spoken ? '<button type="button" class="btn-plain" style="padding:3px 10px;" data-play="' + esc(ln.id) + '">' + T.playLine + "</button>" : "") +
+      '<span class="tv-saved" id="saved_' + esc(ln.id) + '"></span></div>' +
+      (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + esc(ln.text) + "</div>") +
+      '<textarea dir="rtl" data-ar="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(ln.arabic) + "</textarea></div>";
+  }).join("");
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-ar]"), function (t) {
+    t.addEventListener("input", function () { queueSave(t.getAttribute("data-ar"), { arabic: t.value }); });
+  });
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-emo]"), function (s) {
+    s.onchange = function () { queueSave(s.getAttribute("data-emo"), { emotion: s.value }, 0); };
+  });
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-play]"), function (b) {
+    b.onclick = function () { playPreview("/api/text_voice/" + job.id + "/line/" + encodeURIComponent(b.getAttribute("data-play")) + "?t=" + Date.now()); };
+  });
+}
+
+var pending = {};
+function queueSave(lineId, change, delay) {
+  pending[lineId] = Object.assign(pending[lineId] || {}, change);
+  clearTimeout(saveTimers[lineId]);
+  saveTimers[lineId] = setTimeout(function () { flushSave(lineId); }, delay === undefined ? 900 : delay);
+}
+function flushSave(lineId) {
+  var change = pending[lineId];
+  if (!change) return Promise.resolve();
+  delete pending[lineId];
+  return api("POST", "/api/text_voice/" + job.id + "/lines", { lines: [Object.assign({ id: lineId }, change)] }).then(function (r) {
+    if (!r.ok) { alertMsg(r.data.error || T.netErr); return; }
+    job = r.data;
+    var s = $("saved_" + lineId);
+    if (s) { s.textContent = T.saved; setTimeout(function () { if (s) s.textContent = ""; }, 1500); }
+    renderAudio();
+  });
+}
+function flushAll() { return Promise.all(Object.keys(pending).map(flushSave)); }
+
+// ---------------------------------------------------------------- the audio
+function renderAudio() {
+  var b = $("btnSpeak");
+  b.disabled = !!job.busy;
+  b.textContent = job.speak_price ? T.speak(job.speak_price, job.lines_to_speak) : T.speakFree;
+  err($("speakErr"), !job.busy && job.prepared && job.error ? job.error : "");
+  show($("audioBox"), job.audio_ready);
+  if (job.audio_ready) {
+    var url = "/api/text_voice/" + job.id + "/audio?v=" + encodeURIComponent(String(job.updated || ""));
+    if ($("finalAudio").getAttribute("data-src") !== url) { $("finalAudio").src = url; $("finalAudio").setAttribute("data-src", url); }
+    $("dlLink").href = url;
+    $("audioLen").textContent = job.audio_seconds ? T.length(job.audio_seconds) : "";
+  }
+}
+
+$("btnSpeak").onclick = function () {
+  if (!job) return;
+  var used = {};
+  job.lines.forEach(function (l) { if ((l.arabic || "").trim()) used[l.speaker_id] = 1; });
+  var missing = job.speakers.filter(function (s) { return used[s.id] && !s.voice_id; });
+  if (missing.length) { err($("speakErr"), T.needVoice(speakerName(missing[0]))); return; }
+  $("btnSpeak").disabled = true;
+  flushAll().then(function () {
+    api("POST", "/api/text_voice/" + job.id + "/speak").then(function (r) {
+      if (!r.ok) { $("btnSpeak").disabled = false; err($("speakErr"), r.data.error || T.netErr); return; }
+      showJob(r.data);
+    });
+  });
+};
+
+function startPoll() {
+  if (pollTimer) return;
+  pollTimer = setInterval(function () {
+    if (!job) return stopPoll();
+    api("GET", "/api/text_voice/" + job.id).then(function (r) {
+      if (!r.ok || !job || r.data.id !== job.id) return;
+      var was = job.busy;
+      if (r.data.busy) {
+        job = r.data;
+        show($("busyBox"), true);
+        $("busyBar").style.width = Math.max(3, r.data.percent || 0) + "%";
+      } else {
+        stopPoll();
+        showJob(r.data);
+        if (was) {
+          api("GET", "/api/text_voice/config").then(function (c) { if (c.ok) setCredits(c.data.credits); });
+          loadList();
+        }
+      }
+    });
+  }, 2500);
+}
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+
+// ---------------------------------------------------------------- start
+applyStaticText();
+api("GET", "/api/text_voice/config").then(function (r) {
+  cfg = r.ok ? r.data : { enabled: true, languages: [{ code: "en", name: "English", native: "English", arabic: "الإنجليزية" }], max_chars: 20000, clone_credits: 5, can_clone: false };
+  setCredits(cfg.credits);
+  if (!cfg.enabled) { show($("offCard"), true); show($("newCard"), false); return; }
+  $("tvLang").innerHTML = cfg.languages.map(function (l) { return '<option value="' + esc(l.code) + '">' + esc(langName(l)) + "</option>"; }).join("");
+  updateCount();
+  var last = null;
+  try { last = localStorage.getItem("lisan_text_voice_open"); } catch (e) {}
+  if (last) openJob(last);
+  loadList();
+});
+</script>
+</body>
+</html>
