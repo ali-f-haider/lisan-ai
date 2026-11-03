@@ -931,10 +931,10 @@ html.js .rv.in{opacity:1;transform:none}
         </div>
       </div>
 
-      <!-- Reserved place for the Dub Long Video walkthrough.
-           The walkthrough is /static/long_dub_vid_NoLipsync.mp4. -->
+      <!-- Reserved place for the Dub Long Video walkthrough. Empty since 3 Nov 2026 (Ali): the clip came from a TV series we
+           have no rights to. A clip from Ali's own film goes here: add data-src="/static/<file>.mp4" to the div below. -->
       <div class="long-vid rv">
-        <div class="vframe" id="longVideoSlot" data-src="/static/long_dub_vid_NoLipsync.mp4">
+        <div class="vframe" id="longVideoSlot">
           <div class="ph long-ph">
             <svg class="mock" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
               <rect width="320" height="180" fill="#05070c"/>
@@ -1093,6 +1093,7 @@ html.js .rv.in{opacity:1;transform:none}
       <a class="brand" href="/"><img src="/logo.png" alt=""><span>Lisan AI</span></a>
       <nav aria-label="Footer">
         <a href="/help"><span class="en">Help &amp; FAQ</span><span class="ar">المساعدة والأسئلة الشائعة</span></a>
+        <a href="/guides"><span class="en">Guides</span><span class="ar">أدلة ومقالات</span></a>
         <a href="/pricing"><span class="en">Pricing</span><span class="ar">الأسعار</span></a>
         <a href="mailto:contact@lisanai.org" id="footContact"><span class="en">Contact</span><span class="ar">تواصل</span></a>
         <a href="/login"><span class="en">Log in</span><span class="ar">تسجيل الدخول</span></a>
@@ -1357,7 +1358,7 @@ html.js .rv.in{opacity:1;transform:none}
             if (lang() !== shown) { shown = lang(); mountHowVideo(slot); }
           }).observe(root, { attributes: true, attributeFilter: ["data-lang"] });
         }
-      } else {
+      } else if (slot.getAttribute("data-src")) {      // no file named: the drawn placeholder stays
         mountFrame(slot, slot.getAttribute("data-src"));
       }
     });
@@ -1366,9 +1367,7 @@ html.js .rv.in{opacity:1;transform:none}
   /* ---------- Before / after demos ---------- */
   (function () {
     var PAIRS = [
-      { b: "/static/NonLipSyncSample_before.mp4", a: "/static/NonLipSyncSample_After.mp4",
-        en: "Without lip-sync", ar: "بدون مزامنة الشفاه",
-        nEn: "The Arabic dub with the speaker's own cloned voice. The picture stays exactly as it is.", nAr: "الدبلجة العربية بصوت المتحدث نفسه المستنسخ. وتبقى الصورة كما هي تمامًا." },
+      // (the sample without lip-sync was removed on 3 Nov 2026: it came from a film we have no rights to; a clip of Ali's own film replaces it)
       { b: "/static/LipSyncSample_before.mp4", a: "/static/LipSyncSample_After.mp4",
         en: "With lip-sync (alpha)", ar: "مع مزامنة الشفاه (ألفا)",
         nEn: "Lip-sync is an experimental alpha feature for short dubs and may show unexpected results.", nAr: "مزامنة الشفاه ميزة تجريبية بنسخة ألفا للدبلجات القصيرة وقد تظهر نتائج غير متوقعة." }

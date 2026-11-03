@@ -728,7 +728,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             import urllib.parse
             next_q = urllib.parse.quote(path, safe="")
             return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
-        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
+        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/") or path == "/guides" or path.startswith("/guides/"):
             return await call_next(request)
         if path.startswith("/v1/"):
             return await call_next(request)          # public API: api_v1 checks the key itself, never the browser login
@@ -7412,10 +7412,24 @@ def public_terms_page():
 
 
 # --- SEARCH ENGINES: robots.txt + sitemap.xml ---------------------------------
+import guides
 # Public pages are listed for Google; the app, the admin pages, the API and the
 # login/gate pages are not. SITE_URL (Railway variable) overrides the address.
 SITE_URL = (os.environ.get("SITE_URL") or "https://lisanai.org").rstrip("/")
-SITEMAP_PAGES = ["/", "/pricing", "/help", "/privacy", "/terms"]
+SITEMAP_PAGES = ["/", "/pricing", "/help", "/privacy", "/terms"] + guides.paths()      # the guides (guides.py)
+
+
+@app.get("/guides")
+def guides_index():
+    return HTMLResponse(guides.index_html(), headers={"Cache-Control": "public, max-age=600"})
+
+
+@app.get("/guides/{slug}")
+def guides_page(slug: str):
+    page = guides.guide_html(slug)
+    if page is None:
+        return HTMLResponse("Not found", status_code=404)
+    return HTMLResponse(page, headers={"Cache-Control": "public, max-age=600"})
 
 
 @app.get("/robots.txt")
