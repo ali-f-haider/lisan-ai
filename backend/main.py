@@ -5863,9 +5863,27 @@ text_voice.configure(
     chars_per_credit=_text_voice_cpc,
     voice_status=text_voice.voice_status,
     # a finished MP3 is kept like every other finished file: 30 days with a subscription, otherwise 48 hours
-    keep_hours=lambda uid: CLEANUP_FINAL_OUTPUT_DAYS * 24 if _subscription_active(uid) else PAYONCE_OUTPUT_HOURS,
+    keep_hours=lambda uid: _text_voice_keep_hours(uid),
 )
 threading.Thread(target=text_voice.recover, daemon=True, name="text-voice-recover").start()
+
+
+def _text_voice_keep_hours(uid):
+    """Hours a finished Text to voice MP3 is kept: 30 days with an active subscription, otherwise 48 hours. None when the
+    subscription could not be read: then nothing is removed now and the hourly clean-up asks again (a subscriber's file is
+    never removed because of a short database outage)."""
+    if not uid or not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/profiles?id=eq.{uid}&select=subscription_status",
+                                     headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.load(r)
+    except Exception as ex:
+        print(f"[text-voice] subscription not read for the clean-up, nothing removed now: {ex}")
+        return None
+    active = bool(rows) and rows[0].get("subscription_status") == "active"
+    return CLEANUP_FINAL_OUTPUT_DAYS * 24 if active else PAYONCE_OUTPUT_HOURS
 
 
 def _text_voice_cleanup_loop():
@@ -7133,11 +7151,8 @@ def my_jobs(request: Request):
     if not uid:
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     latest_seen = _user_job_ids(uid)
-    if latest_seen is None:
-        return {"jobs": [], "storage": None}
-
     jobs = []
-    for jid, created_at in latest_seen.items():
+    for jid, created_at in (latest_seen or {}).items():          # (None: the dub history could not be read; Text to voice is still listed)
         audio = OUTPUT_DIR / f"{jid}_final_dubbed.mp3"
         video = OUTPUT_DIR / f"{jid}_final_dubbed_video.mp4"
         lip = OUTPUT_DIR / f"{jid}_final_lipsync.mp4"
@@ -7161,7 +7176,7 @@ def my_jobs(request: Request):
     except Exception as ex:
         print(f"[my_jobs] text to voice files not listed: {ex}")
     jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
-    return {"jobs": jobs, "storage": _storage_summary(uid, latest_seen)}
+    return {"jobs": jobs, "storage": _storage_summary(uid, latest_seen) if latest_seen is not None else None}
 
 
 @app.get("/api/my_jobs/{job_id}/{kind}")

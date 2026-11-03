@@ -468,6 +468,26 @@ class AccountFiles(Base):
         self.assertEqual(tv.audio_bytes(UID), 0)
         self.assertAlmostEqual(left["updated"], job["updated"], places=3)      # not counted as a change by the person
 
+    def test_nothing_is_removed_when_the_subscription_cannot_be_read(self):
+        job = self.made()
+        with mock.patch.object(tv.Hooks, "keep_hours", staticmethod(lambda uid: None)):
+            tv.cleanup_old(now=time.time() + 20 * 86400)
+        self.assertTrue(tv.public(tv.load(job["id"]))["audio_ready"])
+
+    def test_the_account_list_shows_text_to_voice_even_when_the_dub_history_cannot_be_read(self):
+        job = self.made()
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        node = next(n for n in ast.parse(main).body if isinstance(n, ast.FunctionDef) and n.name == "my_jobs")
+        node.decorator_list = []
+        env = {"Request": object, "_current_uid": lambda r: UID, "_user_job_ids": lambda uid: None, "text_voice": tv,
+               "_subscription_active": lambda uid: False, "CLEANUP_FINAL_OUTPUT_DAYS": 30, "PAYONCE_OUTPUT_HOURS": 48,
+               "_storage_summary": lambda *a: self.fail("no storage figure from a missing history"),
+               "JSONResponse": lambda body, status_code=200: NS(body=body, status_code=status_code)}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "main.py", "exec"), env)
+        got = env["my_jobs"](object())
+        self.assertEqual([j["job_id"] for j in got["jobs"]], [job["id"]])
+        self.assertIsNone(got["storage"])
+
     def test_the_account_page_and_the_account_routes_include_text_to_voice(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
         tree = ast.parse(main)
