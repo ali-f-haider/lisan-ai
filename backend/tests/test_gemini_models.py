@@ -32,7 +32,8 @@ class GeminiModelListTests(unittest.TestCase):
     def test_the_fallback_list_has_no_retired_model(self):
         models = literal_list(ROOT / "config.py", "GEMINI_MODELS")
         self.assertEqual([m for m in models if m in RETIRED], [])
-        self.assertEqual(models[0], "gemini-3.6-flash")                    # the cheap model every call tries first
+        self.assertEqual(models[0], "gemini-3.8-flash")                    # the cheap model every call tries first (since 1.91.1)
+        self.assertIn("gemini-3.6-flash", models)                           # and the one before it as the fallback
 
     def test_the_list_main_uses_is_the_same(self):
         self.assertEqual(literal_list(ROOT / "main.py", "GEMINI_TEXT_MODELS"), literal_list(ROOT / "config.py", "GEMINI_MODELS"))

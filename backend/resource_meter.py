@@ -229,7 +229,7 @@ _active = 0                          # jobs being measured right now (cache is n
 _meters = []                         # JobMeters running right now
 _meters_lock = threading.Lock()
 _tl = threading.local()              # the JobMeter(s) started by this thread (a provider call inside it adds its price to the top one)
-# Gemini 3.6 Flash, the model every usual call uses first (2.5 Flash no longer answers since 28 Oct 2026). Google's price list
+# Gemini Flash: 3.8 Flash is tried first since 1.91.1, then 3.6 Flash; both have this price list. Google's price list
 # (read 28 Oct 2026), per 1M tokens, one input price for text, pictures and audio; answer AND thinking tokens at the output price:
 # $0.75 / $3.75 until 31 Dec 2026, then $1.50 / $7.50 from 1 Jan 2027. Measured by the day of the request, like Argon.
 FLASH_PRICES = ((_dt.date(2027, 1, 1), 1.50, 7.50),

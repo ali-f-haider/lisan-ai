@@ -181,7 +181,7 @@ def read_terms():
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.html"))
 
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".avi")
-GEMINI_TEXT_MODELS = ["gemini-3.6-flash", "gemini-flash-latest"]      # 2.5 Flash no longer answers (28 Oct 2026)
+GEMINI_TEXT_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest"]      # the same list as config.GEMINI_MODELS
 
 # ==================== ALL MODELS ====================
 
@@ -728,7 +728,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             import urllib.parse
             next_q = urllib.parse.quote(path, safe="")
             return HTMLResponse(f'<script>window.location.href="/gate?next={next_q}";</script>', status_code=200)
-        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/") or path == "/guides" or path.startswith("/guides/"):
+        if path in PUBLIC_PATHS or path.startswith("/api/auth/") or path.startswith("/api/admin/"):
+            return await call_next(request)
+        if path == "/guides" or path.startswith("/guides/"):        # the public guides (guides.py)
             return await call_next(request)
         if path.startswith("/v1/"):
             return await call_next(request)          # public API: api_v1 checks the key itself, never the browser login

@@ -43,7 +43,7 @@ class Pages(unittest.TestCase):
 class Wiring(unittest.TestCase):
     def test_public_in_the_sitemap_and_on_the_home_page(self):
         main = (ROOT / "main.py").read_text(encoding="utf-8")
-        self.assertIn('path == "/guides" or path.startswith("/guides/")', main)
+        self.assertIn('if path == "/guides" or path.startswith("/guides/"):', main)
         self.assertIn("+ guides.paths()", main)
         self.assertIn('@app.get("/guides/{slug}")', main)
         self.assertIn('href="/guides"', (ROOT / "landing.html").read_text(encoding="utf-8"))
