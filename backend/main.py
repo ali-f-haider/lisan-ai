@@ -6088,6 +6088,8 @@ def text_voice_audio(job_id: str, request: Request):
     path = text_voice.audio_path(job)
     if not path:
         return JSONResponse({"error": "The audio is not ready yet."}, status_code=404)
+    if not request.headers.get("range") or request.headers.get("range", "").startswith("bytes=0-"):
+        text_voice.note_download(job)          # counted once per download or first play, for the admin's Activity view
     name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
     return FileResponse(path, media_type="audio/mpeg", filename=name + ".mp3")
 
@@ -8244,6 +8246,98 @@ def admin_overview(request: Request):
                          "action": j.get("action",""), "credits": j.get("credits",0), "status": "done",
                          "generated_seconds": j.get("generated_seconds")} for j in recent_jobs]
     }
+
+# ===== ADMIN: NEW USERS AND WHAT THEY DID (Ali, Nov 2026) =====================
+# Who signed up in the chosen period and what each did: Text to voice (from its projects on disk), short dubs and long dubs
+# (from credit_spends), purchases (credit_orders). Users who use the app a lot are marked, so Ali can ask them for feedback or
+# make them an offer. Read only.
+_ACTIVITY_ACTIONS = {
+    "short": ("transcribe", "generate", "merge", "lipsync", "regenerate_line", "clone", "custom_voice"),
+    "long": ("long_dub_estimate", "long_dub_analysis", "long_dub_dub", "long_dub_music_fill"),
+}
+
+
+def _activity_rows(path):
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r) or []
+
+
+def _engaged(u):
+    """Uses the app a lot: three or more MP3s or dubs made, three or more projects, or a purchase."""
+    return (u["purchases"] > 0 or u["text"]["audio_runs"] >= 3 or u["text"]["projects"] >= 3
+            or u["short_dubs"] >= 3 or u["long_dubs_confirmed"] >= 1)
+
+
+@app.get("/api/admin/activity")
+def admin_activity(request: Request, days: int = 7):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    days = max(1, min(int(days or 7), 365))
+    since = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(_time.time() - days * 86400))
+    try:
+        profiles = _activity_rows("profiles?select=id,email,display_name,created_at,credits,subscription_credits,subscription_status"
+                                  f"&created_at=gte.{since}&order=created_at.desc&limit=1000")
+        ids = [p["id"] for p in profiles if p.get("id")]
+        spends, orders = [], []
+        for i in range(0, len(ids), 40):
+            chunk = ",".join(ids[i:i + 40])
+            spends += _activity_rows(f"credit_spends?select=uid,action,credits,created_at,job_id&uid=in.({chunk})&limit=10000")
+            try:
+                orders += _activity_rows(f"credit_orders?select=uid,credits,created_at&uid=in.({chunk})&limit=1000")
+            except Exception:
+                pass
+    except Exception as ex:
+        print(f"[admin] activity lookup failed: {ex}")
+        return JSONResponse({"error": "The user list could not be read just now. Please try again."}, status_code=503)
+    tv = text_voice.admin_summary()
+    by_uid = {}
+    for s in spends:
+        by_uid.setdefault(s.get("uid"), []).append(s)
+    users = []
+    for p in profiles:
+        uid = p["id"]
+        ss = by_uid.get(uid, [])
+        acts = {}
+        for s in ss:
+            acts[s.get("action") or ""] = acts.get(s.get("action") or "", 0) + 1
+        short_jobs = {s.get("job_id") for s in ss if s.get("action") in _ACTIVITY_ACTIONS["short"] and s.get("job_id")}
+        short_done = {s.get("job_id") for s in ss if s.get("action") in ("generate", "merge") and s.get("job_id")}
+        try:
+            long_jobs = longdub_service.list_jobs_for_uid(uid)
+        except Exception:
+            long_jobs = []
+        t = tv.get(str(uid)) or {"projects": 0, "chars": 0, "arabic_made": 0, "audio_made": 0, "audio_runs": 0, "downloads": 0,
+                                 "languages": [], "speakers_max": 0, "failures": 0, "last_failure": None, "last_active": 0}
+        last = max([s.get("created_at") or "" for s in ss] + [""])
+        if t.get("last_active"):
+            last = max(last, _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(t["last_active"])))
+        u = {"id": uid, "email": p.get("email") or "", "name": p.get("display_name") or "", "signed_up": p.get("created_at"),
+             "credits": (p.get("credits") or 0) + (p.get("subscription_credits") or 0), "subscribed": p.get("subscription_status") == "active",
+             "spent": sum(int(s.get("credits") or 0) for s in ss if int(s.get("credits") or 0) > 0 and not str(s.get("action") or "").endswith("refund")),
+             "purchases": sum(1 for o in orders if o.get("uid") == uid), "text": t,
+             "short_started": len(short_jobs), "short_dubs": len(short_done),
+             "long_started": len(long_jobs),
+             "long_dubs_confirmed": sum(1 for j in long_jobs if j.get("status") in ("confirmed", "dubbing", "done", "completed", "finished")),
+             "actions": acts, "last_active": last}
+        u["did_nothing"] = not (t["projects"] or short_jobs or long_jobs or u["purchases"])
+        u["engaged"] = _engaged(u)
+        users.append(u)
+    n = len(users)
+    funnel = {"signed_up": n,
+              "text_project": sum(1 for u in users if u["text"]["projects"]),
+              "text_arabic": sum(1 for u in users if u["text"]["arabic_made"]),
+              "text_audio": sum(1 for u in users if u["text"]["audio_made"]),
+              "text_download": sum(1 for u in users if u["text"]["downloads"])}
+    totals = {"signed_up": n, "did_nothing": sum(1 for u in users if u["did_nothing"]),
+              "text": funnel["text_project"], "short": sum(1 for u in users if u["short_started"]),
+              "short_finished": sum(1 for u in users if u["short_dubs"]),
+              "long": sum(1 for u in users if u["long_started"]), "long_confirmed": sum(1 for u in users if u["long_dubs_confirmed"]),
+              "bought": sum(1 for u in users if u["purchases"]), "engaged": sum(1 for u in users if u["engaged"]),
+              "text_failures": sum(1 for u in users if u["text"]["failures"])}
+    users.sort(key=lambda u: (not u["engaged"], u["did_nothing"], u["signed_up"] or ""), reverse=False)
+    return {"days": days, "since": since, "totals": totals, "funnel": funnel, "users": users}
+
 
 @app.get("/api/admin/users")
 def admin_users(request: Request, q: str = ""):

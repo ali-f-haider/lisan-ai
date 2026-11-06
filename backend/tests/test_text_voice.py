@@ -507,6 +507,62 @@ class AccountFiles(Base):
             self.assertIn(needle, page)
 
 
+class AdminActivity(Base):
+    def test_projects_failures_and_downloads_are_counted_per_account(self):
+        job, _ = tv.new_job(UID, "Hello there. " * 30, "en", "Long one")
+        job["prepared"] = True
+        for ln in job["lines"]:
+            ln["arabic"], ln["emotion"] = "مَرْحَبًا " + ln["id"], "neutral"
+        job["speakers"][0]["voice_id"] = "v1"
+        tv._save(job)
+        tone = mp3()
+        with mock.patch("longdub_service._tts_with_retry", lambda v, text, waqf="auto", gap=None, delivery=None:
+                        (None, "Inworld error 400: text too long") if "l2" in text else (tone, "")):
+            tv.start_speak(tv.load(job["id"]))
+            job = self.wait(job["id"])
+        self.assertEqual(job["last_failure"]["detail"], "Inworld error 400: text too long")
+        self.assertEqual((job["last_failure"]["lines"], job["last_failure"]["of"]), (1, 2))
+        tv.note_download(job)
+        tv.new_job("someone-else", "Hi.", "de")
+        got = tv.admin_summary()
+        mine = got[UID]
+        self.assertEqual((mine["projects"], mine["arabic_made"], mine["audio_made"], mine["downloads"], mine["failures"]), (1, 1, 0, 1, 1))
+        self.assertEqual(got["someone-else"]["languages"], ["de"])
+        self.assertAlmostEqual(tv.load(job["id"])["updated"], job["updated"], places=3)      # a download is not a change by the person
+
+    def test_the_admin_route_marks_engaged_and_idle_users(self):
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        tree = ast.parse(main)
+        nodes = [n for n in tree.body if (isinstance(n, ast.FunctionDef) and n.name in ("admin_activity", "_engaged")) or
+                 (isinstance(n, ast.Assign) and any(getattr(t, "id", "") == "_ACTIVITY_ACTIONS" for t in n.targets))]
+        for n in nodes:
+            if isinstance(n, ast.FunctionDef):
+                n.decorator_list = []
+        rows = {"profiles": [{"id": "a", "email": "a@x", "created_at": "2026-11-05T10:00:00Z", "credits": 60},
+                             {"id": "b", "email": "b@x", "created_at": "2026-11-04T10:00:00Z", "credits": 100}],
+                "credit_spends": [{"uid": "a", "action": "transcribe", "credits": 5, "job_id": "j1", "created_at": "2026-11-05T11:00:00Z"},
+                                  {"uid": "a", "action": "text_voice_speak", "credits": 3, "job_id": "t1", "created_at": "2026-11-05T12:00:00Z"}],
+                "credit_orders": []}
+        summary = {"a": {"projects": 3, "chars": 900, "arabic_made": 3, "audio_made": 3, "audio_runs": 4, "downloads": 2, "languages": ["en"],
+                         "speakers_max": 1, "failures": 0, "last_failure": None, "last_active": 0}}
+        import time as _t
+        env = {"Request": object, "_admin_check": lambda r: True, "_time": _t, "SUPABASE_URL": "", "SUPABASE_SERVICE_KEY": "",
+               "_activity_rows": lambda path: rows[path.split("?")[0]], "text_voice": NS(admin_summary=lambda: summary),
+               "longdub_service": NS(list_jobs_for_uid=lambda uid: []), "print": lambda *a, **k: None,
+               "JSONResponse": lambda body, status_code=200: NS(body=body, status_code=status_code)}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), "main.py", "exec"), env)
+        got = env["admin_activity"](object(), 7)
+        by = {u["id"]: u for u in got["users"]}
+        self.assertTrue(by["a"]["engaged"])
+        self.assertTrue(by["b"]["did_nothing"])
+        self.assertEqual((by["a"]["short_started"], by["a"]["short_dubs"], by["a"]["spent"]), (1, 0, 8))
+        self.assertEqual(got["funnel"], {"signed_up": 2, "text_project": 1, "text_arabic": 1, "text_audio": 1, "text_download": 1})
+        self.assertEqual(got["users"][0]["id"], "a")          # engaged users first
+        page = (ROOT / "admin.html").read_text(encoding="utf-8")
+        for needle in ('data-tab="activity"', 'id="panel-activity"', "/api/admin/activity?days=", "loadActivity();"):
+            self.assertIn(needle, page)
+
+
 class HelpPage(unittest.TestCase):
     def test_the_help_page_explains_it_in_both_languages_and_the_helper_reads_it(self):
         import assistant_service as a

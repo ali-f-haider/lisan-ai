@@ -177,6 +177,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
   <div class="tabbar">
     <div class="tab active" data-tab="overview">📊 Business</div>
     <div class="tab" data-tab="users">👥 Users</div>
+    <div class="tab" data-tab="activity">📈 Activity</div>
     <div class="tab" data-tab="pricing">💰 Pricing</div>
     <div class="tab" data-tab="api">🔑 API</div>
     <div class="tab" data-tab="voice">🎙️ Voice (Inworld / ElevenLabs)</div>
@@ -329,6 +330,28 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <thead><tr><th>Name / Email</th><th>UID</th><th>Credits</th><th>Sub. Credits</th><th>Minutes Generated</th><th>Guest?</th><th>Joined</th><th>Actions</th></tr></thead>
           <tbody id="usersTable"><tr><td colspan="8" class="muted">Loading...</td></tr></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- ===================== ACTIVITY (new users and what they did) ===================== -->
+    <div class="panel" id="panel-activity">
+      <div class="card">
+        <h3>📈 New users and what they did</h3>
+        <p class="muted" style="margin-bottom:8px;">Everyone who signed up in the chosen period, with what each one did. Text to voice comes from its projects on the server; dubs and purchases from the payment records. <b>Engaged</b> = made 3 or more MP3s or dubs, has 3 or more projects, finished a long dub, or bought credits: good people to ask for feedback or to make an offer.</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <label for="actDays">Period</label>
+          <select id="actDays" onchange="loadActivity()"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select>
+          <label><input type="checkbox" id="actHideIdle" onchange="renderActivity()"> Hide users who did nothing</label>
+          <button class="btn-sm" onclick="loadActivity()">Refresh</button>
+        </div>
+        <div id="actTotals" class="muted">Loading…</div>
+        <h4 style="margin:14px 0 6px;">Text to voice: how far new users got</h4>
+        <div id="actFunnel"></div>
+        <h4 style="margin:14px 0 6px;">Users</h4>
+        <div style="overflow-x:auto;"><table>
+          <thead><tr><th>Signed up</th><th>Name / Email</th><th>Credits left</th><th>Text to voice</th><th>Short dubs</th><th>Long dubs</th><th>Bought</th><th>Last active</th><th>Note</th></tr></thead>
+          <tbody id="actUsersTable"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
+        </table></div>
       </div>
     </div>
 
@@ -1023,7 +1046,7 @@ async function showAdmin() {
   document.getElementById('login').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   loadVoiceStorageSettings();
-  loadBusiness(); loadUsers(); loadPricing(); loadApiSettings(); loadMaintenance(); loadAudit(); loadBillingHealth(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
+  loadBusiness(); loadUsers(); loadActivity(); loadPricing(); loadApiSettings(); loadMaintenance(); loadAudit(); loadBillingHealth(); loadHealth(); loadStorage(); loadRailwayMemory(); loadServiceUsage();
 }
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -1137,6 +1160,48 @@ async function clearMaintenance() {
   if (!r.ok || r.data.ok !== true) { toast(r.data.error || 'The save could not be confirmed. Please try again.', true); return; }
   toast('Banner turned off.');
   loadMaintenance();
+}
+
+// ---- Activity: new users and what they did (/api/admin/activity) ----
+let activityCache = null;
+async function loadActivity() {
+  const days = document.getElementById('actDays').value || '7';
+  document.getElementById('actTotals').textContent = 'Loading…';
+  const r = await api('/api/admin/activity?days=' + encodeURIComponent(days));
+  if (!r.ok) { document.getElementById('actTotals').textContent = (r.data && r.data.error) || 'Could not load the activity.'; return; }
+  activityCache = r.data;
+  renderActivity();
+}
+function renderActivity() {
+  const d = activityCache; if (!d) return;
+  const t = d.totals, f = d.funnel;
+  const pct = (a, b) => b ? Math.round(100 * a / b) + '%' : '—';
+  document.getElementById('actTotals').innerHTML =
+    `<b>${t.signed_up}</b> signed up · <b>${t.did_nothing}</b> did nothing · <b>${t.text}</b> tried Text to voice · ` +
+    `<b>${t.short}</b> started a short dub (${t.short_finished} finished) · <b>${t.long}</b> started a long dub (${t.long_confirmed} dubbed) · ` +
+    `<b>${t.bought}</b> bought credits · <b>${t.engaged}</b> engaged` + (t.text_failures ? ` · <span style="color:#f87171;">${t.text_failures} had audio that could not be made</span>` : '');
+  const steps = [['Signed up', f.signed_up], ['Pasted a text', f.text_project], ['Got the Arabic', f.text_arabic], ['Made audio', f.text_audio], ['Played or downloaded', f.text_download]];
+  const max = Math.max(1, f.signed_up);
+  document.getElementById('actFunnel').innerHTML = steps.map(([label, n], i) =>
+    `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;"><span style="width:170px;">${label}</span>` +
+    `<span style="display:inline-block;height:14px;border-radius:3px;background:#3b82f6;width:${Math.max(2, Math.round(260 * n / max))}px;"></span>` +
+    `<b>${n}</b>${i ? ` <span class="muted">(${pct(n, steps[i - 1][1])} of the step before)</span>` : ''}</div>`).join('');
+  const hide = document.getElementById('actHideIdle').checked;
+  const rows = d.users.filter(u => !(hide && u.did_nothing));
+  document.getElementById('actUsersTable').innerHTML = rows.map(u => {
+    const tv = u.text;
+    const tvTxt = tv.projects ? `${tv.projects} project${tv.projects > 1 ? 's' : ''}, ${tv.chars.toLocaleString()} chars<br><span class="muted">${tv.arabic_made} with Arabic · ${tv.audio_runs} audio · ${tv.downloads} plays/downloads${tv.languages.length ? ' · ' + escapeHtml(tv.languages.join(', ')) : ''}</span>` : '—';
+    const note = [];
+    if (u.engaged) note.push('<span class="pill on">engaged</span>');
+    if (u.did_nothing) note.push('<span class="muted">did nothing yet</span>');
+    if (tv.last_failure) note.push(`<span style="color:#f87171;" title="${escapeHtml(tv.last_failure.detail || '')}">audio failed (${tv.last_failure.lines} of ${tv.last_failure.of} lines)</span>`);
+    return `<tr><td>${localTs(u.signed_up, false) || '—'}</td>` +
+      `<td>${escapeHtml(u.name || '')}<br><span class="muted">${escapeHtml(u.email || '')}</span></td>` +
+      `<td>${u.credits}${u.subscribed ? ' <span class="pill on">sub</span>' : ''}</td><td>${tvTxt}</td>` +
+      `<td>${u.short_started ? u.short_started + ' started, ' + u.short_dubs + ' finished' : '—'}</td>` +
+      `<td>${u.long_started ? u.long_started + ' started, ' + u.long_dubs_confirmed + ' dubbed' : '—'}</td>` +
+      `<td>${u.purchases || '—'}</td><td>${localTs(u.last_active, false) || '—'}</td><td>${note.join('<br>')}</td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="muted">Nobody signed up in this period.</td></tr>';
 }
 
 async function loadUsers() {

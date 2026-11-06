@@ -345,6 +345,47 @@ def public(job):
     }
 
 
+def note_download(job):
+    """The MP3 was downloaded (counted for the admin's Activity view; not a change by the person)."""
+    try:
+        with _lock_for(job["id"]):
+            fresh = load(job["id"]) or job
+            fresh["downloads"] = int(fresh.get("downloads") or 0) + 1
+            fresh["last_download"] = _now()
+            _save_keep_updated(fresh)
+    except Exception as ex:
+        print(f"[text-voice] download not counted: {ex}")
+
+
+def admin_summary():
+    """{uid: what that account did with Text to voice}, read from the projects on disk, for the admin's Activity view."""
+    out = {}
+    for d in (ROOT.iterdir() if ROOT.is_dir() else []):
+        job = load(d.name) if d.is_dir() else None
+        if not job or not job.get("uid"):
+            continue
+        u = out.setdefault(str(job["uid"]), {"projects": 0, "chars": 0, "arabic_made": 0, "audio_made": 0, "audio_runs": 0,
+                                             "downloads": 0, "languages": [], "speakers_max": 0, "failures": 0, "last_failure": None,
+                                             "last_active": 0})
+        u["projects"] += 1
+        u["chars"] += _text_chars(job)
+        u["arabic_made"] += 1 if job.get("prepared") else 0
+        runs = int(job.get("audio_count") or (1 if (job.get("audio") or {}).get("hash") else 0))
+        u["audio_made"] += 1 if runs else 0
+        u["audio_runs"] += runs
+        u["downloads"] += int(job.get("downloads") or 0)
+        if job["source_language"] not in u["languages"]:
+            u["languages"].append(job["source_language"])
+        u["speakers_max"] = max(u["speakers_max"], len(job.get("speakers") or []))
+        lf = job.get("last_failure")
+        if lf:
+            u["failures"] += 1
+            if not u["last_failure"] or float(lf.get("at") or 0) > float(u["last_failure"].get("at") or 0):
+                u["last_failure"] = lf
+        u["last_active"] = max(u["last_active"], float(job.get("updated") or 0), float(job.get("last_download") or 0))
+    return out
+
+
 def list_jobs(uid, limit=30):
     out = []
     if not uid or not ROOT.is_dir():
@@ -839,6 +880,7 @@ def _speak_line(job, i):
     audio, err = ld._tts_with_retry(_voice_of(job, ln), _tag(ln.get("emotion")) + ln["arabic"].strip(), "auto", _gap(job, i))
     if not audio:
         print(f"[text-voice] {job['id']} line {ln['id']} not spoken: {str(err)[:300]}")
+        _FAILS.setdefault(job["id"], []).append(str(err or "no answer")[:300])
         return i, None
     folder = _dir(job["id"]) / "lines"
     folder.mkdir(parents=True, exist_ok=True)
@@ -846,10 +888,14 @@ def _speak_line(job, i):
     return i, h
 
 
+_FAILS = {}         # project id -> why lines were not spoken in the running step (kept on the project for the admin's Activity view)
+
+
 def _run_speak(job_id, todo, price):
     from concurrent.futures import ThreadPoolExecutor
     job = load(job_id)
     failed = []
+    _FAILS.pop(job_id, None)
     try:
         with WORKERS:
             done = 0
@@ -871,6 +917,7 @@ def _run_speak(job_id, todo, price):
                 seconds = _assemble(job)
                 job["audio"] = {"hash": _final_hash(job), "seconds": round(seconds, 1), "at": _now()}
                 job["notes"] = [n for n in job.get("notes") or [] if n != "audio_expired"]
+                job["audio_count"] = int(job.get("audio_count") or 0) + 1
         with _lock_for(job_id):
             if failed and price:
                 # the lines that were not spoken are given back (their share of the characters)
@@ -879,6 +926,8 @@ def _run_speak(job_id, todo, price):
                 _give_back(job, "speak", min(price, int(math.ceil(lost / float(cpc)))), "speak_failed")
             if failed:
                 job["error"] = (f"{len(failed)} line(s) could not be spoken. They were not charged. Press the button again to try them once more.")
+                why = _FAILS.pop(job_id, [])
+                job["last_failure"] = {"at": _now(), "lines": len(failed), "of": len(todo), "detail": (why[0] if why else "")[:300]}
                 _ev(job, "spoken", "partial", f"{len(todo) - len(failed)} of {len(todo)} lines")
             else:
                 job["error"] = ""
@@ -889,6 +938,8 @@ def _run_speak(job_id, todo, price):
     except Exception as ex:
         print(f"[text-voice] {job_id} speak failed: {type(ex).__name__}: {ex}")
         try:
+            job["last_failure"] = {"at": _now(), "lines": len(failed), "of": len(todo), "detail": f"{type(ex).__name__}: {ex}"[:300]}
+            _FAILS.pop(job_id, None)
             if price:
                 spoken = [i for i in todo if i not in failed and job["lines"][i].get("audio") == _line_hash(job, i)]
                 cpc = max(1, int(Hooks.chars_per_credit() or 60))
