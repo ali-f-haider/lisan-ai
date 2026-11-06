@@ -349,6 +349,20 @@ def _spoken_arabic(job, ln):
     return text
 
 
+def _voice_copy(job, i):
+    """What the voice really reads for line i (the pronunciation list and the stop form: مُمْتَازٌ، -> مُمْتَازْ،), shown under the line so the
+    person sees what they will hear (Ali, 6 Nov 2026). "" when it is the same as the line, or the line has nothing to say."""
+    ln = job["lines"][i]
+    if not _speakable(ln.get("arabic")):
+        return ""
+    try:
+        import arabic_waqf
+        said = arabic_waqf.pausal(_spoken_arabic(job, ln), "auto", _gap(job, i))
+    except Exception:
+        return ""
+    return said if said != (ln.get("arabic") or "").strip() else ""
+
+
 def _spoken_len(job, i):
     ln = job["lines"][i]
     return len(_tag(ln.get("emotion"))) + len(_spoken_arabic(job, ln))
@@ -451,7 +465,7 @@ def public(job):
         "lines": [{"id": ln["id"], "speaker_id": ln["speaker_id"], "text": ln["text"], "pause": ln["pause"],
                    "arabic": ln.get("arabic") or "", "emotion": ln.get("emotion") or "", "gender_check": bool(ln.get("gender_check")),
                    "spoken": ln["id"] in spoken, "speed": ln.get("speed") or None,
-                   "silent": not _speakable(ln.get("arabic"))} for ln in job["lines"]],
+                   "silent": not _speakable(ln.get("arabic")), "voice_text": _voice_copy(job, i)} for i, ln in enumerate(job["lines"])],
         "chars": _text_chars(job), "prepared": bool(job.get("prepared")),
         "prepare_price": prepare_price(job), "speak_price": price, "lines_to_speak": len(todo),
         "busy": job.get("busy") or "", "percent": int(job.get("percent") or 0), "message": job.get("message") or "",

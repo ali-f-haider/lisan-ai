@@ -41,6 +41,8 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
 .tv-line-src { font-size: 14px; color: var(--text-muted); margin-bottom: 6px; white-space: pre-wrap; }
 .tv-line textarea { direction: rtl; text-align: right; font-size: 18px; line-height: 1.9; min-height: 52px; resize: vertical; }
 .tv-line select { width: auto; font-size: 13px; padding: 4px 8px; }
+.tv-voice { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+.tv-voice mark { background: rgba(245, 158, 11, .25); color: inherit; border-radius: 3px; padding: 0 1px; }
 .tv-badge { background: var(--warning); color: #111; border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; }
 .tv-proj { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .tv-proj:last-child { border-bottom: none; }
@@ -230,7 +232,8 @@ var T = {
     pronPh: "جوجل = غُوغِل\nLisan = لِسَان", pronSave: "Save",
     pronSaved: function (n, bad) { return n + (n === 1 ? " word saved." : " words saved.") + (bad ? " " + bad + (bad === 1 ? " line was" : " lines were") + " not understood: write each one as written = how to say it." : ""); },
     speedLabel: "Speed of the whole text", lineSpeed: "Line speed", lineSpeedSame: "same as all lines (step 4)",
-    again: "↻ Again", againTip: "Make only this line again, with a new take. Then press Make the audio: only this line is made and paid.",
+    again: "↻ Regenerate", againTip: "Regenerate only this line, with a new take. Then press Make the audio: only this line is generated and paid.",
+    voiceReads: "🔊 The voice reads it like this:",
     speedNames: { "0.85": "Much slower", "0.9": "Slower", "1": "Normal", "1.1": "Faster", "1.2": "Much faster" },
     speedNote: "Changing the speed is free: the audio is put together again without making the voices again.",
     audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are made and paid.",
@@ -300,6 +303,7 @@ var T = {
     pronPh: "جوجل = غُوغِل\nLisan = لِسَان", pronSave: "حفظ",
     pronSaved: function (n, bad) { return "تم الحفظ (" + n.toLocaleString("ar") + ")." + (bad ? " لم نفهم " + bad.toLocaleString("ar") + " من الأسطر: اكتب كل سطر هكذا: المكتوب = طريقة النطق." : ""); },
     speedLabel: "سرعة النص كله", lineSpeed: "سرعة السطر", lineSpeedSame: "مثل باقي الأسطر (الخطوة ٤)",
+    voiceReads: "🔊 هكذا يقرؤه الصوت:",
     again: "↻ من جديد", againTip: "اصنع هذا السطر وحده من جديد بأداء آخر، ثم اضغط «اصنع الصوت»: يُصنع هذا السطر وحده ويُدفع وحده.",
     speedNames: { "0.85": "أبطأ بكثير", "0.9": "أبطأ", "1": "عادية", "1.1": "أسرع", "1.2": "أسرع بكثير" },
     speedNote: "تغيير السرعة مجاني: يُعاد تجميع الصوت دون صنع الأصوات من جديد.",
@@ -681,7 +685,8 @@ function renderLines() {
                    '<button type="button" class="btn-plain" style="padding:3px 10px;" data-again="' + esc(ln.id) + '" title="' + esc(T.againTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.again) + "</button>" : "") +
       '<span class="tv-saved" id="saved_' + esc(ln.id) + '"></span></div>' +
       (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + esc(ln.text) + "</div>") +
-      '<textarea dir="rtl" data-ar="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(ln.arabic) + "</textarea></div>";
+      '<textarea dir="rtl" data-ar="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(ln.arabic) + "</textarea>" +
+      '<div class="tv-voice" dir="rtl" id="voice_' + esc(ln.id) + '">' + voiceCopy(ln) + "</div></div>";
   }).join("");
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-ar]"), function (t) {
     t.addEventListener("input", function () { queueSave(t.getAttribute("data-ar"), { arabic: t.value }); });
@@ -716,6 +721,16 @@ function renderLines() {
   });
 }
 
+// What the voice really reads, when it differs from the line (the stop form before a comma or a full stop, the pronunciation list):
+// the changed words are highlighted, so the person sees what they will hear.
+function voiceCopy(ln) {
+  if (!ln || !ln.voice_text) return "";
+  var mine = (ln.arabic || "").trim().split(/\s+/), said = ln.voice_text.split(/\s+/);
+  var words = said.map(function (w, k) { return mine.length === said.length && mine[k] === w ? esc(w) : "<mark>" + esc(w) + "</mark>"; });
+  if (mine.length !== said.length) words = [esc(ln.voice_text)];          // the list changed the number of words: the whole copy, plain
+  return '<span dir="auto">' + esc(T.voiceReads) + "</span> " + words.join(" ");
+}
+
 function speedOptions(value, perLine) {
   var out = perLine ? '<option value=""' + (value ? "" : " selected") + ">" + esc(T.lineSpeedSame) + "</option>" : "";
   (job.speeds || [0.85, 0.9, 1, 1.1, 1.2]).forEach(function (v) {
@@ -735,6 +750,7 @@ $("btnPron").onclick = function () {
     job = r.data;
     $("pronText").value = job.pronunciation || "";
     $("pronMsg").textContent = T.pronSaved(job.pronunciation_count, job.pronunciation_bad || 0);
+    refreshVoiceCopies();
     renderAudio();
   });
 };
@@ -766,6 +782,7 @@ function tashkeelLine(lineId, btn) {
     if (!ln) return;
     if (ln.arabic.trim() === before) { alertMsg(T.tashkeelNone); return; }
     if (box) box.value = ln.arabic;
+    refreshVoiceCopies();
     var s = $("saved_" + lineId);
     if (s) { s.textContent = T.saved; setTimeout(function () { if (s) s.textContent = ""; }, 1500); }
     renderAudio();
@@ -787,8 +804,12 @@ function flushSave(lineId) {
     job = r.data;
     var s = $("saved_" + lineId);
     if (s) { s.textContent = T.saved; setTimeout(function () { if (s) s.textContent = ""; }, 1500); }
+    refreshVoiceCopies();
     renderAudio();
   });
+}
+function refreshVoiceCopies() {
+  (job.lines || []).forEach(function (l) { var v = $("voice_" + l.id); if (v) v.innerHTML = voiceCopy(l); });
 }
 function flushAll() { return Promise.all(Object.keys(pending).map(flushSave)); }
 

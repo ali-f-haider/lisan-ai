@@ -98,6 +98,22 @@ class Speed(Ready):
         self.assertTrue(tv.public(job)["audio_ready"])
 
 
+class WhatTheVoiceReads(Ready):
+    def test_the_page_shows_the_voice_copy_when_it_differs(self):
+        job = self.ready()
+        tv.set_lines(job, [{"id": "l1", "arabic": "مُمْتَازٌ، سَأُخْبِرُ بَقِيَّةَ أَعْضَاءِ الْفَرِيقِ بِهَذَا التَّعْدِيلِ."},
+                           {"id": "l2", "arabic": "نَعَمْ"}])
+        tv.set_options(tv.load(job["id"]), {"pronunciation": "الفريق = الفَرِيقِ"})
+        lines = tv.public(tv.load(job["id"]))["lines"]
+        # the stop form before the comma and the full stop, and the pronunciation list (الْفَرِيقِ -> الفَرِيقِ)
+        self.assertEqual(lines[0]["voice_text"], "مُمْتَازْ، سَأُخْبِرُ بَقِيَّةَ أَعْضَاءِ الفَرِيقِ بِهَذَا التَّعْدِيلْ.")
+        self.assertEqual(lines[0]["arabic"], "مُمْتَازٌ، سَأُخْبِرُ بَقِيَّةَ أَعْضَاءِ الْفَرِيقِ بِهَذَا التَّعْدِيلِ.")
+        self.assertEqual(lines[1]["voice_text"], "")                    # the same as the line: nothing extra is shown
+        page = (ROOT / "text_voice.html").read_text(encoding="utf-8")
+        self.assertIn('id="voice_', page)
+        self.assertEqual(len(re.findall(r"\bvoiceReads:", page)), 2)
+
+
 class OneLineAgain(Ready):
     def test_a_new_take_of_one_line_makes_and_pays_only_that_line(self):
         job = self.ready()
