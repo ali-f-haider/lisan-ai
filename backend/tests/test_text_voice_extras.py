@@ -134,6 +134,45 @@ class Downloads(Ready):
         self.assertFalse((tv._dir(job["id"]) / "zip_work").exists())
 
 
+class SlowAddresseeAnswer(Base):
+    def test_the_translation_waits_at_most_the_deadline(self):
+        # 6 Nov 2026: "who is each you said to" took about 2.5 minutes; now the translation goes on without it
+        job, _ = tv.new_job(UID, "Sara: Trace the call.\nAdam: You know who I am.", "en")
+        job = tv.load(job["id"])
+        rows = [{"segment_id": ln["id"], "start": float(i), "speaker": "x", "speaker_id": ln["speaker_id"], "text": ln["text"]}
+                for i, ln in enumerate(job["lines"])]
+
+        def slow(*a, **k):
+            time.sleep(1.5)
+            return {"l2": {"kind": "speaker"}}
+        events = []
+        with mock.patch.object(tv, "ASK_DEADLINE", 0.2), mock.patch("addressee_ask.ask", slow), mock.patch.object(tv, "GEMINI_API_KEY", "k"), \
+             mock.patch.object(tv, "_ev", lambda job, step, status="ok", detail="": events.append((step, status, detail))):
+            t0 = time.time()
+            tv._ask_addressees(job, rows)
+            self.assertLess(time.time() - t0, 1.0)
+        self.assertNotIn("addressees", job)
+        self.assertEqual([e[:2] for e in events], [("addressees_asked", "skipped")])
+
+    def test_a_quick_answer_is_used_and_timed(self):
+        job, _ = tv.new_job(UID, "Sara: Trace the call.\nAdam: You know who I am.", "en")
+        job = tv.load(job["id"])
+        rows = [{"segment_id": ln["id"], "start": float(i), "speaker": "x", "speaker_id": ln["speaker_id"], "text": ln["text"]}
+                for i, ln in enumerate(job["lines"])]
+
+        def quick(rows, todo, key, call, record=None):
+            with mock.patch("gemini_service.call_gemini", lambda k, p, timeout=0: ({"modelVersion": "gemini-x"}, None)):
+                call(key, {}, 240)
+            return {"l2": {"kind": "unsure"}}
+        events = []
+        with mock.patch("addressee_ask.ask", quick), mock.patch.object(tv, "GEMINI_API_KEY", "k"), \
+             mock.patch.object(tv, "_ev", lambda job, step, status="ok", detail="": events.append((step, status, detail))):
+            tv._ask_addressees(job, rows)
+        self.assertEqual(job["addressees"], {"l2": {"kind": "unsure"}})
+        self.assertEqual(events[0][:2], ("addressees_asked", "ok"))
+        self.assertIn("gemini-x", events[0][2])
+
+
 class FromAFile(unittest.TestCase):
     def docx(self, paras):
         body = "".join("<w:p><w:r><w:t>%s</w:t></w:r><w:r><w:br/><w:t>x</w:t></w:r></w:p>" % p for p in paras)

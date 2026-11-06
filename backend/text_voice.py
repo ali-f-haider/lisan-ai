@@ -817,8 +817,13 @@ def _gender_for(job, lines, rows_all):
     return {"speakers": gender_context.speaker_table(genders), "lines": gender_context.build_context(rows_all, ids, genders, asked=asked)}
 
 
+ASK_DEADLINE = 45        # seconds the translation waits for "who is each you said to"; then it goes on with the usual hint
+
+
 def _ask_addressees(job, rows_all):
-    """English script with two or more speakers: who each "you" or command is said to, read from the whole script (addressee_ask)."""
+    """English script with two or more speakers: who each "you" or command is said to, read from the whole script (addressee_ask).
+    6 Nov 2026: one answer took about 2.5 minutes while the page said "Translating…". The translation now waits at most
+    ASK_DEADLINE seconds; without an answer by then the lines keep the usual hint (and a "check" mark where unsure)."""
     try:
         import addressee_ask
         import gender_context
@@ -829,11 +834,29 @@ def _ask_addressees(job, rows_all):
             return
         import gemini_service
         from app_state import record_gemini
-        got = addressee_ask.ask(rows_all, todo, GEMINI_API_KEY,
-                                lambda key, payload, timeout: gemini_service.call_gemini(key, payload, timeout=timeout),
-                                record=lambda data: record_gemini(job["id"], data))
-        job["addressees"] = got
-        _ev(job, "addressees_asked", "ok", addressee_ask.summary(got))
+        box = {}
+
+        def call(key, payload, timeout):
+            data, err = gemini_service.call_gemini(key, payload, timeout=min(timeout, ASK_DEADLINE))
+            box["model"] = str((data or {}).get("modelVersion") or "")[:40]
+            if err:
+                box["error"] = str(err)[:200]
+            return data, err
+
+        def run():
+            box["got"] = addressee_ask.ask(rows_all, todo, GEMINI_API_KEY, call, record=lambda data: record_gemini(job["id"], data))
+
+        started = time.time()
+        worker = threading.Thread(target=run, daemon=True, name="text-voice-addressees")
+        worker.start()
+        worker.join(ASK_DEADLINE)
+        secs = time.time() - started
+        if "got" not in box:
+            _ev(job, "addressees_asked", "skipped", f"no answer within {ASK_DEADLINE} s; the usual hint is used")
+            return
+        job["addressees"] = box["got"]
+        _ev(job, "addressees_asked", "ok", f"{addressee_ask.summary(box['got'])} ({secs:.0f} s"
+            + (f", {box['model']}" if box.get("model") else "") + (f", error: {box['error']}" if box.get("error") else "") + ")")
     except Exception as ex:
         print(f"[text-voice] addressee question skipped: {ex}")
 
@@ -865,7 +888,7 @@ def _translate(job, progress):
         first = job["lines"].index(batch[0])
         previous = [{"speaker": names[ln["speaker_id"]], "text": ln["text"]} for ln in job["lines"][max(0, first - 4):first]]
         items = [{"segment_id": ln["id"], "speaker": names[ln["speaker_id"]], "text": ln["text"]} for ln in batch]
-        got = {}
+        got, started = {}, time.time()
         for attempt in range(3):
             res = gemini_service.translate_script_lines(job["id"], [it for it in items if it["segment_id"] not in got], GEMINI_API_KEY,
                                                         source_language=job["source_language"], gender=gender, previous=previous)
@@ -879,7 +902,10 @@ def _translate(job, progress):
         if len(got) < len(items):
             return None
         plain = {sid: (v[0], v[1]) for sid, v in got.items()}
+        translated_at = time.time()
         ld._check_tashkeel(job["id"], plain, gender)          # the vowel proofread (only safe corrections are taken)
+        print(f"[text-voice] {job['id']} {len(batch)} lines: translated in {translated_at - started:.0f} s, "
+              f"vowels checked in {time.time() - translated_at:.0f} s")
         for sid, (ar, emo) in plain.items():
             out[sid] = (ar, emo, bool(got[sid][2][1]))
         done += len(batch)
