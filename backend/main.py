@@ -6125,7 +6125,7 @@ def text_voice_subtitles(job_id: str, request: Request, marks: int = 0):
         return job
     srt = text_voice.subtitles(job, marks=bool(marks))
     if not srt:
-        return JSONResponse({"error": "Make the audio first: the subtitles follow the finished MP3."}, status_code=404)
+        return JSONResponse({"error": "Generate the audio first: the subtitles follow the finished MP3."}, status_code=404)
     name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
     return Response(("\ufeff" + srt).encode("utf-8"), media_type="application/x-subrip; charset=utf-8",
                     headers={"Content-Disposition": f'attachment; filename="{name}.srt"'})
@@ -6149,7 +6149,7 @@ def text_voice_lines_zip(job_id: str, request: Request):
         made = None
     if not made:
         shutil.rmtree(work, ignore_errors=True)
-        return JSONResponse({"error": "Make the audio first: the separate lines are cut from the finished MP3."}, status_code=404)
+        return JSONResponse({"error": "Generate the audio first: the separate lines are cut from the finished MP3."}, status_code=404)
     name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
     return FileResponse(made, media_type="application/zip", filename=name + "-lines.zip",
                         background=BackgroundTask(lambda: shutil.rmtree(work, ignore_errors=True)))

@@ -1112,7 +1112,7 @@ def _run_speak(job_id, todo, price):
                 cpc = max(1, int(Hooks.chars_per_credit() or 60))
                 kept = sum(_spoken_len(job, i) for i in spoken)
                 _give_back(job, "speak", price - int(math.ceil(kept / float(cpc))), "speak_error")
-            job["error"] = "Something went wrong while making the audio. What could not be made was not charged. Please try again."
+            job["error"] = "Something went wrong while generating the audio. What could not be generated was not charged. Please try again."
             _close(job, "speak")
             job["busy"], job["message"] = "", ""
             _save(job)
