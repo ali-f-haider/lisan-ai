@@ -12,7 +12,7 @@ class PausalTests(unittest.TestCase):
     def test_short_vowel_becomes_sukoon(self):
         self.assertEqual(pausal("هَذَا كِتَابُهُ."), "هَذَا كِتَابُهْ.")
         self.assertEqual(pausal("ذَهَبَ مُحَمَّدٌ."), "ذَهَبَ مُحَمَّدْ.")
-        self.assertEqual(pausal("أَنَا فِي الْبَيْتِ."), "أَنَا فِي الْبَيْتِ.")
+        self.assertEqual(pausal("أَنَا فِي الْبَيْتِ."), "أَنَا فِي الْبَيْتْ.")            # a noun with ال: the sukoon (6 Nov 2026)
         self.assertEqual(pausal("لَمْ يَصِلِ."), "لَمْ يَصِلْ.")
         self.assertEqual(pausal("هُوَ كَتَبَ."), "هُوَ كَتَبْ.")
 
@@ -78,9 +78,23 @@ class PausalTests(unittest.TestCase):
 
 
 class WhereTheStopIs(unittest.TestCase):
-    def test_comma_colon_semicolon_are_not_stops_in_auto(self):
-        self.assertEqual(pausal("قَالَ لَكَ، تَعَالَ."), "قَالَ لَكَ، تَعَالْ.")
-        self.assertEqual(pausal("قَالَ: نَعَمُ؛ ذَهَبَ."), "قَالَ: نَعَمُ؛ ذَهَبْ.")
+    def test_comma_colon_semicolon_are_stops_inside_the_line(self):
+        # Ali, 6 Nov 2026: the voice pauses at a comma, so the word before it is said with the sukoon
+        self.assertEqual(pausal("مُمْتَازٌ، سَأُخْبِرُ بَقِيَّةَ أَعْضَاءِ الْفَرِيقِ بِهَذَا التَّعْدِيلِ."),
+                         "مُمْتَازْ، سَأُخْبِرُ بَقِيَّةَ أَعْضَاءِ الْفَرِيقِ بِهَذَا التَّعْدِيلْ.")
+        self.assertEqual(pausal("قَالَ: نَعَمُ؛ ذَهَبَ."), "قَالَ: نَعَمْ؛ ذَهَبْ.")            # the colon leads into what is said: read on
+        self.assertEqual(pausal("قَالَ لَكَ، تَعَالَ."), "قَالَ لَكْ، تَعَالْ.")
+        self.assertEqual(pausal("ثَانِيًا، سَأَعُودُ."), "ثَانِيَا، سَأَعُودْ.")
+        self.assertEqual(pausal("لَقَدْ فَعَلْتُ، وَلَكِنْ أَعْتَقِدُ ذَلِكَ."), "لَقَدْ فَعَلْتُ، وَلَكِنْ أَعْتَقِدُ ذَلِكْ.")   # I did: the person stays
+        self.assertEqual(pausal("ذَهَبَ مُحَمَّدٌ،"), "ذَهَبَ مُحَمَّدٌ،")                    # a comma that ends the line: the sentence goes on
+
+    def test_only_the_person_ta_keeps_its_vowel(self):
+        self.assertEqual(pausal("مَاتَ."), "مَاتْ.")
+        self.assertEqual(pausal("رَأَيْتُ السَّيَّارَاتِ."), "رَأَيْتُ السَّيَّارَاتْ.")
+        self.assertEqual(pausal("هَذِهِ سَيَّارَاتِ."), "هَذِهِ سَيَّارَاتْ.")
+        self.assertEqual(pausal("قَابَلْتُ الْمَلِكَ."), "قَابَلْتُ الْمَلِكْ.")
+        self.assertEqual(pausal("وَأَنْتِ، مَاذَا تُرِيدِينَ؟"), "وَأَنْتِ، مَاذَا تُرِيدِينْ؟")
+        self.assertEqual(pausal("مَتَى شِئْتِ، تَعَالَ."), "مَتَى شِئْتِ، تَعَالْ.")
 
     def test_stop_mode_makes_every_mark_a_stop(self):
         self.assertEqual(pausal("قَالَ لَكَ، تَعَالَ", mode="stop"), "قَالَ لَكْ، تَعَالْ")
@@ -148,7 +162,7 @@ class TheVoiceGetsTheStopForm(unittest.TestCase):
             ld._tts_with_retry("v", "هَذَا كِتَابُهُ.", "join", 0.9)
         finally:
             inworld_service.synthesize = saved
-        self.assertEqual(sent, ["[Happy]شُكْرًا لَكَ، هَذَا كِتَابُهْ.", "هَذَا كِتَابُهُ", "هَذَا كِتَابُهْ", "هَذَا كِتَابُهُ."])
+        self.assertEqual(sent, ["[Happy]شُكْرًا لَكْ، هَذَا كِتَابُهْ.", "هَذَا كِتَابُهُ", "هَذَا كِتَابُهْ", "هَذَا كِتَابُهُ."])
 
     def test_edit_option_is_cleaned(self):
         import arabic_waqf
@@ -220,7 +234,7 @@ class ProtectedWordsTests(unittest.TestCase):
         self.assertEqual(pausal("أَهْلًا وَسَهْلًا."), "أَهْلًا وَسَهْلَا.")
         self.assertEqual(pausal("قَرِيبًا جِدًّا."), "قَرِيبًا \u062C\u0650\u062F\u0651\u064E\u0627.")
         self.assertEqual(pausal("أَهْلًا وَسَهْلًا", gap=0.1), "أَهْلًا وَسَهْلًا")          # no stop, no change
-        self.assertEqual(pausal("ثَانِيًا، سَأَعُودُ غَدًا."), "ثَانِيًا، سَأَعُودُ غَدَا.")  # a comma is no stop in auto
+        self.assertEqual(pausal("ثَانِيًا، سَأَعُودُ غَدًا."), "ثَانِيَا، سَأَعُودُ غَدَا.")  # a comma is a stop (6 Nov 2026)
 
     def test_words_without_a_tanween_are_never_given_one(self):
         for s in ("بِالتَّأْكِيدِ.", "كَذَلِكَ.", "لِلْأَسَفِ."):

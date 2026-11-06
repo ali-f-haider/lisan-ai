@@ -229,7 +229,8 @@ var T = {
     pronNote: "A name or word the voice says wrongly? Write it as it appears in the Arabic text, then how it should be said, one per line: written = how to say it. For example: جوجل = غُوغِل. Only the voice changes; your text stays as written. Lines with such a word are made again the next time you make the audio. Free.",
     pronPh: "جوجل = غُوغِل\nLisan = لِسَان", pronSave: "Save",
     pronSaved: function (n, bad) { return n + (n === 1 ? " word saved." : " words saved.") + (bad ? " " + bad + (bad === 1 ? " line was" : " lines were") + " not understood: write each one as written = how to say it." : ""); },
-    speedLabel: "Speed of the whole text", lineSpeed: "Speed", lineSpeedSame: "as the whole text",
+    speedLabel: "Speed of the whole text", lineSpeed: "Line speed", lineSpeedSame: "same as all lines (step 4)",
+    again: "↻ Again", againTip: "Make only this line again, with a new take. Then press Make the audio: only this line is made and paid.",
     speedNames: { "0.85": "Much slower", "0.9": "Slower", "1": "Normal", "1.1": "Faster", "1.2": "Much faster" },
     speedNote: "Changing the speed is free: the audio is put together again without making the voices again.",
     audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are made and paid.",
@@ -298,7 +299,8 @@ var T = {
     pronNote: "اسم أو كلمة ينطقها الصوت خطأً؟ اكتبها كما تظهر في النص العربي، ثم كيف تُنطق، كلمة في كل سطر: المكتوب = طريقة النطق. مثلًا: جوجل = غُوغِل. يتغيّر النطق فقط ويبقى نصك كما كتبته. والأسطر التي فيها مثل هذه الكلمة تُصنع من جديد في المرة القادمة التي تصنع فيها الصوت. مجانًا.",
     pronPh: "جوجل = غُوغِل\nLisan = لِسَان", pronSave: "حفظ",
     pronSaved: function (n, bad) { return "تم الحفظ (" + n.toLocaleString("ar") + ")." + (bad ? " لم نفهم " + bad.toLocaleString("ar") + " من الأسطر: اكتب كل سطر هكذا: المكتوب = طريقة النطق." : ""); },
-    speedLabel: "سرعة النص كله", lineSpeed: "السرعة", lineSpeedSame: "مثل النص كله",
+    speedLabel: "سرعة النص كله", lineSpeed: "سرعة السطر", lineSpeedSame: "مثل باقي الأسطر (الخطوة ٤)",
+    again: "↻ من جديد", againTip: "اصنع هذا السطر وحده من جديد بأداء آخر، ثم اضغط «اصنع الصوت»: يُصنع هذا السطر وحده ويُدفع وحده.",
     speedNames: { "0.85": "أبطأ بكثير", "0.9": "أبطأ", "1": "عادية", "1.1": "أسرع", "1.2": "أسرع بكثير" },
     speedNote: "تغيير السرعة مجاني: يُعاد تجميع الصوت دون صنع الأصوات من جديد.",
     audioHeading: "٤. الصوت", audioNote: "تُصنع وتُدفع فقط الأسطر الجديدة أو التي تغيّرت منذ آخر مرة.",
@@ -675,7 +677,8 @@ function renderLines() {
       '<button type="button" class="btn-plain" style="padding:3px 10px;" data-tash="' + esc(ln.id) + '" title="' + esc(T.tashkeelTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.tashkeel) + "</button>" +
       "<span>" + esc(T.lineSpeed) + '</span><select data-speed="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + speedOptions(ln.speed, true) + "</select>" +
       (ln.silent && (ln.arabic || "").trim() ? '<span class="tv-badge">' + esc(T.silent) + "</span>" : "") +
-      (ln.spoken ? '<button type="button" class="btn-plain" style="padding:3px 10px;" data-play="' + esc(ln.id) + '">' + T.playLine + "</button>" : "") +
+      (ln.spoken ? '<button type="button" class="btn-plain" style="padding:3px 10px;" data-play="' + esc(ln.id) + '">' + T.playLine + "</button>" +
+                   '<button type="button" class="btn-plain" style="padding:3px 10px;" data-again="' + esc(ln.id) + '" title="' + esc(T.againTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.again) + "</button>" : "") +
       '<span class="tv-saved" id="saved_' + esc(ln.id) + '"></span></div>' +
       (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + esc(ln.text) + "</div>") +
       '<textarea dir="rtl" data-ar="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(ln.arabic) + "</textarea></div>";
@@ -685,6 +688,20 @@ function renderLines() {
   });
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-emo]"), function (s) {
     s.onchange = function () { queueSave(s.getAttribute("data-emo"), { emotion: s.value }, 0); };
+  });
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-again]"), function (b) {
+    b.onclick = function () {
+      b.disabled = true;
+      var id = b.getAttribute("data-again");
+      flushSave(id).then(function () {
+        return api("POST", "/api/text_voice/" + job.id + "/lines", { lines: [{ id: id, again: true }] });
+      }).then(function (r) {
+        if (!r.ok) { b.disabled = false; alertMsg(r.data.error || T.netErr); return; }
+        job = r.data;
+        renderLines(); renderAudio();
+        try { $("btnSpeak").scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+      });
+    };
   });
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-speed]"), function (s) {
     s.onchange = function () { queueSave(s.getAttribute("data-speed"), { speed: s.value ? Number(s.value) : null }, 0); };

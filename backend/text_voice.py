@@ -397,6 +397,8 @@ def _voice_of(job, line):
 def _line_hash(job, i):
     ln = job["lines"][i]
     raw = "|".join([_voice_of(job, ln), ln.get("emotion") or "", _spoken_arabic(job, ln), "%.2f" % _gap(job, i)])
+    if ln.get("take"):                          # "Make this line again": a new take of the same text (only then, so older hashes stay)
+        raw += "|take:%d" % int(ln["take"])
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -718,6 +720,8 @@ def set_lines(job, edits):
         if "emotion" in e:
             emo = str(e.get("emotion") or "").strip().lower()
             ln["emotion"] = emo if emo in allowed else ""
+        if e.get("again") is True and ln.get("audio"):     # a new take of this line only; it is made and paid at the next "Make the audio"
+            ln["take"] = int(ln.get("take") or 0) + 1
         if "speed" in e:                        # "" or None: the speed of the whole text
             ln["speed"] = _clean_speed(e.get("speed")) if e.get("speed") not in (None, "", 0) else None
     _save(job)

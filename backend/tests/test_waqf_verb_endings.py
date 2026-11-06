@@ -43,8 +43,9 @@ class VerbEndingSpeechTests(unittest.TestCase):
             self.assertEqual(pausal(text), text)
 
     def test_ambiguous_nouns_keep_short_vowels_as_approved(self):
-        for text in ['بِنْتِ.', 'بِنْتَ.', 'بِنْتُ.', 'الْبَيْتِ.', 'صَوْتُ.', 'وَقْتَ.']:
+        for text in ['بِنْتِ.', 'بِنْتَ.', 'بِنْتُ.', 'صَوْتُ.', 'وَقْتَ.']:
             self.assertEqual(pausal(text), text)
+        self.assertEqual(pausal('الْبَيْتِ.'), 'الْبَيْتْ.')          # with ال it is a noun: the sukoon (Ali, 6 Nov 2026)
 
     def test_other_stopping_and_tanween_rules_are_unchanged(self):
         pairs = [('بَيْتٌ.', 'بَيْتْ.'), ('بِنْتٍ.', 'بِنْتْ.'),

@@ -12,12 +12,20 @@ temporary copy that is sent to the voice engine: the last word before a real sto
     فَتًى        ->  فَتَى              (alef maqsura keeps its long vowel; special: جِدًّا -> جِدَّا, مَسَاءً -> مَسَاءَا)
     مَدْرَسَةٌ   ->  مَدْرَسَهْ         ة is a silent ه: also with tanween fatha
     امْرَأَةٌ ... لَافِتَةٌ   the ة of these words is a silent ه everywhere in the voice copy (not before an ال word: امْرَأَةُ الرَّجُلِ)
-    أَنْتَ، أَنْتِ، شِئْتَ، شِئْتِ، شِئْتُ   unchanged      final ت short vowels may identify person/gender; ambiguous nouns keep theirs too
+    أَنْتَ، أَنْتِ، شِئْتَ، شِئْتِ، شِئْتُ   unchanged      the ت that says the person (I / you, man or woman): its vowel is kept
+    الْبَيْتِ، مَاتَ، السَّيَّارَاتِ   ->  الْبَيْتْ، مَاتْ، السَّيَّارَاتْ   any other final ت gets the sukoon like every word
     هُنَا، فِي، يَدْعُو   unchanged      long vowels stay long
     قَاضٍ، دَاعٍ         unchanged      defective nouns (منقوص) need their own treatment: never turned into قَاضْ
 
-Where a stop is: the stop is real at . ! ؟ ? … (a dot inside a number, a link or an abbreviation is not). A comma, semicolon or colon is a stop only
-when the line is set to "stop". The end of a line is a stop only when the line says so: it ends a sentence, or the original speaker really paused
+The rule (Arabic grammar and recitation: "الأصلُ في الوقفِ السكونُ"): at a stop the last short vowel becomes a sukoon, in nouns, verbs and particles
+alike; a tanween fatha becomes an alef (here only for the special words below), a ة becomes ه. Recitation may keep a third of a damma or kasra
+(الرَّوْم) so that a listener still hears it; a voice cannot whisper a third of a vowel, so where that vowel is the only thing that says who speaks
+(the ت of the person: شِئْتُ / شِئْتَ / شِئْتِ, أَنْتَ / أَنْتِ) the whole vowel is kept instead, as before. Ali, 6 Nov 2026: the sukoon is for the
+nouns; a word with the article ال is always a noun, so its final ت gets the sukoon too (الْبَيْتِ -> الْبَيْتْ).
+
+Where a stop is: the stop is real at . ! ؟ ? … (a dot inside a number, a link or an abbreviation is not) and, since 6 Nov 2026, also at a comma,
+semicolon or dash inside the line (the voice pauses there: مُمْتَازٌ، -> مُمْتَازْ،). A colon is not: it leads into what is said and is read
+on ("قَالَ: نَعَمْ"), unless the line is set to "stop". The end of a line is a stop only when the line says so: it ends a sentence, or the original speaker really paused
 (`gap` = seconds of silence after the line, 0.5 s or more), or the line is set to "stop". A sentence that continues in the next line is joined
 (wasl): its last word keeps its vowel. A line set to "join" never gets the stop form at its end.
 
@@ -38,6 +46,7 @@ _CONTINUES = re.compile(r"[^\W_]")                      # a letter or digit of a
 _CLOSERS = "\"'»”’)]}」"            # what may sit between the last word and the stop itself
 _STRONG = ".!؟?…"
 _WEAK = "،,؛;:—–"
+_WEAK_STOPS = "،,؛;—–"           # inside a line these are stops (since 6 Nov 2026); the colon only when the line is set to "stop"
 GAP_PAUSE = 0.5                                  # seconds of silence after a line that make its end a real stop
 MODES = ("auto", "stop", "join")
 
@@ -163,14 +172,32 @@ def _without_vowels(marks):
     return [m for m in marks if m not in _VOWELS]
 
 
+_ARTICLE = re.compile("^[وفبلك]{0,2}ال")
+
+
+def _person_ending(g):
+    """True when the final ت of this word may be the ت of the person (its vowel then says I / you, man or woman).
+    Not for a word with the article ال (a noun: الْبَيْتِ); only after a sukoon or a doubled ت (شِئْتِ, أَنْتِ, بِتِّ; not مَاتَ, سَيَّارَاتِ)."""
+    if _ARTICLE.match(_norm(_bare(g))):
+        return False
+    if _SHADDA in g[-1][1]:            # بِتِّ / بِتُّ: the ت of the person is doubled
+        return True
+    if len(g) < 2:
+        return False
+    prev_letter, prev_marks = g[-2]
+    if _SUKOON in prev_marks:
+        return True
+    # a text marked only in part (شئتِ): a letter without any vowel before the ت is read as a sukoon, unless it is a long vowel
+    return not any(m in _VOWELS for m in prev_marks) and prev_letter not in _LONG and prev_letter not in "وي"
+
+
 def _pausal_word(word):
     g = _groups(word)
     if len(g) < 2 or not _MARK.search(word):
         return word
     letter, marks = g[-1]
-    # A final ت vowel can identify person/gender (شئتَ / شئتِ / شئتُ).
-    # Keep ambiguous noun endings too: never guess and erase that distinction.
-    if letter == "ت" and any(v in marks for v in (_FATHA, _DAMMA, _KASRA)):
+    # The vowel of the ت of the person (شِئْتَ / شِئْتِ / شِئْتُ, أَنْتِ) says who speaks or is spoken to: kept.
+    if letter == "ت" and any(v in marks for v in (_FATHA, _DAMMA, _KASRA)) and _person_ending(g):
         return word
     prev_letter, prev_marks = g[-2]
     # 1. ة is a silent ه at a stop, whatever it carries (also a tanween fatha)
@@ -284,7 +311,7 @@ def pausal(text, mode="auto", gap=None):
                     stop = True
                 else:
                     stop = gap is not None and gap >= GAP_PAUSE
-            elif kind == "strong":
+            elif kind == "strong" or (kind == "weak" and text[after - 1] in _WEAK_STOPS):   # . ! ؟ and (since 6 Nov 2026) the comma
                 stop = True
             else:
                 stop = mode == "stop"

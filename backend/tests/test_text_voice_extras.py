@@ -98,6 +98,26 @@ class Speed(Ready):
         self.assertTrue(tv.public(job)["audio_ready"])
 
 
+class OneLineAgain(Ready):
+    def test_a_new_take_of_one_line_makes_and_pays_only_that_line(self):
+        job = self.ready()
+        sent = []
+        job = self.speak(job, sent)
+        tv.set_lines(job, [{"id": "l3", "again": "yes"}])          # only a real true counts
+        self.assertEqual(tv.public(tv.load(job["id"]))["lines_to_speak"], 0)
+        tv.set_lines(tv.load(job["id"]), [{"id": "l3", "again": True}])
+        job = tv.load(job["id"])
+        view = tv.public(job)
+        self.assertEqual((view["lines_to_speak"], job["lines"][2]["arabic"]), (1, "إِلَى اللِّقَاءِ"))
+        price, _ = tv.speak_price(job)
+        sent.clear()
+        job = self.speak(job, sent)
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0].endswith("إِلَى اللِّقَاءِ"))          # the stop form is made later, in the voice call
+        self.assertEqual(sorted(self.ledger.charges.values())[-1:] if price else [], [price] if price else [])
+        self.assertTrue(tv.public(job)["audio_ready"])
+
+
 class Downloads(Ready):
     def test_subtitles_follow_the_mp3(self):
         job = self.ready()
@@ -211,7 +231,8 @@ class Wiring(unittest.TestCase):
         for needle in ('id="pronText"', 'id="tvSpeed"', 'id="dlSrt"', 'id="dlZip"', 'id="tvFile"', "/api/text_voice/read_file",
                        '"/options"', "/subtitles", "/lines.zip"):
             self.assertIn(needle, page)
-        for key in ("fileBtn", "pronHeading", "pronNote", "speedLabel", "speedNames", "dlSrt", "dlZip", "subsOld", "silent", "speakAgainFree"):
+        for key in ("fileBtn", "pronHeading", "pronNote", "speedLabel", "speedNames", "dlSrt", "dlZip", "subsOld", "silent", "speakAgainFree",
+                    "againTip", "lineSpeed", "lineSpeedSame"):
             self.assertEqual(len(re.findall(r"\b" + key + r":", page)), 2, key)
 
 
