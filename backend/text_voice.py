@@ -52,6 +52,10 @@ BATCH_LINES = 30
 TRANSLATE_PER_1000 = _env_num("TEXT_VOICE_TRANSLATE_PER_1000", 5)
 ARABIC_PER_1000 = _env_num("TEXT_VOICE_ARABIC_PER_1000", 2)
 PAUSES = {"same": 0.35, "turn": 0.6, "para": 0.9}       # seconds of silence before a line: same speaker, new speaker, new paragraph
+SPEEDS = (0.85, 0.9, 1.0, 1.1, 1.2)      # the speed of the whole text or of one line (played faster or slower, the voice stays the same)
+PRON_MAX = 60                   # words in the pronunciation list of a project
+PRON_TERM_MAX = 80              # characters on each side of one entry
+READ_FILE_MAX = 2_000_000       # an uploaded .txt, .docx or .srt file
 KEEP_DAYS = 30                 # the text of a project, after its last change
 WORKERS = threading.Semaphore(2)                       # projects being worked on at once (whole server)
 NARRATOR = "Narrator"
@@ -286,6 +290,105 @@ def _gap(job, i):
     return PAUSES[nxt["pause"]] if nxt else 2.0
 
 
+# ------------------------------------------------------------------ pronunciation list and speed (Ali, Nov 2026)
+# The pronunciation list: "written = how to say it", for a name or word the voice says wrongly. Only the copy sent to the
+# voice changes (the Arabic text shown and the subtitles stay as written), so a change re-makes only the lines with that word.
+_DIAC = "[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]"
+_PRON_SPLIT = re.compile(r"\s*(?:=>|->|\u2192|\u2190|=|\t)\s*")
+_PRON_RE = {}
+
+
+def _bare(text):
+    """The text without diacritics and the stretching mark (ـ)."""
+    return re.sub(_DIAC, "", str(text or ""))
+
+
+def parse_pronunciation(text):
+    """'written = how to say it' per line -> ([{word, say}], number of lines that could not be read). A blank line or a line
+    starting with # is ignored; a word written twice keeps its first entry."""
+    out, bad, seen = [], 0, set()
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = _PRON_SPLIT.split(line, maxsplit=1)
+        if len(parts) != 2:
+            bad += 1
+            continue
+        word, say = parts[0].strip(), parts[1].strip()
+        if (not _speakable(word) or not _speakable(say) or len(word) > PRON_TERM_MAX or len(say) > PRON_TERM_MAX
+                or len(_bare(word).split()) > 6):
+            bad += 1
+            continue
+        key = _bare(word).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"word": word, "say": say})
+        if len(out) >= PRON_MAX:
+            break
+    return out, bad
+
+
+def _pron_regex(word):
+    """The word in a line, with or without diacritics, also after و ف ب ل ك and ال (which are kept)."""
+    key = _bare(word).lower()
+    if key not in _PRON_RE:
+        letters = "".join(("\\s+" if ch.isspace() else "[\u0627\u0623\u0625\u0622]" if ch in "\u0627\u0623\u0625\u0622" else re.escape(ch))
+                          + _DIAC + "*" for ch in re.sub(r"\s+", " ", key))      # an alef with or without hamza is the same letter here
+        prefix = "((?:[\u0648\u0641\u0628\u0644\u0643]" + _DIAC + "*){0,2}(?:\u0627" + _DIAC + "*\u0644" + _DIAC + "*)?)" if re.match(r"[\u0600-\u06FF]", key) else "()"
+        _PRON_RE[key] = re.compile(r"(?<!\w)" + prefix + letters + r"(?!\w)", re.IGNORECASE)
+    return _PRON_RE[key]
+
+
+def _spoken_arabic(job, ln):
+    """The Arabic of a line as it is sent to the voice: with the pronunciation list applied (longest words first)."""
+    text = (ln.get("arabic") or "").strip()
+    for e in sorted(job.get("pronunciation") or [], key=lambda e: -len(_bare(e["word"]))):
+        text = _pron_regex(e["word"]).sub(lambda m, say=e["say"]: m.group(1) + say, text)
+    return text
+
+
+def _spoken_len(job, i):
+    ln = job["lines"][i]
+    return len(_tag(ln.get("emotion"))) + len(_spoken_arabic(job, ln))
+
+
+def _speed_of(job, ln):
+    v = ln.get("speed") or job.get("speed") or 1.0
+    return float(v) if float(v) in SPEEDS else 1.0
+
+
+def _clean_speed(v):
+    try:
+        v = round(float(v), 2)
+    except (TypeError, ValueError):
+        return None
+    return v if v in SPEEDS else None
+
+
+def set_options(job, payload):
+    """The speed of the whole text and the pronunciation list. Free. Returns (True, {"bad": n}) or (False, (message, status))."""
+    if job.get("busy"):
+        return False, ("Please wait until the current step has finished.", 409)
+    payload = payload if isinstance(payload, dict) else {}
+    bad = 0
+    if "speed" in payload:
+        v = _clean_speed(payload.get("speed"))
+        if v is None:
+            return False, ("Please choose one of the speeds offered.", 400)
+        job["speed"] = v
+    if "pronunciation" in payload:
+        text = str(payload.get("pronunciation") or "")
+        if len(text) > 12000:
+            return False, ("The pronunciation list is too long.", 400)
+        entries, bad = parse_pronunciation(text)
+        job["pronunciation"] = entries
+        _ev(job, "pronunciation_saved", "ok", f"{len(entries)} words, {bad} lines not understood")
+    _save(job)
+    return True, {"bad": bad}
+
+
 def _voice_of(job, line):
     sp = next((s for s in job["speakers"] if s["id"] == line["speaker_id"]), None)
     return (sp or {}).get("voice_id") or ""
@@ -293,7 +396,7 @@ def _voice_of(job, line):
 
 def _line_hash(job, i):
     ln = job["lines"][i]
-    raw = "|".join([_voice_of(job, ln), ln.get("emotion") or "", (ln.get("arabic") or "").strip(), "%.2f" % _gap(job, i)])
+    raw = "|".join([_voice_of(job, ln), ln.get("emotion") or "", _spoken_arabic(job, ln), "%.2f" % _gap(job, i)])
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -314,14 +417,18 @@ def _to_speak(job):
 
 def speak_price(job, todo=None):
     todo = _to_speak(job) if todo is None else todo
-    chars = sum(len(_tag(job["lines"][i].get("emotion"))) + len(job["lines"][i]["arabic"].strip()) for i in todo)
+    chars = sum(_spoken_len(job, i) for i in todo)
     cpc = max(1, int(Hooks.chars_per_credit() or 60))
     return (int(math.ceil(chars / float(cpc))) if chars else 0), chars
 
 
 def _final_hash(job):
     parts = [ln.get("audio") or "" for ln in job["lines"] if _speakable(ln.get("arabic"))]
-    return hashlib.sha1(("|".join(parts) + "|" + "|".join(ln["pause"] for ln in job["lines"])).encode()).hexdigest()[:16]
+    raw = "|".join(parts) + "|" + "|".join(ln["pause"] for ln in job["lines"])
+    speeds = [_speed_of(job, ln) for ln in job["lines"] if _speakable(ln.get("arabic"))]
+    if any(v != 1.0 for v in speeds):           # only then, so the audio made before speeds existed stays current
+        raw += "|speed:" + ",".join("%.2f" % v for v in speeds)
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
 def public(job):
@@ -341,7 +448,8 @@ def public(job):
         "speakers": [{k: s.get(k, "") for k in ("id", "name", "gender", "voice_id", "voice_name")} for s in job["speakers"]],
         "lines": [{"id": ln["id"], "speaker_id": ln["speaker_id"], "text": ln["text"], "pause": ln["pause"],
                    "arabic": ln.get("arabic") or "", "emotion": ln.get("emotion") or "", "gender_check": bool(ln.get("gender_check")),
-                   "spoken": ln["id"] in spoken} for ln in job["lines"]],
+                   "spoken": ln["id"] in spoken, "speed": ln.get("speed") or None,
+                   "silent": not _speakable(ln.get("arabic"))} for ln in job["lines"]],
         "chars": _text_chars(job), "prepared": bool(job.get("prepared")),
         "prepare_price": prepare_price(job), "speak_price": price, "lines_to_speak": len(todo),
         "busy": job.get("busy") or "", "percent": int(job.get("percent") or 0), "message": job.get("message") or "",
@@ -350,6 +458,10 @@ def public(job):
         "audio_file": bool(audio_path(job)), "audio_outdated": bool(audio_path(job)) and not current,
         "audio_seconds": audio.get("seconds") if audio_path(job) else None,
         "notes": job.get("notes") or [],
+        "speed": float(job.get("speed") or 1.0), "speeds": list(SPEEDS),
+        "pronunciation": "\n".join(e["word"] + " = " + e["say"] for e in job.get("pronunciation") or []),
+        "pronunciation_count": len(job.get("pronunciation") or []),
+        "subtitles_ready": bool(_timing(job)),
     }
 
 
@@ -365,12 +477,13 @@ def note_download(job):
         print(f"[text-voice] download not counted: {ex}")
 
 
-def admin_summary():
-    """{uid: what that account did with Text to voice}, read from the projects on disk, for the admin's Activity view."""
+def admin_summary(uid=None):
+    """{uid: what that account did with Text to voice}, read from the projects on disk, for the admin's Activity view
+    (with uid: only that account, for the feedback question)."""
     out = {}
     for d in (ROOT.iterdir() if ROOT.is_dir() else []):
         job = load(d.name) if d.is_dir() else None
-        if not job or not job.get("uid"):
+        if not job or not job.get("uid") or (uid is not None and str(job["uid"]) != str(uid)):
             continue
         u = out.setdefault(str(job["uid"]), {"projects": 0, "chars": 0, "arabic_made": 0, "audio_made": 0, "audio_runs": 0,
                                              "downloads": 0, "languages": [], "speakers_max": 0, "failures": 0, "last_failure": None,
@@ -605,6 +718,8 @@ def set_lines(job, edits):
         if "emotion" in e:
             emo = str(e.get("emotion") or "").strip().lower()
             ln["emotion"] = emo if emo in allowed else ""
+        if "speed" in e:                        # "" or None: the speed of the whole text
+            ln["speed"] = _clean_speed(e.get("speed")) if e.get("speed") not in (None, "", 0) else None
     _save(job)
     return True, None
 
@@ -885,7 +1000,7 @@ def _speak_line(job, i):
     import longdub_service as ld
     ln = job["lines"][i]
     h = _line_hash(job, i)
-    audio, err = ld._tts_with_retry(_voice_of(job, ln), _tag(ln.get("emotion")) + ln["arabic"].strip(), "auto", _gap(job, i))
+    audio, err = ld._tts_with_retry(_voice_of(job, ln), _tag(ln.get("emotion")) + _spoken_arabic(job, ln), "auto", _gap(job, i))
     if not audio:
         print(f"[text-voice] {job['id']} line {ln['id']} not spoken: {str(err)[:300]}")
         _FAILS.setdefault(job["id"], []).append(str(err or "no answer")[:300])
@@ -923,14 +1038,14 @@ def _run_speak(job_id, todo, price):
                 job["message"] = "Putting it together..."
                 _save(job)
                 seconds = _assemble(job)
-                job["audio"] = {"hash": _final_hash(job), "seconds": round(seconds, 1), "at": _now()}
+                job["audio"] = {"hash": _final_hash(job), "seconds": round(seconds, 1), "at": _now(), "timing": job.pop("audio_timing", [])}
                 job["notes"] = [n for n in job.get("notes") or [] if n != "audio_expired"]
                 job["audio_count"] = int(job.get("audio_count") or 0) + 1
         with _lock_for(job_id):
             if failed and price:
                 # the lines that were not spoken are given back (their share of the characters)
                 cpc = max(1, int(Hooks.chars_per_credit() or 60))
-                lost = sum(len(_tag(job["lines"][i].get("emotion"))) + len(job["lines"][i]["arabic"].strip()) for i in failed)
+                lost = sum(_spoken_len(job, i) for i in failed)
                 _give_back(job, "speak", min(price, int(math.ceil(lost / float(cpc)))), "speak_failed")
             if failed:
                 job["error"] = (f"{len(failed)} line(s) could not be spoken. They were not charged. Press the button again to try them once more.")
@@ -951,7 +1066,7 @@ def _run_speak(job_id, todo, price):
             if price:
                 spoken = [i for i in todo if i not in failed and job["lines"][i].get("audio") == _line_hash(job, i)]
                 cpc = max(1, int(Hooks.chars_per_credit() or 60))
-                kept = sum(len(_tag(job["lines"][i].get("emotion"))) + len(job["lines"][i]["arabic"].strip()) for i in spoken)
+                kept = sum(_spoken_len(job, i) for i in spoken)
                 _give_back(job, "speak", price - int(math.ceil(kept / float(cpc))), "speak_error")
             job["error"] = "Something went wrong while making the audio. What could not be made was not charged. Please try again."
             _close(job, "speak")
@@ -994,6 +1109,11 @@ def _assemble(job):
             wav = work / f"{ln['id']}.wav"
             if ld._trim_silence(_line_file(job, ln), wav) is None:
                 continue
+            speed = _speed_of(job, ln)
+            if speed != 1.0:                    # faster or slower, the voice keeps its pitch
+                fast = work / f"{ln['id']}_speed.wav"
+                ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-filter:a", f"atempo={speed:.3f}", str(fast)])
+                wav = fast
             x, sr = sf.read(str(wav), dtype="float32", always_2d=True)
             clips.append((ln, x, sr))
         if not clips:
@@ -1001,14 +1121,19 @@ def _assemble(job):
         sr = clips[0][2]
         levels = [r for r in (_active_rms(x) for _ln, x, _sr in clips) if r > 0]
         target = float(np.median(levels)) if levels else 0.0
-        parts = []
+        parts, timing, at = [], [], 0
         for k, (ln, x, _sr) in enumerate(clips):
             if k:
-                parts.append(np.zeros((int(PAUSES[ln["pause"]] * sr), x.shape[1]), dtype="float32"))
+                gap = np.zeros((int(PAUSES[ln["pause"]] * sr), x.shape[1]), dtype="float32")
+                parts.append(gap)
+                at += len(gap)
             r = _active_rms(x)
             if target and r:
                 x = x * float(np.clip(target / r, 10 ** (-6 / 20), 10 ** (6 / 20)))
             parts.append(x)
+            timing.append({"id": ln["id"], "start": round(at / float(sr), 3), "end": round((at + len(x)) / float(sr), 3)})
+            at += len(x)
+        job["audio_timing"] = timing          # where each line is in the MP3 (for the subtitles and the lines ZIP)
         mix = np.concatenate(parts)
         peak = float(np.max(np.abs(mix))) if len(mix) else 0.0
         if peak > 0.98:
@@ -1044,6 +1169,189 @@ def line_audio_path(job, line_id):
     return None
 
 
+# ------------------------------------------------------------------ subtitles and the lines ZIP (Ali, Nov 2026)
+
+SUB_ROW = 42                    # characters on one subtitle row; two rows at most on screen
+
+
+def _timing(job):
+    """Where each line is in the current MP3 ([{id, start, end}]), or None (no MP3 that matches the text, or one made
+    before the timing was kept: making the audio again is free then)."""
+    if not audio_path(job, current=True):
+        return None
+    return (job.get("audio") or {}).get("timing") or None
+
+
+def _srt_time(t):
+    ms = int(round(max(0.0, t) * 1000))
+    return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+
+def _sub_pieces(text):
+    """A line cut into subtitles of at most two rows, at word ends."""
+    words, out, cur = text.split(), [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > 2 * SUB_ROW:
+            out.append(cur)
+            cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        out.append(cur)
+    rows = []
+    for piece in out:                       # two rows, split near the middle
+        if len(piece) > SUB_ROW:
+            ws, top = piece.split(), ""
+            while ws and len(top) + len(ws[0]) < len(piece) / 2:
+                top = (top + " " + ws.pop(0)).strip()
+            piece = top + "\n" + " ".join(ws) if top and ws else piece
+        rows.append(piece)
+    return rows
+
+
+def subtitles(job, marks=False):
+    """The subtitles of the current MP3 as SRT text (the Arabic as written, without diacritics unless marks=True), or None."""
+    timing = _timing(job)
+    if not timing:
+        return None
+    by_id = {ln["id"]: ln for ln in job["lines"]}
+    out, n = [], 0
+    for t in timing:
+        ln = by_id.get(t["id"])
+        if not ln:
+            continue
+        text = (ln.get("arabic") or "").strip()
+        text = re.sub(r"\s+", " ", text if marks else _bare(text)).strip()
+        pieces = _sub_pieces(text) or [""]
+        total = sum(len(p) for p in pieces) or 1
+        start, length = float(t["start"]), float(t["end"]) - float(t["start"])
+        for piece in pieces:                # each piece gets the share of the line's time of its length
+            end = start + length * len(piece) / total
+            n += 1
+            out.append(f"{n}\n{_srt_time(start)} --> {_srt_time(end)}\n{piece}\n")
+            start = end
+    return "\n".join(out)
+
+
+def _safe_name(text, fallback):
+    name = re.sub(r"[^\w\- ]+", "", str(text or ""), flags=re.UNICODE).strip()[:40]
+    return name or fallback
+
+
+def lines_zip(job, dest):
+    """A ZIP of the current MP3 cut at the start of every line (each part: the line and the pause after it), written to
+    dest. Returns dest, or None when there is no current MP3 with timing. Cut without re-encoding, so it is quick."""
+    import zipfile
+    import ffmpeg_utils
+    timing = _timing(job)
+    final = audio_path(job, current=True)
+    if not timing or not final:
+        return None
+    names = {s["id"]: ("Narrator" if s["name"] == NARRATOR else s["name"]) for s in job["speakers"]}
+    by_id = {ln["id"]: ln for ln in job["lines"]}
+    work = _dir(job["id"]) / "zip_work"
+    shutil.rmtree(work, ignore_errors=True)
+    work.mkdir(parents=True, exist_ok=True)
+    try:
+        cuts = ",".join("%.3f" % float(t["start"]) for t in timing[1:])
+        cmd = ["ffmpeg", "-y", "-i", str(final), "-map", "0:a", "-c", "copy", "-f", "segment", "-reset_timestamps", "1"]
+        if cuts:
+            cmd += ["-segment_times", cuts]
+        ffmpeg_utils.run_ffmpeg(cmd + [str(work / "part%04d.mp3")])
+        parts = sorted(work.glob("part*.mp3"))
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_STORED) as z:
+            for k, (t, part) in enumerate(zip(timing, parts)):
+                ln = by_id.get(t["id"]) or {}
+                z.write(part, "%03d_%s.mp3" % (k + 1, _safe_name(names.get(ln.get("speaker_id")), "line")))
+        return dest
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+# ------------------------------------------------------------------ a text from a file (Ali, Nov 2026)
+
+def _decode(data):
+    if data.startswith(b"\xef\xbb\xbf"):
+        return data[3:].decode("utf-8", errors="replace")
+    if data.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return data.decode("utf-16", errors="replace")
+    for enc in ("utf-8", "cp1256"):         # cp1256: Arabic texts saved by older Windows programs
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("latin-1", errors="replace")
+
+
+def _docx_text(data):
+    import io
+    import zipfile
+    from xml.etree import ElementTree as ET
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        info = z.getinfo("word/document.xml")
+        if info.file_size > 30_000_000:
+            raise ValueError("too big")
+        root = ET.fromstring(z.read(info))
+    paras = []
+    for para in root.iter(w + "p"):
+        bits = []
+        for node in para.iter():
+            if node.tag == w + "t" and node.text:
+                bits.append(node.text)
+            elif node.tag == w + "tab":
+                bits.append(" ")
+            elif node.tag in (w + "br", w + "cr"):
+                bits.append("\n")
+        paras.append("".join(bits))
+    return "\n".join(paras)
+
+
+_SUB_TIME = re.compile(r"^\s*(\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3}\s*-->")
+
+
+def _subtitle_text(text):
+    """The words of an .srt or .vtt file: without numbers, times, styling and the WEBVTT header; one line per subtitle."""
+    out, cur = [], []
+    for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        s = line.strip()
+        if not s:
+            if cur:
+                out.append(" ".join(cur))
+                cur = []
+            continue
+        if s.isdigit() or _SUB_TIME.match(s) or s.upper().startswith(("WEBVTT", "NOTE", "STYLE")):
+            continue
+        cur.append(re.sub(r"<[^>]+>|\{\\[^}]*\}", "", s).strip())
+    if cur:
+        out.append(" ".join(cur))
+    return "\n".join(x for x in out if x)
+
+
+def read_text_file(name, data):
+    """(text, None) or (None, message): the text of an uploaded .txt, .docx, .srt or .vtt file. Free; nothing is kept."""
+    ext = os.path.splitext(str(name or "").lower())[1]
+    if not data:
+        return None, "The file is empty."
+    if len(data) > READ_FILE_MAX:
+        return None, "The file is too big. Please use a file under 2 MB."
+    try:
+        if ext == ".docx":
+            text = _docx_text(data)
+        elif ext in (".srt", ".vtt"):
+            text = _subtitle_text(_decode(data))
+        elif ext in (".txt", ".text", ".md", ""):
+            text = _decode(data)
+        else:
+            return None, "Please choose a .txt, .docx or .srt file."
+    except Exception:
+        return None, "This file could not be read. Please save it as .txt or .docx and try again."
+    text = re.sub(r"\n{3,}", "\n\n", text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")).strip().lstrip("\ufeff").strip()
+    if not text:
+        return None, "No text was found in this file."
+    return text, None
+
+
 # ------------------------------------------------------------------ after a restart
 
 def recover():
@@ -1062,7 +1370,7 @@ def recover():
                 _give_back(job, "prepare", entry.get("amount", 0), "prepare_interrupted")
             elif kind == "speak" and entry.get("amount"):
                 cpc = max(1, int(Hooks.chars_per_credit() or 60))
-                spoken = sum(len(_tag(ln.get("emotion"))) + len(ln["arabic"].strip()) for i, ln in enumerate(job["lines"])
+                spoken = sum(_spoken_len(job, i) for i, ln in enumerate(job["lines"])
                              if ln.get("audio") == _line_hash(job, i) and _line_file(job, ln).is_file()
                              and _line_file(job, ln).stat().st_mtime + 1 >= float(entry.get("at") or 0))
                 _give_back(job, "speak", int(entry["amount"]) - min(int(entry["amount"]), int(math.ceil(spoken / float(cpc)))), "speak_interrupted")

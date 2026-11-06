@@ -353,6 +353,20 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <tbody id="actUsersTable"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
         </table></div>
       </div>
+      <div class="card">
+        <h3>💬 Feedback answers</h3>
+        <p class="muted" style="margin-bottom:8px;">Engaged users are asked once, right after downloading a finished result: 1 to 5 stars and "What should we improve?". After 4 or 5 stars they see their own invite link: a friend who creates an account with it gives them a thank-you of credits (shown below). All time, newest first.</p>
+        <div id="fbSummary" class="muted">Loading…</div>
+        <div style="overflow-x:auto;"><table>
+          <thead><tr><th>When</th><th>Who</th><th>Stars</th><th>What to improve</th><th>Where</th></tr></thead>
+          <tbody id="fbAnswersTable"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody>
+        </table></div>
+        <h4 style="margin:14px 0 6px;">Friends who signed up with an invite link</h4>
+        <div style="overflow-x:auto;"><table>
+          <thead><tr><th>When</th><th>Invited by</th><th>Friend</th><th>Thank-you</th></tr></thead>
+          <tbody id="fbInvitesTable"><tr><td colspan="4" class="muted">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
     </div>
 
     <!-- ===================== PRICING ===================== -->
@@ -1171,6 +1185,27 @@ async function loadActivity() {
   if (!r.ok) { document.getElementById('actTotals').textContent = (r.data && r.data.error) || 'Could not load the activity.'; return; }
   activityCache = r.data;
   renderActivity();
+  loadFeedback();
+}
+async function loadFeedback() {
+  const r = await api('/api/admin/feedback');
+  if (!r.ok) { document.getElementById('fbSummary').textContent = (r.data && r.data.error) || 'Could not load the answers.'; return; }
+  const d = r.data, a = d.answers || [], inv = d.invites || [];
+  const avg = a.length ? (a.reduce((s, x) => s + (x.stars || 0), 0) / a.length).toFixed(1) : '—';
+  const given = inv.filter(x => x.gift === 'given').length;
+  document.getElementById('fbSummary').innerHTML = `<b>${a.length}</b> answers · average <b>${avg}</b> ★ · <b>${inv.length}</b> friends signed up with a link · <b>${given}</b> thank-yous of ${d.gift_credits} credits given` +
+    (d.retried ? ` · ${d.retried} waiting thank-you(s) added now` : '');
+  const when = s => s ? localTs(new Date(s * 1000).toISOString(), false) : '—';
+  const stars = n => '★'.repeat(n || 0) + '☆'.repeat(5 - (n || 0));
+  const where = {text_voice: 'Text to voice', short_dub: 'Short dub', long_dub: 'Long dub', account: 'Account page'};
+  document.getElementById('fbAnswersTable').innerHTML = a.map(x =>
+    `<tr><td>${when(x.answered)}</td><td>${escapeHtml(x.email || x.uid.slice(0, 8) + '…')}</td><td style="color:#f59e0b;white-space:nowrap;">${stars(x.stars)}</td>` +
+    `<td style="white-space:pre-wrap;">${escapeHtml(x.text || '') || '<span class="muted">—</span>'}</td><td>${escapeHtml(where[x.page] || x.page || '')}</td></tr>`).join('') ||
+    '<tr><td colspan="5" class="muted">No answers yet.</td></tr>';
+  const gift = {given: '✅ given', limit: 'not given (already 10 friends)', failed: '⏳ waiting (tried again on the next visit to this tab)', pending: '⏳ waiting'};
+  document.getElementById('fbInvitesTable').innerHTML = inv.map(x =>
+    `<tr><td>${when(x.at)}</td><td>${escapeHtml(x.by_email || x.by)}</td><td>${escapeHtml(x.friend_email || x.friend.slice(0, 8) + '…')}</td><td>${gift[x.gift] || escapeHtml(x.gift || '')}</td></tr>`).join('') ||
+    '<tr><td colspan="4" class="muted">Nobody yet.</td></tr>';
 }
 function renderActivity() {
   const d = activityCache; if (!d) return;
@@ -1195,6 +1230,10 @@ function renderActivity() {
     if (u.engaged) note.push('<span class="pill on">engaged</span>');
     if (u.did_nothing) note.push('<span class="muted">did nothing yet</span>');
     if (tv.last_failure) note.push(`<span style="color:#f87171;" title="${escapeHtml(tv.last_failure.detail || '')}">audio failed (${tv.last_failure.lines} of ${tv.last_failure.of} lines)</span>`);
+    const fb = u.feedback;
+    if (fb && fb.answered) note.push(`<span style="color:#f59e0b;" title="${escapeHtml(fb.text || '')}">${'★'.repeat(fb.stars || 0)}</span>${fb.text ? ' <span class="muted">' + escapeHtml(fb.text.slice(0, 60)) + (fb.text.length > 60 ? '…' : '') + '</span>' : ''}`);
+    else if (fb && fb.asks) note.push('<span class="muted">asked for feedback, no answer yet</span>');
+    if (fb && fb.friends) note.push(`<span class="muted">${fb.friends} friend(s) via invite link</span>`);
     return `<tr><td>${localTs(u.signed_up, false) || '—'}</td>` +
       `<td>${escapeHtml(u.name || '')}<br><span class="muted">${escapeHtml(u.email || '')}</span></td>` +
       `<td>${u.credits}${u.subscribed ? ' <span class="pill on">sub</span>' : ''}</td><td>${tvTxt}</td>` +

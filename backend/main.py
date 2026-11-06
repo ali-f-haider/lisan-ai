@@ -2158,6 +2158,10 @@ def delete_account(request: Request, response: Response):
         try:
             longdub_service.delete_account_jobs(uid)
             text_voice.delete_all_for(uid)
+            try:
+                feedback.forget(uid)
+            except Exception as _fb_ex:
+                print(f"[feedback] could not remove the answer of a deleted account: {_fb_ex}")
         except ValueError as ex:
             return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
         except Exception:
@@ -3602,7 +3606,7 @@ def _cleanup_worker():
         print("[db-backup] first run error:", e)
     try:
         import voice_numbers
-        r2_backup.backup_register_files([voice_numbers.FILE] + list(UPLOAD_DIR.glob("*_source_language.json")))
+        r2_backup.backup_register_files([voice_numbers.FILE, feedback.FILE] + list(UPLOAD_DIR.glob("*_source_language.json")))
     except Exception as e:
         print("[register-backup] first run error:", e)
     while True:
@@ -3617,7 +3621,7 @@ def _cleanup_worker():
             print("[db-backup] sweep error:", e)
         try:
             import voice_numbers
-            r2_backup.backup_register_files([voice_numbers.FILE] + list(UPLOAD_DIR.glob("*_source_language.json")))
+            r2_backup.backup_register_files([voice_numbers.FILE, feedback.FILE] + list(UPLOAD_DIR.glob("*_source_language.json")))
         except Exception as e:
             print("[register-backup] sweep error:", e)
         try:
@@ -3938,6 +3942,12 @@ def pwa_service_worker():
 @app.get("/pwa.js")
 def pwa_script():
     return FileResponse(BASE_DIR / "pwa.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/feedback.js")
+def feedback_script():
+    """The feedback question after a finished download, and invite links (see feedback.py)."""
+    return FileResponse(BASE_DIR / "feedback.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
 @app.get("/app_icon_192.png")
@@ -5843,6 +5853,7 @@ def _ld_job(request: Request, job_id: str):
 
 # ===== TEXT TO VOICE (text_voice.py): a text in any of the app's languages, or Arabic, spoken in Arabic =====
 import text_voice
+import feedback
 
 _tv_rate = {"at": 0.0, "cpc": 60}
 
@@ -6092,6 +6103,71 @@ def text_voice_audio(job_id: str, request: Request):
         text_voice.note_download(job)          # counted once per download or first play, for the admin's Activity view
     name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
     return FileResponse(path, media_type="audio/mpeg", filename=name + ".mp3")
+
+
+@app.post("/api/text_voice/{job_id}/options")
+def text_voice_options(job_id: str, request: Request, payload: dict):
+    """The speed of the whole text and the pronunciation list (free)."""
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    ok, res = text_voice.set_options(job, payload)
+    if not ok:
+        return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
+    return {**text_voice.public(text_voice.load(job_id) or job), "pronunciation_bad": res.get("bad", 0)}
+
+
+@app.get("/api/text_voice/{job_id}/subtitles")
+def text_voice_subtitles(job_id: str, request: Request, marks: int = 0):
+    """Subtitles (SRT) timed to the current MP3. Free."""
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    srt = text_voice.subtitles(job, marks=bool(marks))
+    if not srt:
+        return JSONResponse({"error": "Make the audio first: the subtitles follow the finished MP3."}, status_code=404)
+    name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
+    return Response(("\ufeff" + srt).encode("utf-8"), media_type="application/x-subrip; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.srt"'})
+
+
+@app.get("/api/text_voice/{job_id}/lines.zip")
+def text_voice_lines_zip(job_id: str, request: Request):
+    """Every line as its own MP3 (cut from the current MP3), in one ZIP. Free; the ZIP is not kept."""
+    uid, job = _text_voice_job(request, job_id)
+    if not uid:
+        return job
+    if _rate_limited(request, "text_voice_zip", 20, 600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    import tempfile as _tf
+    from starlette.background import BackgroundTask
+    work = Path(_tf.mkdtemp(prefix="tvzip_"))
+    try:
+        made = text_voice.lines_zip(job, work / "lines.zip")
+    except Exception as ex:
+        print(f"[text-voice] {job_id} lines zip failed: {ex}")
+        made = None
+    if not made:
+        shutil.rmtree(work, ignore_errors=True)
+        return JSONResponse({"error": "Make the audio first: the separate lines are cut from the finished MP3."}, status_code=404)
+    name = _re_sec.sub(r"[^A-Za-z0-9_\- ]+", "", job.get("title") or "")[:60].strip() or "lisan-ai-voice"
+    return FileResponse(made, media_type="application/zip", filename=name + "-lines.zip",
+                        background=BackgroundTask(lambda: shutil.rmtree(work, ignore_errors=True)))
+
+
+@app.post("/api/text_voice/read_file")
+async def text_voice_read_file(request: Request, file: UploadFile = File(...)):
+    """The text of an uploaded .txt, .docx or .srt file, for the text box (free; the file is not kept)."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "text_voice_read_file", 30, 600):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    data = await file.read(text_voice.READ_FILE_MAX + 1)
+    text, err = text_voice.read_text_file(file.filename, data)
+    if err:
+        return JSONResponse({"error": customer_message(err)}, status_code=400)
+    return {"text": text, "chars": len(text)}
 
 
 @app.get("/api/text_voice/{job_id}/line/{line_id}")
@@ -8313,6 +8389,11 @@ def admin_activity(request: Request, days: int = 7):
         return JSONResponse({"error": "The user list could not be read just now. Please try again."}, status_code=503)
     tv = text_voice.admin_summary()
     emails = _activity_emails(ids) if ids else {}
+    try:
+        fb = feedback.for_admin()
+    except Exception as ex:
+        print(f"[admin] feedback could not be read: {ex}")
+        fb = {"users": {}, "answers": [], "invites": []}
     by_uid = {}
     for s in spends:
         by_uid.setdefault(s.get("uid"), []).append(s)
@@ -8342,6 +8423,7 @@ def admin_activity(request: Request, days: int = 7):
              "long_started": len(long_jobs),
              "long_dubs_confirmed": sum(1 for j in long_jobs if j.get("status") in ("confirmed", "dubbing", "done", "completed", "finished")),
              "actions": acts, "last_active": last}
+        u["feedback"] = fb["users"].get(str(uid)) or None
         u["did_nothing"] = not (t["projects"] or short_jobs or long_jobs or u["purchases"])
         u["engaged"] = _engaged(u)
         users.append(u)
@@ -8356,9 +8438,128 @@ def admin_activity(request: Request, days: int = 7):
               "short_finished": sum(1 for u in users if u["short_dubs"]),
               "long": sum(1 for u in users if u["long_started"]), "long_confirmed": sum(1 for u in users if u["long_dubs_confirmed"]),
               "bought": sum(1 for u in users if u["purchases"]), "engaged": sum(1 for u in users if u["engaged"]),
-              "text_failures": sum(1 for u in users if u["text"]["failures"])}
+              "text_failures": sum(1 for u in users if u["text"]["failures"]),
+              "answered": sum(1 for u in users if (u["feedback"] or {}).get("answered"))}
     users.sort(key=lambda u: (not u["engaged"], u["did_nothing"], u["signed_up"] or ""), reverse=False)
     return {"days": days, "since": since, "totals": totals, "funnel": funnel, "users": users}
+
+
+# ===== FEEDBACK QUESTION AND INVITE LINKS (feedback.py, Ali, Nov 2026) =====================================================
+# Users who use the app a lot are asked once, after downloading a finished result, how they like Lisan AI (1-5 stars) and what
+# to improve. A good answer gets a thank-you with their own invite link: a friend who signs up with it gives them 50 credits
+# (at most 10 friends). The gift is a credit adjustment with a fixed operation id per friend, so it is never given twice.
+def _engaged_uid(uid):
+    """_engaged for one account (the same rule as the admin's Activity tab). False when it cannot be read."""
+    try:
+        spends = _activity_rows(f"credit_spends?select=action,job_id&uid=eq.{urllib.parse.quote(str(uid), safe='')}&limit=5000")
+    except Exception as ex:
+        print(f"[feedback] activity of an account could not be read: {ex}")
+        return False
+    try:
+        orders = _activity_rows(f"credit_orders?select=credits&uid=eq.{urllib.parse.quote(str(uid), safe='')}&limit=50")
+    except Exception:
+        orders = []
+    t = text_voice.admin_summary(uid).get(str(uid)) or {"projects": 0, "audio_runs": 0}
+    try:
+        long_jobs = longdub_service.list_jobs_for_uid(uid)
+    except Exception:
+        long_jobs = []
+    return _engaged({"purchases": len(orders), "text": t,
+                     "short_dubs": len({s.get("job_id") for s in spends if s.get("action") in ("generate", "merge") and s.get("job_id")}),
+                     "long_dubs_confirmed": sum(1 for j in long_jobs if j.get("status") in ("confirmed", "dubbing", "done", "completed", "finished"))})
+
+
+def _invite_gift(referrer, credits, operation_id, reason):
+    from credit_actions import ActionProblem, adjust
+    try:
+        adjust(_sb_rpc, {"uid": referrer, "delta": credits, "operation_id": operation_id, "reason": reason})
+        print(f"[invite] {credits} credits thank-you added ({operation_id})")
+        return True
+    except (ActionProblem, ValueError) as ex:
+        print(f"[invite] thank-you not added yet ({operation_id}): {ex}")
+        return False
+
+
+def _account_created(uid):
+    """When this account was made (seconds), or None when it cannot be read."""
+    try:
+        rows = _activity_rows(f"profiles?select=created_at&id=eq.{urllib.parse.quote(str(uid), safe='')}")
+        import datetime as _dt
+        return _dt.datetime.fromisoformat(str(rows[0]["created_at"]).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _invite_view(uid):
+    return {"link": feedback.invite_link(uid), **feedback.invite_status(uid)}
+
+
+@app.get("/api/feedback/ask")
+def feedback_ask(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "feedback_ask", 30, 3600):
+        return {"ask": False}
+    if not feedback.should_ask(uid) or not _engaged_uid(uid):
+        return {"ask": False}
+    feedback.note_asked(uid)
+    return {"ask": True}
+
+
+@app.post("/api/feedback")
+def feedback_answer(request: Request, payload: dict):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "feedback_answer", 10, 3600):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    ok, err = feedback.answer(uid, (payload or {}).get("stars"), (payload or {}).get("text"), (payload or {}).get("page"))
+    if not ok:
+        return JSONResponse({"error": err}, status_code=400)
+    out = {"ok": True}
+    try:
+        if int((payload or {}).get("stars")) >= 4:
+            out["invite"] = _invite_view(uid)
+    except Exception as ex:
+        print(f"[feedback] invite link not shown: {ex}")
+    return out
+
+
+@app.get("/api/invite")
+def invite_info(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    return _invite_view(uid)
+
+
+@app.post("/api/invite/claim")
+def invite_claim(request: Request, payload: dict):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "invite_claim", 10, 3600):
+        return JSONResponse({"error": _RATE_LIMIT_MSG}, status_code=429)
+    status = feedback.claim(uid, (payload or {}).get("code"), _account_created(uid), _invite_gift)
+    print(f"[invite] claim: {status}")
+    return {"status": status}
+
+
+@app.get("/api/admin/feedback")
+def admin_feedback(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    retried = feedback.retry_gifts(_invite_gift)
+    data = feedback.for_admin()
+    ids = sorted({a["uid"] for a in data["answers"]} | {i["by"] for i in data["invites"]} | {i["friend"] for i in data["invites"]})
+    emails = _activity_emails([i for i in ids if i and i != "deleted account"]) if ids else {}
+    for a in data["answers"]:
+        a["email"] = emails.get(a["uid"], "")
+    for i in data["invites"]:
+        i["by_email"], i["friend_email"] = emails.get(i["by"], ""), emails.get(i["friend"], "")
+    return {"answers": data["answers"], "invites": data["invites"], "retried": retried,
+            "gift_credits": feedback.GIFT_CREDITS, "max_gifts": feedback.MAX_GIFTS}
 
 
 @app.get("/api/admin/users")

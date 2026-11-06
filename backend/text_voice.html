@@ -52,7 +52,7 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
 .tv-consent { display: flex !important; gap: 8px; align-items: flex-start; font-weight: 500 !important; }
 .tv-consent input { margin-top: 4px; }
 </style>
-<script src="/pwa.js" defer></script>
+<script src="/pwa.js" defer></script><script src="/feedback.js" defer></script>
 </head>
 <body>
 <div id="userBar">
@@ -89,6 +89,7 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
     </div>
     <label for="tvText" id="textLabel"></label>
     <textarea id="tvText"></textarea>
+    <div class="tv-row" style="margin-top:6px;"><button type="button" class="btn-plain" id="btnFile"></button><input type="file" id="tvFile" accept=".txt,.docx,.srt,.vtt,text/plain" class="hidden"><span id="fileMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
     <div class="tv-count" id="tvCount"></div>
     <p class="note" id="scriptTip" style="margin-top:10px;white-space:pre-line;"></p>
     <div class="tv-row"><button id="btnNew" class="green"></button></div>
@@ -111,17 +112,25 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
   <div class="card hidden" id="linesCard">
     <h3 id="linesHeading"></h3>
     <p class="note" id="linesNote"></p>
+    <details id="pronBox" style="margin:8px 0 12px;"><summary><strong id="pronHeading"></strong></summary>
+      <p class="note" id="pronNote" style="margin-top:6px;"></p>
+      <textarea id="pronText" dir="auto" rows="4" maxlength="12000"></textarea>
+      <div class="tv-row"><button type="button" class="btn-plain" id="btnPron"></button><span id="pronMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+    </details>
     <div id="lineList"></div>
   </div>
 
   <div class="card hidden" id="audioCard">
     <h3 id="audioHeading"></h3>
     <p class="note" id="audioNote"></p>
+    <div class="tv-row"><label for="tvSpeed" id="speedLabel"></label><select id="tvSpeed"></select><span class="note" id="speedNote"></span></div>
     <div class="tv-row"><button id="btnSpeak" class="green"></button></div>
     <div id="speakErr" class="tv-err hidden"></div>
     <div id="audioBox" class="hidden">
       <audio id="finalAudio" controls preload="none"></audio>
       <div class="tv-row"><a id="dlLink" class="btn-logout" href="#" download></a><span id="audioLen" style="font-size:13px;color:var(--text-muted);"></span></div>
+      <div class="tv-row" id="extraDl"><a id="dlSrt" class="btn-logout" href="#" download></a><a id="dlZip" class="btn-logout" href="#" download></a></div>
+      <p class="note hidden" id="subsOld"></p>
     </div>
   </div>
 
@@ -184,6 +193,8 @@ var T = {
     count: function (n, max) { return n.toLocaleString() + " / " + max.toLocaleString() + " characters"; },
     scriptTip: "Several speakers? Start each line with the speaker's name and a colon:\nSara: Good morning, how can I help you?\nAdam: I'd like to book a table for two.\nWithout names, the whole text is read by one narrator.",
     btnNew: "Continue (free)", needText: "Please paste or type your text first.",
+    fileBtn: "📄 Upload a file (.txt, .docx, .srt)", fileReading: "Reading the file…",
+    fileDone: function (n) { return n.toLocaleString() + " characters from the file. Check them, then press Continue."; },
     jobHeading: "2. Speakers", close: "Close project", del: "Delete project",
     delConfirm: "Delete this project and its audio? This cannot be undone.",
     spkHeading: "Speakers", spkNoteTr: "Arabic uses different forms for men and women, so please choose male or female for every speaker before the translation.",
@@ -213,13 +224,23 @@ var T = {
     check: "check", emotion: "Delivery", saved: "Saved", playLine: "▶",
     tashkeel: "Tashkeel", tashkeelTip: "Add the diacritics to the words of this line that have none (free)",
     tashkeelBusy: "…", tashkeelNone: "Every word of this line already has its diacritics.",
+    silent: "not spoken (no words)",
+    pronHeading: "Pronunciation (optional)",
+    pronNote: "A name or word the voice says wrongly? Write it as it appears in the Arabic text, then how it should be said, one per line: written = how to say it. For example: جوجل = غُوغِل. Only the voice changes; your text stays as written. Lines with such a word are made again the next time you make the audio. Free.",
+    pronPh: "جوجل = غُوغِل\nLisan = لِسَان", pronSave: "Save",
+    pronSaved: function (n, bad) { return n + (n === 1 ? " word saved." : " words saved.") + (bad ? " " + bad + (bad === 1 ? " line was" : " lines were") + " not understood: write each one as written = how to say it." : ""); },
+    speedLabel: "Speed of the whole text", lineSpeed: "Speed", lineSpeedSame: "as the whole text",
+    speedNames: { "0.85": "Much slower", "0.9": "Slower", "1": "Normal", "1.1": "Faster", "1.2": "Much faster" },
+    speedNote: "Changing the speed is free: the audio is put together again without making the voices again.",
     audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are made and paid.",
     audioExpired: "Your earlier audio was removed when the storage time of finished files ended. Make it again to listen to it or download it.",
     audioOld: "This audio was made before your latest changes. Make the audio again to update it.",
     speak: function (c, n) { return "Make the audio (" + cr(c) + ", " + n + (n === 1 ? " line)" : " lines)"); },
-    speakFree: "Make the audio (free: nothing changed)",
+    speakFree: "Make the audio (free: nothing changed)", speakAgainFree: "Make the audio again (free)",
     needVoice: function (n) { return "Please choose a voice for " + n + "."; },
     download: "⬇ Download MP3", length: function (s) { return Math.round(s) + " seconds"; },
+    dlSrt: "⬇ Subtitles (SRT)", dlZip: "⬇ Each line as its own MP3 (ZIP)",
+    subsOld: "Subtitles and separate lines come with audio made from now on: press Make the audio (free) to get them.",
     listHeading: "My text projects", listEmpty: "No projects yet.", open: "Open",
     lines: function (n) { return n + (n === 1 ? " line" : " lines"); }, ready: "audio ready",
     off: "Text to voice is not available right now.",
@@ -241,6 +262,8 @@ var T = {
     count: function (n, max) { return n.toLocaleString("ar") + " / " + max.toLocaleString("ar") + " حرف"; },
     scriptTip: "أكثر من متحدث؟ ابدأ كل سطر باسم المتحدث ثم نقطتين:\nسارة: صباح الخير، كيف أستطيع مساعدتك؟\nآدم: أريد حجز طاولة لشخصين.\nبدون أسماء، يقرأ النصَّ كلَّه راوٍ واحد.",
     btnNew: "متابعة (مجانًا)", needText: "يرجى لصق نصك أو كتابته أولًا.",
+    fileBtn: "📄 رفع ملف (‎.txt أو ‎.docx أو ‎.srt)", fileReading: "جارٍ قراءة الملف…",
+    fileDone: function (n) { return n.toLocaleString("ar") + " حرف من الملف. راجعها ثم اضغط «متابعة»."; },
     jobHeading: "٢. المتحدثون", close: "إغلاق المشروع", del: "حذف المشروع",
     delConfirm: "هل تريد حذف هذا المشروع وصوته؟ لا يمكن التراجع عن ذلك.",
     spkHeading: "المتحدثون", spkNoteTr: "تختلف صيغ الكلام في العربية بين المذكر والمؤنث، لذا يرجى تحديد ذكر أو أنثى لكل متحدث قبل الترجمة.",
@@ -270,13 +293,23 @@ var T = {
     check: "راجِع", emotion: "طريقة الأداء", saved: "تم الحفظ", playLine: "▶",
     tashkeel: "تشكيل", tashkeelTip: "إضافة التشكيل إلى كلمات هذا السطر غير المشكولة (مجانًا)",
     tashkeelBusy: "…", tashkeelNone: "كل كلمات هذا السطر مشكولة بالفعل.",
+    silent: "لا يُنطق (بلا كلمات)",
+    pronHeading: "النطق (اختياري)",
+    pronNote: "اسم أو كلمة ينطقها الصوت خطأً؟ اكتبها كما تظهر في النص العربي، ثم كيف تُنطق، كلمة في كل سطر: المكتوب = طريقة النطق. مثلًا: جوجل = غُوغِل. يتغيّر النطق فقط ويبقى نصك كما كتبته. والأسطر التي فيها مثل هذه الكلمة تُصنع من جديد في المرة القادمة التي تصنع فيها الصوت. مجانًا.",
+    pronPh: "جوجل = غُوغِل\nLisan = لِسَان", pronSave: "حفظ",
+    pronSaved: function (n, bad) { return "تم الحفظ (" + n.toLocaleString("ar") + ")." + (bad ? " لم نفهم " + bad.toLocaleString("ar") + " من الأسطر: اكتب كل سطر هكذا: المكتوب = طريقة النطق." : ""); },
+    speedLabel: "سرعة النص كله", lineSpeed: "السرعة", lineSpeedSame: "مثل النص كله",
+    speedNames: { "0.85": "أبطأ بكثير", "0.9": "أبطأ", "1": "عادية", "1.1": "أسرع", "1.2": "أسرع بكثير" },
+    speedNote: "تغيير السرعة مجاني: يُعاد تجميع الصوت دون صنع الأصوات من جديد.",
     audioHeading: "٤. الصوت", audioNote: "تُصنع وتُدفع فقط الأسطر الجديدة أو التي تغيّرت منذ آخر مرة.",
     audioExpired: "حُذف صوتك السابق بانتهاء مدة حفظ الملفات المكتملة. اصنعه من جديد لتستمع إليه أو تنزّله.",
     audioOld: "صُنع هذا الصوت قبل تغييراتك الأخيرة. اصنع الصوت من جديد لتحديثه.",
     speak: function (c, n) { return "اصنع الصوت (" + c + " رصيد، " + arLines(n) + ")"; },
-    speakFree: "اصنع الصوت (مجانًا: لم يتغيّر شيء)",
+    speakFree: "اصنع الصوت (مجانًا: لم يتغيّر شيء)", speakAgainFree: "اصنع الصوت من جديد (مجانًا)",
     needVoice: function (n) { return "يرجى اختيار صوت لـ" + n + "."; },
     download: "⬇ تنزيل MP3", length: function (s) { return Math.round(s) + " ثانية"; },
+    dlSrt: "⬇ ملف الترجمة (SRT)", dlZip: "⬇ كل سطر في ملف MP3 مستقل (ZIP)",
+    subsOld: "يأتي ملف الترجمة والأسطر المنفصلة مع الصوت الذي يُصنع من الآن: اضغط «اصنع الصوت» (مجانًا) للحصول عليهما.",
     listHeading: "مشاريعي النصية", listEmpty: "لا توجد مشاريع بعد.", open: "فتح",
     lines: function (n) { return arLines(n); }, ready: "الصوت جاهز",
     off: "خدمة «من نص إلى صوت» غير متاحة الآن.",
@@ -329,6 +362,10 @@ function applyStaticText() {
   $("linesHeading").textContent = T.linesHeading; $("linesNote").textContent = T.linesNote;
   $("audioHeading").textContent = T.audioHeading; $("audioNote").textContent = T.audioNote;
   $("dlLink").textContent = T.download;
+  $("btnFile").textContent = T.fileBtn;
+  $("pronHeading").textContent = T.pronHeading; $("pronNote").textContent = T.pronNote; $("pronText").placeholder = T.pronPh; $("btnPron").textContent = T.pronSave;
+  $("speedLabel").textContent = T.speedLabel; $("speedNote").textContent = T.speedNote;
+  $("dlSrt").textContent = T.dlSrt; $("dlZip").textContent = T.dlZip; $("subsOld").textContent = T.subsOld;
   $("listHeading").textContent = T.listHeading;
   $("offText").textContent = T.off;
 }
@@ -374,6 +411,23 @@ $("btnNew").onclick = function () {
   });
 };
 $("tvText").addEventListener("input", updateCount);
+$("btnFile").onclick = function () { $("tvFile").click(); };
+$("tvFile").onchange = function () {
+  var f = $("tvFile").files && $("tvFile").files[0];
+  if (!f) return;
+  var fd = new FormData();
+  fd.append("file", f);
+  $("btnFile").disabled = true; $("fileMsg").textContent = T.fileReading;
+  api("POST", "/api/text_voice/read_file", fd).then(function (r) {
+    $("btnFile").disabled = false; $("tvFile").value = "";
+    if (!r.ok) { $("fileMsg").textContent = ""; err($("newErr"), r.data.error || T.netErr); return; }
+    err($("newErr"), "");
+    $("tvText").value = r.data.text;
+    if (!$("tvTitle").value.trim()) $("tvTitle").value = f.name.replace(/\.[^.]+$/, "").slice(0, 120);
+    updateCount();
+    $("fileMsg").textContent = T.fileDone(r.data.chars || r.data.text.length);
+  });
+};
 
 function openJob(id) {
   api("GET", "/api/text_voice/" + encodeURIComponent(id)).then(function (r) {
@@ -619,6 +673,8 @@ function renderLines() {
       (ln.gender_check ? '<span class="tv-badge">' + esc(T.check) + "</span>" : "") +
       "<span>" + esc(T.emotion) + '</span><select data-emo="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + opts + "</select>" +
       '<button type="button" class="btn-plain" style="padding:3px 10px;" data-tash="' + esc(ln.id) + '" title="' + esc(T.tashkeelTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.tashkeel) + "</button>" +
+      "<span>" + esc(T.lineSpeed) + '</span><select data-speed="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + speedOptions(ln.speed, true) + "</select>" +
+      (ln.silent && (ln.arabic || "").trim() ? '<span class="tv-badge">' + esc(T.silent) + "</span>" : "") +
       (ln.spoken ? '<button type="button" class="btn-plain" style="padding:3px 10px;" data-play="' + esc(ln.id) + '">' + T.playLine + "</button>" : "") +
       '<span class="tv-saved" id="saved_' + esc(ln.id) + '"></span></div>' +
       (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + esc(ln.text) + "</div>") +
@@ -630,6 +686,11 @@ function renderLines() {
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-emo]"), function (s) {
     s.onchange = function () { queueSave(s.getAttribute("data-emo"), { emotion: s.value }, 0); };
   });
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-speed]"), function (s) {
+    s.onchange = function () { queueSave(s.getAttribute("data-speed"), { speed: s.value ? Number(s.value) : null }, 0); };
+  });
+  if (document.activeElement !== $("pronText")) $("pronText").value = job.pronunciation || "";
+  if (job.pronunciation_count) $("pronBox").open = true;
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-play]"), function (b) {
     b.onclick = function () { playPreview("/api/text_voice/" + job.id + "/line/" + encodeURIComponent(b.getAttribute("data-play")) + "?t=" + Date.now()); };
   });
@@ -637,6 +698,42 @@ function renderLines() {
     b.onclick = function () { tashkeelLine(b.getAttribute("data-tash"), b); };
   });
 }
+
+function speedOptions(value, perLine) {
+  var out = perLine ? '<option value=""' + (value ? "" : " selected") + ">" + esc(T.lineSpeedSame) + "</option>" : "";
+  (job.speeds || [0.85, 0.9, 1, 1.1, 1.2]).forEach(function (v) {
+    out += '<option value="' + v + '"' + (Number(value) === Number(v) ? " selected" : "") + ">" + esc(T.speedNames[String(v)] || v) + " (" + v + "×)</option>";
+  });
+  return out;
+}
+
+$("btnPron").onclick = function () {
+  if (!job) return;
+  $("btnPron").disabled = true;
+  flushAll().then(function () {
+    return api("POST", "/api/text_voice/" + job.id + "/options", { pronunciation: $("pronText").value });
+  }).then(function (r) {
+    $("btnPron").disabled = false;
+    if (!r.ok) { $("pronMsg").textContent = r.data.error || T.netErr; return; }
+    job = r.data;
+    $("pronText").value = job.pronunciation || "";
+    $("pronMsg").textContent = T.pronSaved(job.pronunciation_count, job.pronunciation_bad || 0);
+    renderAudio();
+  });
+};
+
+$("tvSpeed").onchange = function () {
+  if (!job) return;
+  $("tvSpeed").disabled = true;
+  flushAll().then(function () {
+    return api("POST", "/api/text_voice/" + job.id + "/options", { speed: Number($("tvSpeed").value) });
+  }).then(function (r) {
+    $("tvSpeed").disabled = false;
+    if (!r.ok) { alertMsg(r.data.error || T.netErr); return; }
+    job = r.data;
+    renderAudio();
+  });
+};
 
 function tashkeelLine(lineId, btn) {
   var box = document.querySelector('textarea[data-ar="' + lineId + '"]');
@@ -682,7 +779,9 @@ function flushAll() { return Promise.all(Object.keys(pending).map(flushSave)); }
 function renderAudio() {
   var b = $("btnSpeak");
   b.disabled = !!job.busy;
-  b.textContent = job.speak_price ? T.speak(job.speak_price, job.lines_to_speak) : T.speakFree;
+  b.textContent = job.speak_price ? T.speak(job.speak_price, job.lines_to_speak) : (job.audio_outdated ? T.speakAgainFree : T.speakFree);
+  $("tvSpeed").innerHTML = speedOptions(job.speed || 1, false);
+  $("tvSpeed").disabled = !!job.busy;
   err($("speakErr"), !job.busy && job.prepared && job.error ? job.error : "");
   var expired = !job.audio_file && (job.notes || []).indexOf("audio_expired") >= 0;
   $("audioNote").textContent = expired ? T.audioNote + " " + T.audioExpired : T.audioNote;
@@ -694,12 +793,18 @@ function renderAudio() {
     $("dlLink").href = url;
     $("audioLen").textContent = job.audio_seconds ? T.length(job.audio_seconds) : "";
   }
+  show($("extraDl"), !!job.subtitles_ready);
+  show($("subsOld"), !!job.audio_file && !job.audio_outdated && !job.subtitles_ready);
+  if (job.subtitles_ready) {
+    $("dlSrt").href = "/api/text_voice/" + job.id + "/subtitles";
+    $("dlZip").href = "/api/text_voice/" + job.id + "/lines.zip";
+  }
 }
 
 $("btnSpeak").onclick = function () {
   if (!job) return;
   var used = {};
-  job.lines.forEach(function (l) { if ((l.arabic || "").trim()) used[l.speaker_id] = 1; });
+  job.lines.forEach(function (l) { if ((l.arabic || "").trim() && !l.silent) used[l.speaker_id] = 1; });
   var missing = job.speakers.filter(function (s) { return used[s.id] && !s.voice_id; });
   if (missing.length) { err($("speakErr"), T.needVoice(speakerName(missing[0]))); return; }
   $("btnSpeak").disabled = true;
