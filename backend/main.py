@@ -8263,6 +8263,27 @@ def _activity_rows(path):
         return json.load(r) or []
 
 
+def _activity_emails(ids):
+    """{account id: e-mail} for these accounts. The e-mail lives in the sign-in accounts (Supabase auth), not in the profiles
+    table. Best effort: when it cannot be read the list still shows, without e-mails."""
+    want, found = set(ids), {}
+    hdrs = {"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)}
+    try:
+        for page in range(1, 26):
+            req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/admin/users?page={page}&per_page=200", headers=hdrs)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = json.load(r)
+            accounts = (data.get("users") if isinstance(data, dict) else data) or []
+            for a in accounts:
+                if a.get("id") in want:
+                    found[a["id"]] = a.get("email") or ""
+            if len(found) >= len(want) or len(accounts) < 200:
+                break
+    except Exception as ex:
+        print(f"[admin] activity e-mails could not be read: {ex}")
+    return found
+
+
 def _engaged(u):
     """Uses the app a lot: three or more MP3s or dubs made, three or more projects, or a purchase."""
     return (u["purchases"] > 0 or u["text"]["audio_runs"] >= 3 or u["text"]["projects"] >= 3
@@ -8276,7 +8297,7 @@ def admin_activity(request: Request, days: int = 7):
     days = max(1, min(int(days or 7), 365))
     since = _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(_time.time() - days * 86400))
     try:
-        profiles = _activity_rows("profiles?select=id,email,display_name,created_at,credits,subscription_credits,subscription_status"
+        profiles = _activity_rows("profiles?select=id,display_name,created_at,credits,subscription_credits,subscription_status"
                                   f"&created_at=gte.{since}&order=created_at.desc&limit=1000")
         ids = [p["id"] for p in profiles if p.get("id")]
         spends, orders = [], []
@@ -8291,6 +8312,7 @@ def admin_activity(request: Request, days: int = 7):
         print(f"[admin] activity lookup failed: {ex}")
         return JSONResponse({"error": "The user list could not be read just now. Please try again."}, status_code=503)
     tv = text_voice.admin_summary()
+    emails = _activity_emails(ids) if ids else {}
     by_uid = {}
     for s in spends:
         by_uid.setdefault(s.get("uid"), []).append(s)
@@ -8312,7 +8334,7 @@ def admin_activity(request: Request, days: int = 7):
         last = max([s.get("created_at") or "" for s in ss] + [""])
         if t.get("last_active"):
             last = max(last, _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(t["last_active"])))
-        u = {"id": uid, "email": p.get("email") or "", "name": p.get("display_name") or "", "signed_up": p.get("created_at"),
+        u = {"id": uid, "email": emails.get(uid) or "", "name": p.get("display_name") or "", "signed_up": p.get("created_at"),
              "credits": (p.get("credits") or 0) + (p.get("subscription_credits") or 0), "subscribed": p.get("subscription_status") == "active",
              "spent": sum(int(s.get("credits") or 0) for s in ss if int(s.get("credits") or 0) > 0 and not str(s.get("action") or "").endswith("refund")),
              "purchases": sum(1 for o in orders if o.get("uid") == uid), "text": t,

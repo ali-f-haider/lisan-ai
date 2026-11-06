@@ -184,6 +184,12 @@ def _pieces(text):
     return [p for p in out if p]
 
 
+def _speakable(text):
+    """True when a text has a letter or a digit. A line of only marks or symbols ("...", "-", "*") has nothing to say: the voice
+    answers it with no audio, so it is never sent, charged or counted, and the audio just keeps the pause there."""
+    return bool(re.search(r"[^\W_]", str(text or "")))
+
+
 def parse_script(text):
     """(speakers, lines). A script where at least two lines, and at least half of them, start with "Name:" gets one speaker per
     name (an unlabelled line continues the speaker before it); any other text has one speaker, the narrator."""
@@ -211,11 +217,13 @@ def parse_script(text):
             blank = True
             continue
         m = _LABEL.match(ln) if labelled else None
-        if m and len(m.group(1).split()) <= 4:
-            sid, body = speaker(m.group(1).strip()), m.group(2)
-        else:
-            sid, body = current or speaker(NARRATOR), ln
-        for i, piece in enumerate(_pieces(body)):
+        named = bool(m and len(m.group(1).split()) <= 4)
+        pieces = [p for p in _pieces(m.group(2) if named else ln) if _speakable(p)]
+        if not pieces:              # a line of only marks or symbols ("***", "-") is a break between paragraphs, not a line
+            blank = True
+            continue
+        sid = speaker(m.group(1).strip()) if named else (current or speaker(NARRATOR))
+        for i, piece in enumerate(pieces):
             pause = "same"
             if lines:
                 if i == 0 and blank:
@@ -297,7 +305,7 @@ def _to_speak(job):
     """Indexes of the lines with Arabic whose spoken copy is missing or older than the text, voice or emotion."""
     out = []
     for i, ln in enumerate(job["lines"]):
-        if not (ln.get("arabic") or "").strip():
+        if not _speakable(ln.get("arabic")):
             continue
         if ln.get("audio") != _line_hash(job, i) or not _line_file(job, ln).is_file():
             out.append(i)
@@ -312,7 +320,7 @@ def speak_price(job, todo=None):
 
 
 def _final_hash(job):
-    parts = [ln.get("audio") or "" for ln in job["lines"] if (ln.get("arabic") or "").strip()]
+    parts = [ln.get("audio") or "" for ln in job["lines"] if _speakable(ln.get("arabic"))]
     return hashlib.sha1(("|".join(parts) + "|" + "|".join(ln["pause"] for ln in job["lines"])).encode()).hexdigest()[:16]
 
 
@@ -842,7 +850,7 @@ def start_speak(job):
             return False, ("This step is already running.", 409)
         if not job.get("prepared"):
             return False, ("Please make the Arabic text first.", 400)
-        used = {ln["speaker_id"] for ln in job["lines"] if (ln.get("arabic") or "").strip()}
+        used = {ln["speaker_id"] for ln in job["lines"] if _speakable(ln.get("arabic"))}
         if not used:
             return False, ("There is no Arabic text to speak.", 400)
         for sp in job["speakers"]:
@@ -981,7 +989,7 @@ def _assemble(job):
     try:
         clips = []
         for i, ln in enumerate(job["lines"]):
-            if not (ln.get("arabic") or "").strip():
+            if not _speakable(ln.get("arabic")):
                 continue
             wav = work / f"{ln['id']}.wav"
             if ld._trim_silence(_line_file(job, ln), wav) is None:

@@ -93,6 +93,13 @@ class TheText(unittest.TestCase):
                          [("s1", "Good morning, how can I help you?", "same"), ("s2", "I'd like a table for two.", "turn"),
                           ("s2", "Tonight, if possible.", "same"), ("s1", "Of course.", "turn")])
 
+    def test_a_line_of_only_marks_is_a_paragraph_break(self):
+        speakers, lines = tv.parse_script("Hello there.\n***\nGoodbye.\n-")
+        self.assertEqual([(ln["text"], ln["pause"]) for ln in lines], [("Hello there.", "same"), ("Goodbye.", "para")])
+        speakers, lines = tv.parse_script("Sara: Hi.\nAdam: ...\nSara: Bye.")
+        self.assertEqual([s["name"] for s in speakers], ["Sara"])
+        self.assertEqual(len(lines), 2)
+
     def test_one_colon_in_prose_is_not_a_speaker(self):
         speakers, _ = tv.parse_script("Note: the museum opens at nine.\nVisitors can buy tickets at the door.\n"
                                       "Groups should book ahead.\nThe cafe closes at five.")
@@ -314,6 +321,28 @@ class TheVoice(Base):
         lost = int(-(-len("مَرْحَبًا l2") // 60))
         self.assertEqual(sum(self.ledger.refunds.values()), lost)
         self.assertEqual(tv.public(job)["lines_to_speak"], 1)
+
+    def test_a_line_of_only_marks_is_not_sent_or_paid(self):
+        # 5 Nov 2026: a line that was only "." got no audio from the voice four times; the MP3 could not be finished
+        job = self.ready()
+        tv.set_speakers(job, [{"id": "s1", "voice_id": "v1"}])        # Adam's only line is ".": he needs no voice
+        tv.set_lines(tv.load(job["id"]), [{"id": "l2", "arabic": "."}])
+        job = tv.load(job["id"])
+        price, chars = tv.speak_price(job)
+        sent = []
+        tone = mp3()
+
+        def tts(voice, text, waqf="auto", gap=None, delivery=None):
+            sent.append(text)
+            return (tone, "") if tv._speakable(text) else (None, "no audio")
+        job = self.speak(job, tts)
+        self.assertEqual(len(sent), 2)
+        self.assertEqual(chars, sum(len(t) for t in sent))
+        self.assertEqual(list(self.ledger.charges.values()), [price])
+        self.assertEqual(self.ledger.refunds, {})
+        view = tv.public(job)
+        self.assertTrue(view["audio_ready"], job.get("error"))
+        self.assertEqual((view["lines_to_speak"], view["speak_price"]), (0, 0))
 
     def test_a_step_cut_by_a_restart_is_given_back(self):
         job = self.ready()
@@ -538,16 +567,18 @@ class AdminActivity(Base):
         for n in nodes:
             if isinstance(n, ast.FunctionDef):
                 n.decorator_list = []
-        rows = {"profiles": [{"id": "a", "email": "a@x", "created_at": "2026-11-05T10:00:00Z", "credits": 60},
-                             {"id": "b", "email": "b@x", "created_at": "2026-11-04T10:00:00Z", "credits": 100}],
+        rows = {"profiles": [{"id": "a", "created_at": "2026-11-05T10:00:00Z", "credits": 60},
+                             {"id": "b", "created_at": "2026-11-04T10:00:00Z", "credits": 100}],
                 "credit_spends": [{"uid": "a", "action": "transcribe", "credits": 5, "job_id": "j1", "created_at": "2026-11-05T11:00:00Z"},
                                   {"uid": "a", "action": "text_voice_speak", "credits": 3, "job_id": "t1", "created_at": "2026-11-05T12:00:00Z"}],
                 "credit_orders": []}
         summary = {"a": {"projects": 3, "chars": 900, "arabic_made": 3, "audio_made": 3, "audio_runs": 4, "downloads": 2, "languages": ["en"],
                          "speakers_max": 1, "failures": 0, "last_failure": None, "last_active": 0}}
         import time as _t
+        asked = []
         env = {"Request": object, "_admin_check": lambda r: True, "_time": _t, "SUPABASE_URL": "", "SUPABASE_SERVICE_KEY": "",
-               "_activity_rows": lambda path: rows[path.split("?")[0]], "text_voice": NS(admin_summary=lambda: summary),
+               "_activity_rows": lambda path: asked.append(path) or rows[path.split("?")[0]],
+               "_activity_emails": lambda ids: {"a": "a@x"}, "text_voice": NS(admin_summary=lambda: summary),
                "longdub_service": NS(list_jobs_for_uid=lambda uid: []), "print": lambda *a, **k: None,
                "JSONResponse": lambda body, status_code=200: NS(body=body, status_code=status_code)}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "main.py", "exec"), env)
@@ -558,6 +589,10 @@ class AdminActivity(Base):
         self.assertEqual((by["a"]["short_started"], by["a"]["short_dubs"], by["a"]["spent"]), (1, 0, 8))
         self.assertEqual(got["funnel"], {"signed_up": 2, "text_project": 1, "text_arabic": 1, "text_audio": 1, "text_download": 1})
         self.assertEqual(got["users"][0]["id"], "a")          # engaged users first
+        # 6 Nov 2026: profiles has no e-mail column (asking for it gave "400 Bad Request"); the e-mail comes from the sign-in accounts
+        self.assertNotIn("email", asked[0])
+        self.assertEqual((by["a"]["email"], by["b"]["email"]), ("a@x", ""))
+        self.assertIn("/auth/v1/admin/users?page=", main.split("def _activity_emails")[1].split("\ndef ")[0])
         page = (ROOT / "admin.html").read_text(encoding="utf-8")
         for needle in ('data-tab="activity"', 'id="panel-activity"', "/api/admin/activity?days=", "loadActivity();"):
             self.assertIn(needle, page)
