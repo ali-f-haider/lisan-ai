@@ -357,10 +357,28 @@ def _voice_copy(job, i):
         return ""
     try:
         import arabic_waqf
-        said = arabic_waqf.pausal(_spoken_arabic(job, ln), "auto", _gap(job, i))
+        said = arabic_waqf.pausal(_spoken_arabic(job, ln), _waqf_of(ln), _gap(job, i))
     except Exception:
         return ""
     return said if said != (ln.get("arabic") or "").strip() else ""
+
+
+def _waqf_of(ln):
+    """"exact" when the person ticked "Read it exactly as I wrote it" for this line (no stop form at all), else "auto"."""
+    return "exact" if ln.get("as_written") else "auto"
+
+
+def _stop_form_changes(job, i):
+    """True when the stop form changes something in line i (only then the page offers "Read it exactly as I wrote it")."""
+    ln = job["lines"][i]
+    if not _speakable(ln.get("arabic")):
+        return False
+    try:
+        import arabic_waqf
+        said = _spoken_arabic(job, ln)
+        return arabic_waqf.pausal(said, "auto", _gap(job, i)) != said
+    except Exception:
+        return False
 
 
 def _spoken_len(job, i):
@@ -413,6 +431,8 @@ def _line_hash(job, i):
     raw = "|".join([_voice_of(job, ln), ln.get("emotion") or "", _spoken_arabic(job, ln), "%.2f" % _gap(job, i)])
     if ln.get("take"):                          # "Make this line again": a new take of the same text (only then, so older hashes stay)
         raw += "|take:%d" % int(ln["take"])
+    if ln.get("as_written"):                    # "Read it exactly as I wrote it": no stop form, so the audio is different
+        raw += "|exact"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -465,7 +485,8 @@ def public(job):
         "lines": [{"id": ln["id"], "speaker_id": ln["speaker_id"], "text": ln["text"], "pause": ln["pause"],
                    "arabic": ln.get("arabic") or "", "emotion": ln.get("emotion") or "", "gender_check": bool(ln.get("gender_check")),
                    "spoken": ln["id"] in spoken, "speed": ln.get("speed") or None,
-                   "silent": not _speakable(ln.get("arabic")), "voice_text": _voice_copy(job, i)} for i, ln in enumerate(job["lines"])],
+                   "silent": not _speakable(ln.get("arabic")), "voice_text": _voice_copy(job, i),
+                   "as_written": bool(ln.get("as_written")), "stop_form": _stop_form_changes(job, i)} for i, ln in enumerate(job["lines"])],
         "chars": _text_chars(job), "prepared": bool(job.get("prepared")),
         "prepare_price": prepare_price(job), "speak_price": price, "lines_to_speak": len(todo),
         "busy": job.get("busy") or "", "percent": int(job.get("percent") or 0), "message": job.get("message") or "",
@@ -734,6 +755,8 @@ def set_lines(job, edits):
         if "emotion" in e:
             emo = str(e.get("emotion") or "").strip().lower()
             ln["emotion"] = emo if emo in allowed else ""
+        if "as_written" in e:                    # "Read it exactly as I wrote it" (Ali, 7 Nov 2026)
+            ln["as_written"] = e.get("as_written") is True
         if e.get("again") is True and ln.get("audio"):     # a new take of this line only; it is made and paid at the next "Make the audio"
             ln["take"] = int(ln.get("take") or 0) + 1
         if "speed" in e:                        # "" or None: the speed of the whole text
@@ -1044,7 +1067,7 @@ def _speak_line(job, i):
     import longdub_service as ld
     ln = job["lines"][i]
     h = _line_hash(job, i)
-    audio, err = ld._tts_with_retry(_voice_of(job, ln), _tag(ln.get("emotion")) + _spoken_arabic(job, ln), "auto", _gap(job, i))
+    audio, err = ld._tts_with_retry(_voice_of(job, ln), _tag(ln.get("emotion")) + _spoken_arabic(job, ln), _waqf_of(ln), _gap(job, i))
     if not audio:
         print(f"[text-voice] {job['id']} line {ln['id']} not spoken: {str(err)[:300]}")
         _FAILS.setdefault(job["id"], []).append(str(err or "no answer")[:300])

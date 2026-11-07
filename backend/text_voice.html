@@ -42,6 +42,7 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
 .tv-line textarea { direction: rtl; text-align: right; font-size: 18px; line-height: 1.9; min-height: 52px; resize: vertical; }
 .tv-line select { width: auto; font-size: 13px; padding: 4px 8px; }
 .tv-voice { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+.tv-exact { display: inline-flex; gap: 6px; align-items: center; margin-top: 4px; font-size: 13px; font-weight: 400; cursor: pointer; }
 .tv-voice mark { background: rgba(245, 158, 11, .25); color: inherit; border-radius: 3px; padding: 0 1px; }
 .tv-badge { background: var(--warning); color: #111; border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 700; }
 .tv-proj { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
@@ -234,6 +235,7 @@ var T = {
     speedLabel: "Speed of the whole text", lineSpeed: "Line speed", lineSpeedSame: "same as all lines (step 4)",
     again: "↻ Regenerate", againTip: "Regenerate only this line, with a new take. Then press Generate the audio: only this line is generated and paid.",
     voiceReads: "🔊 The voice reads it like this:",
+    asWritten: "Read it exactly as I wrote it", asWrittenTip: "The voice keeps every vowel as you wrote it, also before a comma and at the end of the sentence. The line is generated again the next time you generate the audio.",
     speedNames: { "0.85": "Much slower", "0.9": "Slower", "1": "Normal", "1.1": "Faster", "1.2": "Much faster" },
     speedNote: "Changing the speed is free: the audio is put together again without generating the voices again.",
     audioHeading: "4. Audio", audioNote: "Only lines that are new or changed since the last audio are generated and paid.",
@@ -304,6 +306,7 @@ var T = {
     pronSaved: function (n, bad) { return "تم الحفظ (" + n.toLocaleString("ar") + ")." + (bad ? " لم نفهم " + bad.toLocaleString("ar") + " من الأسطر: اكتب كل سطر هكذا: المكتوب = طريقة النطق." : ""); },
     speedLabel: "سرعة النص كله", lineSpeed: "سرعة السطر", lineSpeedSame: "مثل باقي الأسطر (الخطوة ٤)",
     voiceReads: "🔊 هكذا يقرؤه الصوت:",
+    asWritten: "اقرأه كما كتبته تمامًا", asWrittenTip: "يحتفظ الصوت بكل حركة كما كتبتها، حتى قبل الفاصلة وفي آخر الجملة. ويُولَّد السطر من جديد في المرة القادمة التي تولّد فيها الصوت.",
     again: "↻ من جديد", againTip: "اصنع هذا السطر وحده من جديد بأداء آخر، ثم اضغط «اصنع الصوت»: يُصنع هذا السطر وحده ويُدفع وحده.",
     speedNames: { "0.85": "أبطأ بكثير", "0.9": "أبطأ", "1": "عادية", "1.1": "أسرع", "1.2": "أسرع بكثير" },
     speedNote: "تغيير السرعة مجاني: يُعاد تجميع الصوت دون صنع الأصوات من جديد.",
@@ -724,11 +727,17 @@ function renderLines() {
 // What the voice really reads, when it differs from the line (the stop form before a comma or a full stop, the pronunciation list):
 // the changed words are highlighted, so the person sees what they will hear.
 function voiceCopy(ln) {
+  if (!ln) return "";
+  var box = (ln.stop_form || ln.as_written) ? '<label class="tv-exact" dir="auto" title="' + esc(T.asWrittenTip) + '"><input type="checkbox" data-exact="' + esc(ln.id) + '"' +
+    (ln.as_written ? " checked" : "") + (job.busy ? " disabled" : "") + "> " + esc(T.asWritten) + "</label>" : "";
+  return voiceWords(ln) + box;
+}
+function voiceWords(ln) {
   if (!ln || !ln.voice_text) return "";
   var mine = (ln.arabic || "").trim().split(/\s+/), said = ln.voice_text.split(/\s+/);
   var words = said.map(function (w, k) { return mine.length === said.length && mine[k] === w ? esc(w) : "<mark>" + esc(w) + "</mark>"; });
   if (mine.length !== said.length) words = [esc(ln.voice_text)];          // the list changed the number of words: the whole copy, plain
-  return '<span dir="auto">' + esc(T.voiceReads) + "</span> " + words.join(" ");
+  return '<div><span dir="auto">' + esc(T.voiceReads) + "</span> " + words.join(" ") + "</div>";
 }
 
 function speedOptions(value, perLine) {
@@ -738,6 +747,12 @@ function speedOptions(value, perLine) {
   });
   return out;
 }
+
+$("lineList").addEventListener("change", function (e) {
+  var t = e.target;
+  if (!t || !t.getAttribute || !t.getAttribute("data-exact")) return;
+  queueSave(t.getAttribute("data-exact"), { as_written: !!t.checked }, 0);
+});
 
 $("btnPron").onclick = function () {
   if (!job) return;

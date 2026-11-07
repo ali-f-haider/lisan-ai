@@ -114,6 +114,34 @@ class WhatTheVoiceReads(Ready):
         self.assertEqual(len(re.findall(r"\bvoiceReads:", page)), 2)
 
 
+class ExactlyAsWritten(Ready):
+    def test_the_box_turns_the_stop_form_off_for_that_line_only(self):
+        job = self.ready()
+        tv.set_lines(job, [{"id": "l1", "arabic": "مُمْتَازٌ، شُكْرًا."}, {"id": "l2", "arabic": "نَعَمْ"}])
+        job = self.speak(tv.load(job["id"]), [])
+        lines = tv.public(job)["lines"]
+        self.assertEqual((lines[0]["stop_form"], lines[0]["as_written"], lines[1]["stop_form"]), (True, False, False))
+        tv.set_lines(job, [{"id": "l1", "as_written": True}])
+        job = tv.load(job["id"])
+        view = tv.public(job)
+        self.assertEqual((view["lines"][0]["as_written"], view["lines"][0]["voice_text"], view["lines_to_speak"]), (True, "", 1))
+        sent = []
+        with mock.patch("longdub_service.INWORLD_API_KEY", "k"), mock.patch("inworld_service.synthesize",
+                                                                          lambda v, text, key, **k: sent.append(text) or mp3()):
+            ok, err = tv.start_speak(tv.load(job["id"]))
+            self.assertTrue(ok, err)
+            job = self.wait(job["id"])
+        self.assertEqual(len(sent), 1)
+        self.assertTrue(sent[0].endswith("مُمْتَازٌ، شُكْرًا."))             # every vowel as written
+        tv.set_lines(job, [{"id": "l1", "as_written": False}])
+        self.assertEqual(tv.public(tv.load(job["id"]))["lines"][0]["voice_text"], "مُمْتَازْ، شُكْرَا.")
+
+    def test_exact_mode_changes_nothing(self):
+        import arabic_waqf
+        self.assertEqual(arabic_waqf.pausal("مُمْتَازٌ، كِتَابُهُ.", "exact", 1), "مُمْتَازٌ، كِتَابُهُ.")
+        self.assertEqual(arabic_waqf.clean_mode("exact"), "auto")                 # the long dub never stores it
+
+
 class OneLineAgain(Ready):
     def test_a_new_take_of_one_line_makes_and_pays_only_that_line(self):
         job = self.ready()
@@ -248,7 +276,7 @@ class Wiring(unittest.TestCase):
                        '"/options"', "/subtitles", "/lines.zip"):
             self.assertIn(needle, page)
         for key in ("fileBtn", "pronHeading", "pronNote", "speedLabel", "speedNames", "dlSrt", "dlZip", "subsOld", "silent", "speakAgainFree",
-                    "againTip", "lineSpeed", "lineSpeedSame"):
+                    "againTip", "lineSpeed", "lineSpeedSame", "asWritten", "asWrittenTip"):
             self.assertEqual(len(re.findall(r"\b" + key + r":", page)), 2, key)
 
 

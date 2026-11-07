@@ -290,9 +290,10 @@ def _stop_after(text, pos):
 def pausal(text, mode="auto", gap=None):
     """Copy of `text` for the voice: the last Arabic word before every real stop in its pausal form.
     mode: "auto" (decide by the punctuation and the silence after the line), "stop" (every punctuation mark and the end of the line are stops),
-    "join" (the end of the line is not a stop). gap: seconds of silence after the line, None when unknown."""
+    "join" (the end of the line is not a stop), "exact" (Text to voice, "Read it exactly as I wrote it": nothing is changed at all).
+    gap: seconds of silence after the line, None when unknown."""
     try:
-        if not isinstance(text, str):
+        if not isinstance(text, str) or mode == "exact":
             return text
         text = _silent_ta(text)
         if not _MARK.search(text):
