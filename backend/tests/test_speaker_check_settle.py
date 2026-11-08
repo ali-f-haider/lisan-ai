@@ -40,8 +40,9 @@ class Settle(unittest.TestCase):
         got, backs, _ = self.run_it(job, {"calls": 0})
         self.assertEqual(backs[0][0], 50)
 
-    def test_both_checks_think_hard(self):
-        self.assertEqual((svl.THINKING, svl.LISTEN_THINKING), ("high", "high"))
+    def test_both_checks_think_briefly(self):
+        # 1.96.0 (Prophet Ahmed chapter 1): "high" ran out of room and cost ten times more for the same share of right lines
+        self.assertEqual((svl.THINKING, svl.LISTEN_THINKING), ("low", "low"))
 
 
 if __name__ == "__main__":

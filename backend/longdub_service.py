@@ -62,6 +62,7 @@ import pitch_check
 import line_planner
 import gender_context
 import speaker_vote_live
+import line_sense
 import image_unit
 import face_unit
 import dub_timing
@@ -1678,6 +1679,48 @@ def _clear_speaker_review(row):
         row.pop(k, None)
 
 
+def _line_sense(job, rows, wd, vocals_all):
+    """Does each line make sense for its speaker (line_sense.py, 8 Nov 2026)? Cuts a line that holds two people, removes words
+    nobody says, and marks "check speaker" where the conversation suggests someone else. Only with two or more speakers.
+    Never raises; on any problem the lines stay as they were."""
+    try:
+        if not line_sense.ENABLED or not GEMINI_API_KEY or len({r.get("speaker") for r in rows}) < 2:
+            return rows
+        import gemini_service
+        import app_state
+        t0 = time.time()
+        audio_b64 = speaker_vote_live._audio_b64(vocals_all if vocals_all and Path(vocals_all).exists() else None, wd)
+        usage = {}
+
+        def call(key, payload, timeout):
+            data, err = gemini_service.call_gemini(key, payload, timeout=timeout, models=speaker_vote_live.speaker_models())
+            if isinstance(data, dict):
+                u = data.get("usageMetadata") or {}
+                usage.update(model=str(data.get("modelVersion") or "")[:40], tokens_in=int(u.get("promptTokenCount") or 0),
+                             tokens_out=int(u.get("candidatesTokenCount") or 0), thinking=int(u.get("thoughtsTokenCount") or 0))
+            return data, err
+        problems = line_sense.ask(rows, audio_b64, GEMINI_API_KEY, call, record=lambda data: app_state.record_gemini(job["id"], data))
+        ids = {}
+        for r in rows:
+            if r.get("speaker") and r.get("speaker_id"):
+                ids.setdefault(r["speaker"], r["speaker_id"])
+        new_rows, summary = line_sense.apply(rows, problems, _split_plan, lambda rs: _new_segment_id(job, rs), ids, _clear_speaker_review)
+        for r in new_rows or []:
+            if r.get("sense_speaker") and not r.get("sense_speaker_id"):
+                r["sense_speaker_id"] = ids.get(r["sense_speaker"])
+        _ev(job, "line_sense", "ok" if new_rows is not None else "failed",
+            f"{len(problems)} problem(s) found in {time.time() - t0:.0f}s" + (" (listening)" if audio_b64 else " (reading only)")
+            + f"; split {len(summary['split'])}: {'; '.join(summary['split'][:10])}"
+            + f" | words nobody says removed {len(summary['not_spoken'])}: {'; '.join(summary['not_spoken'][:10])}"
+            + f" | marked 'check speaker' {len(summary['marked'])}: {'; '.join(summary['marked'][:10])}"
+            + (f" | not done: {'; '.join(summary['refused'][:5])}" if summary["refused"] else "")
+            + (f" | {usage.get('model')}, tokens in {usage.get('tokens_in')} / out {usage.get('tokens_out')} / thinking {usage.get('thinking')}" if usage else ""))
+        return new_rows if new_rows is not None else rows
+    except Exception as ex:
+        print(f"[longdub] line sense check skipped: {type(ex).__name__}: {ex}")
+        return rows
+
+
 def _review_speakers(job, rows, turns, label_map, vote=None):
     """Marks lines whose speaker rests on weak evidence (a very short reply, speech overlapping, a word the detector did
     not place, ...) so the editor can say "check speaker", and compares the number of speakers found with the number the
@@ -2464,7 +2507,7 @@ def _vote_speakers(job, rows, wd, vocals_all):
                 f"{' (the detector found your number: its speakers were kept, ' + str(summary.get('restored', 0)) + ' line(s) given back to a speaker the vote would have emptied)' if _same_number and summary['status'] == 'ok' else ''}{(_swap_note(summary) + _vote_why(summary)) if summary['status'] == 'ok' else ''}; {summary.get('changed', 0)} lines moved, {len(summary.get('new_speakers') or [])} speaker(s) added, "
                 f"{summary.get('merged', 0)} merged, {summary.get('badged', 0)} to check; "
                 f"{usage.get('calls', 0)} requests{(' (' + ', '.join(f'{k}: {m}' for k, m in sorted((votes.get('models') or {}).items())) + ')') if votes.get('models') else ''}, tokens in {usage.get('tokens_in', 0)} / out {usage.get('tokens_out', 0)} / thinking {usage.get('tokens_thinking', 0)}, "
-                f"cost ${float(usage.get('usd') or 0):.4f}")
+                f"cost ${float(usage.get('usd') or 0):.4f}" + (f"; answers ended: {', '.join(usage.get('finish') or [])}" if usage.get("finish") else ""))
     except Exception as ex:
         print(f"[longdub] speaker vote skipped: {type(ex).__name__}: {ex}")
         summary = {"status": "error"}
@@ -2844,6 +2887,7 @@ def _run_analysis(job):
         _kept_check(_kept, "line starts", rows)
         rows = _kept_restore(job, _kept, rows)
         _review_speakers(job, rows, turns, label_map, vote=vote)
+        rows = _line_sense(job, rows, wd, vocals_all)
         _write_segments(job, rows)
         try:      # who said each line at each step, for the job log (reads only; nothing is decided here)
             _t_sum, _t_rows = speaker_trace.report(rows, vote.get("trace") or [])
@@ -3699,12 +3743,22 @@ def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
             heard = emotion_listen.listen(job["id"], rows, vocals, GEMINI_API_KEY, cache_dir=wd / "emotion_listen_cache",
                                           max_workers=2, selected_ids=selected_ids, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {})) or {}
         paces = _row_paces(rows, **({"source_language": languages.get(job.get("source_language")).code} if languages.get(job.get("source_language")).code != "en" else {}))
-        fallbacks = set()
+        import inworld_service
+        fallbacks, acted = set(), 0
         for r in rows:
             sid = r.get("segment_id")
             if r.get("emotion_set") or (selected_ids is not None and sid not in selected_ids):
                 continue
             r["emotion"] = emotion_listen.merge(r.get("emotion"), heard.get(sid), paces.get(sid, "unknown"))
+            ev_ = heard.get(sid) if isinstance(heard.get(sid), dict) else {}
+            if ev_.get("direction") and ev_.get("confidence") in ("high", "medium"):
+                # The acting note heard in the original voice goes to the Arabic voice (inworld_service.row_tag), 1.96.0.
+                r["acting"] = ev_["direction"]
+                r["acting_for"] = inworld_service.acting_key(r)
+                acted += 1
+            else:
+                r.pop("acting", None)
+                r.pop("acting_for", None)
             if sid not in heard:  # even a weak audio answer keeps precedence; never replace a chosen style
                 hint = _picture_mood(job, r)
                 if hint:
@@ -3715,7 +3769,7 @@ def _listen_and_merge(job, rows, wd=None, selected_ids=None, vocals_all=None):
                 dur_ = 0.0
             if sid not in heard and 0.3 <= dur_ <= 30:
                 fallbacks.add(sid)
-        _ev(job, "emotions", "partial" if fallbacks else "ok", emotion_listen.summary(rows, heard, fallbacks))
+        _ev(job, "emotions", "partial" if fallbacks else "ok", emotion_listen.summary(rows, heard, fallbacks)[:540] + f" Acting notes: {acted}.")
         return len(heard)
     except Exception as ex:
         print(f"[longdub] emotion listening skipped: {ex}")
@@ -5110,7 +5164,7 @@ def dub_price(job, cfg=None):
             if (r.get("text") or "").strip():
                 without += 1
             continue
-        chars += len(inworld_service.instruction_tag(r.get("emotion"))) + len(ar)
+        chars += len(inworld_service.row_tag(r)) + len(ar)
         lines += 1
         used[r.get("speaker_id")] = used.get(r.get("speaker_id"), 0) + 1
     cpc = max(1, int(cfg.get("chars_per_credit", 60)))
@@ -5373,17 +5427,42 @@ def _speaker_gender(rows, spid):
     return max(sorted(count), key=lambda g: count[g])
 
 
-def _pick_donor(spid, good, rows):
+def _list_gender(job, spid):
+    """The gender of a speaker in the speaker list (chosen by the person, or heard), else None."""
+    sp = next((x for x in (job or {}).get("speaker_list") or [] if x.get("id") == spid), None)
+    g = gender_context.clean((sp or {}).get("gender"))
+    return g if g in ("male", "female") else None
+
+
+def _pick_donor(spid, good, rows, job=None):
     """Which already-copied speaker lends a voice to `spid`: the one with the
     most lines among those of the same gender, else the one with the most
-    lines overall. Ties go to the earlier speaker, so a restart picks the same."""
+    lines overall. Ties go to the earlier speaker, so a restart picks the same.
+    The gender comes from the speaker list first (8 Nov 2026: unknownWoman 1, whose lines had been moved to her from men,
+    was given a man's voice because only the old marks on her lines were read)."""
     def lines(s):
         return sum(1 for r in rows if r.get("speaker_id") == s)
-    gender = _speaker_gender(rows, spid)
-    same = [s for s in good if gender and _speaker_gender(rows, s) == gender]
+
+    def gender_of(s):
+        return _list_gender(job, s) or _speaker_gender(rows, s)
+    gender = gender_of(spid)
+    same = [s for s in good if gender and gender_of(s) == gender]
     pool = same or list(good)
     best = max(lines(s) for s in pool)
     return next(s for s in pool if lines(s) == best)
+
+
+def _stock_voice(gender, api_key):
+    """One of our ready-made voices of this gender (one made for Arabic first), or None."""
+    try:
+        import inworld_service
+        voices = (inworld_service.fetch_library(api_key) or {}).get("voices") or []
+        pick = [v for v in voices if v.get("gender") == gender]
+        pick.sort(key=lambda v: (not v.get("arabic"), str(v.get("voice_id") or "")))
+        return pick[0] if pick else None
+    except Exception as ex:
+        print(f"[longdub] no stock voice: {type(ex).__name__}: {ex}")
+        return None
 
 
 def _clone_sample(job, spid, rows, out_dir):
@@ -6042,7 +6121,7 @@ def _no_cut_pass(job, dub, rows, total, voice_for, loud_ref, d, paces):
                 cur_text = (prev or {}).get("after") or r["arabic_text"]
                 rr = dict(r)
                 rr["arabic_text"] = cur_text
-                tag = inworld_service.instruction_tag(r.get("emotion"))
+                tag = inworld_service.row_tag(r)
                 gap_ = (float(rows[i + 1]["start"]) - float(r["end"])) if i + 1 < len(rows) else 99.0
                 slot = max(float(r["end"]) - float(r["start"]), 0.5)
                 cap_ = min(TEMPO_MAX, delivery.tempo_cap(paces.get(sid, "unknown")))
@@ -6235,8 +6314,12 @@ def _run_dubbing(job):
         # the same gender when there is one - and its clone charge is refunded.
         busiest = max(good, key=lambda s: sum(1 for r in rows if r.get("speaker_id") == s))
         for spid in [s for s in sp_ids if s in dub["fallback"] and not dub["fallback"][s]]:
-            donor = _pick_donor(spid, good, rows)
-            dub["fallback"][spid] = dub["voices"][donor]
+            donor = _pick_donor(spid, good, rows, job)
+            want = _list_gender(job, spid) or _speaker_gender(rows, spid)
+            stock = None
+            if want and (_list_gender(job, donor) or _speaker_gender(rows, donor)) != want:
+                stock = _stock_voice(want, INWORLD_API_KEY)       # no copied voice of this gender: one of ours, never the other gender
+            dub["fallback"][spid] = stock["voice_id"] if stock else dub["voices"][donor]
             refund = int(plan["clone_each"])
             if refund and _remaining(job, "dub") >= refund:
                 if _refund(job, uid, refund, "dub", f"clone:{spid}"):
@@ -6244,7 +6327,9 @@ def _run_dubbing(job):
                 else:
                     _ev(job, "clone_refund", "failed", f"{names.get(spid)}: the refund was not confirmed and will be retried")
             job.setdefault("warnings", []).append(
-                f"The voice of {names.get(spid)} could not be copied, so {names.get(donor)}'s voice was used for those lines.")
+                f"The voice of {names.get(spid)} could not be copied, so " + ("one of our ready-made voices" if stock else f"{names.get(donor)}'s voice")
+                + " was used for those lines.")
+            _ev(job, "voice_borrowed", "ok", f"{names.get(spid)} ({want or 'gender unknown'}): " + (f"stock voice {stock.get('name')}" if stock else f"voice of {names.get(donor)}"))
             _save(job)
 
         def voice_for(spid):
@@ -6261,7 +6346,7 @@ def _run_dubbing(job):
             if sid in dub["lines"] or sid in dub["failed"]:
                 continue
             _mark(job, "speak", 10 + int(62 * i / max(1, n)), f"Generating the Arabic voice (line {i + 1} of {n})...")
-            tag = inworld_service.instruction_tag(r.get("emotion"))
+            tag = inworld_service.row_tag(r)
             text = f"{tag}{r['arabic_text'].strip()}"
             gap_ = (float(rows[i + 1]["start"]) - float(r["end"])) if i + 1 < n else 99.0       # silence after the line: a long one is a real stop
             audio, err = _tts_with_retry(voice_for(r["speaker_id"]), text, r.get("waqf"), gap_, job.get("delivery_mode"))
@@ -6357,7 +6442,7 @@ def _run_dubbing(job):
         _save(job)
         if failed:
             # Pro-rata refund for the characters of lines that were not generated.
-            fchars = sum(len(inworld_service.instruction_tag(by_seg[s].get("emotion"))) + len(by_seg[s]["arabic_text"].strip())
+            fchars = sum(len(inworld_service.row_tag(by_seg[s])) + len(by_seg[s]["arabic_text"].strip())
                          for s in failed)
             back = int(math.ceil(fchars / float(max(1, plan["cpc"]))))
             if back and _remaining(job, "dub") >= back and not dub.get("line_refund"):

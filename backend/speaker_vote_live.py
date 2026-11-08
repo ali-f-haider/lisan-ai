@@ -47,11 +47,13 @@ def _level(name, default):
     return v if v in ("low", "medium", "high") else default
 
 
-# How hard each check thinks. Both think hard (Ali, 28 Oct 2026: "keep deep thinking on listening even if it costs more").
-# Measured: C4K reading 83-85% -> 88%, listening 88% -> 89%; Air Force One replay (1.84.1) listening 93.2% -> 94.9% of the
-# lines, for about a third more cost. (At "medium" with a JSON answer Argon does not think at all.)
-THINKING = _level("LONGDUB_SPEAKER_THINKING", "high")            # the reading check
-LISTEN_THINKING = _level("LONGDUB_LISTEN_THINKING", "high")      # the listening check
+# How hard each check thinks: briefly since 1.96.0 (Ali, 8 Nov 2026, after the Prophet Ahmed chapter 1 test: 110 lines, 20 people).
+# There "high" thought until the answer ran out of room (MAX_TOKENS, nothing came back) and cost about $0.30 a request ($0.58 from
+# December); "low" answered in 13-25 s with as many right lines (reading 78-81% against 80%, listening 81%). Before that (28 Oct)
+# both thought hard: C4K reading 83-85% -> 88%, listening 88% -> 89%. LONGDUB_SPEAKER_THINKING / LONGDUB_LISTEN_THINKING=high
+# brings that back. (At "medium" with a JSON answer Argon does not think at all.)
+THINKING = _level("LONGDUB_SPEAKER_THINKING", "low")             # the reading check
+LISTEN_THINKING = _level("LONGDUB_LISTEN_THINKING", "low")       # the listening check
 
 STATE_FILE = "speaker_vote.json"
 STATE_VERSION = 1
@@ -125,6 +127,13 @@ def _limit(n_lines, retry=False):
     return min(65536, 24576 + 40 * max(1, int(n_lines)))
 
 
+# The second try thinks briefly (8 Nov 2026, Prophet Ahmed chapter 1, 110 lines, 20 people): at "high" the reading check thought
+# 28,973 of its 28,976 allowed tokens and stopped (MAX_TOKENS) with an empty answer, both checks twice, so the whole check was
+# lost. At "low" the same request answered in 23 s instead of about 4 minutes, with almost the same share of right lines
+# (reading 78% against 80% at "high", listening 81%).
+RETRY_THINKING = _level("LONGDUB_SPEAKER_RETRY_THINKING", "low")
+
+
 def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=None, extra=""):
     parts = []
     if kind == "audio":
@@ -133,9 +142,10 @@ def _payload(kind, rows, audio_b64, retry=False, source_language="en", people=No
     # "high" thinking: Gemini 4 Argon does not think at all at "medium" when it must answer in JSON (measured 28 Oct 2026: 0 thinking
     # tokens). With "high" it thinks (6-12k tokens) and gets more lines right on the labelled C4K clip: reading 83-85% -> 88%,
     # listening 88% -> 89%.
+    level = RETRY_THINKING if retry else (LISTEN_THINKING if kind == "audio" else THINKING)
     return {"contents": [{"parts": parts}],
             "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": _limit(len(rows), retry),
-                                 "thinkingConfig": {"thinkingLevel": LISTEN_THINKING if kind == "audio" else THINKING}}}
+                                 "thinkingConfig": {"thinkingLevel": level}}}
 
 
 def _answer_text(data):
@@ -152,9 +162,24 @@ def speaker_models():
     return list(dict.fromkeys(list(getattr(config, "SPEAKER_MODELS", []) or []) + list(config.GEMINI_MODELS)))
 
 
+def read_models():
+    """The models of the READING check (no audio), in order: config.SPEAKER_READ_MODELS, by default the usual Flash models. Measured on
+    the Prophet Ahmed chapter 1 (8 Nov 2026): Gemini 3.8 Flash got 81% of the lines right in 12 s for about $0.01, Argon 78-80% for
+    $0.03-0.30. The listening check stays on the strongest model (speaker_models)."""
+    import config
+    return list(dict.fromkeys(list(getattr(config, "SPEAKER_READ_MODELS", None) or config.GEMINI_MODELS)))
+
+
+def _has_audio(payload):
+    try:
+        return any("inline_data" in p for c in payload.get("contents") or [] for p in c.get("parts") or [])
+    except Exception:
+        return True
+
+
 def _default_ask(api_key, payload, timeout):
     import gemini_service
-    return gemini_service.call_gemini(api_key, payload, timeout=timeout, models=speaker_models())
+    return gemini_service.call_gemini(api_key, payload, timeout=timeout, models=speaker_models() if _has_audio(payload) else read_models())
 
 
 def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_language="en", people=None, extra=""):
@@ -187,6 +212,10 @@ def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_langua
         usage["tokens_in"] += int(u.get("promptTokenCount", 0) or 0)
         usage["tokens_out"] += int(u.get("candidatesTokenCount", 0) or 0)
         usage["tokens_thinking"] += int(u.get("thoughtsTokenCount", 0) or 0)
+        try:      # why an answer stopped (MAX_TOKENS: the thinking used all the room), for the log
+            usage.setdefault("finish", []).append(f"{kind}:{data['candidates'][0].get('finishReason') or '?'}")
+        except Exception:
+            usage.setdefault("finish", []).append(f"{kind}:none")
         parsed = parse(_answer_text(data), ids)
         if parsed:
             return parsed
@@ -277,7 +306,9 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
             results[kind] = res
             models[kind] = u.get("model")
             for k in usage:
-                usage[k] += u[k]
+                if k != "finish":
+                    usage[k] += u[k]
+            usage.setdefault("finish", []).extend(u.get("finish") or [])
 
     models = {}
     kinds = ["dialogue"] + (["audio"] if audio_b64 else [])

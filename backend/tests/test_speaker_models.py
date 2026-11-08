@@ -31,8 +31,23 @@ class Models(unittest.TestCase):
             seen["models"] = models
             return {"candidates": []}, None
         with mock.patch.object(gemini_service, "call_gemini", fake):
-            svl._default_ask("k", {"contents": []}, 10)
+            svl._default_ask("k", {"contents": [{"parts": [{"inline_data": {"mime_type": "audio/mpeg", "data": "AAAA"}}, {"text": "x"}]}]}, 10)
         self.assertEqual(seen["models"][0], "gemini-4-argon")
+
+    def test_the_reading_check_goes_to_the_usual_models(self):
+        seen = {}
+
+        def fake(api_key, payload, timeout=120, models=None):
+            seen["models"] = models
+            return {"candidates": []}, None
+        with mock.patch.object(gemini_service, "call_gemini", fake):
+            svl._default_ask("k", {"contents": [{"parts": [{"text": "who says which line"}]}]}, 10)
+        self.assertNotIn("gemini-4-argon", seen["models"])
+        self.assertEqual(seen["models"], list(dict.fromkeys(config.GEMINI_MODELS)))
+
+    def test_the_reading_models_can_be_set(self):
+        with mock.patch.object(config, "SPEAKER_READ_MODELS", ["gemini-4-argon"]):
+            self.assertEqual(svl.read_models(), ["gemini-4-argon"])
 
     def test_other_requests_keep_the_usual_models(self):
         tried = []

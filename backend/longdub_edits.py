@@ -255,7 +255,7 @@ def quote(parent, selected):
     import inworld_service
     pricing = ld._job_pricing(parent)
     cpc = max(1, int(pricing.get('chars_per_credit', 60)))
-    chars = sum(len(inworld_service.instruction_tag(r.get('emotion'))) + len(r['arabic_text'].strip()) for r in subset)
+    chars = sum(len(inworld_service.row_tag(r)) + len(r['arabic_text'].strip()) for r in subset)
     speaker_ids = sorted({r['speaker_id'] for r in subset})
     voice_map = (parent.get('dub') or {}).get('voices') or {}
     # Old IDs were deleted even if their names remain in the checkpoint.
@@ -385,7 +385,7 @@ def run(job):
             voice = job.get('correction_voices', {}).get(row['speaker_id']) or voice_map.get(row['speaker_id'])
             _later = sorted(r['start'] for r in rows(parent) if r['segment_id'] != sid and r['start'] >= row['end'] - 0.05)
             gap = (_later[0] - row['end']) if _later else 99.0       # silence after the line: a long one is a real stop
-            audio, err = ld._tts_with_retry(voice, inworld_service.instruction_tag(row.get('emotion')) + row['arabic_text'].strip(), row.get('waqf'), gap, parent.get('delivery_mode'))
+            audio, err = ld._tts_with_retry(voice, inworld_service.row_tag(row) + row['arabic_text'].strip(), row.get('waqf'), gap, parent.get('delivery_mode'))
             if audio is None:
                 # A deleted provider voice cannot be recovered by reusing its old ID. Next quote includes a clone.
                 if '404' in str(err):

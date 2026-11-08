@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.95.2"
+APP_VERSION = "1.96.0"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -230,6 +230,10 @@ SPEAKER_MODELS = [m.strip() for m in os.environ.get("LONGDUB_SPEAKER_MODELS", "g
 # Shortening an Arabic line that is too long for its time, and the check that the shorter line still means the same, go to the
 # same strongest model first (measured on 30 lines of the Air Force One clip: the usual model broke the meaning of 12 of them).
 # LONGDUB_SHORTEN_MODELS changes it; "-" turns it off (then the models above).
+# The READING speaker check (the lines only, no audio) goes to the usual models (Flash) since 1.96.0: on the Prophet Ahmed chapter 1
+# Gemini 3.8 Flash got as many lines right as Argon (81% against 78-80%) for a tenth of the price. LONGDUB_SPEAKER_READ_MODELS
+# (comma separated) changes it, for example "gemini-4-argon" to bring the strongest model back.
+SPEAKER_READ_MODELS = [m.strip() for m in os.environ.get("LONGDUB_SPEAKER_READ_MODELS", ",".join(GEMINI_MODELS)).split(",") if m.strip() and m.strip() != "-"] or list(GEMINI_MODELS)
 SHORTEN_MODELS = [m.strip() for m in os.environ.get("LONGDUB_SHORTEN_MODELS", "gemini-4-argon").split(",") if m.strip() and m.strip() != "-"]
 
 # Picture-unit runtime options live in image_unit.py and are read once there.

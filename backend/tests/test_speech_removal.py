@@ -261,7 +261,7 @@ class ExportTests(unittest.TestCase):
         row = {'segment_id': 'line', 'speaker_id': 'speaker', 'start': 1, 'end': 2, 'arabic_text': 'نعم'}
         ld = NS(_wd=lambda _: folder, _job_pricing=lambda _: {'merge_credits': 3, 'chars_per_credit': 60},
                 FAL_API_KEY='', read_segments=lambda _: [row], job_dir=lambda _: folder)
-        fake_voice = NS(instruction_tag=lambda _: '')
+        fake_voice = NS(instruction_tag=lambda _: '', row_tag=lambda _: '')
         env = functions('longdub_edits.py', ['quote'], {
             'ld': ld, 'active': lambda _: False, 'rows': lambda _: [row],
             'restore_source': lambda _: None, 'background': lambda _: base, 'removal_background': lambda *a: None,

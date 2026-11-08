@@ -296,7 +296,7 @@ class BillingReviewTests(unittest.TestCase):
         rows=[{'segment_id':'line','arabic_text':'مرحبا','text':'Hello','speaker_id':'s1','emotion':'neutral'}]
         parent={'id':'job','uid':'user','status':'done','paid':{},'duration':5,'edit_assets':True,
                 'speaker_list':[{'id':'s1','name':'Speaker 1'}],'dub':{'voices':{'s1':'voice'}}}
-        with patch.dict(sys.modules, {'inworld_service':NS(instruction_tag=lambda _: '')}):
+        with patch.dict(sys.modules, {'inworld_service':NS(instruction_tag=lambda _: '', row_tag=lambda _: '')}):
             for configured in (1, 3, 0):
                 cfg={'chars_per_credit':60,'clone_credits':5,'merge_credits':configured}
                 env={'Hooks':NS(pricing=lambda cfg=cfg:cfg),'read_segments':lambda _:rows,'math':math,

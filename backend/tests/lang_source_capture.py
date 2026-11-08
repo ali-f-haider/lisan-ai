@@ -48,6 +48,7 @@ def emotion(scene):
     space = source_namespace('emotion_listen.py', ('_flat',))
     constants = source_namespace('config.py', (), ('CANONICAL_EMOTIONS',))['CANONICAL_EMOTIONS']
     space['_EMOTIONS'] = tuple(t for t in constants if t not in ('slowly','drawn out','rushed','very fast','hesitant','stammering'))
+    space['FEELINGS'] = tuple(t for t in space['_EMOTIONS'] if t not in ('whispering','shouting','screaming','yelling','softly','booming','narrative','announcer','conversational'))
     return _capture('emotion_listen.py','_payload','parts',space)([],scene)
 
 

@@ -277,6 +277,33 @@ def instruction_tag(emotion) -> str:
     return f"[{', '.join(phrases)}] "
 
 
+_PACE = ("slowly", "drawn out", "rushed", "very fast", "hesitant", "stammering")
+
+
+def _feeling_tags(emotion):
+    return sorted({p.strip().lower() for p in str(emotion or "").split(",") if p.strip() and p.strip().lower() not in _PACE})
+
+
+def acting_key(row) -> str:
+    """What an acting note was written for: the line's English and its feeling tags (speed tags left out, they are matched to the
+    speaker's pace later). A note whose key no longer matches (the English, or the feeling, was changed) is not used."""
+    text = " ".join(str((row or {}).get("text") or "").split())
+    return text + "|" + ",".join(_feeling_tags((row or {}).get("emotion")))
+
+
+def row_tag(row) -> str:
+    """The instruction put before one long-dub line (1.96.0, Ali chose take B on 8 Nov 2026): the acting note the listener wrote from
+    the original voice (row["acting"]) while it still belongs to the line (same English, same feeling, a delivery the user did not
+    pick), plus the line's speed tag; otherwise the tag of the line's emotion, as before."""
+    row = row or {}
+    note = str(row.get("acting") or "").strip()
+    if note and "[" not in note and "]" not in note and not row.get("emotion_set") and row.get("acting_for") == acting_key(row):
+        pace = [_INSTRUCTION_PHRASES.get(p.strip().lower(), "") for p in str(row.get("emotion") or "").split(",")
+                if p.strip().lower() in _PACE]
+        return "[" + ", ".join([note] + [x for x in pace if x]) + "] "
+    return instruction_tag(row.get("emotion"))
+
+
 def _configured(api_key: str) -> bool:
     return bool((api_key or "").strip())
 

@@ -24,7 +24,9 @@ ENABLED = os.environ.get("LONGDUB_ADDRESSEE_ASK", "1").strip() != "0"     # "0" 
 ASK_TARGETS = 60        # lines asked about in one request
 ASK_AROUND = 40         # lines of conversation shown before the first and after the last of them
 MAX_LINE_CHARS = 300
-THINKING = "high"
+# "medium" since 1.96.0: on the Prophet Ahmed chapter 1 (8 Nov 2026, 43 lines asked) "high" took 432 s and "medium" 47 s, with the same
+# answer (who is spoken to) on 42 of the 43 lines.
+THINKING = "medium"
 
 _YOU = re.compile(r"\b(?:you|your|yours|yourself|yourselves|ya|y'all)\b", re.I)
 _COMMAND = (r"(?:don't|do|give|listen|connect|trace|follow|put|tell|get|take|shut|believe|be|move|stop|wait|look|come|go|hold|"

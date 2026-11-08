@@ -6536,7 +6536,8 @@ def longdub_status(job_id: str, request: Request):
 
 _LD_SPEAKER_REASONS = ("no_detected_turn", "speaker_not_supported", "weak_time_coverage", "overlapping_speech", "short_reply",
                        "word_in_gap", "word_speaker_disagrees", "word_crosses_turns", "smoothed_assignment",
-                       "missing_word_times", "little_speaker_evidence", "invalid_line_times", "voters_split", "candidate_rejected")
+                       "missing_word_times", "little_speaker_evidence", "invalid_line_times", "voters_split", "candidate_rejected",
+                       "conversation_suggests")
 
 
 def _ld_speaker_review(r):
@@ -6550,7 +6551,10 @@ def _ld_speaker_review(r):
         cov = min(1.0, max(0.0, float(r.get("speaker_time_coverage") or 0.0)))
     except (TypeError, ValueError):
         cov = 0.0
-    return {"speaker_confidence": conf, "speaker_reasons": reasons, "speaker_time_coverage": round(cov, 3)}
+    out = {"speaker_confidence": conf, "speaker_reasons": reasons, "speaker_time_coverage": round(cov, 3)}
+    if "conversation_suggests" in reasons and r.get("sense_speaker_id"):
+        out["sense_speaker_id"] = str(r["sense_speaker_id"])[:20]      # who the conversation suggests (line_sense.py)
+    return out
 
 
 def _ld_public_rows(rows, job=None):
