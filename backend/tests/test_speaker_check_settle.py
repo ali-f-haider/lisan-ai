@@ -34,6 +34,25 @@ class Settle(unittest.TestCase):
         self.assertEqual((got, backs), (0, []))
         self.assertIn("nothing to give back", evs[-1][3])
 
+    def test_answers_of_the_usual_model_are_priced_at_its_own_price(self):
+        job = {"id": "j", "uid": "u", "speaker_check_paid": 152, "analysis": {}}
+        # the Prophet Ahmed chapter 1 shape: Argon listened (32k in, 2k out), Flash read (5k in, 2k out)
+        usage = {"calls": 2, "tokens_in": 37401, "tokens_out": 4303, "tokens_thinking": 0, "cheap_in": 5071, "cheap_out": 1891}
+        _got, backs, _ = self.run_it(job, usage)
+        all_argon = {"calls": 2, "tokens_in": 37401, "tokens_out": 4303, "tokens_thinking": 0}
+        job2 = {"id": "j2", "uid": "u", "speaker_check_paid": 152, "analysis": {}}
+        _g2, backs2, _ = self.run_it(job2, all_argon)
+        self.assertGreater(backs[0][0], backs2[0][0])          # less is kept when Flash did part of the work
+
+    def test_a_website_job_is_charged_one_credit_per_cent_whatever_the_reserve(self):
+        job = {"id": "j", "uid": "u", "speaker_check_paid": 152, "analysis": {}}
+        usage = {"calls": 2, "tokens_in": 25000, "tokens_out": 4000, "tokens_thinking": 40000}   # $0.98 at $4 / $20
+        with mock.patch.object(ld, "_refund", lambda j, uid, n, slot, key: True), mock.patch.object(ld, "_save", lambda j: None), \
+                mock.patch.object(ld, "_ev", lambda *a: None), \
+                mock.patch.object(ld, "_job_pricing", lambda j: {"speaker_check_flat": 4, "speaker_check_per_min": 50.0}):
+            ld._speaker_check_settle(job, usage)
+        self.assertEqual(job["speaker_check_paid"], 4 + 98)
+
     def test_saved_answers_reuse_the_first_runs_usage(self):
         job = {"id": "j", "uid": "u", "speaker_check_paid": 152,
                "analysis": {"speaker_check_usage": {"calls": 2, "tokens_in": 25000, "tokens_out": 4000, "tokens_thinking": 40000}}}

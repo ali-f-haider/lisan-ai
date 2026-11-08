@@ -135,3 +135,14 @@ class LevelVoicesTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class WhisperIsBroughtUp(unittest.TestCase):
+    def test_a_whispered_line_6_dB_short_now_reaches_the_original(self):
+        # 1.96.2, Prophet Ahmed chapter 1, 4:34: the AI whisper needed about 14 dB; 8 dB was the limit before
+        self.assertGreaterEqual(ld.GAIN_MAX_DB, 14.0)
+        self.assertAlmostEqual(ld._voice_gain(-20.0, -34.0), 14.0)
+
+    def test_the_peak_still_limits_a_boost(self):
+        self.assertAlmostEqual(ld._voice_gain(-20.0, -34.0, d_peak=-6.0), 5.0)      # peak -6 dB may rise to -1 dB only
+
+

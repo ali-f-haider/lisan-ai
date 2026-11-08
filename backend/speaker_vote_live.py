@@ -212,6 +212,10 @@ def _one_voter(kind, job_id, rows, audio_b64, api_key, ask, usage, source_langua
         usage["tokens_in"] += int(u.get("promptTokenCount", 0) or 0)
         usage["tokens_out"] += int(u.get("candidatesTokenCount", 0) or 0)
         usage["tokens_thinking"] += int(u.get("thoughtsTokenCount", 0) or 0)
+        if not str((data or {}).get("modelVersion") or "").startswith("gemini-4-argon"):
+            # answered by a usual (Flash) model: kept apart so the customer's charge uses that model's price (1.96.2)
+            usage["cheap_in"] = int(usage.get("cheap_in") or 0) + int(u.get("promptTokenCount", 0) or 0)
+            usage["cheap_out"] = int(usage.get("cheap_out") or 0) + int(u.get("candidatesTokenCount", 0) or 0) + int(u.get("thoughtsTokenCount", 0) or 0)
         try:      # why an answer stopped (MAX_TOKENS: the thinking used all the room), for the log
             usage.setdefault("finish", []).append(f"{kind}:{data['candidates'][0].get('finishReason') or '?'}")
         except Exception:
@@ -305,9 +309,9 @@ def collect(job_id, rows, vocals_path, work_dir, api_key, ask=None, source_langu
         with locks:
             results[kind] = res
             models[kind] = u.get("model")
-            for k in usage:
-                if k != "finish":
-                    usage[k] += u[k]
+            for k, v in u.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    usage[k] = usage.get(k, 0) + v
             usage.setdefault("finish", []).extend(u.get("finish") or [])
 
     models = {}
@@ -390,8 +394,9 @@ def reask(job_id, rows, votes, vocals_path, work_dir, api_key, people, ask=None,
                                  extra=reask_text(kind, people_named(out[kind]), n))
                 with lock:
                     new[kind] = res
-                    for k in usage:
-                        usage[k] += u[k]
+                    for k, v in u.items():
+                        if isinstance(v, (int, float)) and not isinstance(v, bool):
+                            usage[k] = usage.get(k, 0) + v
 
             threads = [threading.Thread(target=run, args=(k,), daemon=True) for k in need]
             for t in threads:

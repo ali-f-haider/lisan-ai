@@ -1619,8 +1619,10 @@ SPEAKER_CHECK_SHORT_SECONDS = 1.0
 # measured $0.46 and $0.85 at today's price, i.e. $0.92-$1.70 at the December price. So the charge is a reserve of 4 + 20 per
 # minute, and after the check what it really used (its tokens at the December price, 1 credit per cent) is kept and the rest is
 # given back (_speaker_check_settle).
+# Since 1.96.2 the reserve is 4 + 8 per minute: with the reading check on Flash and brief thinking (1.96.0) the Prophet Ahmed
+# chapter 1 (13.3 min) used 64 of the 270 credits reserved; 8 per minute (111 credits there) still leaves room for a second try.
 SPEAKER_CHECK_FLAT = 4
-SPEAKER_CHECK_PER_MIN = 20.0
+SPEAKER_CHECK_PER_MIN = 8.0
 # The second listen (speech_second.py): Argon listens to the whole voice track once more. Priced at the December price too:
 # measured about $0.155 for 8.1 minutes (16k tokens in, 4.6k out), so 2 + 2 per minute (8.1 min: 19 credits). Returned if it cannot run.
 SPEECH_CHECK_FLAT = 2
@@ -2135,7 +2137,7 @@ def _speaker_check_add_usage(job, usage):
             return
         an = job.setdefault("analysis", {})
         u = an.setdefault("speaker_check_usage", {"calls": 0, "tokens_in": 0, "tokens_out": 0, "tokens_thinking": 0})
-        for k in ("calls", "tokens_in", "tokens_out", "tokens_thinking"):
+        for k in ("calls", "tokens_in", "tokens_out", "tokens_thinking", "cheap_in", "cheap_out"):
             u[k] = int(u.get(k) or 0) + int(usage.get(k) or 0)
         _save(job)
     except Exception as ex:
@@ -2158,9 +2160,21 @@ def _speaker_check_settle(job, usage=None):
         import datetime as _dt
         import resource_meter
         rin, rout = (max(a, b) for a, b in zip(resource_meter._argon_rates(), resource_meter._argon_rates(_dt.date(2026, 12, 1))))
-        usd = u["tokens_in"] / 1e6 * rin + (u["tokens_out"] + u["tokens_thinking"]) / 1e6 * rout
+        # what the usual (Flash) model answered (the reading check since 1.96.0) is priced at ITS higher price (from 1 Jan 2027),
+        # the rest at the strongest model's December price
+        fin, fout = (max(a, b) for a, b in zip(resource_meter.flash_rates()[:2], resource_meter.flash_rates(_dt.date(2027, 1, 1))[:2]))
+        c_in, c_out = int(u.get("cheap_in") or 0), int(u.get("cheap_out") or 0)
+        a_in = max(0, int(u["tokens_in"]) - c_in)
+        a_out = max(0, int(u["tokens_out"]) + int(u["tokens_thinking"]) - c_out)
+        usd = a_in / 1e6 * rin + a_out / 1e6 * rout + c_in / 1e6 * fin + c_out / 1e6 * fout
         cfg = _job_pricing(job)
-        scale = float(cfg.get("speaker_check_per_min", SPEAKER_CHECK_PER_MIN) or SPEAKER_CHECK_PER_MIN) / SPEAKER_CHECK_PER_MIN
+        # 1 credit per cent, times the price percentage of a public-API job (1.96.2: no longer the per-minute reserve divided by its
+        # default, so a changed reserve never changes what the check really costs the customer)
+        api = job.get("api") if isinstance(job.get("api"), dict) else {}
+        try:
+            scale = float(api.get("price_percent")) / 100.0 if api.get("price_percent") is not None else 1.0
+        except (TypeError, ValueError):
+            scale = 1.0
         used = int(cfg.get("speaker_check_flat", SPEAKER_CHECK_FLAT) or 0) + int(math.ceil(usd * 100 * scale))
         back = paid - used
         job["speaker_check_settled"] = True
@@ -5594,7 +5608,10 @@ def _tts_with_retry(voice_id, text, waqf="auto", gap=None, delivery=None):
 
 
 SILENCE_TRIM_DB = -50          # below this a voice is treated as silence at the start/end of a line
-GAIN_MAX_DB = 8.0              # most a line is made louder / quieter to match the original speaker
+# Most a line is made louder / quieter to match the original speaker. 14 dB since 1.96.2 (was 8): a whispered AI line comes out very
+# quiet, and on the Prophet Ahmed chapter 1 the whispered lines at 4:30 and 4:34 ended 4.9 and 6.1 dB under the original because the
+# limit stopped them; Ali listened and chose them "as loud as the original". A boost still never pushes the peak above PEAK_CEIL_DB.
+GAIN_MAX_DB = float(os.environ.get("LONGDUB_GAIN_MAX_DB", "14") or 14)
 PEAK_CEIL_DB = -1.0            # a boosted line never peaks above this
 
 

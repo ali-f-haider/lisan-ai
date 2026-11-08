@@ -19,7 +19,7 @@ class Price(unittest.TestCase):
     def test_december_prices_for_the_test_clip(self):
         est = ld.compute_estimate(488.8, self.CFG, 13)
         self.assertEqual(est["speech_check"], 19)          # 2 + 2 per minute: about $0.155 of Argon at the December price
-        self.assertEqual(est["speaker_check"], 167)        # a reserve of 4 + 20 per minute (both checks think hard); the unused part is given back
+        self.assertEqual(est["speaker_check"], 70)         # a reserve of 4 + 8 per minute since 1.96.2 (brief thinking, reading on Flash); the unused part is given back
         without = ld.compute_estimate(488.8, {k: v for k, v in self.CFG.items() if not k.startswith("speech_check")}, 13)
         self.assertEqual(est["total"] - without["total"], 19)
 
