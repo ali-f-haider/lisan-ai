@@ -1702,6 +1702,12 @@ def _line_sense(job, rows, wd, vocals_all):
                              tokens_out=int(u.get("candidatesTokenCount") or 0), thinking=int(u.get("thoughtsTokenCount") or 0))
             return data, err
         problems = line_sense.ask(rows, audio_b64, GEMINI_API_KEY, call, record=lambda data: app_state.record_gemini(job["id"], data))
+        if usage:      # paid from the speaker check's reserve since 1.96.3 (Ali, 8 Nov 2026), settled with it after the genders
+            cheap = not str(usage.get("model") or "").startswith("gemini-4-argon")
+            t_in, t_out = int(usage.get("tokens_in") or 0), int(usage.get("tokens_out") or 0) + int(usage.get("thinking") or 0)
+            _speaker_check_add_usage(job, {"calls": 1, "tokens_in": t_in, "tokens_out": int(usage.get("tokens_out") or 0),
+                                           "tokens_thinking": int(usage.get("thinking") or 0),
+                                           "cheap_in": t_in if cheap else 0, "cheap_out": t_out if cheap else 0})
         ids = {}
         for r in rows:
             if r.get("speaker") and r.get("speaker_id"):

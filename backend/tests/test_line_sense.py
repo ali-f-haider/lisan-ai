@@ -1,4 +1,5 @@
 """Does each line make sense for its speaker (line_sense.py, 8 Nov 2026), and the speaker check that no longer gives up."""
+import tempfile
 import json
 import unittest
 from pathlib import Path
@@ -125,6 +126,22 @@ class Wiring(unittest.TestCase):
         self.assertIn('out["sense_speaker_id"]', main)
         page = (ROOT / "dub_long.html").read_text(encoding="utf-8")
         self.assertIn('conversation_suggests: ["The conversation suggests another speaker", "يشير سياق الحوار إلى متحدث آخر"]', page)
+
+class PaidFromTheSpeakerCheck(unittest.TestCase):
+    def test_what_the_line_check_used_is_added_to_the_speaker_checks_count(self):
+        from unittest import mock
+        import longdub_service as ld
+        import gemini_service
+        job = {"id": "j", "uid": "u", "analysis": {}}
+        rows = [{"segment_id": f"seg_{i}", "start": i, "end": i + 1, "text": "Hello there.", "speaker": "AB"[i % 2]} for i in range(4)]
+        data = {"modelVersion": "gemini-4-argon", "usageMetadata": {"promptTokenCount": 32061, "candidatesTokenCount": 417, "thoughtsTokenCount": 0},
+                "candidates": [{"content": {"parts": [{"text": json.dumps({"problems": []})}]}}]}
+        with mock.patch.object(ld, "GEMINI_API_KEY", "k"), mock.patch.object(gemini_service, "call_gemini", lambda *a, **k: (data, None)), \
+                mock.patch.object(ld.speaker_vote_live, "_audio_b64", lambda *a, **k: None), mock.patch.object(ld, "_save", lambda j: None), \
+                mock.patch.object(ld, "_ev", lambda *a: None):
+            ld._line_sense(job, rows, Path(tempfile.mkdtemp()), None)
+        u = job["analysis"]["speaker_check_usage"]
+        self.assertEqual((u["calls"], u["tokens_in"], u["tokens_out"], u["cheap_in"]), (1, 32061, 417, 0))
 
 
 if __name__ == "__main__":

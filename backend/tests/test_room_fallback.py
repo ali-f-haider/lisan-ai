@@ -192,6 +192,20 @@ class LineRooms(unittest.TestCase):
         self.assertEqual(got, "0:00-0:10 small room, 0.31 s (2 lines); 0:20-0:20 dry (desert) (1 line); 0:30-0:30 cave, 0.42 s, softly (1 line)")
         self.assertEqual(ld._room_lines_text(lines, {}), "")
 
+class OneStudio(unittest.TestCase):
+    def test_one_sure_studio_for_a_whole_film_is_not_trusted(self):
+        note = {}
+        got = sc._clean_scenes([{"t0": 0, "t1": 797, "setting": "studio", "confidence": "high", "place": "recording studio"}], 797.2, note)
+        self.assertEqual(got[0]["conf"], "low")
+        self.assertTrue(note.get("one_studio"))
+        self.assertGreaterEqual(sc.limit_for(got[0])[0], 0.43)        # the cave's measured 0.43 s is no longer cut to a studio's 0.3 s
+
+    def test_a_short_studio_clip_and_a_studio_part_stay_sure(self):
+        self.assertEqual(sc._clean_scenes([{"t0": 0, "t1": 60, "setting": "studio", "confidence": "high", "place": "podcast"}], 60, {})[0]["conf"], "high")
+        two = sc._clean_scenes([{"t0": 0, "t1": 400, "setting": "studio", "confidence": "high", "place": "narration"},
+                                {"t0": 400, "t1": 797, "setting": "outdoors", "confidence": "high", "place": "desert"}], 797, {})
+        self.assertEqual([x["conf"] for x in two], ["high", "high"])
+
 
 if __name__ == "__main__":
     unittest.main()

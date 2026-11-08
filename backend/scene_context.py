@@ -140,7 +140,32 @@ def _clean_scenes(raw, duration, note=None):
             if note is not None:
                 note["rejected"] = f"the answer covers only {covered:.0f} s of {duration:.0f} s"
             return []
-    return _cover(fixed, duration)
+    return _distrust_one_studio(_cover(fixed, duration), duration, note)
+
+
+ONE_STUDIO_SHARE = 0.9          # one "studio" stretch over this share of a video of ONE_STUDIO_MIN_SEC or more is not trusted
+ONE_STUDIO_MIN_SEC = 120.0
+
+
+def _distrust_one_studio(scenes, duration, note=None):
+    """A long video called ONE "studio" from start to end, sure, is the check's answer when it cannot see the places (Prophet Ahmed
+    chapter 1, 8 Nov 2026: the frames showed no people, and the first run named a council room, a cave and the desert, the second
+    "recording studio" for all 13 minutes). Such a stretch is kept but marked not sure, so it no longer caps the echo the voices
+    really have at a studio's (since 1.96.3). note (a dict) gets "one_studio": True."""
+    try:
+        if not scenes or not duration or float(duration) < ONE_STUDIO_MIN_SEC:
+            return scenes
+        studio = sum(x["t1"] - x["t0"] for x in scenes if x.get("key") == "studio" and x.get("conf") == "high")
+        if studio < ONE_STUDIO_SHARE * float(duration):
+            return scenes
+        for x in scenes:
+            if x.get("key") == "studio":
+                x["conf"] = "low"
+        if note is not None:
+            note["one_studio"] = True
+    except Exception:
+        pass
+    return scenes
 
 
 def _cover(scenes, duration):
@@ -333,7 +358,7 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
             if cache.exists():
                 c = json.loads(cache.read_text(encoding="utf-8"))
                 if c.get("key") == key and isinstance(c.get("scenes"), list):
-                    covered = _cover(c["scenes"], duration)          # an answer saved before the stretches were made to cover the video
+                    covered = _distrust_one_studio(_cover(c["scenes"], duration), duration)   # saved before the stretches covered the video / before 1.96.3
                     return {"scenes": covered, "cost_usd": 0.0, "reused": True, "summary": _summary(covered, 0.0, True)}
         except Exception:
             pass
@@ -372,6 +397,8 @@ def scenes_for_job(job_id, cache_dir, rows, api_key, video_path=None, duration=N
             s += "; the answer was in minutes, converted to seconds"
         if note.get("rejected"):
             s += "; answer not used: " + note["rejected"]
+        if note.get("one_studio"):
+            s += "; one studio for the whole video is not trusted (treated as not sure)"
         if frames:
             s += f"; {len(frames)} frames"
         return {"scenes": scenes, "cost_usd": cost["cost_usd"], "tokens_in": cost["tokens_in"],
@@ -387,6 +414,6 @@ def _summary(scenes, usd, reused):
     bits = []
     for s in scenes[:12]:
         nm = s["place"] or s["key"]
-        bits.append(f"{_fmt_t(s['t0'])}-{_fmt_t(s['t1'])} {nm} [{s['key']}{'' if s['conf'] == 'high' else ', unsure: no limit'}]")
+        bits.append(f"{_fmt_t(s['t0'])}-{_fmt_t(s['t1'])} {nm} [{s['key']}{'' if s['conf'] == 'high' else ', not sure'}]")
     more = f" +{len(scenes) - 12} more" if len(scenes) > 12 else ""
     return "; ".join(bits) + more + (" (reused, no cost)" if reused else f" (cost ${usd:.4f})")
