@@ -391,7 +391,7 @@ var T = {
     spkJoinBtn: "Put them together as one speaker",
     spkJoinAsk: function (n) { return "All lines of the second \u201c" + n + "\u201d go to the first one, and the second speaker is removed. Continue?"; },
     spkEmpty: "Every speaker needs a name, so the names were not saved yet.",
-    spkNotSavedRedo: "The speakers could not be saved, so nothing was translated again. Please fix the message above first.",
+    spkNotSavedRedo: "The speakers could not be saved yet. As soon as the names are fixed and saved, you will be asked about translating the lines again.",
     spkMax: function (m) { return "You can have up to " + m + " speakers."; },
     confirmHeading: "4. Confirm and dub",
     checkPrice: "Check the price", refreshPrice: "Update the price", checking: "Checking…",
@@ -675,7 +675,7 @@ var T = {
     spkJoinBtn: "اجمعهما في متحدث واحد",
     spkJoinAsk: function (n) { return "ستُنقل كل أسطر «" + n + "» الثاني إلى الأول، ويُحذف المتحدث الثاني. هل تريد المتابعة؟"; },
     spkEmpty: "يجب أن يكون لكل متحدث اسم، لذلك لم تُحفظ الأسماء بعد.",
-    spkNotSavedRedo: "تعذّر حفظ المتحدثين، لذلك لم تُعَد الترجمة. يرجى معالجة الرسالة أعلاه أولًا.",
+    spkNotSavedRedo: "تعذّر حفظ المتحدثين حتى الآن. بعد تصحيح الأسماء وحفظها سيُعرض عليك سؤال إعادة ترجمة الأسطر.",
     spkMax: function (m) { return "الحد الأقصى " + m + " متحدثين."; },
     confirmHeading: "٤. التأكيد والدبلجة",
     checkPrice: "اعرض السعر", refreshPrice: "حدّث السعر", checking: "جارٍ الفحص…",
@@ -1871,19 +1871,35 @@ function genderSelectHtml(s, i) {
     '<option value="male"' + (s.gender === "male" ? " selected" : "") + ">" + esc(genderWord("male")) + "</option>" +
     '<option value="female"' + (s.gender === "female" ? " selected" : "") + ">" + esc(genderWord("female")) + "</option></select>";
 }
-function onGenderChanged(i, before) {
+// Gender changes waiting for their question (speaker id -> the gender the Arabic was made with). 8 Nov 2026: a change made while
+// the names could not be saved (two speakers with one name) lost its question; now it is asked after the next save that works.
+var genderPending = {};
+function onGenderChanged(i) {
   var s = spk[i]; if (!s || !s.id) return;
-  var ar = LANG === "ar";
   saveSpeakers(false).then(function (saved) {
-    if (!saved) { var m = $("spkMsg"); if (m) { m.textContent = T.spkNotSavedRedo; m.classList.remove("hidden"); } return; }
-    if (!linesOf(s.id)) return;
+    if (!saved) { var m = $("spkMsg"); if (m) { m.textContent = T.spkNotSavedRedo; m.classList.remove("hidden"); } }
+  });
+}
+function askPendingGender() {
+  var ar = LANG === "ar", ids = Object.keys(genderPending), todo = [];
+  ids.forEach(function (id) {
+    var before = genderPending[id]; delete genderPending[id];
+    var s = spk.filter(function (x) { return x.id === id; })[0];
+    if (!s || !linesOf(id)) return;
     // Ali, 8 Nov 2026: only ask when the gender the translation used really changes (Auto "Male" -> Male changes nothing)
     var now = s.gender || s.heard || "";
     if (before && now && before === now) return;
-    var msg = ar ? "تغيّر جنس هذا المتحدث. هل تريد ترجمة أسطره (والأسطر المجاورة) من جديد ليتطابق الجنس في العربية؟ الأسطر التي كتبتَ ترجمتها بنفسك لن تتغير."
-                 : "This speaker's gender changed. Translate their lines (and the lines next to them) again so the Arabic matches? Lines whose Arabic you typed yourself stay as they are.";
-    var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { okText: ar ? "ترجم من جديد" : "Translate again" }) : Promise.resolve(window.confirm(msg));
-    return ask.then(function (yes) { if (yes) return redoForGender(s.id); });
+    todo.push(s);
+  });
+  if (!todo.length) return;
+  var m = $("spkMsg"); if (m) m.classList.add("hidden");
+  var names = todo.map(function (s) { return s.name; }).join(ar ? "، " : ", ");
+  var msg = ar ? "تغيّر جنس " + names + ". هل تريد ترجمة الأسطر (والأسطر المجاورة) من جديد ليتطابق الجنس في العربية؟ الأسطر التي كتبتَ ترجمتها بنفسك لن تتغير."
+               : "The gender of " + names + " changed. Translate their lines (and the lines next to them) again so the Arabic matches? Lines whose Arabic you typed yourself stay as they are.";
+  var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { okText: ar ? "ترجم من جديد" : "Translate again" }) : Promise.resolve(window.confirm(msg));
+  return ask.then(function (yes) {
+    if (!yes) return;
+    return todo.reduce(function (p, s) { return p.then(function () { return redoForGender(s.id); }); }, Promise.resolve());
   });
 }
 function redoForGender(spId) {
@@ -1922,7 +1938,12 @@ function renderSpeakers() {
     inp.oninput = function () { spk[+inp.dataset.spk].name = inp.value; refreshSelects(); queueSpeakerSave(); };
   });
   Array.prototype.forEach.call(p.querySelectorAll("[data-gen]"), function (sel) {
-    sel.onchange = function () { var i = +sel.dataset.gen, before = spk[i].gender || spk[i].heard || ""; spk[i].gender = sel.value; if (sel.value) spk[i].heard = ""; onGenderChanged(i, before); };
+    sel.onchange = function () {
+      var i = +sel.dataset.gen, s = spk[i];
+      if (s.id && !(s.id in genderPending)) genderPending[s.id] = s.gender || s.heard || "";     // the gender the Arabic was made with
+      s.gender = sel.value; if (sel.value) s.heard = "";
+      onGenderChanged(i);
+    };
   });
   Array.prototype.forEach.call(p.querySelectorAll("[data-rm]"), function (btn) {
     btn.onclick = function () { spk.splice(+btn.dataset.rm, 1); saveSpeakers(true); };
@@ -1989,8 +2010,15 @@ function mergeSpeakers(prob) {
     });
   });
 }
+// Speaker saves run one after the other: a save sent earlier can never arrive later and undo a newer gender choice (8 Nov 2026).
+var spkChain = Promise.resolve(true);
 function saveSpeakers(rerender) {
   if (spkTimer) { clearTimeout(spkTimer); spkTimer = null; }
+  var run = function () { return saveSpeakersNow(rerender); };
+  spkChain = spkChain.then(run, run);
+  return spkChain;
+}
+function saveSpeakersNow(rerender) {
   var err = $("spkErr");
   var prob = speakerProblem();
   markSpeakerInputs(prob);
@@ -2016,6 +2044,7 @@ function saveSpeakers(rerender) {
     refreshSelects(); pricePreview = null;
     if (rerender) { renderSpeakers(); renderConfirm(); }
     setSaved(true);
+    try { askPendingGender(); } catch (e) {}
     return true;
   }).catch(function () { spkUnsaved = true; setSaved(false, T.saveFailed); return false; });
 }

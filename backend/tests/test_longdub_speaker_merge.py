@@ -58,8 +58,12 @@ class ThePage(unittest.TestCase):
             self.assertIn(needle, page)
         for key in ("spkDup", "spkJoinBtn", "spkJoinAsk", "spkEmpty", "spkNotSavedRedo"):
             self.assertEqual(len(re.findall(r"\b" + key + r":", page)), 2, key)
-        ask = page.split("function onGenderChanged(")[1].split("\nfunction ")[0]
+        ask = page.split("function askPendingGender(")[1].split("\nfunction ")[0]
         self.assertIn("if (before && now && before === now) return;", ask)      # the same gender as before: no question, no re-translation
+        # 8 Nov 2026: a gender change made while the names could not be saved keeps its question until a save works
+        self.assertIn("genderPending[s.id] = s.gender || s.heard", page)
+        self.assertIn("try { askPendingGender(); } catch (e) {}", page.split("function saveSpeakersNow(")[1].split("\nfunction ")[0])
+        self.assertIn("spkChain = spkChain.then(run, run);", page)              # one speaker save at a time
         redo = page.split("function redoForGender(")[1].split("\nfunction ")[0]
         self.assertIn('$("spkMsg")', redo)                     # the re-translation never hides an error about the names
         self.assertNotIn('$("spkErr")', redo)
