@@ -202,7 +202,7 @@ html[data-lang="ar"] .pcol .lab{letter-spacing:0;font-size:14.5px}
 
 /* Long video */
 .long{background:linear-gradient(180deg,var(--bg),var(--bg2) 40%,var(--bg))}
-.long-grid{display:grid;grid-template-columns:1fr 1.1fr;gap:56px;align-items:start}
+.long-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:56px;align-items:start;max-width:1040px;margin-inline:auto}
 .badge{display:inline-flex;align-items:center;gap:8px;padding:5px 13px;border-radius:999px;background:rgba(230,184,92,.12);border:1px solid rgba(230,184,92,.35);color:var(--gold2);font-size:12.5px;font-weight:600;margin-bottom:18px}
 .long .lead{color:var(--muted);font-size:17.5px;margin:18px 0 26px}
 .feats{list-style:none;margin:0 0 30px;padding:0;display:grid;gap:18px}
@@ -549,7 +549,7 @@ html[data-lang="ar"] .pcol .lab{letter-spacing:0;font-size:14.5px}
 
 /* Long video */
 .long{background:var(--bg)}
-.long-grid{display:grid;grid-template-columns:1fr 1.1fr;gap:56px;align-items:start}
+.long-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:56px;align-items:start;max-width:1040px;margin-inline:auto}
 .badge{display:inline-flex;align-items:center;gap:8px;padding:5px 13px;border-radius:0;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;background:rgba(230,184,92,.12);border:1px solid rgba(230,184,92,.35);color:var(--gold2);font-size:12.5px;font-weight:600;margin-bottom:18px}
 .long .lead{color:var(--muted);font-size:17.5px;margin:18px 0 26px}
 .feats{list-style:none;margin:0 0 30px;padding:0;display:grid;gap:18px}
@@ -933,31 +933,7 @@ html.js .rv.in{opacity:1;transform:none}
         </div>
       </div>
 
-      <!-- Reserved place for the Dub Long Video walkthrough. Empty since 3 Nov 2026 (Ali): the clip came from a TV series we
-           have no rights to. A clip from Ali's own film goes here: add data-src="/static/<file>.mp4" to the div below. -->
-      <div class="long-vid rv">
-        <div class="vframe" id="longVideoSlot">
-          <div class="ph long-ph">
-            <svg class="mock" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-              <rect width="320" height="180" fill="#05070c"/>
-              <g>
-                <rect x="18" y="34" width="70" height="16" rx="4" fill="#62c7ff" opacity=".32"/><rect x="104" y="34" width="46" height="16" rx="4" fill="#62c7ff" opacity=".32"/><rect x="176" y="34" width="88" height="16" rx="4" fill="#62c7ff" opacity=".32"/>
-                <rect x="40" y="62" width="58" height="16" rx="4" fill="#e6b85c" opacity=".36"/><rect x="128" y="62" width="74" height="16" rx="4" fill="#e6b85c" opacity=".36"/><rect x="226" y="62" width="60" height="16" rx="4" fill="#e6b85c" opacity=".36"/>
-                <rect x="18" y="90" width="42" height="16" rx="4" fill="#62c7ff" opacity=".22"/><rect x="86" y="90" width="92" height="16" rx="4" fill="#62c7ff" opacity=".22"/><rect x="200" y="90" width="72" height="16" rx="4" fill="#62c7ff" opacity=".22"/>
-                <rect x="60" y="118" width="80" height="16" rx="4" fill="#e6b85c" opacity=".25"/><rect x="164" y="118" width="46" height="16" rx="4" fill="#e6b85c" opacity=".25"/><rect x="232" y="118" width="54" height="16" rx="4" fill="#e6b85c" opacity=".25"/>
-              </g>
-              <rect x="0" y="20" width="320" height="1" fill="#ffffff" opacity=".08"/><rect x="0" y="146" width="320" height="1" fill="#ffffff" opacity=".08"/>
-              <rect x="152" y="16" width="1.6" height="134" fill="#f6dc98" opacity=".8"/>
-            </svg>
-            <div class="txt">
-              <div class="play-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg></div>
-              <span class="ttl"><span class="en">Dub Long Video walkthrough</span><span class="ar">شرح دبلجة الفيديو الطويل</span></span>
-              <span class="soon"><span class="en">Coming soon</span><span class="ar">قريبًا</span></span>
-            </div>
-          </div>
-        </div>
-        <div class="cap-note"><span class="en">Long dub without lip-sync</span><span class="ar">دبلجة فيديو طويل بدون مزامنة الشفاه</span></div>
-      </div>
+
     </div>
   </div>
 </section>
@@ -1348,24 +1324,19 @@ html.js .rv.in{opacity:1;transform:none}
       return mountFrame(slot, other);
     });
   }
-  ["howItWorksSlot", "longVideoSlot"].forEach(function (id) {
-    var slot = $(id); if (!slot) return;
-    var isHow = id === "howItWorksSlot";
-    whenNear(slot, function () {
-      if (isHow) {
-        mountHowVideo(slot);
-        // switching the language swaps the video (only once it has been loaded)
-        if (window.MutationObserver) {
-          var shown = lang();
-          new MutationObserver(function () {
-            if (lang() !== shown) { shown = lang(); mountHowVideo(slot); }
-          }).observe(root, { attributes: true, attributeFilter: ["data-lang"] });
-        }
-      } else if (slot.getAttribute("data-src")) {      // no file named: the drawn placeholder stays
-        mountFrame(slot, slot.getAttribute("data-src"));
+  var howSlot = $("howItWorksSlot");
+  if (howSlot) {
+    whenNear(howSlot, function () {
+      mountHowVideo(howSlot);
+      // switching the language swaps the video (only once it has been loaded)
+      if (window.MutationObserver) {
+        var shown = lang();
+        new MutationObserver(function () {
+          if (lang() !== shown) { shown = lang(); mountHowVideo(howSlot); }
+        }).observe(root, { attributes: true, attributeFilter: ["data-lang"] });
       }
     });
-  });
+  }
 
   /* ---------- Before / after demos ---------- */
   (function () {
