@@ -522,6 +522,7 @@ def profile_for_job(job_id, cache_dir, vocals=None, spans_file=None):
     return prof
 
 
+UNSURE_PLACE_DB = -3.0             # a room taken from a place the scene check is NOT sure of is this much softer (1.96.1)
 THIN_SCENE_SHARE = 0.7             # a thinly measured room is used (softly) when the scene check is sure of the place for this share of its lines
 
 
@@ -538,10 +539,24 @@ def _scene_sure(scenes, mids):
     return ok >= THIN_SCENE_SHARE * len(mids)
 
 
-def _scene_fallback(settings, lines, trim):
+def _decide(decisions, sids, label):
+    if decisions is not None:
+        for sid in sids:
+            if sid is not None:
+                decisions[sid] = label
+
+
+def _rings_any(scenes, mids):
+    """True when at least one of these moments of the original lies in a place the scene check names as one that echoes."""
+    import scene_context
+    return any(scene_context.rings(scene_context.scene_at(scenes, float(m))) for m in mids or [])
+
+
+def _scene_fallback(settings, lines, trim, decisions=None):
     """-> (plan, assignment, why). The original's room could not be measured at all (a very short clip, speech without pauses): when
     the scene check is SURE what kind of place it is, every line gets a cautious room for that place (scene_context.preset_for)
-    instead of a bone-dry voice. Places that do not ring (outdoors, car, studio) and unsure stretches get nothing."""
+    instead of a bone-dry voice. Places that do not ring (outdoors, car, studio) get nothing. Since 1.96.1 a place the scene
+    check is not sure of is used too when it rings (a cave, a room, a hall), UNSURE_PLACE_DB softer."""
     s = settings or {}
     scenes = s.get("scenes")
     if not (s.get("scene_fallback") and scenes and lines):
@@ -550,11 +565,18 @@ def _scene_fallback(settings, lines, trim):
     per, assign, names = {}, {}, {}
     for l in lines:
         sc = scene_context.scene_at(scenes, float(l["orig_mid"]))
-        p = scene_context.preset_for(sc)
+        p = scene_context.preset_for(sc, allow_unsure=True)
         if p is None:
+            if decisions is not None:
+                decisions[l["sid"]] = "dry (" + (((sc or {}).get("place") or (sc or {}).get("key") or "place unknown").strip()) + ")"
             continue
+        sure = sc.get("conf") == "high"
+        if not sure:
+            p = (p[0], round(p[1] + UNSURE_PLACE_DB, 1))
         per.setdefault(p, []).append((float(l["t0"]), float(l["t1"])))
-        names[p] = (sc.get("place") or sc.get("key") or "").strip()
+        names[p] = (sc.get("place") or sc.get("key") or "").strip() + ("" if sure else ", not sure")
+        if decisions is not None:
+            decisions[l["sid"]] = f"{names[p] or 'place'}, {p[0]:g} s (scene check)"
     if not per:
         return [], {}, "scene fallback: no stretch with a sure place that rings, nothing added"
     plan, parts = [], []
@@ -564,11 +586,11 @@ def _scene_fallback(settings, lines, trim):
         for l in lines:
             if (float(l["t0"]), float(l["t1"])) in wins:
                 assign[l["sid"]] = k
-    return plan, assign, "scene fallback (nothing measurable, the scene check is sure of the place): " + "; ".join(parts)
+    return plan, assign, "scene fallback (nothing measurable, the room is taken from the scene check): " + "; ".join(parts)
 
 
-def make_plan(profile, settings, lines):
-    """-> (plan, assignment, why).
+def make_plan(profile, settings, lines, decisions=None):
+    """-> (plan, assignment, why). decisions (a dict, optional) is filled with what each line got, {sid: "small room, 0.31 s"}.
     plan = groups to render [{"rt60","wet_db","windows"}]; assignment = {sid: room number};
     lines = [{"sid", "t0", "t1" (where the line plays in the dub), "orig_mid" (when it was spoken in the original)}].
     An empty plan means 'add nothing'."""
@@ -593,7 +615,7 @@ def make_plan(profile, settings, lines):
         trim = 0.0
     if not profile or not profile.get("ok") or not profile.get("groups"):
         base = "auto: " + str((profile or {}).get("note") or "room could not be measured")
-        fb_plan, fb_assign, fb_why = _scene_fallback(settings, lines, trim)
+        fb_plan, fb_assign, fb_why = _scene_fallback(settings, lines, trim, decisions)
         if fb_plan:
             return fb_plan, fb_assign, base + " -- " + fb_why
         return [], {}, base + (" -- " + fb_why if fb_why else "")
@@ -612,34 +634,59 @@ def make_plan(profile, settings, lines):
     plan, parts = [], []
     for g, wins in sorted(per_group.items()):
         gi = groups[g]
+        sids_g = [l["sid"] for l in lines if assignment.get(l["sid"]) == g]
         if gi["dry"]:
             parts.append(f"room {g + 1}: dry ({len(wins)} lines)")
+            _decide(decisions, sids_g, "dry (no echo in the original)")
             continue
+        unsure_places = False
         if (settings or {}).get("require_ok") and gi["confidence"] != "ok":
             if (settings or {}).get("thin_ok") and _scene_sure(scenes, mids.get(g) or []):
                 parts.append(f"room {g + 1}: only {gi['n']} phrase(s) measured, but the scene check is sure of the place, so the reading is used softly")
+            elif (settings or {}).get("thin_ok") and scenes and _rings_any(scenes, mids.get(g) or []):
+                # 1.96.1 (Ali, Prophet Ahmed chapter 1: 24 lines stayed dry, a cave among them): the scene check names the place but is
+                # not sure. Lines in a place that echoes get the reading softly (and softer still), the place's own ceiling applies;
+                # lines outdoors, in a car or a studio stay dry.
+                unsure_places = True
             else:
                 parts.append(f"room {g + 1}: only {gi['n']} phrase(s) measured, too few to be sure ({len(wins)} lines)")
+                _decide(decisions, sids_g, "dry (too little to measure)")
                 continue
         strength = 1.0 if gi["confidence"] == "ok" else 0.75
         # lines of this room are split by the kind of place they are in: a measurement far beyond what that place can
         # have is brought down to the limit of the place (never raised)
         by_scene = {}
-        for w, m in zip(wins, mids.get(g) or [None] * len(wins)):
+        for w, m, sid_ in zip(wins, mids.get(g) or [None] * len(wins), sids_g if len(sids_g) == len(wins) else [None] * len(wins)):
             sc = None
             if scenes and m is not None:
                 import scene_context
                 sc = scene_context.scene_at(scenes, m)
-            by_scene.setdefault(id(sc) if sc else None, (sc, []))[1].append(w)
-        limited = []
-        for sc, ws in by_scene.values():
+            entry = by_scene.setdefault(id(sc) if sc else None, (sc, [], []))
+            entry[1].append(w)
+            entry[2].append(sid_)
+        limited, used, left_dry = [], [], []
+        for sc, ws, ss in by_scene.values():
             rt, wet = float(gi["rt60"]), float(gi["wet_db"])
             import scene_context
+            extra = 0.0
+            if unsure_places:
+                if not scene_context.rings(sc):
+                    left_dry.append(f"{((sc or {}).get('place') or (sc or {}).get('key') or 'place unknown')} ({len(ws)} lines)")
+                    _decide(decisions, ss, "dry (" + ((sc or {}).get("place") or (sc or {}).get("key") or "place unknown") + ")")
+                    continue
+                sc = dict(sc, conf="high")         # the place's own ceiling, not the relaxed one of an unsure guess
+                extra = UNSURE_PLACE_DB
+                used.append(f"{sc.get('place') or sc.get('key')} ({len(ws)} lines)")
             rt, wet, changed = scene_context.apply_limit(rt, wet, sc)      # with no usable scene it is still limited to what any place can have
             if changed:
                 name = ((sc.get("place") or sc.get("key")) + ("" if sc.get("conf") == "high" else ", not sure")) if sc else "place unknown"
                 limited.append(f"{name} ({len(ws)} lines): {gi['rt60']:g} s / {gi['wet_db']:g} dB limited to {rt:g} s / {wet:g} dB")
-            plan.append({"rt60": rt, "wet_db": float(np.clip(wet + trim, WET_MIN_DB, WET_MAX_DB)) + RENDER_TRIM_DB + 20.0 * float(np.log10(strength)), "windows": ws})
+            plan.append({"rt60": rt, "wet_db": float(np.clip(wet + trim + extra, WET_MIN_DB, WET_MAX_DB)) + RENDER_TRIM_DB + 20.0 * float(np.log10(strength)), "windows": ws})
+            _decide(decisions, ss, f"{(sc or {}).get('place') or gi['label']}, {rt:g} s" + ("" if strength >= 1.0 else ", softly"))
+        if unsure_places:
+            parts.append(f"room {g + 1}: only {gi['n']} phrase(s) measured; the scene check names the place (not sure): softly in "
+                         + (", ".join(used) or "no place") + (("; dry in " + ", ".join(left_dry)) if left_dry else ""))
+            continue
         parts.append(f"room {g + 1}: {gi['label']}, {gi['rt60']:g} s, {gi['wet_db'] + trim:g} dB"
                      + (f" (measured {gi['wet_db']:g} dB, you set {trim:+g} dB)" if trim else "") + f" ({len(wins)} lines"
                      + ("" if strength >= 1.0 else ", few phrases measured: softer") + ")"
@@ -663,8 +710,9 @@ def apply_to_file(job_id, dry_path, out_path, settings, cache_dir, lines=None, v
     res = {"applied": False, "why": "", "assignment": {}}
     try:
         prof = profile_for_job(job_id, cache_dir, vocals, spans_file)
-        plan, assignment, why = make_plan(prof, settings, lines)
-        res.update(why=why, profile=prof, assignment=assignment)
+        decisions = {}
+        plan, assignment, why = make_plan(prof, settings, lines, decisions)
+        res.update(why=why, profile=prof, assignment=assignment, line_rooms=decisions)
         if not plan:
             return res
         tmp = Path(cache_dir) / f"{job_id}_room_tmp.wav"

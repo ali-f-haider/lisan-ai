@@ -5321,6 +5321,28 @@ def confirm(job, uid, expected_due, room="", tracks=False, keep_music=True, musi
 # Room sound choices offered before the dubbing starts: the measured room of the original, with how much of it is
 # kept (the measurement is an estimate from separated voices and can read a little strong on recordings with laughter,
 # music or crowd noise, so the default already takes a few dB off), or none at all.
+def _room_lines_text(lines, decisions):
+    """"0:00-1:44 small room, 0.31 s (49 lines); 2:55-3:45 dry (outdoors) (12 lines); ..." -- the room each stretch of the original got,
+    neighbouring lines with the same room joined into one stretch (times of the original). "" when nothing is known. Never raises."""
+    try:
+        items = sorted(((float(l["orig_mid"]), decisions.get(l["sid"])) for l in lines or [] if decisions.get(l.get("sid"))), key=lambda x: x[0])
+        runs = []
+        for t, lab in items:
+            if runs and runs[-1][2] == lab:
+                runs[-1][1] = t
+                runs[-1][3] += 1
+            else:
+                runs.append([t, t, lab, 1])
+
+        def mmss(x):
+            x = max(0, int(round(x)))
+            return f"{x // 60}:{x % 60:02d}"
+        out = "; ".join(f"{mmss(a)}-{mmss(b)} {lab} ({n} line{'s' if n != 1 else ''})" for a, b, lab, n in runs)
+        return out if len(out) <= 1490 else out[:1480] + " ..."
+    except Exception:
+        return ""
+
+
 ROOM_TRIM_DEFAULT = float(os.environ.get("LONGDUB_ROOM_TRIM_DB", "-4"))
 ROOM_FALLBACK = os.environ.get("LONGDUB_ROOM_FALLBACK", "1").strip().lower() not in ("0", "off", "no", "false")      # 0: a room measured on too few phrases is left out, as before
 ROOM_CHOICES = {"auto": ROOM_TRIM_DEFAULT, "lighter": ROOM_TRIM_DEFAULT - 4.0, "much_lighter": ROOM_TRIM_DEFAULT - 8.0, "off": None}
@@ -6571,6 +6593,9 @@ def _run_dubbing(job):
                     os.replace(_room_out, dub_full)
                 _ev(job, "room_sound", "ok" if _rr.get("applied") else "info",
                     (f"[your choice: {_pref}] " if _pref != "auto" else "") + str(_rr.get("why") or "")[:560])
+                _lr = _room_lines_text(_rl, _rr.get("line_rooms") or {})
+                if _lr:
+                    _ev(job, "room_lines", "info", _lr)      # which stretch of the original got which room (1.96.1)
         except Exception as ex:
             print(f"[longdub] room sound skipped: {ex}")
             _ev(job, "room_sound", "info", f"skipped ({ex})"[:300])

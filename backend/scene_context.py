@@ -190,11 +190,17 @@ PRESET_WET_DB = float(os.environ.get("LONGDUB_ROOM_PRESET_DB", "-1.5") or -1.5) 
 PRESET_MIN_RT = 0.5                                                                   # places whose ceiling is shorter than this (outdoors, car, studio) are dry: no preset
 
 
-def preset_for(scene):
+def rings(scene):
+    """True when the scene names a kind of place that really echoes (a room, a cave, a hall), sure or not."""
+    return bool(scene) and scene.get("key") in SETTINGS and SETTINGS[scene["key"]][1] >= PRESET_MIN_RT
+
+
+def preset_for(scene, allow_unsure=False):
     """-> (rt, wet_db) for a cautious room when the original's room could not be measured, or None.
-    Only for a stretch the scene check is SURE about, and only for places that really ring (a room, a hall, a cathedral; never
-    outdoors, a car or a close-microphone studio). It sits under the place's own ceiling (limit_for), never at it."""
-    if not scene or scene.get("key") not in SETTINGS or scene.get("conf") != "high":
+    Only for places that really ring (a room, a hall, a cathedral; never outdoors, a car or a close-microphone studio), and only
+    for a stretch the scene check is SURE about unless allow_unsure (1.96.1, Ali: an unsure cave still echoes; the caller makes
+    such a room softer). It sits under the place's own ceiling (limit_for), never at it."""
+    if not scene or scene.get("key") not in SETTINGS or (scene.get("conf") != "high" and not allow_unsure):
         return None
     _label, rt_max, wet_max = SETTINGS[scene["key"]]
     if rt_max < PRESET_MIN_RT:

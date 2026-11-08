@@ -1,6 +1,8 @@
 """A dub must not stay bone dry just because the original's room could not be measured well (very short clips, speech without pauses).
 Born from a 2.5 minute diner scene: 'room 1: only 3 phrase(s) measured, too few to be sure -- nothing added'.
-The scene check (scene_context.py) has to be SURE of the kind of place for anything to be added in those cases."""
+The scene check (scene_context.py) decides those cases: a sure place as before, and since 1.96.1 also a place it is not sure of
+when that place echoes (Prophet Ahmed chapter 1: every place came back "not sure" and 24 lines stayed dry, a cave among them),
+then softer still. Outdoors, a car or a studio stay dry."""
 import os
 import sys
 import unittest
@@ -64,10 +66,29 @@ class ThinMeasurement(unittest.TestCase):
         self.assertLess(plan[0]["wet_db"], full[0]["wet_db"])            # softer than a well measured room
         self.assertIn("scene check is sure", why)
 
-    def test_three_phrases_and_an_unsure_place_add_nothing_as_before(self):
+    def test_three_phrases_and_an_unsure_place_that_echoes_are_used_more_softly(self):
         plan, _a, why = self.plan(3, scenes=scene("medium_room", "low"))
-        self.assertEqual(plan, [])
-        self.assertIn("too few to be sure", why)
+        sure, _a2, _w2 = self.plan(3, scenes=scene("medium_room"))
+        self.assertEqual(len(plan), 1)
+        self.assertAlmostEqual(plan[0]["wet_db"], sure[0]["wet_db"] + ra.UNSURE_PLACE_DB, places=3)
+        self.assertLessEqual(plan[0]["rt60"], sc.SETTINGS["medium_room"][1])        # the place's own ceiling, not one size up
+        self.assertIn("not sure", why)
+
+    def test_three_phrases_and_an_unsure_place_that_does_not_echo_add_nothing(self):
+        for key in ("outdoors", "studio", "vehicle", "unknown"):
+            plan, _a, why = self.plan(3, scenes=scene(key, "low"))
+            self.assertEqual(plan, [], key)
+
+    def test_only_the_lines_in_a_place_that_echoes_get_it(self):
+        scenes = [{"t0": 0.0, "t1": 15.0, "key": "outdoors", "conf": "low", "place": "desert"},
+                  {"t0": 15.0, "t1": 100.0, "key": "small_room", "conf": "low", "place": "cave"}]
+        got = {}
+        plan, _a, why = ra.make_plan(profile(3), settings(scenes=scenes), LINES, got)
+        self.assertEqual(len(plan), 1)
+        self.assertEqual(len(plan[0]["windows"]), 5)                     # s5..s9 are in the cave
+        self.assertTrue(got["s0"].startswith("dry (desert"))
+        self.assertTrue(got["s9"].startswith("cave"))
+        self.assertIn("dry in desert", why)
 
     def test_three_phrases_and_no_scene_add_nothing(self):
         self.assertEqual(self.plan(3)[0], [])
@@ -108,10 +129,17 @@ class NothingMeasurable(unittest.TestCase):
         self.assertEqual(sorted(p["rt60"] for p in plan), [0.42, 1.33])
         self.assertNotEqual(assign["s0"], assign["s9"])
 
-    def test_places_that_do_not_ring_or_are_unsure_get_nothing(self):
-        for scenes in (scene("outdoors"), scene("studio"), scene("medium_room", "low"), scene("unknown")):
+    def test_places_that_do_not_ring_get_nothing(self):
+        for scenes in (scene("outdoors"), scene("studio"), scene("unknown"), scene("outdoors", "low")):
             plan, _a, _w = self.plan(scenes)
             self.assertEqual(plan, [])
+
+    def test_an_unsure_place_that_echoes_gets_a_softer_preset(self):
+        plan, _a, why = self.plan(scene("medium_room", "low"))
+        sure = self.plan(scene("medium_room"))[0]
+        self.assertEqual(len(plan), 1)
+        self.assertAlmostEqual(plan[0]["wet_db"], sure[0]["wet_db"] + ra.UNSURE_PLACE_DB, places=3)
+        self.assertIn("not sure", why)
 
     def test_no_scene_or_switched_off_gets_nothing(self):
         self.assertEqual(self.plan(None)[0], [])
@@ -141,6 +169,28 @@ class Wiring(unittest.TestCase):
                 continue
             t = p.read_text(encoding="utf-8", errors="ignore")
             self.assertNotIn("scene_fallback", t, p.name)
+
+
+class LineRooms(unittest.TestCase):
+    def test_every_line_gets_a_decision_for_the_log(self):
+        got = {}
+        ra.make_plan(profile(10), settings(scenes=scene("medium_room")), LINES, got)
+        self.assertEqual(set(got), {l["sid"] for l in LINES})
+        self.assertTrue(all("s" in v for v in got.values()))
+
+    def test_a_dry_room_is_named_dry(self):
+        got = {}
+        p = profile(10)
+        p["groups"][0]["dry"] = True
+        ra.make_plan(p, settings(), LINES, got)
+        self.assertEqual(set(got.values()), {"dry (no echo in the original)"})
+
+    def test_the_log_joins_neighbouring_lines_of_the_same_room(self):
+        import longdub_service as ld
+        lines = [{"sid": f"s{i}", "orig_mid": i * 10.0} for i in range(4)]
+        got = ld._room_lines_text(lines, {"s0": "small room, 0.31 s", "s1": "small room, 0.31 s", "s2": "dry (desert)", "s3": "cave, 0.42 s, softly"})
+        self.assertEqual(got, "0:00-0:10 small room, 0.31 s (2 lines); 0:20-0:20 dry (desert) (1 line); 0:30-0:30 cave, 0.42 s, softly (1 line)")
+        self.assertEqual(ld._room_lines_text(lines, {}), "")
 
 
 if __name__ == "__main__":
