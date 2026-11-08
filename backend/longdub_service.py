@@ -4424,6 +4424,33 @@ def set_speakers(job, speakers):
     return True, ""
 
 
+def merge_speakers(job, from_id, into_id):
+    """Two speakers become one (the same person, or two small parts the person wants spoken by one voice, Ali 8 Nov 2026): every
+    line of `from_id` moves to `into_id` and `from_id` is removed. Free. Returns (True, {"moved": n}) or (False, (message, status))."""
+    if job.get("status") != "editing":
+        return False, ("This job is not open for editing.", 409)
+    lst = job.get("speaker_list", [])
+    src = next((sp for sp in lst if sp.get("id") == from_id), None)
+    dst = next((sp for sp in lst if sp.get("id") == into_id), None)
+    if not src or not dst:
+        return False, ("Speaker not found.", 404)
+    if src is dst:
+        return False, ("Choose two different speakers.", 400)
+    with _lock_for(job["id"]):
+        rows = read_segments(job)
+        moved = 0
+        for r in rows:
+            if r.get("speaker_id") == from_id:
+                r["speaker_id"], r["speaker"] = into_id, dst["name"]
+                moved += 1
+        _write_segments(job, rows)
+        job["speaker_list"] = [sp for sp in lst if sp.get("id") != from_id]
+        job["speakers"] = [sp["name"] for sp in job["speaker_list"]]
+        _save(job)
+    _ev(job, "speakers_merged", "ok", f"{src.get('name')} -> {dst.get('name')}: {moved} lines moved")
+    return True, {"moved": moved}
+
+
 # ------------------------------------------------------ price + confirm
 
 # ------------------------------------------------------------- lip-sync

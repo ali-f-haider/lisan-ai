@@ -387,6 +387,11 @@ var T = {
     spkLines: function (n) { return n + " line" + (n === 1 ? "" : "s"); },
     spkAdd: "+ Add a speaker", spkRemove: "Remove", spkNamePh: "Speaker name",
     spkRemoveBlocked: "Move this speaker's lines to another speaker first.",
+    spkDup: function (n) { return "Two speakers are called \u201c" + n + "\u201d, so the names were not saved. Give one of them another name, or put them together as one speaker."; },
+    spkJoinBtn: "Put them together as one speaker",
+    spkJoinAsk: function (n) { return "All lines of the second \u201c" + n + "\u201d go to the first one, and the second speaker is removed. Continue?"; },
+    spkEmpty: "Every speaker needs a name, so the names were not saved yet.",
+    spkNotSavedRedo: "The speakers could not be saved, so nothing was translated again. Please fix the message above first.",
     spkMax: function (m) { return "You can have up to " + m + " speakers."; },
     confirmHeading: "4. Confirm and dub",
     checkPrice: "Check the price", refreshPrice: "Update the price", checking: "Checking…",
@@ -666,6 +671,11 @@ var T = {
     spkLines: function (n) { return n + " سطر"; },
     spkAdd: "+ أضف متحدثاً", spkRemove: "حذف", spkNamePh: "اسم المتحدث",
     spkRemoveBlocked: "انقل أسطر هذا المتحدث إلى متحدث آخر أولاً.",
+    spkDup: function (n) { return "يوجد متحدثان باسم «" + n + "»، لذلك لم تُحفظ الأسماء. غيّر اسم أحدهما، أو اجمعهما في متحدث واحد."; },
+    spkJoinBtn: "اجمعهما في متحدث واحد",
+    spkJoinAsk: function (n) { return "ستُنقل كل أسطر «" + n + "» الثاني إلى الأول، ويُحذف المتحدث الثاني. هل تريد المتابعة؟"; },
+    spkEmpty: "يجب أن يكون لكل متحدث اسم، لذلك لم تُحفظ الأسماء بعد.",
+    spkNotSavedRedo: "تعذّر حفظ المتحدثين، لذلك لم تُعَد الترجمة. يرجى معالجة الرسالة أعلاه أولًا.",
     spkMax: function (m) { return "الحد الأقصى " + m + " متحدثين."; },
     confirmHeading: "٤. التأكيد والدبلجة",
     checkPrice: "اعرض السعر", refreshPrice: "حدّث السعر", checking: "جارٍ الفحص…",
@@ -716,6 +726,7 @@ var reviewPage = 0, reviewedBatches = {}, manualNoticeId = "";
 var focusAll = false, revealedLines = {};      // line focus: false = only the lines that need a look, true = every line; revealedLines = lines the person opened
 var segs = [];           // transcript rows while editing
 var spk = [];            // speaker list while editing [{id, name}]
+var spkUnsaved = false;  // the last speaker save failed: names typed on the page are kept when the lines are loaded again (8 Nov 2026)
 var dirty = {};          // segment_id -> {segment_id, text?, arabic_text?, speaker_id?, emotion?, waqf?} waiting to be saved
 var saveTimer = null, saving = false, spkTimer = null;
 var pollTimer = null;
@@ -911,7 +922,7 @@ function pickInitial() {
 function selectJob(j) {
   stopPoll();
   cur = j || null;
-  segs = []; spk = []; dirty = {}; pricePreview = null; tashNote = ""; lastErr = "";
+  segs = []; spk = []; spkUnsaved = false; dirty = {}; pricePreview = null; tashNote = ""; lastErr = "";
   if (localMedia && (!cur || localMedia.jobId !== cur.id)) { try { URL.revokeObjectURL(localMedia.url); } catch (e) {} localMedia = null; }
   try { if (cur) localStorage.setItem(LS_KEY, cur.id); else localStorage.removeItem(LS_KEY); } catch (e) {}
   render();
@@ -1746,7 +1757,14 @@ function loadSegments() {
     segs = r.data.segments || [];
     reviewPage = 0; reviewedBatches = {}; focusAll = false; revealedLines = {};
     (r.data.batches || []).forEach(function(b) { if (b.reviewed) reviewedBatches[String(b.page)] = b.hash; });
+    var mine = spkUnsaved ? spk.slice() : null;
     spk = (r.data.speaker_list || []).map(speakerFromServer);
+    if (mine) {           // names and genders typed here that the server has not taken yet are not thrown away
+      spk.forEach(function (s) {
+        var m = mine.filter(function (x) { return x.id && x.id === s.id; })[0];
+        if (m) { s.name = m.name; if (m.gender) { s.gender = m.gender; s.heard = ""; } }
+      });
+    }
     cur.warnings = r.data.warnings || [];
     cur.stated_speakers = r.data.stated_speakers; cur.detected_speakers = r.data.detected_speakers;
     renderEditor();
@@ -1856,7 +1874,8 @@ function genderSelectHtml(s, i) {
 function onGenderChanged(i) {
   var s = spk[i]; if (!s || !s.id) return;
   var ar = LANG === "ar";
-  saveSpeakers(false).then(function () {
+  saveSpeakers(false).then(function (saved) {
+    if (!saved) { var m = $("spkMsg"); if (m) { m.textContent = T.spkNotSavedRedo; m.classList.remove("hidden"); } return; }
     if (!linesOf(s.id)) return;
     var msg = ar ? "تغيّر جنس هذا المتحدث. هل تريد ترجمة أسطره (والأسطر المجاورة) من جديد ليتطابق الجنس في العربية؟ الأسطر التي كتبتَ ترجمتها بنفسك لن تتغير."
                  : "This speaker's gender changed. Translate their lines (and the lines next to them) again so the Arabic matches? Lines whose Arabic you typed yourself stay as they are.";
@@ -1865,7 +1884,7 @@ function onGenderChanged(i) {
   });
 }
 function redoForGender(spId) {
-  var err = $("spkErr"), ar = LANG === "ar", total = 0;
+  var err = $("spkMsg"), ar = LANG === "ar", total = 0;      // its own line: an error about the names (spkErr) stays visible
   function say(t) { if (err) { err.textContent = t; err.classList.remove("hidden"); } }
   function step() {
     return api("POST", "/api/longdub/" + cur.id + "/speakers/" + encodeURIComponent(spId) + "/retranslate").then(function (r) {
@@ -1894,7 +1913,7 @@ function renderSpeakers() {
          '<button class="btn-plain" data-rm="' + i + '" ' + (n > 0 || spk.length <= 1 ? 'disabled title="' + esc(T.spkRemoveBlocked) + '"' : "") + ">" + esc(T.spkRemove) + "</button></div>";
   });
   h += '<div class="ld-row-btns"><button class="btn-plain" id="btnAddSpk" ' + (spk.length >= max ? "disabled" : "") + ">" + esc(T.spkAdd) + "</button></div>";
-  h += '<div class="ld-err hidden" id="spkErr"></div>';
+  h += '<div class="ld-err hidden" id="spkErr"></div><div class="note hidden" id="spkMsg"></div>';
   p.innerHTML = h;
   Array.prototype.forEach.call(p.querySelectorAll("[data-spk]"), function (inp) {
     inp.oninput = function () { spk[+inp.dataset.spk].name = inp.value; refreshSelects(); queueSpeakerSave(); };
@@ -1926,24 +1945,76 @@ function queueSpeakerSave() {
   spkTimer = setTimeout(function () { saveSpeakers(false); }, 800);
 }
 
+function speakerProblem() {
+  // {kind: "empty"|"dup", i, j, name} for the first name the server would refuse, or null
+  var seen = {};
+  for (var i = 0; i < spk.length; i++) {
+    var n = String(spk[i].name || "").replace(/\s+/g, " ").trim();
+    if (!n) return { kind: "empty", i: i };
+    var k = n.toLowerCase();
+    if (k in seen) return { kind: "dup", i: seen[k], j: i, name: n };
+    seen[k] = i;
+  }
+  return null;
+}
+function markSpeakerInputs(prob) {
+  Array.prototype.forEach.call(document.querySelectorAll("[data-spk]"), function (inp) {
+    var i = +inp.dataset.spk;
+    inp.style.outline = prob && (i === prob.i || i === prob.j) ? "2px solid #e65100" : "";
+  });
+}
+function showSpeakerProblem(prob) {
+  var err = $("spkErr"); if (!err) return;
+  err.textContent = prob.kind === "empty" ? T.spkEmpty : T.spkDup(prob.name);
+  if (prob.kind === "dup") {
+    var b = document.createElement("button"); b.className = "btn-plain"; b.style.marginInlineStart = "8px"; b.textContent = T.spkJoinBtn;
+    b.onclick = function () { mergeSpeakers(prob); };
+    err.appendChild(b);
+  }
+  err.classList.remove("hidden");
+}
+function mergeSpeakers(prob) {
+  var from = spk[prob.j], into = spk[prob.i]; if (!from || !into) return;
+  var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(T.spkJoinAsk(prob.name)) : Promise.resolve(window.confirm(T.spkJoinAsk(prob.name)));
+  ask.then(function (yes) {
+    if (!yes) return;
+    var done = from.id ? api("POST", "/api/longdub/" + cur.id + "/speakers/merge", { from_id: from.id, into_id: into.id }) : Promise.resolve({ ok: true, data: {} });
+    return done.then(function (r) {
+      if (!r.ok) { alertMsg(safeErr(r.data.error, T.genericErr)); return; }
+      spk.splice(prob.j, 1);                 // the server already removed it; the other names typed here are saved now
+      return saveSpeakers(false).then(function () { return loadSegments(); });
+    });
+  });
+}
 function saveSpeakers(rerender) {
   if (spkTimer) { clearTimeout(spkTimer); spkTimer = null; }
-  var sent = spk.map(function (s) { return { id: s.id, name: s.name, gender: s.gender || "" }; });
   var err = $("spkErr");
+  var prob = speakerProblem();
+  markSpeakerInputs(prob);
+  if (prob) {                                // the server would refuse this list: nothing is sent, nothing typed is lost
+    spkUnsaved = true;
+    showSpeakerProblem(prob);
+    setSaved(false, T.saveFailed);
+    return Promise.resolve(false);
+  }
+  var sent = spk.map(function (s) { return { id: s.id, name: s.name, gender: s.gender || "" }; });
   return api("PUT", "/api/longdub/" + cur.id + "/speakers", { speakers: sent }).then(function (r) {
     if (!r.ok) {
+      spkUnsaved = true;
       if (err) { err.textContent = safeErr(r.data.error, T.genericErr); err.classList.remove("hidden"); }
       setSaved(false, T.saveFailed);
-      if (rerender) return loadSegments();
-      return;
+      if (rerender) loadSegments();
+      return false;
     }
+    spkUnsaved = false;
     if (err) err.classList.add("hidden");
     (r.data.speaker_list || []).forEach(function (s, i) { if (spk[i]) { var f = speakerFromServer(s); spk[i].id = f.id; spk[i].heard = f.heard; spk[i].unsure = f.unsure; } });
     // rows already point at the right ids; refresh dropdowns and the panel
     refreshSelects(); pricePreview = null;
     if (rerender) { renderSpeakers(); renderConfirm(); }
     setSaved(true);
-  }).catch(function () { setSaved(false, T.saveFailed); });
+    return true;
+  }).catch(function () { spkUnsaved = true; setSaved(false, T.saveFailed); return false; });
 }
 
 // ---- transcript rows

@@ -6942,6 +6942,23 @@ def longdub_glossary_apply(job_id: str, request: Request):
     return res
 
 
+class LongDubMerge(BaseModel):
+    from_id: str = ""
+    into_id: str = ""
+
+
+@app.post("/api/longdub/{job_id}/speakers/merge")
+def longdub_merge_speakers(job_id: str, body: LongDubMerge, request: Request):
+    """Two speakers become one: the lines of the first move to the second (free)."""
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    ok, res = longdub_service.merge_speakers(job, body.from_id, body.into_id)
+    if not ok:
+        return JSONResponse({"error": customer_message(res[0])}, status_code=res[1])
+    return {"ok": True, "moved": res["moved"], "speaker_list": job.get("speaker_list", [])}
+
+
 @app.post("/api/longdub/{job_id}/speakers/{speaker_id}/retranslate")
 def longdub_speaker_retranslate(job_id: str, speaker_id: str, request: Request):
     """The person changed a speaker's gender: translate that speaker's lines (and the lines next to them) again."""
