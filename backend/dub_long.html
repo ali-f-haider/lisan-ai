@@ -1871,12 +1871,15 @@ function genderSelectHtml(s, i) {
     '<option value="male"' + (s.gender === "male" ? " selected" : "") + ">" + esc(genderWord("male")) + "</option>" +
     '<option value="female"' + (s.gender === "female" ? " selected" : "") + ">" + esc(genderWord("female")) + "</option></select>";
 }
-function onGenderChanged(i) {
+function onGenderChanged(i, before) {
   var s = spk[i]; if (!s || !s.id) return;
   var ar = LANG === "ar";
   saveSpeakers(false).then(function (saved) {
     if (!saved) { var m = $("spkMsg"); if (m) { m.textContent = T.spkNotSavedRedo; m.classList.remove("hidden"); } return; }
     if (!linesOf(s.id)) return;
+    // Ali, 8 Nov 2026: only ask when the gender the translation used really changes (Auto "Male" -> Male changes nothing)
+    var now = s.gender || s.heard || "";
+    if (before && now && before === now) return;
     var msg = ar ? "تغيّر جنس هذا المتحدث. هل تريد ترجمة أسطره (والأسطر المجاورة) من جديد ليتطابق الجنس في العربية؟ الأسطر التي كتبتَ ترجمتها بنفسك لن تتغير."
                  : "This speaker's gender changed. Translate their lines (and the lines next to them) again so the Arabic matches? Lines whose Arabic you typed yourself stay as they are.";
     var ask = (window.LisanDialog && LisanDialog.confirm) ? LisanDialog.confirm(msg, { okText: ar ? "ترجم من جديد" : "Translate again" }) : Promise.resolve(window.confirm(msg));
@@ -1919,7 +1922,7 @@ function renderSpeakers() {
     inp.oninput = function () { spk[+inp.dataset.spk].name = inp.value; refreshSelects(); queueSpeakerSave(); };
   });
   Array.prototype.forEach.call(p.querySelectorAll("[data-gen]"), function (sel) {
-    sel.onchange = function () { var i = +sel.dataset.gen; spk[i].gender = sel.value; if (sel.value) spk[i].heard = ""; onGenderChanged(i); };
+    sel.onchange = function () { var i = +sel.dataset.gen, before = spk[i].gender || spk[i].heard || ""; spk[i].gender = sel.value; if (sel.value) spk[i].heard = ""; onGenderChanged(i, before); };
   });
   Array.prototype.forEach.call(p.querySelectorAll("[data-rm]"), function (btn) {
     btn.onclick = function () { spk.splice(+btn.dataset.rm, 1); saveSpeakers(true); };
