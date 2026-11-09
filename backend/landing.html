@@ -192,9 +192,7 @@ html[data-lang="ar"] .hero h1{max-width:17ch;line-height:1.3;font-size:clamp(36p
 .tab:hover{color:var(--text);border-color:rgba(255,255,255,.3)}
 .tab[aria-selected="true"]{background:var(--text);color:#0a0d14;border-color:var(--text)}
 .demo-note{text-align:center;color:var(--muted);font-size:15.5px;max-width:640px;margin:0 auto 30px;min-height:26px}
-.demo-placeholder-icon{display:grid;place-items:center;width:52px;height:52px;border:1px solid var(--line2);border-radius:16px;background:rgba(255,255,255,.035);color:var(--gold)}
-.demo-placeholder-icon svg{width:24px;height:24px}
-.demo-placeholder-copy{max-width:28ch;color:var(--muted)}
+
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:1040px;margin:0 auto}
 .pcol .lab{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
 html[data-lang="ar"] .pcol .lab{letter-spacing:0;font-size:14.5px}
@@ -1279,10 +1277,10 @@ html.js .rv.in{opacity:1;transform:none}
     var base = src.split("/").pop().replace(/\.[a-z0-9]+$/i, "");
     return "/static/posters/" + base + ".jpg";
   }
-  function newVideo(src) {
+  function newVideo(src, poster) {
     var v = doc.createElement("video");
     v.controls = true; v.setAttribute("playsinline", "");
-    v.poster = posterFor(src);
+    v.poster = poster || posterFor(src);
     // preload "none": nothing of the video is downloaded until Play is pressed, so the browser keeps
     // showing the cover. (With "metadata" it loads the first frame and swaps the cover for it after a second.)
     v.preload = "none";
@@ -1298,29 +1296,15 @@ html.js .rv.in{opacity:1;transform:none}
     if (v) { try { v.pause(); } catch (e) {} v.removeAttribute("src"); v.load(); v.remove(); }
     frame.classList.remove("has-video");
   }
-  function mountFrame(frame, src) {
+  function mountFrame(frame, src, poster) {
     clearFrame(frame);
     frame.classList.add("loading");
     return exists(src).then(function (ok) {
       frame.classList.remove("loading");
       if (!ok) return null;
-      var v = newVideo(src); frame.appendChild(v); frame.classList.add("has-video");
+      var v = newVideo(src, poster); frame.appendChild(v); frame.classList.add("has-video");
       return v;
     });
-  }
-  function mountDemoPlaceholder(frame, en, ar) {
-    clearFrame(frame);
-    frame.classList.remove("loading");
-    var ph = frame.querySelector(".ph");
-    if (!ph) return;
-    ph.innerHTML = "";
-    var icon = el("div", "demo-placeholder-icon");
-    icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m10 9 5 3-5 3z"/></svg>';
-    var copy = el("span", "demo-placeholder-copy");
-    copy.appendChild(bi(en, ar));
-    ph.appendChild(icon);
-    ph.appendChild(copy);
   }
   function whenNear(node, fn) {
     if (!("IntersectionObserver" in window)) { fn(); return; }
@@ -1358,9 +1342,10 @@ html.js .rv.in{opacity:1;transform:none}
   /* ---------- Before / after demos ---------- */
   (function () {
     var PAIRS = [
-      { placeholder: true,
+      { b: "/static/TheSwitch_English.mp4", a: "/static/TheSwitch_Arabic.mp4",
+        poster: "/static/posters/TheSwitch_Poster_No2k_Nologo.png",
         en: "Long-dub example", ar: "مثال على دبلجة فيديو طويل",
-        nEn: "New long-dub video examples are coming soon.", nAr: "ستتوفر أمثلة جديدة للدبلجة الطويلة قريبًا." },
+        nEn: "Compare the original English clip with its Arabic dubbed version.", nAr: "قارن بين المقطع الأصلي بالإنجليزية ونسخته المدبلجة بالعربية." },
       // (the sample without lip-sync was removed on 3 Nov 2026: it came from a film we have no rights to; a clip of Ali's own film replaces it)
       { b: "/static/LipSyncSample_before.mp4", a: "/static/LipSyncSample_After.mp4",
         en: "With lip-sync (alpha)", ar: "مع مزامنة الشفاه (ألفا)",
@@ -1374,19 +1359,13 @@ html.js .rv.in{opacity:1;transform:none}
       var p = avail[i];
       Array.prototype.forEach.call(tabs.children, function (t, k) { t.setAttribute("aria-selected", k === i ? "true" : "false"); });
       note.innerHTML = ""; note.appendChild(bi(p.nEn, p.nAr));
-      if (p.placeholder) {
-        mountDemoPlaceholder(fb, "A new English source video will be added here.", "سيُضاف هنا فيديو مصدر جديد بالإنجليزية.");
-        mountDemoPlaceholder(fa, "A new Arabic dub will be added here.", "ستُضاف هنا دبلجة عربية جديدة.");
-        return;
-      }
-      Promise.all([mountFrame(fb, p.b), mountFrame(fa, p.a)]).then(function (r) {
+      Promise.all([mountFrame(fb, p.b, p.poster), mountFrame(fa, p.a, p.poster)]).then(function (r) {
         if (cur !== i) return;
         pauseOther(r[0], r[1]); pauseOther(r[1], r[0]);
       });
     }
     whenNear(section, function () {
       Promise.all(PAIRS.map(function (p) {
-        if (p.placeholder) return Promise.resolve(true);
         return Promise.all([exists(p.b), exists(p.a)]).then(function (r) { return r[0] && r[1]; });
       }))
         .then(function (oks) {
