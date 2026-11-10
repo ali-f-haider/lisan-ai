@@ -65,10 +65,11 @@ class VerbEndingSpeechTests(unittest.TestCase):
         synthesize = Mock(return_value=b'audio')
         import re as _re, threading as _threading
         import longdub_service as _ld
-        env = source_functions('longdub_service.py', ['_voice_text', '_protect_brackets', '_tts_with_retry'], {
+        env = source_functions('longdub_service.py', ['_voice_text', '_protect_brackets', 'sound_name', '_sound_tags', '_tts_with_retry'], {
             'inworld_service': NS(synthesize=synthesize),
             'INWORLD_API_KEY': 'offline-test',
             're': _re, 'TTS_NOTE': _threading.local(), '_TAG_START': _ld._TAG_START,
+            'SOUNDS': _ld.SOUNDS, 'SOUND_RE': _ld.SOUND_RE, '_SOUND_ALIASES': _ld._SOUND_ALIASES,
         })
         row = {'arabic_text': 'مَتَى شِئْتِ.'}
         with patch.dict('sys.modules', {'inworld_service': NS(synthesize=synthesize)}):

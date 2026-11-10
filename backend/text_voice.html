@@ -12,7 +12,23 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
 .tv-wrap label { display: block; font-weight: 600; margin: 12px 0 4px; }
 .tv-wrap input[type=text], .tv-wrap select, .tv-wrap textarea { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--border);
   border-radius: 8px; background: var(--input-bg); color: var(--text); font: inherit; }
-.tv-wrap textarea#tvText { min-height: 220px; resize: vertical; line-height: 1.6; }
+.tv-wrap textarea#tvText, .tv-wrap #tvText { min-height: 220px; resize: vertical; line-height: 1.6; }
+/* The formatted text boxes (1.97.1): names in their speaker's color, human sounds like (LAUGH) as an amber mark */
+:root { --tv-sound-bg: #fde68a; --tv-sound-fg: #78350f; --tv-n0: #1d4ed8; --tv-n1: #b91c1c; --tv-n2: #15803d; --tv-n3: #7e22ce;
+  --tv-n4: #0f766e; --tv-n5: #be185d; --tv-n6: #4d7c0f; --tv-n7: #0e7490; }
+body.dark { --tv-sound-bg: #78350f; --tv-sound-fg: #fde68a; --tv-n0: #93c5fd; --tv-n1: #fca5a5; --tv-n2: #86efac; --tv-n3: #d8b4fe;
+  --tv-n4: #5eead4; --tv-n5: #f9a8d4; --tv-n6: #bef264; --tv-n7: #67e8f9; }
+.tv-rich { width: 100%; box-sizing: border-box; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg);
+  color: var(--text); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; overflow-y: auto; outline: none; cursor: text; }
+.tv-rich:focus { border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 25%, transparent); }
+.tv-rich:empty::before { content: attr(data-ph); color: var(--text-muted); pointer-events: none; }
+.tv-rich.is-disabled { opacity: .65; cursor: default; }
+#tvText.tv-rich { max-height: 60vh; }
+.tv-sound { background: var(--tv-sound-bg); color: var(--tv-sound-fg); border-radius: 4px; font-weight: 700; box-shadow: 0 0 0 1px var(--tv-sound-bg); }
+.tv-name { font-weight: 700; }
+.tv-wrap .tv-n0 { color: var(--tv-n0); } .tv-wrap .tv-n1 { color: var(--tv-n1); } .tv-wrap .tv-n2 { color: var(--tv-n2); } .tv-wrap .tv-n3 { color: var(--tv-n3); }
+.tv-wrap .tv-n4 { color: var(--tv-n4); } .tv-wrap .tv-n5 { color: var(--tv-n5); } .tv-wrap .tv-n6 { color: var(--tv-n6); } .tv-wrap .tv-n7 { color: var(--tv-n7); }
+.tv-addsound { width: auto !important; padding: 3px 8px !important; font-size: 13px; }
 .tv-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
 .tv-grid2 { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; }
 @media (max-width: 640px) { .tv-grid2 { grid-template-columns: 1fr; } }
@@ -39,7 +55,7 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
 .tv-line-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; color: var(--text-muted); margin-bottom: 6px; }
 .tv-line-head b { color: var(--text); }
 .tv-line-src { font-size: 14px; color: var(--text-muted); margin-bottom: 6px; white-space: pre-wrap; }
-.tv-line textarea { direction: rtl; text-align: right; font-size: 18px; line-height: 1.9; min-height: 52px; resize: vertical; }
+.tv-line textarea, .tv-line .tv-rich { direction: rtl; text-align: right; font-size: 18px; line-height: 1.9; min-height: 52px; resize: vertical; }
 .tv-line select { width: auto; font-size: 13px; padding: 4px 8px; }
 .tv-voice { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
 .tv-exact { display: inline-flex; gap: 6px; align-items: center; margin-top: 4px; font-size: 13px; font-weight: 400; cursor: pointer; }
@@ -91,8 +107,9 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
       <div><label for="tvLang" id="langLabel"></label><select id="tvLang"></select></div>
     </div>
     <label for="tvText" id="textLabel"></label>
-    <textarea id="tvText"></textarea>
-    <div class="tv-row" style="margin-top:6px;"><button type="button" class="btn-plain" id="btnFile"></button><input type="file" id="tvFile" accept=".txt,.docx,.srt,.vtt,text/plain" class="hidden"><span id="fileMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+    <div id="tvText" dir="auto"></div>
+    <div class="tv-row" style="margin-top:6px;"><button type="button" class="btn-plain" id="btnFile"></button><select id="tvAddSound" class="tv-addsound"></select><input type="file" id="tvFile" accept=".txt,.docx,.srt,.vtt,text/plain" class="hidden"><span id="fileMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+    <p class="note" id="soundTip" style="margin-top:6px;"></p>
     <label class="tv-consent hidden" id="keepTimesRow" style="margin-top:8px;"><input type="checkbox" id="tvKeepTimes" checked><span id="keepTimesLabel"></span></label>
     <p class="note hidden" id="timesChanged"></p>
     <div class="tv-count" id="tvCount"></div>
@@ -204,6 +221,8 @@ var T = {
     fileBtn: "📄 Upload a file (.txt, .docx, .srt)", fileReading: "Reading the file…",
     fileDone: function (n) { return n.toLocaleString() + " characters from the file. Check them, then press Continue."; },
     keepTimes: "Keep the times of my subtitles: each line is spoken when its subtitle appears",
+    addSound: "+ Add a sound",
+    soundTip: "Human sounds: write (LAUGH), (SIGH), (CRY), (YAWN)… where the sound should be, or pick one from “+ Add a sound”. They are heard, not shown in the subtitles.",
     timesChanged: "You changed the text after reading the file, so the subtitle times can't be kept. Upload the file again to keep them.",
     fitLabel: "Fit into", fitUnit: "seconds", fitPh: "optional",
     fitNote: "Free. Lisan AI changes the pauses first, then the speed (only within a natural range), so the audio lasts about this long. Leave it empty for the normal length.",
@@ -287,6 +306,8 @@ var T = {
     fileBtn: "📄 رفع ملف (‎.txt أو ‎.docx أو ‎.srt)", fileReading: "جارٍ قراءة الملف…",
     fileDone: function (n) { return n.toLocaleString("ar") + " حرف من الملف. راجعها ثم اضغط «متابعة»."; },
     keepTimes: "احتفظ بتوقيت ترجمتي: يُنطق كل سطر في وقت ظهور ترجمته",
+    addSound: "+ إضافة صوت",
+    soundTip: "أصوات بشرية: اكتب (LAUGH) أو (SIGH) أو (CRY) أو (YAWN)… حيث يجب أن يكون الصوت، أو اختره من «+ إضافة صوت». تُسمع ولا تظهر في الترجمة.",
     timesChanged: "غيّرتَ النص بعد قراءة الملف، فلا يمكن الاحتفاظ بتوقيت الترجمة. ارفع الملف من جديد للاحتفاظ به.",
     fitLabel: "اجعله في حدود", fitUnit: "ثانية", fitPh: "اختياري",
     fitNote: "مجانًا. يغيّر Lisan AI الوقفات أولًا ثم السرعة (في حدود طبيعية فقط) ليقترب طول الصوت من هذه المدة. اتركه فارغًا للطول العادي.",
@@ -402,6 +423,7 @@ function applyStaticText() {
   $("pronHeading").textContent = T.pronHeading; $("pronNote").textContent = T.pronNote; $("pronText").placeholder = T.pronPh; $("btnPron").textContent = T.pronSave;
   $("speedLabel").textContent = T.speedLabel; $("speedNote").textContent = T.speedNote;
   $("keepTimesLabel").textContent = T.keepTimes; $("timesChanged").textContent = T.timesChanged;
+  $("tvAddSound").innerHTML = soundOptions(); $("soundTip").textContent = T.soundTip;
   $("fitLabel").textContent = T.fitLabel; $("fitUnit").textContent = T.fitUnit; $("tvFit").placeholder = T.fitPh; $("fitNote").textContent = T.fitNote;
   $("timedLabel").textContent = T.timedLabel; $("timedNote").textContent = T.timedNote;
   $("dlSrt").textContent = T.dlSrt; $("dlZip").textContent = T.dlZip; $("subsOld").textContent = T.subsOld;
@@ -435,6 +457,173 @@ function loadList() {
   });
 }
 
+
+// ---------------------------------------------------------------- the formatted text boxes (1.97.1, Ali)
+// A text box that formats itself while the person types or pastes: speaker names ("Sara:" at the start of a line) in that speaker's
+// own color, and human sounds such as (LAUGH) or (YAWN) as an amber mark, also when they are typed by hand. The same list of sounds
+// and the same name rule as the server (longdub_service.SOUNDS, text_voice.parse_script).
+var SOUNDS = ["LAUGH", "CHUCKLE", "GIGGLE", "SIGH", "GASP", "CRY", "SOB", "SNIFFLE", "YAWN", "COUGH", "CLEAR THROAT", "SNEEZE", "BREATHE", "GULP"];
+var SOUND_ALIASES = ["LAUGHS", "LAUGHING", "SIGHS", "CRIES", "CRYING", "YAWNS", "COUGHS", "GASPS", "SOBS", "BREATH", "THROAT"];
+var SOUND_NAMES = {
+  en: { LAUGH: "Laugh", CHUCKLE: "Chuckle", GIGGLE: "Giggle", SIGH: "Sigh", GASP: "Gasp", CRY: "Cry", SOB: "Sob", SNIFFLE: "Sniffle", YAWN: "Yawn",
+        COUGH: "Cough", "CLEAR THROAT": "Clear throat", SNEEZE: "Sneeze", BREATHE: "Breathe", GULP: "Gulp" },
+  ar: { LAUGH: "ضحك", CHUCKLE: "ضحكة خفيفة", GIGGLE: "قهقهة خافتة", SIGH: "تنهيدة", GASP: "شهقة", CRY: "بكاء", SOB: "نحيب", SNIFFLE: "شهيق الأنف",
+        YAWN: "تثاؤب", COUGH: "سعال", "CLEAR THROAT": "تنحنح", SNEEZE: "عطسة", BREATHE: "نَفَس", GULP: "بلع الريق" }
+};
+function soundRe() {
+  var all = SOUNDS.concat(SOUND_ALIASES).map(function (k) { return k.replace(/ /g, "[ _]+"); }).sort(function (a, b) { return b.length - a.length; });
+  return new RegExp("\\(\\s*(?:" + all.join("|") + ")\\s*\\)", "gi");
+}
+function soundOptions() {
+  var names = SOUND_NAMES[LANG] || SOUND_NAMES.en;
+  return '<option value="">' + esc(T.addSound) + "</option>" + SOUNDS.map(function (k) {
+    return '<option value="(' + k + ')">' + esc(names[k]) + " (" + k + ")</option>";
+  }).join("");
+}
+function speakerClass(id) {
+  var k = job ? job.speakers.map(function (s) { return s.id; }).indexOf(id) : -1;
+  return k < 0 ? "" : "tv-name tv-n" + (k % 8);
+}
+var NAME_RE = /^(\s*)(\p{L}[^:\uFF1A\n]{0,39}?)(\s*[:\uFF1A])(?=\s+\S)/u;
+function scriptNames(text) {
+  // the server's rule: at least two lines, and at least half of them, start with "Name:" (four words at most)
+  var filled = text.split("\n").filter(function (l) { return l.trim(); }), hits = [], order = [];
+  filled.forEach(function (l) { var m = NAME_RE.exec(l); if (m && m[2].trim().split(/\s+/).length <= 4) hits.push(m[2].trim()); });
+  hits.forEach(function (n) { if (order.indexOf(n) < 0) order.push(n); });
+  return hits.length >= 2 && hits.length * 2 >= filled.length && order.length <= 20 ? order : null;
+}
+function formatText(text, withNames) {
+  var re = soundRe(), names = withNames ? scriptNames(text) : null;
+  return text.split("\n").map(function (line) {
+    var head = "", m = names ? NAME_RE.exec(line) : null;
+    if (m && names.indexOf(m[2].trim()) >= 0) {
+      head = esc(m[1]) + '<span class="tv-name tv-n' + (names.indexOf(m[2].trim()) % 8) + '">' + esc(m[2] + m[3]) + "</span>";
+      line = line.slice(m[0].length);
+    }
+    var out = "", last = 0, x;
+    re.lastIndex = 0;
+    while ((x = re.exec(line))) {
+      out += esc(line.slice(last, x.index)) + '<span class="tv-sound">' + esc(x[0]) + "</span>";
+      last = x.index + x[0].length;
+    }
+    return head + out + esc(line.slice(last));
+  }).join("\n");
+}
+function richBox(el, opts) {
+  opts = opts || {};
+  if (el._rich) return el;
+  el._rich = true;
+  el.classList.add("tv-rich");
+  el.setAttribute("contenteditable", "true"); el.setAttribute("role", "textbox");
+  if (!opts.oneLine) el.setAttribute("aria-multiline", "true");
+  var text = "", composing = false, undo = [], redo = [], lastPush = 0, lastPos = null, quiet = false;
+  function readText() {
+    var out = "";
+    (function walk(n) {
+      for (var c = n.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) out += c.nodeValue;
+        else if (c.nodeType === 1) {
+          if (c.nodeName === "BR") out += "\n";
+          else { if (/^(DIV|P)$/.test(c.nodeName) && out && out.slice(-1) !== "\n") out += "\n"; walk(c); }
+        }
+      }
+    })(el);
+    out = out.replace(/\u00a0/g, " ").replace(/\u200b/g, "");
+    return opts.oneLine ? out.replace(/\n+/g, " ") : out;
+  }
+  function caret() {
+    var sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !el.contains(sel.anchorNode)) return null;
+    var r = sel.getRangeAt(0), pre = document.createRange();
+    pre.selectNodeContents(el); pre.setEnd(r.startContainer, r.startOffset);
+    var a = Math.min(text.length, pre.toString().length);
+    pre.setEnd(r.endContainer, r.endOffset);
+    return [a, Math.min(text.length, pre.toString().length)];
+  }
+  function place(pos) {
+    var sel = window.getSelection(), want = pos, node = null, off = 0;
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    while (walker.nextNode()) {
+      var len = walker.currentNode.nodeValue.length;
+      if (want <= len) { node = walker.currentNode; off = want; break; }
+      want -= len;
+    }
+    var r = document.createRange();
+    if (node) r.setStart(node, off); else { r.selectNodeContents(el); r.collapse(false); }
+    r.collapse(true);
+    sel.removeAllRanges(); sel.addRange(r);
+  }
+  function render(pos) {
+    el.innerHTML = text ? formatText(text, !!opts.names) + (text.slice(-1) === "\n" ? '<span data-skip="1">\u200b</span>' : "") : "";
+    if (pos !== null && pos !== undefined && document.activeElement === el) place(pos);
+  }
+  function changed() {
+    quiet = true;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    quiet = false;
+  }
+  function remember() {
+    var now = Date.now();
+    if (now - lastPush > 700 || !undo.length) { undo.push({ t: text, c: caret() || [text.length, text.length] }); if (undo.length > 200) undo.shift(); }
+    lastPush = now; redo = [];
+  }
+  function setText(t, pos) { text = t; render(pos); lastPos = [pos, pos]; changed(); }
+  function insert(str) {
+    var p = caret() || lastPos || [text.length, text.length];
+    remember();
+    setText(text.slice(0, p[0]) + str + text.slice(p[1]), p[0] + str.length);
+  }
+  function history(from, to) {
+    if (!from.length) return;
+    var s = from.pop();
+    to.push({ t: text, c: caret() || [text.length, text.length] });
+    setText(s.t, s.c ? s.c[0] : s.t.length);
+  }
+  el.addEventListener("beforeinput", function (e) {
+    if (e.inputType === "historyUndo") { e.preventDefault(); history(undo, redo); return; }
+    if (e.inputType === "historyRedo") { e.preventDefault(); history(redo, undo); return; }
+    if (!composing) remember();
+  });
+  el.addEventListener("input", function () {
+    if (quiet || composing) return;
+    text = readText();
+    var p = caret();
+    render(p ? p[0] : null);
+    if (p) lastPos = p;
+  });
+  el.addEventListener("compositionstart", function () { composing = true; });
+  el.addEventListener("compositionend", function () { composing = false; text = readText(); var p = caret(); render(p ? p[0] : null); changed(); });
+  el.addEventListener("keydown", function (e) {
+    var k = (e.key || "").toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && k === "z") { e.preventDefault(); if (e.shiftKey) history(redo, undo); else history(undo, redo); return; }
+    if ((e.ctrlKey || e.metaKey) && k === "y") { e.preventDefault(); history(redo, undo); return; }
+    if (e.key === "Enter" && !composing) { e.preventDefault(); if (!opts.oneLine) insert("\n"); }
+  });
+  el.addEventListener("paste", function (e) {
+    e.preventDefault();
+    var t = ((e.clipboardData || window.clipboardData).getData("text") || "").replace(/\r\n?/g, "\n");
+    insert(opts.oneLine ? t.replace(/\n+/g, " ") : t);
+  });
+  el.addEventListener("drop", function (e) { e.preventDefault(); });
+  ["keyup", "mouseup", "blur"].forEach(function (ev) { el.addEventListener(ev, function () { var p = caret(); if (p) lastPos = p; }); });
+  Object.defineProperty(el, "value", { configurable: true, get: function () { return text; },
+    set: function (v) { text = String(v || "").replace(/\r\n?/g, "\n"); if (opts.oneLine) text = text.replace(/\n+/g, " "); undo = []; redo = []; render(null); } });
+  Object.defineProperty(el, "disabled", { configurable: true, get: function () { return el.getAttribute("contenteditable") !== "true"; },
+    set: function (v) { el.setAttribute("contenteditable", v ? "false" : "true"); el.classList.toggle("is-disabled", !!v); } });
+  Object.defineProperty(el, "placeholder", { configurable: true, get: function () { return el.getAttribute("data-ph") || ""; },
+    set: function (v) { el.setAttribute("data-ph", v || ""); } });
+  el.insertSound = function (tok) {
+    var p = lastPos || [text.length, text.length];
+    var before = text.slice(0, p[0]), after = text.slice(p[1]);
+    var str = (before && !/\s$/.test(before) ? " " : "") + tok + (after && !/^\s/.test(after) ? " " : "");
+    remember();
+    setText(before + str + after, before.length + str.length);
+    el.focus(); place(before.length + str.length);
+  };
+  return el;
+}
+richBox($("tvText"), { names: true });
+
 // ---------------------------------------------------------------- new project
 $("btnNew").onclick = function () {
   var text = $("tvText").value;
@@ -457,6 +646,7 @@ $("btnNew").onclick = function () {
   });
 };
 $("tvText").addEventListener("input", updateCount);
+$("tvAddSound").onchange = function () { if ($("tvAddSound").value) $("tvText").insertSound($("tvAddSound").value); $("tvAddSound").value = ""; };
 var fileCues = null, fileCuesText = "";
 $("btnFile").onclick = function () { $("tvFile").click(); };
 $("tvFile").onchange = function () {
@@ -538,7 +728,7 @@ function renderSpeakers() {
     var g = '<select data-gender="' + esc(sp.id) + '"' + (job.busy ? " disabled" : "") + '><option value="">' + esc(T.choose) + "</option>" +
       '<option value="male"' + (sp.gender === "male" ? " selected" : "") + ">" + esc(T.male) + "</option>" +
       '<option value="female"' + (sp.gender === "female" ? " selected" : "") + ">" + esc(T.female) + "</option></select>";
-    return '<div class="tv-spk"><div class="tv-spk-head"><strong>' + esc(speakerName(sp)) + "</strong>" +
+    return '<div class="tv-spk"><div class="tv-spk-head"><strong class="' + (job.speakers.length > 1 ? speakerClass(sp.id) : "") + '">' + esc(speakerName(sp)) + "</strong>" +
       "<span>" + esc(T.gender) + "</span>" + g +
       '<span class="tv-voice-name">' + esc(sp.voice_name || T.voiceNone) + "</span>" +
       '<button class="btn-plain" data-voice="' + esc(sp.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(openPanel === sp.id ? T.voiceHide : T.voiceBtn) + "</button></div>" +
@@ -718,7 +908,7 @@ function renderLines() {
     }).join("");
     if (ln.emotion && EMOTIONS.indexOf(ln.emotion) < 0) opts = '<option value="' + esc(ln.emotion) + '" selected>' + esc(ln.emotion) + "</option>" + opts;
     if (!ln.emotion) opts = '<option value="" selected>' + esc(LANG === "ar" ? EMO_AR.neutral : "neutral") + "</option>" + opts;
-    return '<div class="tv-line"><div class="tv-line-head"><span>' + (i + 1) + "</span>" + (multi ? "<b>" + esc(names[ln.speaker_id]) + "</b>" : "") +
+    return '<div class="tv-line"><div class="tv-line-head"><span>' + (i + 1) + "</span>" + (multi ? '<b class="' + speakerClass(ln.speaker_id) + '">' + esc(names[ln.speaker_id]) + "</b>" : "") +
       (ln.gender_check ? '<span class="tv-badge">' + esc(T.check) + "</span>" : "") +
       "<span>" + esc(T.emotion) + '</span><select data-emo="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + opts + "</select>" +
       '<button type="button" class="btn-plain" style="padding:3px 10px;" data-tash="' + esc(ln.id) + '" title="' + esc(T.tashkeelTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.tashkeel) + "</button>" +
@@ -727,12 +917,24 @@ function renderLines() {
       (ln.spoken ? '<button type="button" class="btn-plain" style="padding:3px 10px;" data-play="' + esc(ln.id) + '">' + T.playLine + "</button>" +
                    '<button type="button" class="btn-plain" style="padding:3px 10px;" data-again="' + esc(ln.id) + '" title="' + esc(T.againTip) + '"' + (job.busy ? " disabled" : "") + ">" + esc(T.again) + "</button>" : "") +
       '<span class="tv-saved" id="saved_' + esc(ln.id) + '"></span></div>' +
-      (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + esc(ln.text) + "</div>") +
-      '<textarea dir="rtl" data-ar="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + esc(ln.arabic) + "</textarea>" +
+      (arabicSource ? "" : '<div class="tv-line-src" dir="auto">' + formatText(ln.text, false) + "</div>") +
+      '<div dir="rtl" data-ar="' + esc(ln.id) + '"></div>' +
+      '<div class="tv-row" style="margin-top:4px;"><select class="tv-addsound" data-sound="' + esc(ln.id) + '"' + (job.busy ? " disabled" : "") + ">" + soundOptions() + "</select></div>" +
       '<div class="tv-voice" dir="rtl" id="voice_' + esc(ln.id) + '">' + voiceCopy(ln) + "</div></div>";
   }).join("");
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-ar]"), function (t) {
+    var ln = job.lines.filter(function (l) { return l.id === t.getAttribute("data-ar"); })[0];
+    richBox(t, { oneLine: true });
+    t.value = ln ? ln.arabic : "";
+    t.disabled = !!job.busy;
     t.addEventListener("input", function () { queueSave(t.getAttribute("data-ar"), { arabic: t.value }); });
+  });
+  Array.prototype.forEach.call($("lineList").querySelectorAll("[data-sound]"), function (s) {
+    s.onchange = function () {
+      var box = document.querySelector('[data-ar="' + s.getAttribute("data-sound") + '"]');
+      if (box && s.value) box.insertSound(s.value);
+      s.value = "";
+    };
   });
   Array.prototype.forEach.call($("lineList").querySelectorAll("[data-emo]"), function (s) {
     s.onchange = function () { queueSave(s.getAttribute("data-emo"), { emotion: s.value }, 0); };
@@ -842,7 +1044,7 @@ $("tvSpeed").onchange = function () {
 };
 
 function tashkeelLine(lineId, btn) {
-  var box = document.querySelector('textarea[data-ar="' + lineId + '"]');
+  var box = document.querySelector('[data-ar="' + lineId + '"]');
   var before = box ? box.value.trim() : "";
   btn.disabled = true; btn.textContent = T.tashkeelBusy;
   flushSave(lineId).then(function () {

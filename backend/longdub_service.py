@@ -5609,7 +5609,8 @@ def _empty_audio_texts(text):
     marks are not letters; as a last try the line is read without its vowel marks."""
     out, seen = [], {text}
     no_tag = _TAG_START.sub("", text, count=1)
-    clean = re.sub(r"\s+", " ", _BRACKETS.sub(" ", _ODD_MARKS.sub("", no_tag))).strip()
+    no_sounds = re.sub(r"\[(?:" + "|".join(re.escape(v) for v in SOUNDS.values()) + r")\]", " ", no_tag)   # a sound is never read as a word
+    clean = re.sub(r"\s+", " ", _BRACKETS.sub(" ", _ODD_MARKS.sub("", no_sounds))).strip()
     plain = re.sub(r"\s+", " ", _HARAKAT.sub("", clean)).strip()
     for name, t in (("without the instruction", no_tag), ("cleaned", clean), ("without vowel marks", plain)):
         if t and t not in seen and re.search(r"[^\W\d_]", t):
@@ -5631,6 +5632,29 @@ def text_shape(text):
             "other": len(known.sub("", rest)), "tag": bool(_TAG_START.match(t))}
 
 
+# Human sounds a person writes into a Text to voice line as (LAUGH), (YAWN) ... (1.97.1, Ali): sent to the voice as its own sound tags.
+# name in the text (spaces or underscores, any case) -> the voice's tag. Tested 10 Nov 2026 with the Arabic voice Nour: laugh, yawn,
+# cry, sigh and cough were each heard, and no English word was spoken.
+SOUNDS = {"LAUGH": "laugh", "CHUCKLE": "chuckle", "GIGGLE": "giggle", "SIGH": "sigh", "GASP": "gasp", "CRY": "cry", "SOB": "sob",
+          "SNIFFLE": "sniffle", "YAWN": "yawn", "COUGH": "cough", "CLEAR THROAT": "clear throat", "SNEEZE": "sneeze",
+          "BREATHE": "breathe", "GULP": "gulp"}
+_SOUND_ALIASES = {"LAUGHS": "LAUGH", "LAUGHING": "LAUGH", "SIGHS": "SIGH", "CRIES": "CRY", "CRYING": "CRY", "YAWNS": "YAWN",
+                  "COUGHS": "COUGH", "GASPS": "GASP", "SOBS": "SOB", "BREATH": "BREATHE", "THROAT": "CLEAR THROAT"}
+SOUND_RE = re.compile(r"\(\s*(" + "|".join(sorted((k.replace(" ", "[ _]+") for k in list(SOUNDS) + list(_SOUND_ALIASES)), key=len, reverse=True))
+                      + r")\s*\)", re.IGNORECASE)
+
+
+def sound_name(match_text):
+    """The canonical name (LAUGH, CLEAR THROAT, ...) of a sound written like (laughs) or (clear_throat)."""
+    k = re.sub(r"[\s_]+", " ", match_text.strip("() \t").upper())
+    return _SOUND_ALIASES.get(k, k)
+
+
+def _sound_tags(text):
+    """(LAUGH) -> [laugh] in the copy sent to the voice; anything else in round brackets stays as it is."""
+    return SOUND_RE.sub(lambda m: "[" + SOUNDS[sound_name(m.group(0))] + "]", text or "")
+
+
 def _protect_brackets(text):
     """The voice reads anything in square (or curly) brackets as an instruction and does not say it: a line written entirely in
     brackets came back as empty audio (tested 10 Nov 2026: "[قُلْ هُوَ اللَّهُ أَحَدٌ]" empty, the same words without brackets spoken).
@@ -5643,7 +5667,7 @@ def _protect_brackets(text):
 def _tts_with_retry(voice_id, text, waqf="auto", gap=None, delivery=None):
     import inworld_service
     text = _voice_text(text, waqf, gap)          # only the copy sent to the voice gets the stop form (at a real stop, see arabic_waqf); the stored text never changes
-    text = _protect_brackets(text)
+    text = _sound_tags(_protect_brackets(text))
     import urllib.error
     last, empty = "", 0
     info = {"tries": 0, "empty": 0, "fallback": "", "tried": []}

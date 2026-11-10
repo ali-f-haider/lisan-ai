@@ -250,6 +250,57 @@ def parse_script(text, rows=False):
     return speakers, lines
 
 
+# ------------------------------------------------------------------ human sounds (1.97.1, Ali)
+# A person writes (LAUGH), (YAWN), (CRY) ... into a line (or picks one from the list on the page). The voice makes the sound there
+# (longdub_service._sound_tags); the subtitles never show it.
+
+def _sound_re():
+    import longdub_service as ld
+    return ld.SOUND_RE
+
+
+def sounds_list():
+    import longdub_service as ld
+    return list(ld.SOUNDS)
+
+
+def _split_sounds(text):
+    """(text without its sounds, [(share of the words before it, "(LAUGH)")]): so the AI translates only the words and each sound
+    goes back to the same place in the Arabic."""
+    import longdub_service as ld
+    text = str(text or "")
+    found, parts, last = [], [], 0
+    for m in _sound_re().finditer(text):
+        parts.append(text[last:m.start()])
+        before = len(" ".join(parts).split())
+        found.append((before, "(" + ld.sound_name(m.group(0)) + ")"))
+        last = m.end()
+    parts.append(text[last:])
+    clean = re.sub(r"\s+", " ", " ".join(parts)).strip()
+    total = max(1, len(clean.split()))
+    return clean, [(min(1.0, b / float(total)), tok) for b, tok in found]
+
+
+def _put_sounds(arabic, sounds):
+    """The sounds put back into the Arabic, each after the same share of its words."""
+    if not sounds:
+        return arabic
+    words = str(arabic or "").split()
+    inserts = {}
+    for frac, tok in sounds:
+        inserts.setdefault(int(round(frac * len(words))), []).append(tok)
+    out = []
+    for k in range(len(words) + 1):
+        out.extend(inserts.get(k, []))
+        if k < len(words):
+            out.append(words[k])
+    return " ".join(out)
+
+
+def _no_sounds(text):
+    return re.sub(r"\s+", " ", _sound_re().sub(" ", str(text or ""))).strip()
+
+
 # ------------------------------------------------------------------ subtitle times (1.96.4)
 
 def _norm_lines(text):
@@ -1119,7 +1170,15 @@ def _run_prepare(job_id):
             def progress(p):
                 job["percent"] = p
                 _save(job)
-            got = (_vowel if job["source_language"] == "ar" else _translate)(job, progress)
+            # the human sounds, (LAUGH) ..., are taken out before the AI sees the text and put back at the same place (1.97.1)
+            sounds = {ln["id"]: _split_sounds(ln["text"]) for ln in job["lines"]}
+            view = dict(job, lines=[dict(ln, text=sounds[ln["id"]][0] or ln["text"]) for ln in job["lines"]])
+            got = (_vowel if job["source_language"] == "ar" else _translate)(view, progress)
+            if "addressees" in view:
+                job["addressees"] = view["addressees"]
+            if got is not None:
+                got = {sid: ((" ".join(t for _f, t in sounds[sid][1]) if sid in sounds and not sounds[sid][0] and sounds[sid][1]
+                              else _put_sounds(v[0], sounds.get(sid, ("", []))[1])),) + tuple(v[1:]) for sid, v in got.items()}
         with _lock_for(job_id):
             if got is None:
                 _give_back(job, "prepare", job["ops"]["prepare"]["amount"], "prepare_failed")
@@ -1498,7 +1557,7 @@ def subtitles(job, marks=False):
         ln = by_id.get(t["id"])
         if not ln:
             continue
-        text = (ln.get("arabic") or "").strip()
+        text = _no_sounds(ln.get("arabic") or "")          # a sound is heard, never shown in the subtitles
         text = re.sub(r"\s+", " ", text if marks else _bare(text)).strip()
         pieces = _sub_pieces(text) or [""]
         total = sum(len(p) for p in pieces) or 1
