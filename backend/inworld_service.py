@@ -304,6 +304,11 @@ def row_tag(row) -> str:
     return instruction_tag(row.get("emotion"))
 
 
+class EmptyAudio(UserError):
+    """The voice service answered without any audio (audioContent empty). Seen on 9 Nov 2026 for 17 of 61 lines of one text, the
+    same lines on every try, so the caller tries a cleaned copy of the text instead of waiting (longdub_service._tts_with_retry)."""
+
+
 def _configured(api_key: str) -> bool:
     return bool((api_key or "").strip())
 
@@ -583,7 +588,7 @@ def synthesize(voice_id: str, text: str, api_key: str, language: str = DEFAULT_L
     audio_b64 = data.get("audioContent")
     if not audio_b64:
         print(f"[inworld-tts] no audio in the answer: {json.dumps(_shape(data))[:300]}")
-        raise UserError("We couldn't generate this line. Please try again.")
+        raise EmptyAudio("We couldn't generate this line. Please try again.")
     return base64.b64decode(audio_b64)
 
 

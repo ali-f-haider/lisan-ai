@@ -93,6 +93,8 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
     <label for="tvText" id="textLabel"></label>
     <textarea id="tvText"></textarea>
     <div class="tv-row" style="margin-top:6px;"><button type="button" class="btn-plain" id="btnFile"></button><input type="file" id="tvFile" accept=".txt,.docx,.srt,.vtt,text/plain" class="hidden"><span id="fileMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+    <label class="tv-consent hidden" id="keepTimesRow" style="margin-top:8px;"><input type="checkbox" id="tvKeepTimes" checked><span id="keepTimesLabel"></span></label>
+    <p class="note hidden" id="timesChanged"></p>
     <div class="tv-count" id="tvCount"></div>
     <p class="note" id="scriptTip" style="margin-top:10px;white-space:pre-line;"></p>
     <div class="tv-row"><button id="btnNew" class="green"></button></div>
@@ -127,6 +129,9 @@ html[dir="rtl"] .tv-wrap { direction: rtl; }
     <h3 id="audioHeading"></h3>
     <p class="note" id="audioNote"></p>
     <div class="tv-row"><label for="tvSpeed" id="speedLabel"></label><select id="tvSpeed"></select><span class="note" id="speedNote"></span></div>
+    <div class="tv-row" id="fitRow"><label for="tvFit" id="fitLabel"></label><input type="number" id="tvFit" min="3" max="7200" step="0.5" inputmode="decimal" style="width:110px;"><span id="fitUnit"></span><span class="note" id="fitNote"></span></div>
+    <div id="timedRow" class="hidden"><label class="tv-consent" style="margin-top:12px;"><input type="checkbox" id="tvTimed"><span id="timedLabel"></span></label><p class="note" id="timedNote"></p></div>
+    <p class="note hidden" id="fitMsg" style="font-weight:600;"></p>
     <div class="tv-row"><button id="btnSpeak" class="green"></button></div>
     <div id="speakErr" class="tv-err hidden"></div>
     <div id="audioBox" class="hidden">
@@ -198,6 +203,17 @@ var T = {
     btnNew: "Continue (free)", needText: "Please paste or type your text first.",
     fileBtn: "📄 Upload a file (.txt, .docx, .srt)", fileReading: "Reading the file…",
     fileDone: function (n) { return n.toLocaleString() + " characters from the file. Check them, then press Continue."; },
+    keepTimes: "Keep the times of my subtitles: each line is spoken when its subtitle appears",
+    timesChanged: "You changed the text after reading the file, so the subtitle times can't be kept. Upload the file again to keep them.",
+    fitLabel: "Fit into", fitUnit: "seconds", fitPh: "optional",
+    fitNote: "Free. Lisan AI changes the pauses first, then the speed (only within a natural range), so the audio lasts about this long. Leave it empty for the normal length.",
+    fitDone: function (t, p, sp) { return "Fitted to " + t + " s (pauses ×" + p + ", speed ×" + sp + ")."; },
+    fitOver: function (x, n) { return "Still " + x + " s too long: a natural voice can't go faster. Shorten the text by about " + n.toLocaleString() + " characters, or allow more time."; },
+    fitUnder: function (x) { return x + " s shorter than you asked: slowing it down more would not sound natural."; },
+    timedLabel: "Speak each line at the time of its subtitle",
+    timedNote: "Free. Lines that are longer than their subtitle are spoken faster (up to 1.25×).",
+    timedOk: "Every line is spoken at the time of its subtitle.",
+    timedLate: function (n, x) { return n + (n === 1 ? " line is" : " lines are") + " still longer than the subtitle and end up to " + x + " s late. Shorten them to fit."; },
     jobHeading: "2. Speakers", close: "Close project", del: "Delete project",
     delConfirm: "Delete this project and its audio? This cannot be undone.",
     spkHeading: "Speakers", spkNoteTr: "Arabic uses different forms for men and women, so please choose male or female for every speaker before the translation.",
@@ -270,6 +286,17 @@ var T = {
     btnNew: "متابعة (مجانًا)", needText: "يرجى لصق نصك أو كتابته أولًا.",
     fileBtn: "📄 رفع ملف (‎.txt أو ‎.docx أو ‎.srt)", fileReading: "جارٍ قراءة الملف…",
     fileDone: function (n) { return n.toLocaleString("ar") + " حرف من الملف. راجعها ثم اضغط «متابعة»."; },
+    keepTimes: "احتفظ بتوقيت ترجمتي: يُنطق كل سطر في وقت ظهور ترجمته",
+    timesChanged: "غيّرتَ النص بعد قراءة الملف، فلا يمكن الاحتفاظ بتوقيت الترجمة. ارفع الملف من جديد للاحتفاظ به.",
+    fitLabel: "اجعله في حدود", fitUnit: "ثانية", fitPh: "اختياري",
+    fitNote: "مجانًا. يغيّر Lisan AI الوقفات أولًا ثم السرعة (في حدود طبيعية فقط) ليقترب طول الصوت من هذه المدة. اتركه فارغًا للطول العادي.",
+    fitDone: function (t, p, sp) { return "طوله الآن " + t + " ثانية (الوقفات ×" + p + "، السرعة ×" + sp + ")."; },
+    fitOver: function (x, n) { return "ما زال أطول بـ" + x + " ثانية: لا يمكن أن يسرع الصوت أكثر بشكل طبيعي. اختصر النص بنحو " + n + " حرفًا، أو امنحه وقتًا أطول."; },
+    fitUnder: function (x) { return "أقصر بـ" + x + " ثانية مما طلبت: إبطاؤه أكثر لن يبدو طبيعيًا."; },
+    timedLabel: "انطق كل سطر في وقت ترجمته",
+    timedNote: "مجانًا. الأسطر الأطول من ترجمتها تُنطق أسرع (حتى ١٫٢٥×).",
+    timedOk: "يُنطق كل سطر في وقت ترجمته.",
+    timedLate: function (n, x) { return arLines(n) + " ما زالت أطول من ترجمتها وتنتهي متأخرة حتى " + x + " ثانية. اختصرها لتناسب."; },
     jobHeading: "٢. المتحدثون", close: "إغلاق المشروع", del: "حذف المشروع",
     delConfirm: "هل تريد حذف هذا المشروع وصوته؟ لا يمكن التراجع عن ذلك.",
     spkHeading: "المتحدثون", spkNoteTr: "تختلف صيغ الكلام في العربية بين المذكر والمؤنث، لذا يرجى تحديد ذكر أو أنثى لكل متحدث قبل الترجمة.",
@@ -374,6 +401,9 @@ function applyStaticText() {
   $("btnFile").textContent = T.fileBtn;
   $("pronHeading").textContent = T.pronHeading; $("pronNote").textContent = T.pronNote; $("pronText").placeholder = T.pronPh; $("btnPron").textContent = T.pronSave;
   $("speedLabel").textContent = T.speedLabel; $("speedNote").textContent = T.speedNote;
+  $("keepTimesLabel").textContent = T.keepTimes; $("timesChanged").textContent = T.timesChanged;
+  $("fitLabel").textContent = T.fitLabel; $("fitUnit").textContent = T.fitUnit; $("tvFit").placeholder = T.fitPh; $("fitNote").textContent = T.fitNote;
+  $("timedLabel").textContent = T.timedLabel; $("timedNote").textContent = T.timedNote;
   $("dlSrt").textContent = T.dlSrt; $("dlZip").textContent = T.dlZip; $("subsOld").textContent = T.subsOld;
   $("listHeading").textContent = T.listHeading;
   $("offText").textContent = T.off;
@@ -410,16 +440,24 @@ $("btnNew").onclick = function () {
   var text = $("tvText").value;
   if (!text.trim()) { err($("newErr"), T.needText); return; }
   err($("newErr"), "");
+  var body = { text: text, source_language: $("tvLang").value, title: $("tvTitle").value };
+  // the subtitles' times go with the text only while it is still exactly the file's text (1.96.4)
+  if (fileCues && $("tvKeepTimes").checked) {
+    if (text.trim() === fileCuesText.trim()) body.cues = fileCues;
+    else { show($("timesChanged"), true); }
+  }
   $("btnNew").disabled = true;
-  api("POST", "/api/text_voice/new", { text: text, source_language: $("tvLang").value, title: $("tvTitle").value }).then(function (r) {
+  api("POST", "/api/text_voice/new", body).then(function (r) {
     $("btnNew").disabled = false;
     if (!r.ok) { err($("newErr"), r.data.error || T.netErr); return; }
     $("tvText").value = ""; $("tvTitle").value = ""; updateCount();
+    fileCues = null; fileCuesText = ""; show($("keepTimesRow"), false); show($("timesChanged"), false);
     showJob(r.data);
     loadList();
   });
 };
 $("tvText").addEventListener("input", updateCount);
+var fileCues = null, fileCuesText = "";
 $("btnFile").onclick = function () { $("tvFile").click(); };
 $("tvFile").onchange = function () {
   var f = $("tvFile").files && $("tvFile").files[0];
@@ -432,6 +470,8 @@ $("tvFile").onchange = function () {
     if (!r.ok) { $("fileMsg").textContent = ""; err($("newErr"), r.data.error || T.netErr); return; }
     err($("newErr"), "");
     $("tvText").value = r.data.text;
+    fileCues = r.data.cues || null; fileCuesText = fileCues ? r.data.text : "";
+    show($("keepTimesRow"), !!fileCues); show($("timesChanged"), false); $("tvKeepTimes").checked = true;
     if (!$("tvTitle").value.trim()) $("tvTitle").value = f.name.replace(/\.[^.]+$/, "").slice(0, 120);
     updateCount();
     $("fileMsg").textContent = T.fileDone(r.data.chars || r.data.text.length);
@@ -770,6 +810,24 @@ $("btnPron").onclick = function () {
   });
 };
 
+function saveOptions(change, el) {
+  if (!job) return;
+  if (el) el.disabled = true;
+  flushAll().then(function () {
+    return api("POST", "/api/text_voice/" + job.id + "/options", change);
+  }).then(function (r) {
+    if (el) el.disabled = false;
+    if (!r.ok) { alertMsg(r.data.error || T.netErr); renderAudio(); return; }
+    job = r.data;
+    renderAudio();
+  });
+}
+$("tvFit").onchange = function () {
+  var v = $("tvFit").value.trim();
+  saveOptions({ fit_seconds: v ? Number(v) : null }, $("tvFit"));
+};
+$("tvTimed").onchange = function () { saveOptions({ keep_times: $("tvTimed").checked }, $("tvTimed")); };
+
 $("tvSpeed").onchange = function () {
   if (!job) return;
   $("tvSpeed").disabled = true;
@@ -835,6 +893,17 @@ function renderAudio() {
   b.textContent = job.speak_price ? T.speak(job.speak_price, job.lines_to_speak) : (job.audio_outdated ? T.speakAgainFree : T.speakFree);
   $("tvSpeed").innerHTML = speedOptions(job.speed || 1, false);
   $("tvSpeed").disabled = !!job.busy;
+  show($("timedRow"), !!job.times_available);
+  $("tvTimed").checked = !!job.keep_times; $("tvTimed").disabled = !!job.busy;
+  show($("fitRow"), !job.keep_times);
+  if (document.activeElement !== $("tvFit")) $("tvFit").value = job.fit_seconds ? String(job.fit_seconds) : "";
+  $("tvFit").disabled = !!job.busy;
+  var fm = "", f = job.fit;
+  if (f && f.timed) fm = f.late_count ? T.timedLate(f.late_count, Math.max.apply(null, f.late.map(function (x) { return x.late; }))) : T.timedOk;
+  else if (f && f.over) fm = T.fitOver(f.over, f.cut_chars || 0);
+  else if (f && f.under) fm = T.fitUnder(f.under);
+  else if (f && f.target) fm = T.fitDone(f.seconds, f.pauses, f.speed);
+  $("fitMsg").textContent = fm; show($("fitMsg"), !!fm);
   err($("speakErr"), !job.busy && job.prepared && job.error ? job.error : "");
   var expired = !job.audio_file && (job.notes || []).indexOf("audio_expired") >= 0;
   $("audioNote").textContent = expired ? T.audioNote + " " + T.audioExpired : T.audioNote;

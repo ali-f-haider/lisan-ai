@@ -1229,7 +1229,15 @@ function renderActivity() {
     const note = [];
     if (u.engaged) note.push('<span class="pill on">engaged</span>');
     if (u.did_nothing) note.push('<span class="muted">did nothing yet</span>');
-    if (tv.last_failure) note.push(`<span style="color:#f87171;" title="${escapeHtml(tv.last_failure.detail || '')}">audio failed (${tv.last_failure.lines} of ${tv.last_failure.of} lines)</span>`);
+    if (tv.last_failure) {
+      // 1.96.4: what failed, what was given back and what the person can do; solved once a later run made the audio
+      const lf = tv.last_failure, li = lf.lines_info || [];
+      const why = [lf.detail || '', lf.refund ? `${lf.refund} credits given back` : '', 'only the person can retry: Generate audio in the same project makes only the missing lines',
+                   ...li.slice(0, 8).map(w => `${w.id}: ${w.tries || 0} requests, ${w.empty || 0} empty, tried ${(w.tried || []).join(', ') || 'nothing else'}; ${Object.entries(w.shape || {}).filter(([k, v]) => v).map(([k, v]) => k + ' ' + v).join(', ')}`)].filter(Boolean).join('\n');
+      note.push(lf.fixed_at
+        ? `<span class="muted" title="${escapeHtml(why)}">audio failed earlier (${lf.lines} of ${lf.of} lines), made later</span>`
+        : `<span style="color:#f87171;" title="${escapeHtml(why)}">audio failed (${lf.lines} of ${lf.of} lines${lf.refund ? ', ' + lf.refund + ' credits back' : ''})</span>`);
+    }
     const fb = u.feedback;
     if (fb && fb.answered) note.push(`<span style="color:#f59e0b;" title="${escapeHtml(fb.text || '')}">${'★'.repeat(fb.stars || 0)}</span>${fb.text ? ' <span class="muted">' + escapeHtml(fb.text.slice(0, 60)) + (fb.text.length > 60 ? '…' : '') + '</span>' : ''}`);
     else if (fb && fb.asks) note.push('<span class="muted">asked for feedback, no answer yet</span>');

@@ -5594,22 +5594,93 @@ def clean_delivery_mode(value):
     return value if value in ("stable", "balanced", "creative") else ""
 
 
+TTS_NOTE = threading.local()       # what the last _tts_with_retry of this thread went through (TTS_NOTE.info), for the callers' logs
+
+
+_TAG_START = re.compile("^\\s*\\[[^\\]\u0600-\u06FF]*\\]\\s*")      # an instruction for the voice: English words in brackets
+_ODD_MARKS = re.compile("[\u06D6-\u06ED\u0640\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u061C\u00AD]")
+_BRACKETS = re.compile(r"[\[\]{}<>\u00AB\u00BB\uFD3E\uFD3F]")
+_HARAKAT = re.compile("[\u0610-\u061A\u064B-\u065F\u0670]")
+
+
+def _empty_audio_texts(text):
+    """[(name, text)]: the cleaned copies tried, one request each, when the voice gave empty audio (1.96.4). The voice reads text in
+    square brackets as an instruction (a line that is all brackets says nothing), and Quran marks, tatweel and invisible direction
+    marks are not letters; as a last try the line is read without its vowel marks."""
+    out, seen = [], {text}
+    no_tag = _TAG_START.sub("", text, count=1)
+    clean = re.sub(r"\s+", " ", _BRACKETS.sub(" ", _ODD_MARKS.sub("", no_tag))).strip()
+    plain = re.sub(r"\s+", " ", _HARAKAT.sub("", clean)).strip()
+    for name, t in (("without the instruction", no_tag), ("cleaned", clean), ("without vowel marks", plain)):
+        if t and t not in seen and re.search(r"[^\W\d_]", t):
+            out.append((name, t))
+            seen.add(t)
+    return out
+
+
+def text_shape(text):
+    """What a line is made of, without its words (for the logs of a failed line): counts of Arabic letters, vowel marks, Quran
+    marks, Latin letters, digits, brackets, invisible marks and other symbols, and whether it starts with an instruction."""
+    t = str(text or "")
+    known = re.compile("[\\w\\s.,!?;:'\"()\\-\u060C\u061B\u061F\u06D4\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]")
+    rest = _BRACKETS.sub("", _ODD_MARKS.sub("", t))
+    return {"chars": len(t), "arabic": len(re.findall("[\u0621-\u064A\u0671-\u06D3]", t)), "harakat": len(_HARAKAT.findall(t)),
+            "quran_marks": len(re.findall("[\u06D6-\u06ED]", t)), "latin": len(re.findall("[A-Za-z]", t)),
+            "digits": len(re.findall(r"\d", t)), "brackets": len(_BRACKETS.findall(t)),
+            "invisible": len(re.findall("[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF\u061C\u00AD]", t)),
+            "other": len(known.sub("", rest)), "tag": bool(_TAG_START.match(t))}
+
+
+def _protect_brackets(text):
+    """The voice reads anything in square (or curly) brackets as an instruction and does not say it: a line written entirely in
+    brackets came back as empty audio (tested 10 Nov 2026: "[قُلْ هُوَ اللَّهُ أَحَدٌ]" empty, the same words without brackets spoken).
+    So the person's own brackets become round ones in the copy sent to the voice; the instruction at the start is kept."""
+    m = _TAG_START.match(text or "")
+    head, rest = (m.group(0), text[m.end():]) if m else ("", text or "")
+    return head + rest.replace("[", "(").replace("]", ")").replace("{", "(").replace("}", ")")
+
+
 def _tts_with_retry(voice_id, text, waqf="auto", gap=None, delivery=None):
     import inworld_service
     text = _voice_text(text, waqf, gap)          # only the copy sent to the voice gets the stop form (at a real stop, see arabic_waqf); the stored text never changes
+    text = _protect_brackets(text)
     import urllib.error
-    last = ""
+    last, empty = "", 0
+    info = {"tries": 0, "empty": 0, "fallback": "", "tried": []}
+    TTS_NOTE.info = info
+
+    def say(t):
+        info["tries"] += 1
+        return inworld_service.synthesize(voice_id, t, INWORLD_API_KEY, language="ar", **({"delivery": delivery} if delivery else {}))
     for wait in (0, 4, 12, 30):
         if wait:
             time.sleep(wait)
         try:
-            return inworld_service.synthesize(voice_id, text, INWORLD_API_KEY, language="ar", **({"delivery": delivery} if delivery else {})), ""
+            return say(text), ""
+        except inworld_service.EmptyAudio as ex:
+            last, empty = str(ex), empty + 1
+            info["empty"] = empty
+            if empty >= 2:      # empty twice: the same answer comes for this text, waiting longer does not help (9 Nov 2026)
+                break
         except urllib.error.HTTPError as ex:
             last = inworld_service._http_error_detail(ex)
             if ex.code in (400, 401, 403, 404, 422):
                 break
         except Exception as ex:
             last = str(ex)
+    if empty:
+        for name, t in _empty_audio_texts(text):
+            info["tried"].append(name)
+            try:
+                audio = say(t)
+                info["fallback"] = name
+                print(f"[tts] empty audio for a line: spoken {name} ({info['tries']} requests)")
+                return audio, ""
+            except inworld_service.EmptyAudio as ex:
+                last = str(ex)
+            except Exception as ex:
+                last = str(ex)
+                break
     return None, last
 
 

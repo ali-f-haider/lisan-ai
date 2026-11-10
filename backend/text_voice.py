@@ -53,6 +53,14 @@ TRANSLATE_PER_1000 = _env_num("TEXT_VOICE_TRANSLATE_PER_1000", 5)
 ARABIC_PER_1000 = _env_num("TEXT_VOICE_ARABIC_PER_1000", 2)
 PAUSES = {"same": 0.35, "turn": 0.6, "para": 0.9}       # seconds of silence before a line: same speaker, new speaker, new paragraph
 SPEEDS = (0.85, 0.9, 1.0, 1.1, 1.2)      # the speed of the whole text or of one line (played faster or slower, the voice stays the same)
+# "Fit into __ seconds" (1.96.4, Ali): the pauses change first (0.4x to 2.5x), then the speed, never outside the natural range below.
+FIT_PAUSE_MIN, FIT_PAUSE_MAX = 0.4, 2.5
+FIT_SPEED_MIN, FIT_SPEED_MAX = 0.85, 1.2
+FIT_MIN_SEC, FIT_MAX_SEC = 3, 7200
+FIT_TOLERANCE = 0.3                      # seconds off the target that still count as fitted
+# "Keep the times of my subtitles" (1.96.4): every line is spoken at the time of its subtitle, faster (up to this) when it is longer.
+TIMED_SPEED_MAX = 1.25
+TIMED_GAP = 0.05                         # a line that runs late still starts this long after the one before it
 PRON_MAX = 60                   # words in the pronunciation list of a project
 PRON_TERM_MAX = 80              # characters on each side of one entry
 READ_FILE_MAX = 2_000_000       # an uploaded .txt, .docx or .srt file
@@ -194,7 +202,7 @@ def _speakable(text):
     return bool(re.search(r"[^\W_]", str(text or "")))
 
 
-def parse_script(text):
+def parse_script(text, rows=False):
     """(speakers, lines). A script where at least two lines, and at least half of them, start with "Name:" gets one speaker per
     name (an unlabelled line continues the speaker before it); any other text has one speaker, the narrator."""
     text = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -216,7 +224,7 @@ def parse_script(text):
         return ids[name]
 
     lines, current, blank = [], None, False
-    for ln in raw:
+    for row, ln in enumerate(raw):
         if not ln.strip():
             blank = True
             continue
@@ -236,13 +244,105 @@ def parse_script(text):
                     pause = "turn"
             lines.append({"id": "l%d" % (len(lines) + 1), "speaker_id": sid, "text": piece, "pause": pause,
                           "arabic": "", "emotion": "", "gender_check": False, "audio": ""})
+            if rows:
+                lines[-1]["_row"] = row
         current, blank = sid, False
     return speakers, lines
 
 
+# ------------------------------------------------------------------ subtitle times (1.96.4)
+
+def _norm_lines(text):
+    return [re.sub(r"\s+", " ", x).strip() for x in str(text or "").replace("\r\n", "\n").split("\n") if x.strip()]
+
+
+def _clean_cues(cues, text):
+    """The subtitles' times [{start, end, text}] when they still belong to `text` (one subtitle per line of the text, the words
+    unchanged), else None: a text the person changed after reading the file is spoken without the times."""
+    try:
+        if not isinstance(cues, list) or not cues or len(cues) > MAX_LINES:
+            return None
+        out = []
+        for c in cues:
+            a, b = float(c["start"]), float(c["end"])
+            t = re.sub(r"\s+", " ", str(c.get("text") or "")).strip()
+            if not (math.isfinite(a) and math.isfinite(b) and 0 <= a < b <= 36000 and t):
+                return None
+            out.append({"start": round(a, 3), "end": round(b, 3), "text": t})
+        if [c["text"] for c in out] != _norm_lines(text):
+            return None
+        return out
+    except Exception:
+        return None
+
+
+def _give_slots(lines, cues, text):
+    """Every line gets the time of its subtitle ("slot"); a subtitle cut into several sentences is shared out by their length.
+    The subtitles are the non-empty rows of the text, in order (parse_script numbers the rows of the text, empty ones included)."""
+    rows = str(text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    cue_of = {r: k for k, r in enumerate(i for i, x in enumerate(rows) if x.strip())}
+    by_row = {}
+    for ln in lines:
+        by_row.setdefault(ln.pop("_row", None), []).append(ln)
+    for r, group in by_row.items():
+        k = cue_of.get(r)
+        if k is None or k >= len(cues):
+            continue
+        cue = cues[k]
+        total = float(sum(max(1, len(x["text"])) for x in group))
+        at = cue["start"]
+        for x in group:
+            share = (cue["end"] - cue["start"]) * max(1, len(x["text"])) / total
+            x["slot"] = [round(at, 3), round(at + share, 3)]
+            at += share
+
+
+def _has_slots(job):
+    spoken = [ln for ln in job.get("lines") or [] if _speakable(ln.get("arabic")) or not job.get("prepared")]
+    return bool(spoken) and all(isinstance(ln.get("slot"), list) and len(ln["slot"]) == 2 for ln in spoken)
+
+
+def _timed(job):
+    """True when the audio follows the subtitles' times (the project was made from a subtitle file, and the person kept them)."""
+    return bool(job.get("keep_times")) and _has_slots(job)
+
+
+_CUE_TIME = re.compile(r"^\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3})")
+
+
+def _secs(stamp):
+    parts = stamp.replace(",", ".").split(":")
+    out = 0.0
+    for p in parts:
+        out = out * 60 + float(p)
+    return out
+
+
+def subtitle_cues(text):
+    """[{start, end, text}] of an .srt or .vtt file, in the same words and order as _subtitle_text gives the text box."""
+    cues, cur, times = [], [], None
+    for line in (str(text or "").replace("\r\n", "\n").replace("\r", "\n") + "\n\n").split("\n"):
+        s = line.strip()
+        if not s:
+            if cur and times:
+                t = re.sub(r"\s+", " ", " ".join(cur)).strip()
+                if t:
+                    cues.append({"start": times[0], "end": times[1], "text": t})
+            cur, times = [], None
+            continue
+        m = _CUE_TIME.match(s)
+        if m:
+            times = (_secs(m.group(1)), _secs(m.group(2)))
+            continue
+        if (s.isdigit() and times is None) or s.upper().startswith(("WEBVTT", "NOTE", "STYLE")):
+            continue
+        cur.append(re.sub(r"<[^>]+>|\{\\[^}]*\}", "", s).strip())
+    return cues
+
+
 # ------------------------------------------------------------------ projects
 
-def new_job(uid, text, source_language, title=""):
+def new_job(uid, text, source_language, title="", cues=None):
     """(project, None) or (None, (message, status code)). Free: nothing is charged before the person confirms a price."""
     if not ENABLED:
         return None, ("This feature is not available right now.", 503)
@@ -255,7 +355,10 @@ def new_job(uid, text, source_language, title=""):
         return None, ("Please paste or type your text first.", 400)
     if len(text) > MAX_CHARS:
         return None, (f"Your text has {len(text):,} characters. The limit is {MAX_CHARS:,}. Please split it into parts.", 413)
-    speakers, lines = parse_script(text)
+    cues = _clean_cues(cues, text)
+    speakers, lines = parse_script(text, rows=bool(cues))
+    if cues:
+        _give_slots(lines, cues, text)
     if not lines:
         return None, ("Please paste or type your text first.", 400)
     if len(lines) > MAX_LINES:
@@ -265,8 +368,11 @@ def new_job(uid, text, source_language, title=""):
     job = {"id": uuid.uuid4().hex, "uid": uid, "created": _now(), "updated": _now(), "title": title,
            "source_language": lang, "speakers": speakers, "lines": lines, "prepared": False,
            "busy": "", "percent": 0, "message": "", "error": "", "ops": {}, "audio": {}}
+    if cues:
+        job["keep_times"] = True
     _save(job)
-    _ev(job, "created", "ok", f"{lang}, {len(text)} characters, {len(lines)} lines, {len(speakers)} speaker(s)")
+    _ev(job, "created", "ok", f"{lang}, {len(text)} characters, {len(lines)} lines, {len(speakers)} speaker(s)"
+        + (f"; the times of {len(cues)} subtitles kept" if cues else ""))
     return job, None
 
 
@@ -410,6 +516,20 @@ def set_options(job, payload):
         if v is None:
             return False, ("Please choose one of the speeds offered.", 400)
         job["speed"] = v
+    if "fit_seconds" in payload:              # "Fit into __ seconds": empty or 0 switches it off
+        v = payload.get("fit_seconds")
+        if v in (None, "", 0, "0"):
+            job.pop("fit_seconds", None)
+        else:
+            try:
+                v = round(float(v), 1)
+            except (TypeError, ValueError):
+                return False, ("Please enter the length in seconds.", 400)
+            if not FIT_MIN_SEC <= v <= FIT_MAX_SEC:
+                return False, (f"Please enter between {FIT_MIN_SEC} and {FIT_MAX_SEC} seconds.", 400)
+            job["fit_seconds"] = v
+    if "keep_times" in payload and _has_slots(job):
+        job["keep_times"] = payload.get("keep_times") is True
     if "pronunciation" in payload:
         text = str(payload.get("pronunciation") or "")
         if len(text) > 12000:
@@ -464,6 +584,10 @@ def _final_hash(job):
     speeds = [_speed_of(job, ln) for ln in job["lines"] if _speakable(ln.get("arabic"))]
     if any(v != 1.0 for v in speeds):           # only then, so the audio made before speeds existed stays current
         raw += "|speed:" + ",".join("%.2f" % v for v in speeds)
+    if _timed(job):
+        raw += "|timed:" + ",".join("%.2f-%.2f" % tuple(ln["slot"]) for ln in job["lines"] if _speakable(ln.get("arabic")))
+    elif job.get("fit_seconds"):
+        raw += "|fit:%.1f" % float(job["fit_seconds"])
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 
@@ -499,6 +623,8 @@ def public(job):
         "pronunciation": "\n".join(e["word"] + " = " + e["say"] for e in job.get("pronunciation") or []),
         "pronunciation_count": len(job.get("pronunciation") or []),
         "subtitles_ready": bool(_timing(job)),
+        "fit_seconds": job.get("fit_seconds") or None, "times_available": _has_slots(job), "keep_times": _timed(job),
+        "fit": (audio.get("fit") or None) if current else None,
     }
 
 
@@ -536,7 +662,7 @@ def admin_summary(uid=None):
             u["languages"].append(job["source_language"])
         u["speakers_max"] = max(u["speakers_max"], len(job.get("speakers") or []))
         lf = job.get("last_failure")
-        if lf:
+        if lf and not lf.get("fixed_at"):
             u["failures"] += 1
             if not u["last_failure"] or float(lf.get("at") or 0) > float(u["last_failure"].get("at") or 0):
                 u["last_failure"] = lf
@@ -1067,18 +1193,26 @@ def _speak_line(job, i):
     import longdub_service as ld
     ln = job["lines"][i]
     h = _line_hash(job, i)
-    audio, err = ld._tts_with_retry(_voice_of(job, ln), _tag(ln.get("emotion")) + _spoken_arabic(job, ln), _waqf_of(ln), _gap(job, i))
+    said = _tag(ln.get("emotion")) + _spoken_arabic(job, ln)
+    ld.TTS_NOTE.info = None
+    audio, err = ld._tts_with_retry(_voice_of(job, ln), said, _waqf_of(ln), _gap(job, i))
+    note = getattr(ld.TTS_NOTE, "info", None) or {}
     if not audio:
-        print(f"[text-voice] {job['id']} line {ln['id']} not spoken: {str(err)[:300]}")
-        _FAILS.setdefault(job["id"], []).append(str(err or "no answer")[:300])
+        # what is kept for the admin to repair it later: the reason, the requests made and what the line is made of, never its words
+        info = {"id": ln["id"], "why": str(err or "no answer")[:200], "shape": ld.text_shape(said),
+                "tries": int(note.get("tries") or 0), "empty": int(note.get("empty") or 0), "tried": list(note.get("tried") or [])}
+        print(f"[text-voice] {job['id']} line {ln['id']} not spoken: {info['why']} | {json.dumps({k: info[k] for k in ('shape', 'tries', 'empty', 'tried')})}")
+        _FAILS.setdefault(job["id"], []).append(info)
         return i, None
+    if note.get("fallback"):
+        _ev(job, "line_rescued", "ok", f"line {ln['id']}: the voice gave empty audio, spoken {note['fallback']} ({note.get('tries')} requests)")
     folder = _dir(job["id"]) / "lines"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{ln['id']}_{h}.mp3").write_bytes(audio)
     return i, h
 
 
-_FAILS = {}         # project id -> why lines were not spoken in the running step (kept on the project for the admin's Activity view)
+_FAILS = {}         # project id -> [{id, why, shape, tries, empty, tried}] of the lines not spoken in the running step (for the admin's Activity view)
 
 
 def _run_speak(job_id, todo, price):
@@ -1105,22 +1239,31 @@ def _run_speak(job_id, todo, price):
                 job["message"] = "Putting it together..."
                 _save(job)
                 seconds = _assemble(job)
-                job["audio"] = {"hash": _final_hash(job), "seconds": round(seconds, 1), "at": _now(), "timing": job.pop("audio_timing", [])}
+                job["audio"] = {"hash": _final_hash(job), "seconds": round(seconds, 1), "at": _now(), "timing": job.pop("audio_timing", []),
+                                "fit": job.pop("audio_fit", None)}
                 job["notes"] = [n for n in job.get("notes") or [] if n != "audio_expired"]
                 job["audio_count"] = int(job.get("audio_count") or 0) + 1
         with _lock_for(job_id):
+            back = 0
             if failed and price:
                 # the lines that were not spoken are given back (their share of the characters)
                 cpc = max(1, int(Hooks.chars_per_credit() or 60))
                 lost = sum(_spoken_len(job, i) for i in failed)
-                _give_back(job, "speak", min(price, int(math.ceil(lost / float(cpc)))), "speak_failed")
+                back = min(price, int(math.ceil(lost / float(cpc))))
+                _give_back(job, "speak", back, "speak_failed")
             if failed:
                 job["error"] = (f"{len(failed)} line(s) could not be spoken. They were not charged. Press the button again to try them once more.")
                 why = _FAILS.pop(job_id, [])
-                job["last_failure"] = {"at": _now(), "lines": len(failed), "of": len(todo), "detail": (why[0] if why else "")[:300]}
-                _ev(job, "spoken", "partial", f"{len(todo) - len(failed)} of {len(todo)} lines")
+                job["last_failure"] = {"at": _now(), "lines": len(failed), "of": len(todo), "detail": (why[0]["why"] if why else "")[:300],
+                                       "refund": back, "lines_info": why[:20]}
+                _ev(job, "spoken", "partial", f"{len(todo) - len(failed)} of {len(todo)} lines; {back} credits given back; the person can press "
+                    f"the button again (only these lines are made). Not spoken: "
+                    + "; ".join(f"{w['id']} ({w['why'][:60]}; {w['tries']} requests, {w['empty']} empty; tried: {', '.join(w['tried']) or 'nothing else'}; "
+                                f"shape {json.dumps(w['shape'], separators=(',', ':'))})" for w in why[:8]))
             else:
                 job["error"] = ""
+                if job.get("last_failure") and not job["last_failure"].get("fixed_at"):
+                    job["last_failure"]["fixed_at"] = _now()       # a later run made the audio: the Activity warning is shown as solved
                 _ev(job, "spoken", "ok", f"{len(todo)} lines spoken, {job['audio'].get('seconds')} s")
             _close(job, "speak")
             job["busy"], job["percent"], job["message"] = "", 100, ""
@@ -1159,8 +1302,35 @@ def _active_rms(x):
     return float(np.sqrt(np.mean(np.square(loud)))) if len(loud) else 0.0
 
 
+def _fit_plan(durs, speeds, gaps, target):
+    """(pause factor, speed factor, length) that bring speech of `durs` seconds (before speed; each line's own speed `speeds`) and
+    pauses `gaps` as close to `target` seconds as the natural limits allow: the pauses change first (FIT_PAUSE_MIN..MAX times),
+    then the speed (every line stays between FIT_SPEED_MIN and FIT_SPEED_MAX). Pure."""
+    def speech(f):
+        return sum(d / min(FIT_SPEED_MAX, max(FIT_SPEED_MIN, s * f)) for d, s in zip(durs, speeds))
+    base_speech, base_gaps = speech(1.0), sum(gaps)
+    want = float(target)
+    g = 1.0
+    if base_gaps > 0:
+        g = min(FIT_PAUSE_MAX, max(FIT_PAUSE_MIN, (want - base_speech) / base_gaps))
+    room = want - base_gaps * g
+    f = 1.0
+    if abs(base_speech - room) > 0.05 and base_speech > 0:
+        lo, hi = 0.3, 3.0              # the speech gets shorter as f grows: bisection on f
+        for _ in range(60):
+            mid = (lo + hi) / 2.0
+            if speech(mid) > room:
+                lo = mid
+            else:
+                hi = mid
+        f = (lo + hi) / 2.0
+    return g, f, speech(f) + base_gaps * g
+
+
 def _assemble(job):
-    """Every spoken line in order, without the voice's own silence, at one level, with the pauses; saved as final.mp3. Returns seconds."""
+    """Every spoken line in order, without the voice's own silence, at one level, with the pauses; saved as final.mp3. Returns seconds.
+    With "Fit into __ seconds" the pauses and then the speed are changed within natural limits (_fit_plan); with the subtitles'
+    times kept every line starts at its subtitle's time, faster (up to TIMED_SPEED_MAX) when it is longer than the subtitle."""
     import numpy as np
     import soundfile as sf
     import ffmpeg_utils
@@ -1169,38 +1339,79 @@ def _assemble(job):
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     try:
-        clips = []
+        trimmed = []
         for i, ln in enumerate(job["lines"]):
             if not _speakable(ln.get("arabic")):
                 continue
             wav = work / f"{ln['id']}.wav"
             if ld._trim_silence(_line_file(job, ln), wav) is None:
                 continue
-            speed = _speed_of(job, ln)
-            if speed != 1.0:                    # faster or slower, the voice keeps its pitch
+            info = sf.info(str(wav))
+            trimmed.append((ln, wav, info.frames / float(info.samplerate)))
+        if not trimmed:
+            raise RuntimeError("no audio")
+        timed = _timed(job)
+        gaps = [PAUSES[ln["pause"]] if k else 0.0 for k, (ln, _w, _d) in enumerate(trimmed)]
+        speeds = [_speed_of(job, ln) for ln, _w, _d in trimmed]
+        report, g_factor = None, 1.0
+        if timed:
+            final_speeds = []
+            for (ln, _w, d), sp in zip(trimmed, speeds):
+                room = max(0.2, float(ln["slot"][1]) - float(ln["slot"][0]))
+                final_speeds.append(sp if d / sp <= room else min(TIMED_SPEED_MAX, max(sp, d / room)))
+        elif job.get("fit_seconds"):
+            g_factor, f, _length = _fit_plan([d for _l, _w, d in trimmed], speeds, gaps, job["fit_seconds"])
+            final_speeds = [min(FIT_SPEED_MAX, max(FIT_SPEED_MIN, sp * f)) for sp in speeds]
+            mid = sorted(final_speeds)[len(final_speeds) // 2]
+            report = {"target": float(job["fit_seconds"]), "pauses": round(g_factor, 2), "speed": round(mid, 2)}
+        else:
+            final_speeds = speeds
+        clips = []
+        for (ln, wav, _d), speed in zip(trimmed, final_speeds):
+            if abs(speed - 1.0) > 0.004:        # faster or slower, the voice keeps its pitch
                 fast = work / f"{ln['id']}_speed.wav"
                 ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(wav), "-filter:a", f"atempo={speed:.3f}", str(fast)])
                 wav = fast
             x, sr = sf.read(str(wav), dtype="float32", always_2d=True)
             clips.append((ln, x, sr))
-        if not clips:
-            raise RuntimeError("no audio")
         sr = clips[0][2]
+        channels = max(x.shape[1] for _ln, x, _sr in clips)
         levels = [r for r in (_active_rms(x) for _ln, x, _sr in clips) if r > 0]
         target = float(np.median(levels)) if levels else 0.0
-        parts, timing, at = [], [], 0
+        parts, timing, at, late = [], [], 0, []
         for k, (ln, x, _sr) in enumerate(clips):
-            if k:
-                gap = np.zeros((int(PAUSES[ln["pause"]] * sr), x.shape[1]), dtype="float32")
-                parts.append(gap)
-                at += len(gap)
+            if x.shape[1] < channels:
+                x = np.repeat(x, channels, axis=1)
+            if timed:
+                start = max(int(round(float(ln["slot"][0]) * sr)), at + (int(TIMED_GAP * sr) if k else 0))
+                gap_len = start - at
+            else:
+                gap_len = int(gaps[k] * g_factor * sr) if k else 0
+            if gap_len > 0:
+                parts.append(np.zeros((gap_len, channels), dtype="float32"))
+                at += gap_len
             r = _active_rms(x)
             if target and r:
                 x = x * float(np.clip(target / r, 10 ** (-6 / 20), 10 ** (6 / 20)))
             parts.append(x)
             timing.append({"id": ln["id"], "start": round(at / float(sr), 3), "end": round((at + len(x)) / float(sr), 3)})
             at += len(x)
+            if timed and timing[-1]["end"] - float(ln["slot"][1]) > 0.15:
+                late.append({"id": ln["id"], "late": round(timing[-1]["end"] - float(ln["slot"][1]), 1)})
         job["audio_timing"] = timing          # where each line is in the MP3 (for the subtitles and the lines ZIP)
+        seconds = at / float(sr)
+        if report is not None:
+            report["seconds"] = round(seconds, 1)
+            off = seconds - report["target"]
+            if off > FIT_TOLERANCE:          # still too long: about how many characters to cut
+                chars = sum(len(_spoken_arabic(job, ln)) for ln, _x, _s in clips) or 1
+                report["over"] = round(off, 1)
+                report["cut_chars"] = int(math.ceil(chars * off / max(seconds, 0.1)))
+            elif off < -FIT_TOLERANCE:
+                report["under"] = round(-off, 1)
+        if timed:
+            report = {"timed": True, "late": late[:30], "late_count": len(late), "fast": sum(1 for v in final_speeds if v > 1.001)}
+        job["audio_fit"] = report
         mix = np.concatenate(parts)
         peak = float(np.max(np.abs(mix))) if len(mix) else 0.0
         if peak > 0.98:
@@ -1212,7 +1423,7 @@ def _assemble(job):
         ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(joined), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "44100",
                                  "-codec:a", "libmp3lame", "-b:a", "192k", str(tmp)])
         os.replace(tmp, final)
-        return len(mix) / float(sr)
+        return seconds
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -1406,7 +1617,9 @@ def read_text_file(name, data):
         if ext == ".docx":
             text = _docx_text(data)
         elif ext in (".srt", ".vtt"):
-            text = _subtitle_text(_decode(data))
+            raw = _decode(data)
+            cues = subtitle_cues(raw)       # the text box gets exactly the subtitles' words, so their times can be kept (1.96.4)
+            text = "\n".join(c["text"] for c in cues) if cues else _subtitle_text(raw)
         elif ext in (".txt", ".text", ".md", ""):
             text = _decode(data)
         else:

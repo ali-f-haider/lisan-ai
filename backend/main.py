@@ -6001,7 +6001,8 @@ def text_voice_new(request: Request, payload: dict):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     if _rate_limited(request, "text_voice_new", 30, 3600):
         return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
-    job, err = text_voice.new_job(uid, (payload or {}).get("text"), (payload or {}).get("source_language"), (payload or {}).get("title"))
+    job, err = text_voice.new_job(uid, (payload or {}).get("text"), (payload or {}).get("source_language"), (payload or {}).get("title"),
+                                  cues=(payload or {}).get("cues"))
     if err:
         return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
     return text_voice.public(job)
@@ -6167,7 +6168,12 @@ async def text_voice_read_file(request: Request, file: UploadFile = File(...)):
     text, err = text_voice.read_text_file(file.filename, data)
     if err:
         return JSONResponse({"error": customer_message(err)}, status_code=400)
-    return {"text": text, "chars": len(text)}
+    out = {"text": text, "chars": len(text)}
+    if str(file.filename or "").lower().endswith((".srt", ".vtt")):      # the subtitles' times, for "Keep the times of my subtitles" (1.96.4)
+        cues = text_voice.subtitle_cues(text_voice._decode(data))
+        if cues and len(cues) <= text_voice.MAX_LINES and "\n".join(c["text"] for c in cues) == text:
+            out["cues"] = cues
+    return out
 
 
 @app.get("/api/text_voice/{job_id}/line/{line_id}")

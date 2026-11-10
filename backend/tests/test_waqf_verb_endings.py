@@ -63,9 +63,12 @@ class VerbEndingSpeechTests(unittest.TestCase):
 
     def test_long_dub_sends_preserved_text_without_changing_the_row(self):
         synthesize = Mock(return_value=b'audio')
-        env = source_functions('longdub_service.py', ['_voice_text', '_tts_with_retry'], {
+        import re as _re, threading as _threading
+        import longdub_service as _ld
+        env = source_functions('longdub_service.py', ['_voice_text', '_protect_brackets', '_tts_with_retry'], {
             'inworld_service': NS(synthesize=synthesize),
             'INWORLD_API_KEY': 'offline-test',
+            're': _re, 'TTS_NOTE': _threading.local(), '_TAG_START': _ld._TAG_START,
         })
         row = {'arabic_text': 'مَتَى شِئْتِ.'}
         with patch.dict('sys.modules', {'inworld_service': NS(synthesize=synthesize)}):
