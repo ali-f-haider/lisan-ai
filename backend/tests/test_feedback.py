@@ -177,6 +177,24 @@ function run(search, saved, status) {
         self.assertEqual(got["matches"], [True, True, True, True, False, False, False])
         self.assertEqual(got["loggedIn"]["listeners"], ["click"])
 
+class SignUpSignal(Base):
+    """1.97.6: a new account is reported to Google Analytics once ("sign_up", the goal Google Ads counts)."""
+    def test_once_for_a_new_account_never_for_an_old_one(self):
+        now = 2_000_000.0
+        self.assertTrue(fb.signup_signal("u1", now - 3600, now=now))
+        self.assertFalse(fb.signup_signal("u1", now - 3600, now=now + 60))
+        self.assertFalse(fb.signup_signal("u2", now - 4 * DAY, now=now))
+        self.assertFalse(fb.signup_signal("u3", None, now=now))
+
+    def test_the_page_and_the_route_are_wired(self):
+        js = (ROOT / "feedback.js").read_text(encoding="utf-8")
+        self.assertIn('"/api/signup_signal"', js)
+        self.assertIn('"sign_up"', js)
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        route = main[main.index('@app.get("/api/signup_signal")'):][:1200]
+        self.assertIn("feedback.signup_signal(uid, _account_created(uid))", route)
+        self.assertIn('fullmatch(r"G-[A-Za-z0-9]{4,20}", ga)', route)
+
 
 if __name__ == "__main__":
     unittest.main()

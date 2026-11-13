@@ -8573,6 +8573,23 @@ def invite_claim(request: Request, payload: dict):
     return {"status": status}
 
 
+@app.get("/api/signup_signal")
+def signup_signal(request: Request):
+    """{"sign_up": true, "ga": "G-..."} once for a new account, so the page sends Google Analytics the "sign_up" event that Google Ads
+    counts as a goal (1.97.6). Nothing is used up while no Google Analytics ID is set in the admin panel."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    import re as _re
+    ga = (_get_pricing_config().get("gaMeasurementId") or "").strip()
+    if LOCAL_DEV or not _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga):
+        return {"sign_up": False, "ga": ""}
+    sent = feedback.signup_signal(uid, _account_created(uid))
+    if sent:
+        print("[signup] new account reported to Google Analytics")
+    return {"sign_up": sent, "ga": ga if sent else ""}
+
+
 @app.get("/api/admin/feedback")
 def admin_feedback(request: Request):
     if not _admin_check(request):

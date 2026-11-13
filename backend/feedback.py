@@ -129,6 +129,32 @@ def answer(uid, stars, text="", page="", now=None):
     return True, None
 
 
+# ------------------------------------------------------------------ the sign-up signal for Google Ads (1.97.6, Ali)
+
+SIGNUP_HOURS = 72          # only an account made in the last 3 days is reported as a new sign-up
+
+
+def signup_signal(uid, account_created, now=None):
+    """True ONCE for a new account (made in the last SIGNUP_HOURS): the page then tells Google Analytics "sign_up", which Google Ads
+    counts as the goal of an ad. Every later call, and any older account, gives False."""
+    if not uid or account_created is None:
+        return False
+    now = time.time() if now is None else now
+    try:
+        if now - float(account_created) > SIGNUP_HOURS * 3600:
+            return False
+    except (TypeError, ValueError):
+        return False
+    with _lock:
+        data = _read()
+        u = _user(data, uid)
+        if u.get("signup_sent"):
+            return False
+        u["signup_sent"] = now
+        _write(data)
+    return True
+
+
 # ------------------------------------------------------------------ invite links
 
 def invite_code(uid):

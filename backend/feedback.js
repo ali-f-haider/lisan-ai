@@ -23,6 +23,30 @@
         }
     } catch (e) { /* the site works the same without it */ }
 
+    // ---- 3. a new account tells Google Analytics "sign_up" once (the goal Google Ads counts, 1.97.6; see /api/signup_signal)
+    try {
+        if (!sessionStorage.getItem("lisan_su")) {
+            fetch("/api/signup_signal", { credentials: "same-origin" }).then(function (r) {
+                if (r.status !== 200) return null;          // logged out: asked again on the first page after logging in
+                try { sessionStorage.setItem("lisan_su", "1"); } catch (e) {}
+                return r.json();
+            }).then(function (d) {
+                if (!d || !d.sign_up || !/^G-[A-Za-z0-9]{4,20}$/.test(d.ga || "")) return;
+                window.dataLayer = window.dataLayer || [];
+                if (typeof window.gtag !== "function") {
+                    window.gtag = function () { window.dataLayer.push(arguments); };
+                    var s = document.createElement("script");
+                    s.async = true;
+                    s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(d.ga);
+                    document.head.appendChild(s);
+                    window.gtag("js", new Date());
+                    window.gtag("config", d.ga);
+                }
+                window.gtag("event", "sign_up", { method: "lisan_ai" });
+            }).catch(function () {});
+        }
+    } catch (e) { /* the site works the same without it */ }
+
     // ---- 2. feedback question
     var T = {
         en: {
