@@ -28,6 +28,9 @@
 (function () {
   var l = "en";
   try { l = localStorage.getItem("lisan_lang") === "ar" ? "ar" : "en"; } catch (e) {}
+  // a link with ?lang=ar or ?lang=en (for example from an ad) opens the page in that language and keeps it
+  try { var q = (location.search.match(/[?&]lang=(ar|en)(?:&|$)/) || [])[1];
+        if (q) { l = q; localStorage.setItem("lisan_lang", q); } } catch (e) {}
   var d = document.documentElement;
   d.setAttribute("data-lang", l); d.lang = l; d.dir = l === "ar" ? "rtl" : "ltr";
   d.className += " js";

@@ -13,6 +13,9 @@
   if (!dark) root.classList.add("light");                               // set before the page paints, so there is no flash
 
   function stored() {
+    // a link with ?lang=ar or ?lang=en (for example from an ad) opens the page in that language and keeps it
+    var q = (location.search.match(/[?&]lang=(ar|en)(?:&|$)/) || [])[1];
+    if (q) { try { localStorage.setItem("lisan_lang", q); } catch (e) {} return q; }
     try { return localStorage.getItem("lisan_lang") === "ar" ? "ar" : "en"; } catch (e) { return "en"; }
   }
   function lang() { return root.getAttribute("data-lang") === "ar" ? "ar" : "en"; }
