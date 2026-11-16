@@ -5240,9 +5240,9 @@ def lipsync(req: LipSyncRequest, request: Request):
                 def worker():
                     from lipsync_operations import finish
                     try:
-                        # Admin-configurable (Lip-sync tab): "topview" (default since 2026-11-16) or "wan3" (direct Alibaba).
+                        # Admin-configurable (Lip-sync tab): "wan3" (direct Alibaba, the default) or "topview".
                         _lip_provider_cfg = _get_pricing_config().get("lipsyncProvider")
-                        _lip_provider = _lip_provider_cfg if _lip_provider_cfg in ("topview", "wan3") else "topview"
+                        _lip_provider = _lip_provider_cfg if _lip_provider_cfg in ("topview", "wan3") else "wan3"
                         lipsync_service.lipsync_worker(req.job_id, _lip_provider, "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
                             DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, resolution, watermark, TOPVIEW_API_KEY)
                     finally:
@@ -7708,7 +7708,9 @@ def _get_pricing_config():
         # Studio call, see DASHSCOPE_API_KEY). Defaults to "topview" as of
         # 2026-11-16 (Ali's call: "prepare the switch in admin page and set
         # topview as default"). Editable live from the admin Lip-sync tab.
-        "lipsyncProvider": "topview",
+        # 1.99.2 (Ali, 16 Nov 2026): back to "wan3" -- Topview's API refused his test clip in
+        # its safety review although the same clip works in Topview's own app.
+        "lipsyncProvider": "wan3",
         # Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"), set from
         # the admin panel. Empty string = analytics off. The landing() route
         # below injects Google's gtag.js snippet server-side into the page
@@ -8001,7 +8003,7 @@ def _save_pricing_config(config):
             "chars_per_credit": config.get("charsPerCredit", 60),
             "clone_credits": config.get("cloneCredits", 5),
             "lipsync_credits_per_sec": config.get("lipsyncCreditsPerSec", 10),
-            "lipsync_provider": config.get("lipsyncProvider") if config.get("lipsyncProvider") in ("topview", "wan3") else "topview",
+            "lipsync_provider": config.get("lipsyncProvider") if config.get("lipsyncProvider") in ("topview", "wan3") else "wan3",
             "ga_measurement_id": _clean_ga,
             "packs": config.get("packs", []),
             "subscription_name": config.get("subscriptionName", "Pro Monthly"),

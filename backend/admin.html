@@ -636,8 +636,8 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <div class="form-group">
           <label style="display:block;margin-bottom:6px;">Which bills the lip-sync call</label>
           <select id="lipsyncProvider" style="max-width:320px;">
-            <option value="topview">Topview AI (recommended — resells the same model cheaper)</option>
-            <option value="wan3">Alibaba Model Studio direct</option>
+            <option value="wan3">Alibaba Model Studio direct (recommended)</option>
+            <option value="topview">Topview AI (cheaper, but its safety check refused a clip that works on Alibaba)</option>
           </select>
           <div class="muted" style="margin-top:6px;">Topview needs <code>TOPVIEW_API_KEY</code> in Railway. Alibaba direct needs <code>DASHSCOPE_API_KEY</code> and <code>DASHSCOPE_WORKSPACE_ID</code>. Both need Cloudflare R2 (used for temporary files) either way. Neither has a free test call, so the sign-in check above only tells you the keys are set. 2026-11-16: Topview's endpoint for this exact mode was inferred from its documented pattern rather than confirmed from a worked example — watch the first real run's logs.</div>
         </div>
@@ -1703,7 +1703,7 @@ async function loadPricing() {
   const _dae = document.getElementById('diskAlertsEnabled');
   if (_dae) _dae.checked = r.data.diskAlertsEnabled !== false;
   document.getElementById('voiceEngine').value = (r.data.voiceEngine === 'inworld') ? 'inworld' : 'elevenlabs';
-  document.getElementById('lipsyncProvider').value = (r.data.lipsyncProvider === 'wan3') ? 'wan3' : 'topview';
+  document.getElementById('lipsyncProvider').value = (r.data.lipsyncProvider === 'topview') ? 'topview' : 'wan3';
   document.getElementById('uiStyle').value = (r.data.uiStyle === 'new') ? 'new' : 'classic';
   document.getElementById('landingStyle').value = (r.data.landingStyle === 'studio') ? 'studio' : 'classic';
   updateEngineFieldVisibility();
@@ -1828,7 +1828,7 @@ async function savePricing(factor) {
     longDubLipsyncMaxMin: parseInt(document.getElementById('longDubLipsyncMaxMin')?.value || '3') || 3,
     longDubAnalysisPerMin: (function(){ const v = parseFloat(document.getElementById('longDubAnalysisPerMin')?.value); return isNaN(v) ? 2 : v; })(),
     lipsyncCreditsPerSec: parseInt(document.getElementById('lipsyncCreditsPerSec')?.value || '40'),
-    lipsyncProvider: document.getElementById('lipsyncProvider')?.value === 'wan3' ? 'wan3' : 'topview',
+    lipsyncProvider: document.getElementById('lipsyncProvider')?.value === 'topview' ? 'topview' : 'wan3',
     concurrency: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
       return { max: Math.round(n('concMax', 2, 1, 4)), needGb: n('concNeed', 5, 1, 20), pct: n('concPct', 80, 30, 95), limitGb: n('concLimit', 0, 0, 256) }; })(),
     assistant: (function(){ const n = (id, d, lo, hi) => { const v = parseFloat(document.getElementById(id)?.value); return isNaN(v) ? d : Math.min(hi, Math.max(lo, v)); };
