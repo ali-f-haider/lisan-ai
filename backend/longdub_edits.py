@@ -394,7 +394,8 @@ def run(job):
             raw = work / f'{sid}.mp3'; raw.write_bytes(audio)
             slot = row['end'] - row['start']
             # a corrected line may run on into the silence after it (never over the next line), exactly as in the first dubbing
-            room = max(slot, (_later[0] - 0.05 - row['start']) if _later else slot)
+            # the last line may run on to the end of the video, as in the first dubbing (it was cut at its own end before 1.98.1)
+            room = max(slot, (_later[0] - 0.05 - row['start']) if _later else total - row['start'])
             ref = ld._wd(source) / 'vocals_mono.wav' if source else refs / f'{row["speaker_id"]}.wav'
             meta = ld._fit_line(raw, fit / f'{sid}.wav', slot, room, ref, row['start'] if source else 0)
             # the original line is measured the same way as the corrected line (the speech level, see ld._speech_levels), so the two compare

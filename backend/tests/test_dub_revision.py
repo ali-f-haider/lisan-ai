@@ -277,6 +277,20 @@ class CorrectionTests(unittest.TestCase):
         pcm=dub_audio._decode(ld.result_file(job),DATA/'mixed.pcm');power=dub_audio.levels(pcm);pcm._mmap.close()
         self.assertGreater(power[130:140].min(),.001)
 
+    def test_last_line_may_run_on_to_the_end_of_the_video(self):
+        # Ali, 16 Nov 2026: a corrected last line was cut at its own end although only silence followed it
+        tone=DATA/'long.mp3'
+        ff.run_ffmpeg(['ffmpeg','-y','-f','lavfi','-i','sine=frequency=440:duration=8','-c:a','libmp3lame',str(tone)])
+        ff.run_ffmpeg(['ffmpeg','-y','-f','lavfi','-i','sine=frequency=110:duration=96','-af','volume=0.1','-c:a','aac',str(self.effects)])
+        refs=ld.job_dir(self.parent['id'])/'editrefs';refs.mkdir(exist_ok=True)
+        ff.run_ffmpeg(['ffmpeg','-y','-i',str(tone),str(refs/'s1.wav')])
+        q=edits.quote(self.parent,['never-generate'])
+        with patch.object(ld,'start_worker'):job=edits.start(self.parent,['never-generate'],q['token'])
+        with patch.object(ld,'_tts_with_retry',return_value=(tone.read_bytes(),None)):edits.run(job)
+        self.assertEqual(job['status'],'done',job.get('error'))
+        line=job['correction_lines']['never-generate']
+        self.assertFalse(line['trim'],line);self.assertGreater(line['allowed'],5.5)
+
 class AudioTests(unittest.TestCase):
     def test_interrupted_paid_music_cannot_repeat_provider_calls(self):
         import dub_background
