@@ -376,8 +376,8 @@ var T = {
     retranslate: "Translate again", retranslating: "Translating…", retranslateFail: "We couldn't translate this just now. Please try again.",
     tashkeel: "Tashkeel", tashkeelWorking: "Adding…", tashkeelFail: "We couldn't add the diacritics just now. Please try again.",
     tashkeelHint: "Adds the vowel marks (tashkeel) to the words of this line that have none.",
-    waqfLabel: "Line ending", waqfAuto: "Auto", waqfStop: "Stop", waqfJoin: "Join",
-    waqfHint: "How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line. The text itself is never changed.",
+    waqfLabel: "Line ending", waqfAuto: "Auto", waqfStop: "Stop", waqfJoin: "Join", waqfExact: "As written",
+    waqfHint: "How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line; As written reads every word exactly as it is written, also before a comma and at the end. The text itself is never changed.",
     tutHeading: "🎬 Video tutorial: how to dub a long video", tutNote: "A step-by-step video guide to the whole process.",
     emoHint: function (n) { return "Pick up to 3 styles (" + n + " of 3)"; }, emoMax: "You can pick up to 3 styles. Untick one first.",
     chars: function (n) { return n + " characters"; },
@@ -660,8 +660,8 @@ var T = {
     retranslate: "أعد الترجمة", retranslating: "جارٍ الترجمة…", retranslateFail: "تعذّرت الترجمة الآن. حاول مرة أخرى.",
     tashkeel: "تشكيل", tashkeelWorking: "جارٍ التشكيل…", tashkeelFail: "تعذّر إضافة التشكيل الآن. حاول مرة أخرى.",
     tashkeelHint: "يضيف التشكيل إلى كلمات هذا السطر التي لا تحمل تشكيلاً.",
-    waqfLabel: "نهاية السطر", waqfAuto: "تلقائي", waqfStop: "وقف", waqfJoin: "وصل",
-    waqfHint: "كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي. النص نفسه لا يتغيّر.",
+    waqfLabel: "نهاية السطر", waqfAuto: "تلقائي", waqfStop: "وقف", waqfJoin: "وصل", waqfExact: "كما كُتب",
+    waqfHint: "كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي؛ كما كُتب يقرأ كل كلمة كما كُتبت تمامًا، حتى قبل الفاصلة وفي آخر الجملة. النص نفسه لا يتغيّر.",
     tutHeading: "🎬 شرح بالفيديو: كيف تدبلج فيديو طويلاً", tutNote: "شرح خطوة بخطوة لكل مراحل العملية.",
     emoHint: function (n) { return "اختر حتى 3 أساليب (" + n + " من 3)"; }, emoMax: "يمكنك اختيار 3 أساليب كحدٍّ أقصى. ألغِ أحدها أولاً.",
     chars: function (n) { return n + " حرفاً"; },
@@ -2280,7 +2280,7 @@ function makeWaqfPicker(s) {
   var wrap = document.createElement("label"); wrap.className = "ld-waqf"; wrap.title = T.waqfHint;
   var title = document.createElement("span"); title.textContent = T.waqfLabel;
   var sel = document.createElement("select"); sel.setAttribute("aria-label", T.waqfLabel);
-  [["auto", T.waqfAuto], ["stop", T.waqfStop], ["join", T.waqfJoin]].forEach(function (o) {
+  [["auto", T.waqfAuto], ["stop", T.waqfStop], ["join", T.waqfJoin], ["exact", T.waqfExact]].forEach(function (o) {
     var opt = document.createElement("option"); opt.value = o[0]; opt.textContent = o[1]; sel.appendChild(opt);
   });
   sel.value = s.waqf || "auto";

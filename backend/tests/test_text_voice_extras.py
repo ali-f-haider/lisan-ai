@@ -139,7 +139,7 @@ class ExactlyAsWritten(Ready):
     def test_exact_mode_changes_nothing(self):
         import arabic_waqf
         self.assertEqual(arabic_waqf.pausal("مُمْتَازٌ، كِتَابُهُ.", "exact", 1), "مُمْتَازٌ، كِتَابُهُ.")
-        self.assertEqual(arabic_waqf.clean_mode("exact"), "auto")                 # the long dub never stores it
+        self.assertEqual(arabic_waqf.clean_mode("exact"), "exact")                # since 1.98.0 Long dub offers it too ("As written")
 
 
 class OneLineAgain(Ready):

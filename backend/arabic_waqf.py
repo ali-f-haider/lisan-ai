@@ -48,7 +48,7 @@ _STRONG = ".!؟?…"
 _WEAK = "،,؛;:—–"
 _WEAK_STOPS = "،,؛;—–"           # inside a line these are stops (since 6 Nov 2026); the colon only when the line is set to "stop"
 GAP_PAUSE = 0.5                                  # seconds of silence after a line that make its end a real stop
-MODES = ("auto", "stop", "join")
+MODES = ("auto", "stop", "join", "exact")    # "exact": Read it as written (Text to voice and Long dub): no stop form at all
 
 # The special words (thanks, greetings, adverbs of manner / time / degree / place ...): their tanween fatha is spoken as an alef at a stop ("شُكْرَا").
 # Every OTHER word with a tanween fatha (كِتَابًا, مَاءً) gets no alef at a stop: a sukoon ("كِتَابْ"). Set ORDINARY_TANWEEN_FATHA = "alef" to give every

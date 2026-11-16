@@ -162,9 +162,9 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     }); refresh(); parent.appendChild(shell);
   }
   function waqfPicker(parent,row) {
-    var wrap=document.createElement('label'); wrap.className='ld-waqf'; wrap.title=tr('How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line. The text itself is never changed.','كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي. النص نفسه لا يتغيّر.');
+    var wrap=document.createElement('label'); wrap.className='ld-waqf'; wrap.title=tr('How the voice ends this line: Auto decides from the punctuation and the pause after it; Stop ends it as a full stop; Join lets it flow into the next line; As written reads every word exactly as it is written, also before a comma and at the end. The text itself is never changed.','كيف ينطق الصوت نهاية السطر: تلقائي يقرّر من علامات الترقيم والوقفة بعده؛ وقف ينهيه كوقفة تامة؛ وصل يتركه متصلاً بالسطر التالي؛ كما كُتب يقرأ كل كلمة كما كُتبت تمامًا، حتى قبل الفاصلة وفي آخر الجملة. النص نفسه لا يتغيّر.');
     var select=document.createElement('select'); select.setAttribute('aria-label',tr('Line ending','نهاية السطر'));
-    [['auto','Auto','تلقائي'],['stop','Stop','وقف'],['join','Join','وصل']].forEach(function(o){var opt=document.createElement('option'); opt.value=o[0]; opt.textContent=tr(o[1],o[2]); select.appendChild(opt);});
+    [['auto','Auto','تلقائي'],['stop','Stop','وقف'],['join','Join','وصل'],['exact','As written','كما كُتب']].forEach(function(o){var opt=document.createElement('option'); opt.value=o[0]; opt.textContent=tr(o[1],o[2]); select.appendChild(opt);});
     select.value=row.waqf||'auto'; select.onchange=function(){ if(working){select.value=row.waqf||'auto';return;} change(row,'waqf',select.value); };
     var title=document.createElement('span'); title.textContent=tr('Line ending','نهاية السطر');
     wrap.append(title,select); parent.appendChild(wrap);

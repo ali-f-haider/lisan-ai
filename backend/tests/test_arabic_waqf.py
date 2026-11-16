@@ -166,7 +166,16 @@ class TheVoiceGetsTheStopForm(unittest.TestCase):
 
     def test_edit_option_is_cleaned(self):
         import arabic_waqf
-        self.assertEqual([arabic_waqf.clean_mode(x) for x in ("stop", "JOIN", " auto ", "x", None)], ["stop", "join", "auto", "auto", "auto"])
+        self.assertEqual([arabic_waqf.clean_mode(x) for x in ("stop", "JOIN", " auto ", "x", None, "Exact")], ["stop", "join", "auto", "auto", "auto", "exact"])
+
+    def test_long_dub_as_written_keeps_every_vowel(self):
+        # Ali, 16 Nov 2026: "As written" in Long dub, like "Read it exactly as I wrote it" in Text to voice
+        import longdub_service as ld
+        line = "مَرْحَبًا، لِنَبْدَأْ دَبْلَجَةً طَوِيلَةً لِلْعَرَبِيَّةِ."
+        self.assertEqual(ld._voice_text(line, "exact", 99.0), line)
+        self.assertNotEqual(ld._voice_text(line, "auto", 99.0), line)
+        import arabic_waqf
+        self.assertEqual(pausal(line, arabic_waqf.clean_mode("exact"), 99.0), line)
         self.assertAlmostEqual(arabic_waqf.gap_after(5.0, 5.4), 0.4)
         self.assertEqual(arabic_waqf.gap_after(5.0, None), 99.0)
 
