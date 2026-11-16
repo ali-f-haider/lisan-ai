@@ -639,6 +639,13 @@ def _topview_wan3_lipsync(upload_path: Path, audio_path: Path, topview_key: str,
         progress["percent"] = 15
         progress["message"] = "Starting lip-sync..."
         wan_resolution = resolution if resolution in ("480P", "720P", "1080P") else _wan3_resolution_tier(upload_path)
+        wan_seed = random.randint(0, 2147483647)
+        # 1.99.1: the parameters now match the direct Alibaba call exactly. 1.99.0 sent
+        # "audio": true (Topview: "Whether to generate output audio" -- copied from their
+        # text-to-video example; the Alibaba call never sends it) and no prompt_extend
+        # (Alibaba's default is true: an internal model rewrites our prompt first). The
+        # first real run (16 Nov 2026) was refused by the safety review although Ali had
+        # dubbed the same clip in Topview's own app many times.
         body = json.dumps({
             "input": {
                 "prompt": WAN3_DUB_PROMPT,
@@ -649,10 +656,12 @@ def _topview_wan3_lipsync(upload_path: Path, audio_path: Path, topview_key: str,
             },
             "parameters": {
                 "resolution": wan_resolution,
+                "seed": wan_seed,
                 "ratio": "adaptive",
                 # -1 = auto: preserves the reference video's own duration, same as the direct Alibaba call.
                 "duration": -1,
-                "audio": True,
+                # see the comment at the direct Alibaba call: no rewrite of Ali's prompt
+                "prompt_extend": False,
             },
         }).encode("utf-8")
         req = urllib.request.Request(
@@ -681,11 +690,12 @@ def _topview_wan3_lipsync(upload_path: Path, audio_path: Path, topview_key: str,
         progress["generation_id"] = request_id
         progress["percent"] = 20
         progress["resolution"] = wan_resolution
-        print(f"[lipsync] job {job_id} topview request {request_id} resolution={wan_resolution}")
+        progress["seed"] = wan_seed
+        print(f"[lipsync] job {job_id} topview request {request_id} seed={wan_seed} resolution={wan_resolution}")
         # Same lipsync_runs record Alibaba-direct runs get (see _record_lipsync_run),
         # tagged provider="topview" so the admin cost estimate can tell the two
         # billers apart (topview_cost.py) instead of pricing everything as Alibaba.
-        _record_lipsync_run(job_id, request_id, None, wan_resolution, 0, provider="topview")
+        _record_lipsync_run(job_id, request_id, wan_seed, wan_resolution, 0, provider="topview")
 
         video_url_out = None
         charged_usd = None
