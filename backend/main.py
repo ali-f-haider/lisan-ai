@@ -26,7 +26,7 @@ from starlette.requests import ClientDisconnect
 from config import (BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
                     GEMINI_API_KEY, ELEVENLABS_API_KEY, INWORLD_API_KEY, HF_TOKEN, APP_PASSWORD, ADMIN_PASSWORD,
                     RESEND_API_KEY, CONTACT_TO_EMAIL, APP_VERSION, SENTRY_DSN, FAL_API_KEY, LOCAL_DEV,
-                    LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION,
+                    LIPSYNC_ENABLED, LIPSYNC_TEST_MODE, DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, TOPVIEW_API_KEY,
                     SITE_GATE_PASSWORD, lipsync_res, lipsync_rate, lipsync_rates, LIPSYNC_REF_IMAGES_ENABLED, LONGDUB_ALL_TIERS)
 import app_state
 from app_state import jobs_progress, usage_bucket
@@ -47,6 +47,7 @@ import watermark
 import r2_backup
 import business_metrics
 import alibaba_cost
+import topview_cost
 import disk_guard
 import railway_monitor
 import resource_meter
@@ -5239,8 +5240,11 @@ def lipsync(req: LipSyncRequest, request: Request):
                 def worker():
                     from lipsync_operations import finish
                     try:
-                        lipsync_service.lipsync_worker(req.job_id, "wan3", "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
-                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, resolution, watermark)
+                        # Admin-configurable (Lip-sync tab): "topview" (default since 2026-11-16) or "wan3" (direct Alibaba).
+                        _lip_provider_cfg = _get_pricing_config().get("lipsyncProvider")
+                        _lip_provider = _lip_provider_cfg if _lip_provider_cfg in ("topview", "wan3") else "topview"
+                        lipsync_service.lipsync_worker(req.job_id, _lip_provider, "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
+                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, resolution, watermark, TOPVIEW_API_KEY)
                     finally:
                         progress = jobs_progress.get(f"lipsync_{req.job_id}", {})
                         try:
@@ -7698,6 +7702,13 @@ def _get_pricing_config():
         # Editable live from the admin panel without a redeploy -- this is
         # only the fallback used if that panel has never set a value.
         "lipsyncCreditsPerSec": 40,
+        # Which lip-sync provider /api/lipsync calls -- "topview" (Topview
+        # AI's API Router, reselling the same Wan 3.0 model at a lower price,
+        # see TOPVIEW_API_KEY in config.py) or "wan3" (direct Alibaba Model
+        # Studio call, see DASHSCOPE_API_KEY). Defaults to "topview" as of
+        # 2026-11-16 (Ali's call: "prepare the switch in admin page and set
+        # topview as default"). Editable live from the admin Lip-sync tab.
+        "lipsyncProvider": "topview",
         # Google Analytics 4 Measurement ID (e.g. "G-XXXXXXXXXX"), set from
         # the admin panel. Empty string = analytics off. The landing() route
         # below injects Google's gtag.js snippet server-side into the page
@@ -7831,6 +7842,7 @@ def _get_pricing_config():
                 "charsPerCredit": row.get("chars_per_credit", defaults["charsPerCredit"]),
                 "cloneCredits": row.get("clone_credits", defaults["cloneCredits"]),
                 "lipsyncCreditsPerSec": row.get("lipsync_credits_per_sec", defaults["lipsyncCreditsPerSec"]),
+                "lipsyncProvider": row.get("lipsync_provider") or defaults["lipsyncProvider"],
                 "gaMeasurementId": row.get("ga_measurement_id", defaults["gaMeasurementId"]),
                 "packs": row.get("packs", defaults["packs"]),
                 # "or" (not a plain .get default) -- once the column exists,
@@ -7989,6 +8001,7 @@ def _save_pricing_config(config):
             "chars_per_credit": config.get("charsPerCredit", 60),
             "clone_credits": config.get("cloneCredits", 5),
             "lipsync_credits_per_sec": config.get("lipsyncCreditsPerSec", 10),
+            "lipsync_provider": config.get("lipsyncProvider") if config.get("lipsyncProvider") in ("topview", "wan3") else "topview",
             "ga_measurement_id": _clean_ga,
             "packs": config.get("packs", []),
             "subscription_name": config.get("subscriptionName", "Pro Monthly"),
@@ -8198,12 +8211,16 @@ def _get_generated_minutes():
 
 
 def _get_lipsync_spend_this_month():
-    """Estimated real-dollar Alibaba spend this month. Alibaba has no balance API
-    this app can reach, so it is worked out from our own tables: every Alibaba
-    task is a row in lipsync_runs (billed, whether or not a customer was charged),
-    and credit_spends holds what customers were charged. The prices, the 30%
-    promotion (ends 2026-11-01) and how billed seconds are found are all explained
-    in alibaba_cost.py. An estimate of money already spent, not a balance."""
+    """Estimated real-dollar lip-sync spend this month, split by who actually
+    billed it: Alibaba direct ("wan3") priced from catalog rates (see
+    alibaba_cost.py), and Topview ("topview") priced mostly from the real
+    charged_usd it reports per job (see topview_cost.py) -- added 2026-11-16
+    when Topview became the default lip-sync provider, so a month with both
+    providers' runs no longer gets priced as if every row were Alibaba.
+    credit_spends holds what customers were charged (used by alibaba_cost.py's
+    fallback for rows with no run record). An estimate of money already
+    spent, not a balance -- neither provider has a balance API this app can
+    reach."""
     import urllib.request as _ur
     import urllib.parse as _up
     now = time.gmtime()
@@ -8227,12 +8244,35 @@ def _get_lipsync_spend_this_month():
         return out
 
     spends = _rows("credit_spends", "credits,created_at,job_id", "&action=eq.lipsync") or []
-    runs = _rows("lipsync_runs", "job_id,resolution,status,created_at,billed_seconds")
-    if runs is None:      # the billed_seconds column has not been added yet
+    # Widest select first; fall back a column at a time for a DB where the
+    # 2026-11-16 migration (provider, charged_usd) hasn't been run yet, same
+    # pattern as the pre-existing billed_seconds fallback below.
+    runs = _rows("lipsync_runs", "job_id,resolution,status,created_at,billed_seconds,provider,charged_usd")
+    if runs is None:
+        runs = _rows("lipsync_runs", "job_id,resolution,status,created_at,billed_seconds,provider")
+    if runs is None:
+        runs = _rows("lipsync_runs", "job_id,resolution,status,created_at,billed_seconds")
+    if runs is None:      # the billed_seconds column has not been added yet either
         runs = _rows("lipsync_runs", "job_id,resolution,status,created_at") or []
+
+    # Rows with no provider recorded predate the Topview switch -- they can
+    # only be Alibaba (it was the only provider then).
+    topview_runs = [r for r in runs if r.get("provider") == "topview"]
+    topview_jobs = {r.get("job_id") for r in topview_runs}
+    wan3_runs = [r for r in runs if r.get("provider") != "topview"]
+    # A charge with no matching run at all (rare: the row insert itself
+    # failed) is assumed Alibaba by alibaba_cost.py's own fallback -- keep
+    # that assumption, just don't let it double-count a charge that really
+    # belongs to a known Topview job.
+    wan3_spends = [s for s in spends if (s.get("job_id") or "") not in topview_jobs]
+
     base = float(_get_pricing_config().get("lipsyncCreditsPerSec", 40) or 40)
-    est = alibaba_cost.estimate(spends, runs, base, today=time.strftime("%Y-%m-%d", now))
+    est = alibaba_cost.estimate(wan3_spends, wan3_runs, base, today=time.strftime("%Y-%m-%d", now))
     est["credits_this_month"] = sum(float(r.get("credits") or 0) for r in spends)
+
+    tv_est = topview_cost.estimate(topview_runs)
+    est["topview"] = tv_est          # {estimated_usd, runs, runs_from_charges, runs_assumed, assumed_usd}
+    est["combined_usd"] = round(est["estimated_usd"] + tv_est["estimated_usd"], 2)
     return est
 
 
@@ -8273,8 +8313,9 @@ def admin_service_usage(request: Request):
     resend = service_usage_monitor.get_resend_cached()
     r2 = r2_backup.get_storage_usage()
     alibaba = _get_lipsync_spend_this_month()
+    topview = alibaba.pop("topview", {})
     return {"elevenlabs": eleven, "inworld": inworld, "resend": resend, "r2": r2, "alibaba": alibaba,
-            "fal": fal_usage.read(FAL_API_KEY)}
+            "topview": topview, "fal": fal_usage.read(FAL_API_KEY)}
 
 
 _biz_cache = {}   # days -> (epoch, result); a Stripe + database read takes a few seconds, so keep it for a minute

@@ -333,7 +333,13 @@ def _wan3_resolution_tier(video_path: Path) -> str:
 # good or bad result can be re-run with the exact same seed later.
 # Best-effort by design: a failed insert (table missing, Supabase down, env
 # vars unset) is logged and swallowed and can never fail or delay the job.
-def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
+#
+# provider (added 2026-11-16, with the Topview switch): "wan3" (direct
+# Alibaba) or "topview" (Topview's API Router reselling the same model) --
+# lets the admin cost estimate (see alibaba_cost.py / topview_cost.py) know
+# which biller a row belongs to instead of assuming every row is Alibaba.
+# Needs its own column: alter table lipsync_runs add column if not exists provider text;
+def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count, provider="wan3"):
     supabase_url = os.environ.get("SUPABASE_URL", "")
     service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
     if not supabase_url or not service_key:
@@ -347,6 +353,7 @@ def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
             "app_version": APP_VERSION,
             "resolution": resolution,
             "reference_images": ref_image_count,
+            "provider": provider,
         }
         req = urllib.request.Request(
             f"{supabase_url}/rest/v1/lipsync_runs",
@@ -364,7 +371,7 @@ def _record_lipsync_run(job_id, task_id, seed, resolution, ref_image_count):
 # Second half of the run record: once Wan reports the outcome, mark the row
 # (matched by Wan's task id) succeeded / failed / canceled / timed_out and
 # keep the failure text. Same best-effort rule as above -- never raises.
-def _update_lipsync_run(task_id, status, error=None, usage=None):
+def _update_lipsync_run(task_id, status, error=None, usage=None, charged_usd=None):
     supabase_url = os.environ.get("SUPABASE_URL", "")
     service_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
     if not supabase_url or not service_key or not task_id:
@@ -388,6 +395,23 @@ def _update_lipsync_run(task_id, status, error=None, usage=None):
                     pass
             except Exception as e:
                 print(f"[lipsync] could not save billed_seconds for task {task_id} (column added?): {e}")
+    # Topview reports the real dollar amount it charged for this job directly
+    # (data.charged_usd) -- far better than estimating from a catalog rate, so
+    # topview_cost.py's admin estimate uses this instead of guessing. Needs
+    # its own column: alter table lipsync_runs add column if not exists charged_usd numeric;
+    if charged_usd is not None:
+        try:
+            req = urllib.request.Request(
+                f"{supabase_url}/rest/v1/lipsync_runs?task_id=eq.{urllib.parse.quote(str(task_id), safe='')}",
+                data=json.dumps({"charged_usd": charged_usd}).encode("utf-8"),
+                headers={"apikey": service_key, **sb_auth(service_key),
+                         "Content-Type": "application/json", "Prefer": "return=minimal"},
+                method="PATCH",
+            )
+            with urllib.request.urlopen(req, timeout=5):
+                pass
+        except Exception as e:
+            print(f"[lipsync] could not save charged_usd for task {task_id} (column added?): {e}")
     try:
         patch = {"status": status, "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
         if error:
@@ -517,7 +541,7 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
         progress["seed"] = wan_seed
         progress["resolution"] = wan_resolution
         print(f"[lipsync] job {job_id} wan task {task_id} seed={wan_seed} resolution={wan_resolution}")
-        _record_lipsync_run(job_id, task_id, wan_seed, wan_resolution, len(image_media))
+        _record_lipsync_run(job_id, task_id, wan_seed, wan_resolution, len(image_media), provider="wan3")
 
         video_url_out = None
         for _ in range(120):  # up to ~20 minutes at 10s intervals
@@ -560,6 +584,153 @@ def _alibaba_wan3_lipsync(upload_path: Path, audio_path: Path, dashscope_key: st
             r2_backup.delete_temp_object(img_key)
 
 
+# Topview AI's "API Router" -- a reseller platform that proxies this same
+# Wan 3.0 model (and 52 other third-party video/image models) at a lower
+# price than Alibaba's own console. Checked 2026-11-16 against Ali's real
+# Alibaba bill (see alibaba_cost.py): Topview's listed Wan 3.0 rate
+# undercuts Alibaba's actual billed cost by a wide margin even allowing for
+# Alibaba's double (reference-in + output) billing per clip-second. Ali, who
+# uses Topview daily, confirmed its "Reference to video" mode is exactly
+# this same job: "I know what Reference to video means ... it is what our
+# prompt-based lip-sync call does." So this reuses the identical
+# WAN3_DUB_PROMPT and reference_video/reference_audio media shape as the
+# direct Alibaba call above -- same model, different biller.
+#
+# Set as the default lip-sync provider (2026-11-16, Ali: "no need to test
+# it. prepare the switch in admin page and set topview as default") --
+# admin can switch back to direct Alibaba (provider "wan3") any time from
+# the Lip-sync tab if Topview turns out to be unreliable.
+#
+# IMPORTANT -- confirm on the first real run: Topview's own docs (topview.ai
+# and platform.topview.ai/docs) only gave a worked example for their
+# TEXT-to-video mode. The endpoint path and body fields below for
+# reference-to-video are inferred from that documented pattern (same
+# /models/alibaba/wan-3.0/... prefix, same input/parameters shape) -- they
+# were never read from a confirmed reference-to-video example. The POLL
+# endpoint and its response fields (data.id/status/outputs/error) ARE
+# directly documented and confirmed. If the very first real job gets back a
+# 400/404 from the create call, that error message names the real field or
+# path -- fix this function from it rather than guessing again.
+TOPVIEW_BASE_URL = "https://platform-backend.topview.ai/api/v1"
+
+
+def _topview_wan3_lipsync(upload_path: Path, audio_path: Path, topview_key: str, raw_video: Path, progress: dict, job_id: str, resolution=None):
+    if not topview_key:
+        raise UserError(_LS_DOWN)
+
+    # Same public-URL requirement as the direct Alibaba call above (Topview
+    # proxies the same Wan 3.0 model, which needs public HTTP(S) media URLs,
+    # no raw upload) -- reuse the same R2 temp-staging helper.
+    video_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_video.mp4"
+    audio_key = f"lipsync-tmp/{job_id}_{uuid.uuid4().hex[:8]}_audio.mp3"
+
+    progress["message"] = "Preparing your files for lip-sync..."
+    video_url = r2_backup.upload_temp_and_get_url(upload_path, video_key)
+    if not video_url:
+        print("[lipsync] could not stage the video in R2 (storage not configured, or the upload failed)")
+        raise UserError(_LS_DOWN)
+    audio_url = r2_backup.upload_temp_and_get_url(audio_path, audio_key)
+    if not audio_url:
+        r2_backup.delete_temp_object(video_key)
+        print("[lipsync] could not stage the audio in R2 (storage not configured, or the upload failed)")
+        raise UserError(_LS_DOWN)
+
+    try:
+        progress["percent"] = 15
+        progress["message"] = "Starting lip-sync..."
+        wan_resolution = resolution if resolution in ("480P", "720P", "1080P") else _wan3_resolution_tier(upload_path)
+        body = json.dumps({
+            "input": {
+                "prompt": WAN3_DUB_PROMPT,
+                "media": [
+                    {"type": "reference_video", "url": video_url},
+                    {"type": "reference_audio", "url": audio_url},
+                ],
+            },
+            "parameters": {
+                "resolution": wan_resolution,
+                "ratio": "adaptive",
+                # -1 = auto: preserves the reference video's own duration, same as the direct Alibaba call.
+                "duration": -1,
+                "audio": True,
+            },
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{TOPVIEW_BASE_URL}/models/alibaba/wan-3.0/reference-to-video/predictions",
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {topview_key}",
+                # Topview's docs call for a unique value per submission so a retried
+                # request is never double-charged/double-run.
+                "Idempotency-Key": uuid.uuid4().hex,
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                created = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise Exception(f"Lip-sync create HTTP {e.code}: {e.read().decode(errors='ignore')[:500]}")
+
+        created_data = created.get("data") if isinstance(created.get("data"), dict) else created
+        request_id = (created_data or {}).get("id")
+        if not request_id:
+            raise Exception(f"Create failed: {json.dumps(created)[:400]}")
+
+        progress["generation_id"] = request_id
+        progress["percent"] = 20
+        progress["resolution"] = wan_resolution
+        print(f"[lipsync] job {job_id} topview request {request_id} resolution={wan_resolution}")
+        # Same lipsync_runs record Alibaba-direct runs get (see _record_lipsync_run),
+        # tagged provider="topview" so the admin cost estimate can tell the two
+        # billers apart (topview_cost.py) instead of pricing everything as Alibaba.
+        _record_lipsync_run(job_id, request_id, None, wan_resolution, 0, provider="topview")
+
+        video_url_out = None
+        charged_usd = None
+        for _ in range(240):  # up to ~20 minutes at 5s intervals (Topview's own docs say poll every 2-5s)
+            time.sleep(5)
+            poll_req = urllib.request.Request(
+                f"{TOPVIEW_BASE_URL}/predictions/{request_id}",
+                headers={"Authorization": f"Bearer {topview_key}"},
+            )
+            try:
+                with urllib.request.urlopen(poll_req, timeout=30) as r:
+                    st = json.loads(r.read().decode())
+            except Exception:
+                continue
+            data = st.get("data") if isinstance(st.get("data"), dict) else st
+            status = str((data or {}).get("status") or "").lower()
+            if status in ("processing", "created"):
+                progress["message"] = "Lip-sync is in progress. This can take up to 15 minutes, so please keep this page open."
+            elif status == "payment_required":
+                _update_lipsync_run(request_id, "failed", f"payment_required: {json.dumps(data)[:400]}")
+                raise Exception(f"Topview is asking for payment/funding before it will run this job: {json.dumps(data)[:400]}")
+            if status == "completed":
+                outputs = (data or {}).get("outputs") or []
+                video_url_out = outputs[0] if outputs else None
+                # Topview reports the real dollar amount it charged for this job --
+                # recorded straight into lipsync_runs.charged_usd (see _update_lipsync_run),
+                # no catalog-rate estimate needed for a run that actually has this.
+                charged_usd = (data or {}).get("charged_usd")
+                _update_lipsync_run(request_id, "succeeded", charged_usd=charged_usd)
+                break
+            if status == "failed":
+                _update_lipsync_run(request_id, "failed", json.dumps((data or {}).get("error") or data)[:500])
+                raise Exception(f"Job failed: {json.dumps((data or {}).get('error') or data)[:400]}")
+        if not video_url_out:
+            _update_lipsync_run(request_id, "timed_out", "No result after ~20 minutes")
+            raise Exception(f"Timed out (~20 min). Request ID: {request_id}")
+
+        progress["message"] = "Getting your video ready..."
+        with urllib.request.urlopen(video_url_out, timeout=600) as resp:
+            raw_video.write_bytes(resp.read())
+    finally:
+        r2_backup.delete_temp_object(video_key)
+        r2_backup.delete_temp_object(audio_key)
+
+
 # UI/UX test double for the real provider calls above -- see
 # LIPSYNC_TEST_MODE in config.py. Runs through the same progress
 # percentages/messages a real Wan 3.0 call goes through, but in ~15 seconds
@@ -593,7 +764,7 @@ def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
     shutil.copy(source_video, raw_video)
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None, watermark=False):
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None, watermark=False, topview_key=""):
     key = f"lipsync_{job_id}"
     upload_path = None
     provider_returned = False   # True once the provider's generated video is in hand (kept for diagnosis)
@@ -626,6 +797,9 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
                 if not dashscope_key: raise UserError(_LS_DOWN)
                 ref_images = job_reference_images(job_id) if LIPSYNC_REF_IMAGES_ENABLED else []
                 _alibaba_wan3_lipsync(upload_path, dubbed_audio, dashscope_key, dashscope_workspace, dashscope_region, raw_video, jobs_progress[key], job_id, ref_images, resolution)
+            elif provider == "topview":
+                if not topview_key: raise UserError(_LS_DOWN)
+                _topview_wan3_lipsync(upload_path, dubbed_audio, topview_key, raw_video, jobs_progress[key], job_id, resolution)
             else:
                 if not eleven_key: raise UserError(_LS_DOWN)
                 _elevenlabs_lipsync(upload_path, dubbed_audio, eleven_key, raw_video, jobs_progress[key])

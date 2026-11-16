@@ -25,6 +25,7 @@ import urllib.request
 from supabase_keys import sb_auth
 
 import alibaba_cost
+import topview_cost
 import resource_meter
 
 PAGE = 1000
@@ -225,7 +226,14 @@ def compute(ctx, days=30):
     spends = f.rows("credit_spends", select="uid,action,credits,generated_seconds,created_at,job_id", params=gte)
     steps_in = ",".join(("upload_started", "terms_accepted", "dub_confirmed", "output_saved") + LONGDUB_CORE_STEPS)
     events = f.rows("long_dub_events", select="job_id,step,status,created_at", params=gte + f"&step=in.({steps_in})")
-    lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at,billed_seconds", params=gte, soft=True)
+    # Widest select first; fall back a column at a time for a DB where the
+    # 2026-11-16 Topview migration (provider, charged_usd) hasn't run yet,
+    # same pattern as the pre-existing billed_seconds fallback.
+    lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at,billed_seconds,provider,charged_usd", params=gte, soft=True)
+    if lip_runs is None:
+        lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at,billed_seconds,provider", params=gte, soft=True)
+    if lip_runs is None:
+        lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at,billed_seconds", params=gte, soft=True)
     if lip_runs is None:                      # the billed_seconds column has not been added yet
         lip_runs = f.rows("lipsync_runs", select="job_id,status,resolution,created_at", params=gte)
 
@@ -558,13 +566,24 @@ def compute(ctx, days=30):
     analysis_rows = action_count_p.get("long_dub_analysis", 0)
     ld_minutes = max(0.0, action_credits_p.get("long_dub_analysis", 0) - analysis_rows * flat) / analysis_rate if analysis_rate > 0 else 0.0
     lip_rate = _num(pricing.get("lipsyncCreditsPerSec"), 40) or 40
-    lip_est = alibaba_cost.estimate([r for r in spends if r.get("action") == "lipsync"], lip_runs, lip_rate,
+    # Split by who actually billed each run (lipsync_runs.provider) -- a row
+    # with no provider recorded predates the 2026-11-16 Topview switch, when
+    # Alibaba direct was the only provider, so it's counted as Alibaba.
+    lip_spends = [r for r in spends if r.get("action") == "lipsync"]
+    tv_jobs = {r.get("job_id") for r in lip_runs if r.get("provider") == "topview"}
+    wan3_runs = [r for r in lip_runs if r.get("provider") != "topview"]
+    wan3_spends = [s for s in lip_spends if (s.get("job_id") or "") not in tv_jobs]
+    lip_est = alibaba_cost.estimate(wan3_spends, wan3_runs, lip_rate,
                                     start_day=ps, end_day=pe, today=now.strftime("%Y-%m-%d"))
+    tv_runs = [r for r in lip_runs if r.get("provider") == "topview"]
+    tv_est = topview_cost.estimate(tv_runs, start_day=ps, end_day=pe)
     cost_inputs = {
-        "lipsync_usd": lip_est["estimated_usd"],
+        "lipsync_usd": round(lip_est["estimated_usd"] + tv_est["estimated_usd"], 2),
+        "lipsync_usd_alibaba": lip_est["estimated_usd"],
+        "lipsync_usd_topview": tv_est["estimated_usd"],
         "lipsync_usd_without_promo": lip_est["usd_without_promo"],
-        "lipsync_runs": lip_est["runs"],
-        "lipsync_runs_assumed": lip_est["runs_assumed"],
+        "lipsync_runs": lip_est["runs"] + tv_est["runs"],
+        "lipsync_runs_assumed": lip_est["runs_assumed"] + tv_est["runs_assumed"],
         "voice_chars": round(action_credits_p.get("generate", 0) * cpc + ld_voice_credits * iw_cpc),
         "lipsync_seconds": round(action_credits_p.get("lipsync", 0) / lip_rate, 1),
         "longdub_minutes": round(ld_minutes, 1),

@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.98.1"
+APP_VERSION = "1.99.0"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -143,6 +143,15 @@ DASHSCOPE_REGION = os.environ.get("DASHSCOPE_REGION", "eu-central-1")
 # guessing if either is blank.
 DASHSCOPE_SG_API_KEY = os.environ.get("DASHSCOPE_SG_API_KEY", "")
 DASHSCOPE_SG_WORKSPACE_ID = os.environ.get("DASHSCOPE_SG_WORKSPACE_ID", "")
+
+# --- Topview AI's "API Router" -- a reseller platform proxying the same
+# Wan 3.0 model (and others) used for lip-sync above, at a lower price than
+# Alibaba's own console (see lipsync_service.py's _topview_wan3_lipsync for
+# the comparison and the inferred-vs-confirmed API details). Set as the
+# default lip-sync provider 2026-11-16 (Ali's call), switchable back to
+# direct Alibaba from the admin Lip-sync tab ("lipsyncProvider" setting).
+# Needs this key set in Railway -- get it from platform.topview.ai.
+TOPVIEW_API_KEY = os.environ.get("TOPVIEW_API_KEY", "")
 
 # Step 7 (lip-sync) now runs on Wan 3.0 (see DASHSCOPE_API_KEY above)
 # instead of VEED Lip Sync 2.0 -- VEED's face regeneration visibly altered
