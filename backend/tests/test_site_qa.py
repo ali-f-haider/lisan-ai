@@ -198,10 +198,10 @@ class AccountTabsTests(unittest.TestCase):
         page = read("account.html")
         self.assertIn('id="acctTabbar" role="tablist"', page)
         tabs = re.findall(r'<button type="button" role="tab" class="acct-tab[^"]*" data-tab="(\w+)"[^>]*aria-selected="(true|false)"[^>]*aria-controls="panel-\1" tabindex="(0|-1)"', page)
-        self.assertEqual([t[0] for t in tabs], ["balance", "subscription", "voices", "files", "purchases", "usage", "api"])
-        self.assertEqual([t[2] for t in tabs], ["0", "-1", "-1", "-1", "-1", "-1", "-1"])        # one tab stop
+        self.assertEqual([t[0] for t in tabs], ["balance", "subscription", "voices", "projects", "files", "purchases", "usage", "api"])
+        self.assertEqual([t[2] for t in tabs], ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1"])        # one tab stop
         self.assertIsNone(re.search(r'<div class="acct-tab[ "]', page))
-        self.assertEqual(len(re.findall(r'role="tabpanel" aria-labelledby="tab\w+"', page)), 7)
+        self.assertEqual(len(re.findall(r'role="tabpanel" aria-labelledby="tab\w+"', page)), 8)
         for must in ('"ArrowRight"', '"ArrowLeft"', '"Home"', '"End"', 'aria-selected', "getComputedStyle(document.documentElement).direction"):
             self.assertIn(must, page)
         self.assertIn(".acct-tab:focus-visible", page)

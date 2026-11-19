@@ -7344,6 +7344,11 @@ def my_jobs(request: Request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     latest_seen = _user_job_ids(uid)
     jobs = []
+    try:            # Dub Long Video projects are charged under their own id, so their finished files are in the loop below too
+        long_projects = {p["id"]: p for p in longdub_service.list_jobs_for_uid(uid)}
+    except Exception as ex:
+        print(f"[my_jobs] long dub projects not read: {ex}")
+        long_projects = {}
     for jid, created_at in (latest_seen or {}).items():          # (None: the dub history could not be read; Text to voice is still listed)
         audio = OUTPUT_DIR / f"{jid}_final_dubbed.mp3"
         video = OUTPUT_DIR / f"{jid}_final_dubbed_video.mp4"
@@ -7363,12 +7368,48 @@ def my_jobs(request: Request):
                 if (OUTPUT_DIR / f"{jid}{_MY_JOB_FILE_SUFFIXES[k]}").exists()),
             "expires_at": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(newest_mtime + CLEANUP_FINAL_OUTPUT_DAYS * 86400)),
         })
+        project = long_projects.get(jid)
+        if project is not None:     # 1.101.0: shown with its name, "Open project" and the separate tracks, not as an unnamed file
+            jobs[-1].update(kind="longdub", title=longdub_service.project_name(project),
+                            tracks=[k for k in longdub_service.TRACK_KINDS if longdub_service.track_file(project, k) is not None])
     try:            # the MP3s made with Text to voice (text_voice.py), kept by the same rule
         jobs += text_voice.finished_for(uid, CLEANUP_FINAL_OUTPUT_DAYS * 24 if _subscription_active(uid) else PAYONCE_OUTPUT_HOURS)
     except Exception as ex:
         print(f"[my_jobs] text to voice files not listed: {ex}")
     jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
     return {"jobs": jobs, "storage": _storage_summary(uid, latest_seen) if latest_seen is not None else None}
+
+
+@app.get("/api/projects")
+def my_projects(request: Request):
+    """Every Dub Long Video and Text to voice project of this account, for the Account page's Projects tab (1.101.0).
+    Only an overview: each row opens the project on its own page, where all the work is done."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    out = []
+    try:
+        hide_api = not _get_api_settings().get("jobs_visible", True)
+        for j in longdub_service.list_jobs_for_uid(uid):
+            st = j.get("status") or ""
+            if st == "account_cleanup" or (hide_api and isinstance(j.get("api"), dict)):
+                continue
+            files = [f for f in _job_output_files(j["id"]) if f.exists()]
+            out.append({"kind": "longdub", "id": j["id"], "name": longdub_service.project_name(j), "status": st,
+                        "minutes": round(float(j.get("duration") or 0) / 60.0, 1), "updated": j.get("updated") or j.get("created") or 0,
+                        "bytes": sum(f.stat().st_size for f in files), "open": "/dub-long?open=" + j["id"]})
+    except Exception as ex:
+        print(f"[projects] long dub projects not listed: {ex}")
+    try:
+        sizes = {f["job_id"]: f.get("bytes") or 0 for f in text_voice.finished_for(uid)}
+        for t in text_voice.list_jobs(uid, limit=300):
+            out.append({"kind": "text", "id": t["id"], "name": t.get("title") or "", "status": "done" if t.get("audio_ready") else "draft",
+                        "lines": t.get("lines") or 0, "updated": t.get("updated") or 0, "bytes": sizes.get(t["id"], 0),
+                        "open": "/text-voice?open=" + t["id"]})
+    except Exception as ex:
+        print(f"[projects] text to voice projects not listed: {ex}")
+    out.sort(key=lambda p: float(p.get("updated") or 0), reverse=True)
+    return {"projects": out}
 
 
 @app.get("/api/my_jobs/{job_id}/{kind}")

@@ -950,6 +950,7 @@ function pickInitial() {
   // so one that was closed with "Close project" does not come back every time the page is opened.
   var stored = null;
   try { stored = localStorage.getItem(LS_KEY); } catch (e) {}
+  try { var asked = new URLSearchParams(location.search).get("open"); if (asked && /^[0-9a-f-]{36}$/.test(asked)) stored = asked; } catch (e) {}   // "Open" on the Account page's Projects tab
   var j = null;
   if (stored) j = jobs.filter(function (x) { return x.id === stored; })[0] || null;
   if (!j) j = jobs.filter(function (x) { return isOpen(x.status) && x.status !== "editing"; })[0] || null;
