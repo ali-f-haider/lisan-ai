@@ -91,6 +91,11 @@
       <strong id="dropTitle">Choose a video or audio file</strong>
       <span id="dropHint" class="note" style="display:inline-block;border:none;background:none;padding:0;margin:0;"></span>
     </div>
+    <div id="linkBox" style="margin-top:12px;">
+      <label for="linkInput" id="linkLabel" style="display:block;font-weight:600;margin-bottom:6px;"></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;"><input type="url" id="linkInput" inputmode="url" autocomplete="off" spellcheck="false" dir="ltr" style="flex:1 1 220px;min-width:0;"><button type="button" id="btnLink"></button></div>
+      <p class="note" id="linkNote" style="margin-top:6px;"></p>
+    </div>
     <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.mov,.mp4,.webm,.avi,.mp3,.wav,.m4a,.aac,.flac,.ogg" class="hidden">
     <p class="note" id="ldNoTrain" style="margin-top:8px;"></p>
     <div id="uploadError" class="ld-err hidden"></div>
@@ -264,6 +269,21 @@ var T = {
     lipResName: function (r) { return r.replace("P", "p"); },
     lipAudio: "Lip-sync needs a video file. Choose \"Without lip-sync\" for audio files.",
     dropTitle: "Choose a video or audio file (or drop it here)",
+    linkLabel: "Or paste a link to the video", linkBtn: "Use this link", linkPh: "https://drive.google.com/file/d/…",
+    linkNote: "Google Drive (the file shared as \"Anyone with the link\"), Dropbox, or a direct link to the file. YouTube links can't be used. Our server downloads the video itself, so you don't have to upload it.",
+    linkFetching: function (p) { return "Getting the video from your link… " + p + "%. You can close this page; it carries on."; },
+    linkRetry: "Try the link again", busyLink: "Checking the link… one moment.",
+    linkErr: {
+      bad_link: "This doesn't look like a link. Paste the full link, starting with https://",
+      video_site: "Links to YouTube and other video sites can't be used. Download your video and upload the file, or use a Google Drive, Dropbox or direct file link.",
+      drive_folder: "This is a Google Drive folder. Open the video itself in Drive and copy the link of that file.",
+      not_public: "We couldn't get the video from this link. In Google Drive, set the file to \"Anyone with the link\", and check that the link opens the video itself, not a page.",
+      not_reached: "We couldn't reach this link. Check that it is correct and public, then try again.",
+      no_size: "This link doesn't say how big the file is, so we can't take it. Download the video and upload the file instead.",
+      type: "This link isn't a video or audio file we can use (MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A, AAC, FLAC or OGG).",
+      changed: "The file at this link has changed since you started. Delete this project and start again with the link.",
+      stopped: "The download from the link stopped before the end. Press \"Try the link again\"."
+    },
     noTrain: "🔒 We never use your media to train AI models. You can delete your files any time from your Account page.",
     dropHint: function (maxMin, maxMb) { return "MP4, MOV, MKV, WEBM, AVI, MP3, WAV, M4A · " + maxMin + " minutes max · up to " + maxMb + " MB"; },
     tooBig: function (mb, maxMb) { return "This file is " + mb + " MB. The limit is " + maxMb + " MB."; },
@@ -548,6 +568,21 @@ var T = {
     lipResName: function (r) { return r.replace("P", "p"); },
     lipAudio: "تحتاج مزامنة الشفاه إلى ملف فيديو. اختر «بدون مزامنة الشفاه» للملفات الصوتية.",
     dropTitle: "اختر ملف فيديو أو صوت (أو أفلته هنا)",
+    linkLabel: "أو الصق رابط الفيديو", linkBtn: "استخدم هذا الرابط", linkPh: "https://drive.google.com/file/d/…",
+    linkNote: "رابط من Google Drive (ملف مشارَك مع \"أي شخص لديه الرابط\") أو Dropbox، أو رابط مباشر للملف. لا يمكن استخدام روابط YouTube. يُنزّل خادمنا الفيديو بنفسه، فلا حاجة إلى رفعه.",
+    linkFetching: function (p) { return "جارٍ جلب الفيديو من الرابط… " + p + "٪. يمكنك إغلاق هذه الصفحة، وسيستمر الجلب."; },
+    linkRetry: "أعد المحاولة بالرابط", busyLink: "جارٍ فحص الرابط… لحظة من فضلك.",
+    linkErr: {
+      bad_link: "هذا لا يبدو رابطًا. الصق الرابط كاملًا بدءًا من https://",
+      video_site: "لا يمكن استخدام روابط YouTube ومواقع الفيديو الأخرى. نزّل الفيديو وارفع الملف، أو استخدم رابطًا من Google Drive أو Dropbox أو رابطًا مباشرًا للملف.",
+      drive_folder: "هذا مجلد في Google Drive. افتح الفيديو نفسه في Drive وانسخ رابط هذا الملف.",
+      not_public: "تعذّر جلب الفيديو من هذا الرابط. في Google Drive اجعل مشاركة الملف \"أي شخص لديه الرابط\"، وتأكد أن الرابط يفتح الفيديو نفسه لا صفحة أخرى.",
+      not_reached: "تعذّر الوصول إلى هذا الرابط. تأكد أنه صحيح ومتاح للجميع، ثم حاول مرة أخرى.",
+      no_size: "هذا الرابط لا يذكر حجم الملف، لذلك لا يمكننا استخدامه. نزّل الفيديو وارفع الملف بدلًا من ذلك.",
+      type: "هذا الرابط ليس ملف فيديو أو صوت يمكننا استخدامه (MP4 أو MOV أو MKV أو WEBM أو AVI أو MP3 أو WAV أو M4A أو AAC أو FLAC أو OGG).",
+      changed: "تغيّر الملف الموجود على هذا الرابط منذ أن بدأت. احذف هذا المشروع وابدأ من جديد بالرابط.",
+      stopped: "توقف جلب الفيديو من الرابط قبل اكتماله. اضغط \"أعد المحاولة بالرابط\"."
+    },
     noTrain: "🔒 لا نستخدم وسائطك لتدريب نماذج الذكاء الاصطناعي. ويمكنك حذف ملفاتك في أي وقت من صفحة الحساب.",
     dropHint: function (maxMin, maxMb) { return "MP4 وMOV وMKV وWEBM وAVI وMP3 وWAV وM4A · حتى " + maxMin + " دقائق · حتى " + maxMb + " ميغابايت"; },
     tooBig: function (mb, maxMb) { return "حجم الملف " + mb + " ميغابايت. الحد الأقصى " + maxMb + " ميغابايت."; },
@@ -830,6 +865,8 @@ function applyStaticText() {
   $("subAskLabel").textContent = T.subAskLabel; $("subAskNote").textContent = T.subAskNote;
   $("btnPickSub").textContent = T.subPick; $("btnClearSub").textContent = T.subClear;
   $("dropTitle").textContent = T.dropTitle;
+  $("linkLabel").textContent = T.linkLabel; $("btnLink").textContent = T.linkBtn;
+  $("linkInput").placeholder = T.linkPh; $("linkNote").textContent = T.linkNote;
   $("listHeading").textContent = T.listHeading;
   $("jobHeading").textContent = T.jobHeading;
   $("editorHeading").textContent = T.editorHeading;
@@ -1031,7 +1068,23 @@ function renderJob() {
   $("jobHeading").textContent = heading;
   var name = '<p style="margin:0 0 6px;"><strong style="word-break:break-all;">' + esc(projName(j)) + "</strong> " + statusBadge(j.status) + "</p>";
 
-  if (j.status === "uploading") {
+  if (j.status === "uploading" && j.link) {
+    // the server downloads the video from the person's link (link_fetch.py); the page only watches and then finishes
+    var lk = j.link, lpct = j.percent || 0;
+    h += name;
+    h += '<div class="progress-bar"><div class="progress-fill" style="width:' + (lk.state === "failed" ? 0 : lpct) + '%"></div></div>';
+    if (lk.state === "fetching") {
+      h += "<p class='note'>" + esc(T.linkFetching(lpct)) + "</p>";
+      linkWatch();
+    } else if (lk.state === "done") {
+      if (!finishingFile && !linkFinished[j.id]) { linkFinished[j.id] = true; setTimeout(function () { if (cur && cur.id === j.id) finishUpload(cur); }, 0); }
+      else if (!finishingFile) h += '<div class="ld-row-btns"><button id="btnFinish">' + esc(T.finishBtn) + "</button></div>";
+    } else {
+      h += "<p class='ld-err'>" + esc(T.linkErr[lk.error] || lk.message || T.genericErr) + "</p>";
+      if (lk.error !== "changed") h += '<div class="ld-row-btns"><button id="btnLinkRetry">' + esc(T.linkRetry) + "</button></div>";
+    }
+    h += '<div class="ld-row-btns"><button class="btn-plain" id="btnDelete">' + esc(T.cancelUpload) + "</button></div>";
+  } else if (j.status === "uploading") {
     var pct = j.percent || 0;
     h += name;
     h += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
@@ -1124,7 +1177,7 @@ function renderJob() {
       }, function () { switchButton.disabled = false; alertMsg(T.genericErr); });
     };
   }
-  setSpin((j.status === "uploading" && (uploading || finishingFile)) || (isWorking(j.status) && j.stage !== "review"));
+  setSpin((j.status === "uploading" && (uploading || finishingFile || !!(j.link && j.link.state === "fetching"))) || (isWorking(j.status) && j.stage !== "review"));
   wireJobButtons();
   if (j.status === "done" && j.file_available) { wireSubs(j, "dn"); wirePack(j); }
   var sb = $("btnShowLines");
@@ -1190,6 +1243,7 @@ function wireJobButtons() {
   if ((b = $("btnNew"))) b.onclick = function () { selectJob(null); };
   if ((b = $("btnFinish"))) b.onclick = function () { finishUpload(cur); };
   if ((b = $("btnResume"))) b.onclick = function () { $("fileInput").dataset.resume = "1"; $("fileInput").click(); };
+  if ((b = $("btnLinkRetry"))) b.onclick = onLinkRetry;
   if ((b = $("btnSubAdd"))) b.onclick = function () { subTarget = "job"; $("subFile").click(); };
   if ($("glossText") && cur && cur.status === "estimated") wireGloss(cur);
   if ((b = $("btnSubDel"))) b.onclick = function () {
@@ -1638,6 +1692,56 @@ function onFilePicked(file) {
     if (sub) { var jid = cur.id; attachSubtitle(jid, sub).then(function () { if (cur && cur.id === jid) renderJob(); }); }
     continueUpload(cur, file);
   }).catch(function () { busyHide(); showUploadError(T.netErr); });
+}
+
+// ---- a link instead of an upload (1.100.0): the server downloads the video (link_fetch.py)
+var linkTimer = null, linkFinished = {};
+
+function linkErrMsg(d) { return (d && d.link_error && T.linkErr[d.link_error]) || safeErr(d && d.error, T.genericErr); }
+
+function linkWatch() {
+  if (linkTimer) return;
+  linkTimer = setInterval(function () {
+    if (!cur || cur.status !== "uploading" || !cur.link || cur.link.state !== "fetching") { clearInterval(linkTimer); linkTimer = null; return; }
+    refreshCurrent();
+  }, 2500);
+}
+
+function onLinkSubmit() {
+  showUploadError("");
+  lastErr = "";
+  var url = String($("linkInput").value || "").trim();
+  if (!/^https?:\/\/\S+\.\S+/i.test(url)) { showUploadError(T.linkErr.bad_link); try { $("linkInput").focus(); } catch (e) {} return; }
+  if (!nameOk()) return;
+  var maxSp = cfg ? cfg.max_speakers : 20;
+  var rawSp = String($("spkCount").value || "").trim(), spChosen = rawSp !== "";
+  var nsp = spChosen ? parseInt(rawSp, 10) : 2;
+  if (!(nsp >= 1 && nsp <= maxSp)) { showUploadError(T.spkBad(maxSp)); return; }
+  var wantLip = !!($("lipYes") && $("lipYes").checked && !$("lipYes").disabled);
+  var btn = $("btnLink"); btn.disabled = true;
+  busyShow(T.busyLink);
+  api("POST", "/api/longdub/init-link", { url: url, source_language: LisanSource.normalise($("sourceLanguage") && $("sourceLanguage").value), speakers: nsp, speakers_chosen: spChosen, lipsync: wantLip, lip_res: wantLip ? ($("lipRes").value || "720P") : "",
+                                          name: $("projName").value.trim(), description: $("projDesc").value.trim() }).then(function (r) {
+    busyHide(); btn.disabled = false;
+    if (!r.ok) { showUploadError(r.data.storage_full ? storageMsg(r.data) : linkErrMsg(r.data)); return; }
+    cur = r.data; jobs.unshift(cur);
+    $("projName").value = ""; $("projDesc").value = ""; $("linkInput").value = "";
+    try { localStorage.setItem(LS_KEY, cur.id); } catch (e) {}
+    render();
+    var sub = pendingSub; pendingSub = null; renderPendingSub();
+    if (sub) { var jid = cur.id; attachSubtitle(jid, sub).then(function () { if (cur && cur.id === jid) renderJob(); }); }
+  }).catch(function () { busyHide(); btn.disabled = false; showUploadError(T.netErr); });
+}
+
+function onLinkRetry() {
+  var b = $("btnLinkRetry"); if (b) b.disabled = true;
+  var id = cur.id;
+  lastErr = "";
+  api("POST", "/api/longdub/" + id + "/link-retry").then(function (r) {
+    if (!cur || cur.id !== id) return;
+    if (!r.ok) { alertMsg(linkErrMsg(r.data)); if (b) b.disabled = false; return; }
+    cur = r.data; delete linkFinished[id]; renderJob();
+  }).catch(function () { if (b) b.disabled = false; alertMsg(T.netErr); });
 }
 
 async function putChunk(job, index, blob) {
@@ -2779,6 +2883,8 @@ function mountTutorial() {
   ["dragleave", "drop"].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.classList.remove("over"); }); });
   dz.addEventListener("drop", function (e) { var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (f) { fi.dataset.resume = ""; fi.dataset.reattach = ""; if (nameOk()) onFilePicked(f); } });
   fi.onchange = function () { onFilePicked(fi.files && fi.files[0]); };
+  $("btnLink").onclick = onLinkSubmit;
+  $("linkInput").onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); onLinkSubmit(); } };
   $("btnPickSub").onclick = function () { subTarget = ""; $("subFile").click(); };
   $("btnClearSub").onclick = function () { pendingSub = null; renderPendingSub(); };
   $("subFile").onchange = function () { var f = this.files && this.files[0]; this.value = ""; onSubPicked(f); };

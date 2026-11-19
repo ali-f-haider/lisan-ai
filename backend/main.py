@@ -6296,6 +6296,87 @@ def longdub_init(body: LongDubInit, request: Request):
     return customer_payload(longdub_service.public_view(job))
 
 
+class LongDubLink(LongDubInit):
+    url: str = ""
+
+
+@app.post("/api/longdub/init-link")
+def longdub_init_link(body: LongDubLink, request: Request):
+    """Like /api/longdub/init, but the video comes from a link (Google Drive, Dropbox or a direct file link) that the
+    server downloads itself (link_fetch.py, 1.100.0). The page then only watches the job and calls /finish when the
+    download is complete, exactly as after a normal upload."""
+    import link_fetch
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "longdub_link", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    paused = _billing_pause_response()
+    if paused is not None:
+        return paused
+    blocked = _ld_studio_only(uid)
+    if blocked:
+        return blocked
+    try:
+        src = link_fetch.normalise(body.url)
+        resp, filename, size = link_fetch.probe(src, longdub_service.ALLOWED_EXTS, longdub_service.MAX_UPLOAD_BYTES)
+    except link_fetch.LinkError as e:
+        print(f"[longdub] link refused for {uid}: {e.key} {e.detail}")
+        return JSONResponse({"error": e.message, "link_error": e.key}, status_code=400)
+    started = False
+    try:
+        _vid = filename.lower().endswith(tuple(longdub_service.VIDEO_EXTS))
+        _blk = _storage_block(uid, dub_review.output_budget(size if _vid else 0, 0, _vid))
+        if _blk is not None:
+            return _blk
+        _dg_ok, _ = disk_guard.check(int(size), disk_guard.WORK_LONG_GB, _is_final_output)
+        if not _dg_ok:
+            return JSONResponse({"error": customer_message(disk_guard.REFUSAL_MESSAGE), "capacity": True}, status_code=503)
+        job, err = longdub_service.init_upload(uid, filename, size, body.speakers, body.lipsync,
+                                                body.name, body.description, body.lip_res, source_language=body.source_language,
+                                                speakers_chosen=body.speakers_chosen, picture=body.picture)
+        if err:
+            return JSONResponse({"error": customer_message(err[0])}, status_code=err[1])
+        job["link"] = {"url": src, "kind": link_fetch.kind(src), "state": "fetching", "error": ""}
+        longdub_service._save(job)
+        longdub_service._ev(job, "link_download", "started", f"{job['link']['kind']} size={size}")
+        started = link_fetch.start(job, resp, longdub_service)
+        return customer_payload(longdub_service.public_view(job))
+    finally:
+        if not started:
+            try:
+                resp.close()
+            except Exception:
+                pass
+
+
+@app.post("/api/longdub/{job_id}/link-retry")
+def longdub_link_retry(job_id: str, request: Request):
+    """Download the link again after it stopped (network trouble, a server restart). The file must be the same size."""
+    import link_fetch
+    uid, job, err = _ld_job(request, job_id)
+    if err:
+        return err
+    if job.get("status") != "uploading" or not isinstance(job.get("link"), dict):
+        return JSONResponse({"error": "This project is not waiting for a link."}, status_code=409)
+    if link_fetch.active(job["id"]):
+        return customer_payload(longdub_service.public_view(job))
+    try:
+        resp, _name, size = link_fetch.probe(job["link"]["url"], longdub_service.ALLOWED_EXTS, longdub_service.MAX_UPLOAD_BYTES)
+    except link_fetch.LinkError as e:
+        return JSONResponse({"error": e.message, "link_error": e.key}, status_code=400)
+    if size != int(job.get("size") or 0):
+        resp.close()
+        return JSONResponse({"error": link_fetch.MSG["changed"], "link_error": "changed"}, status_code=409)
+    job["received"] = []
+    job["percent"] = 0
+    job["link"].update(state="fetching", error="")
+    longdub_service._save(job)
+    if not link_fetch.start(job, resp, longdub_service):
+        resp.close()
+    return customer_payload(longdub_service.public_view(job))
+
+
 @app.post("/api/longdub/{job_id}/source-language")
 def long_switch_language(job_id: str, body: dict, request: Request):
     uid, job, err = _ld_job(request, job_id)

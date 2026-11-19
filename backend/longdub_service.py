@@ -424,6 +424,9 @@ def public_view(job):
         v["language_mismatch"] = job["language_mismatch"]
     v["received_count"] = len(job.get("received", []))
     v["total_chunks"] = job.get("total_chunks", 0)
+    if job.get("status") == "uploading" and isinstance(job.get("link"), dict):
+        import link_fetch                  # the video comes from a link the server downloads (link_fetch.py)
+        v["link"] = link_fetch.view(job)
     v["name"] = project_name(job)
     v["description"] = job.get("description") or ""
     v["media_present"] = has_media(job)
