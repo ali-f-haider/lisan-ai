@@ -1,6 +1,7 @@
 // Feedback question and invite links (Ali, Nov 2026; see feedback.py).
 // 1. Invite links: lisanai.org/?ref=CODE remembers the code in this browser; once the visitor is logged in it is sent once.
-// 2. Feedback: right after a finished result is downloaded, the server is asked whether to show the question (only users who
+// 2. Feedback: right after a finished result is downloaded, or listened to in the page (to the end, or 30 seconds of it, since
+//    1.102.0: most people play the result and save it from the player's own menu), the server is asked whether to show the question (only users who
 //    use the app a lot, once; closed without an answer: again after 7 days, at most twice). 1-5 stars and an optional text.
 //    A good answer (4 or 5 stars) shows the person's own invite link: a friend who signs up with it gives them 50 credits.
 (function () {
@@ -67,7 +68,8 @@
         }
     };
     var RESULT = /\/api\/(text_voice\/[0-9a-f]{8,}\/audio|download\/[^?#]*final[^?#]*|longdub\/[^\/?#]+\/download|my_jobs\/[^\/?#]+\/(video|lipsync|audio))(?:[?#]|$)/;
-    var asked = false;
+    var shown = false, checked = {};
+    var LISTEN_SECONDS = 30;
 
     function lang() { try { return localStorage.getItem("lisan_lang") === "ar" ? "ar" : "en"; } catch (e) { return "en"; } }
     function el(tag, css, text) { var e = document.createElement(tag); if (css) e.style.cssText = css; if (text) e.textContent = text; return e; }
@@ -164,16 +166,36 @@
         c.focus();
     }
 
-    function maybeAsk() {
-        if (asked) return;
-        asked = true;                 // one question per page at most
+    // The server is asked at most once per result on a page (the result's address without ?query), and the question shows at
+    // most once per page. A "no" (not used enough yet) for one result does not stop the question for a later result.
+    function maybeAsk(url) {
+        var key = String(url || "").split(/[?#]/)[0];
+        if (shown || checked[key]) return;
+        checked[key] = true;
         fetch("/api/feedback/ask", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : {}; })
-            .then(function (d) { if (d && d.ask) setTimeout(show, 1200); }, function () {});
+            .then(function (d) { if (d && d.ask && !shown) { shown = true; setTimeout(show, 1200); } }, function () {});
     }
 
     document.addEventListener("click", function (e) {
         var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
-        if (a && RESULT.test(a.getAttribute("href") || "")) maybeAsk();
+        var href = a ? a.getAttribute("href") || "" : "";
+        if (a && RESULT.test(href)) maybeAsk(href);
+    }, true);
+
+    // listening to a finished result in the page counts too: played to the end, or 30 seconds actually heard (seeking is not counted)
+    function resultMedia(m) {
+        if (!m || (m.tagName !== "AUDIO" && m.tagName !== "VIDEO")) return "";
+        var src = m.currentSrc || (m.getAttribute && m.getAttribute("src")) || "";
+        return RESULT.test(src) ? src : "";
+    }
+    document.addEventListener("ended", function (e) { var src = resultMedia(e.target); if (src) maybeAsk(src); }, true);
+    document.addEventListener("timeupdate", function (e) {
+        var m = e.target, src = resultMedia(m);
+        if (!src || shown) return;
+        var t = Number(m.currentTime) || 0, last = m._lisanLast;
+        m._lisanLast = t;
+        if (last !== undefined && t > last && t - last < 2) m._lisanHeard = (m._lisanHeard || 0) + (t - last);
+        if ((m._lisanHeard || 0) >= LISTEN_SECONDS) maybeAsk(src);
     }, true);
 
     window.LisanFeedback = { maybeAsk: maybeAsk, _show: show };

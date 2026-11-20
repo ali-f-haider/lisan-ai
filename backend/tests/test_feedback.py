@@ -175,7 +175,52 @@ function run(search, saved, status) {
         self.assertIn("lisan_invite", got["loggedOut"]["store"])                        # kept until the person is logged in
         self.assertEqual((got["old"]["calls"], got["old"]["store"]), ([], {}))
         self.assertEqual(got["matches"], [True, True, True, True, False, False, False])
-        self.assertEqual(got["loggedIn"]["listeners"], ["click"])
+        self.assertEqual(got["loggedIn"]["listeners"], ["click", "ended", "timeupdate"])
+
+    LISTEN = r"""
+const vm = require('vm'), fs = require('fs');
+function page(answer) {
+  const calls = [], on = {}, timers = [];
+  const ctx = { location: { search: '', pathname: '/text-voice' }, Date: Date, JSON: JSON, setTimeout: (f) => { timers.push(f); return 0; },
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }, sessionStorage: { getItem: () => '1', setItem: () => {} },
+    fetch: (u) => { calls.push(u); return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(u === '/api/feedback/ask' ? { ask: answer } : {}) }); },
+    document: { addEventListener: (t, f) => { on[t] = f; } }, window: {} };
+  vm.runInNewContext(fs.readFileSync('feedback.js', 'utf8'), ctx);
+  return { calls, on, timers, asks: () => calls.filter(u => u === '/api/feedback/ask').length };
+}
+const tick = () => new Promise(r => setTimeout(r, 10));
+function media(src) { return { tagName: 'AUDIO', currentSrc: src, currentTime: 0 }; }
+(async () => {
+  const out = {};
+  // 30 seconds actually heard on a result asks once; the question is then shown
+  let p = page(true), m = media('https://lisanai.org/api/text_voice/0123456789abcdef/audio?v=7');
+  for (let t = 0; t <= 31; t += 0.5) { m.currentTime = t; p.on.timeupdate({ target: m }); }
+  await tick(); out.heard = [p.asks(), p.timers.length];
+  // jumping to 40 s is not listening
+  p = page(true); m = media('/api/text_voice/0123456789abcdef/audio');
+  p.on.timeupdate({ target: m }); m.currentTime = 40; p.on.timeupdate({ target: m });
+  await tick(); out.seek = p.asks();
+  // a short result played to the end asks; the tutorial video never does
+  p = page(true);
+  p.on.ended({ target: media('/static/Lisan-Ai-Long-Dub-Tutorial-En.mp4') });
+  p.on.ended({ target: media('/api/download/abc_final_dubbed.mp3?cache=1') });
+  await tick(); out.ended = p.asks();
+  // "not yet" for one result: the same result is not asked again, a new result is
+  p = page(false);
+  p.on.ended({ target: media('/api/download/abc_final_dubbed.mp3?cache=1') });
+  p.on.ended({ target: media('/api/download/abc_final_dubbed.mp3?cache=2') });
+  p.on.ended({ target: media('/api/my_jobs/j2/video') });
+  await tick(); out.notYet = p.asks();
+  console.log(JSON.stringify(out));
+})();
+"""
+
+    def test_listening_to_a_result_asks_too(self):
+        got = json.loads(subprocess.run([NODE, "-e", self.LISTEN], cwd=ROOT, capture_output=True, text=True, check=True).stdout)
+        self.assertEqual(got["heard"], [1, 1])
+        self.assertEqual(got["seek"], 0)
+        self.assertEqual(got["ended"], 1)
+        self.assertEqual(got["notYet"], 2)
 
 class SignUpSignal(Base):
     """1.97.6: a new account is reported to Google Analytics once ("sign_up", the goal Google Ads counts)."""
