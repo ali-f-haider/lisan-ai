@@ -349,7 +349,7 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
         <div id="actFunnel"></div>
         <h4 style="margin:14px 0 6px;">Users</h4>
         <div style="overflow-x:auto;"><table>
-          <thead><tr><th>Signed up</th><th>Name / Email</th><th>Credits left</th><th>Text to voice</th><th>Short dubs</th><th>Long dubs</th><th>Bought</th><th>Last active</th><th>Note</th></tr></thead>
+          <thead id="actUsersHead"><tr><th data-sort="signed">Signed up</th><th data-sort="name">Name / Email</th><th data-sort="credits">Credits left</th><th data-sort="text">Text to voice</th><th data-sort="short">Short dubs</th><th data-sort="long">Long dubs</th><th data-sort="bought">Bought</th><th data-sort="active">Last active</th><th data-sort="note">Note</th></tr></thead>
           <tbody id="actUsersTable"><tr><td colspan="9" class="muted">Loading…</td></tr></tbody>
         </table></div>
       </div>
@@ -1192,6 +1192,45 @@ async function clearMaintenance() {
 
 // ---- Activity: new users and what they did (/api/admin/activity) ----
 let activityCache = null;
+// Users table sorting (1.102.1): click a column title to sort by it, click again to turn the order around
+let actSort = { key: 'signed', dir: -1 };
+const ACT_SORT = {
+  signed: u => u.signed_up || '',
+  name: u => String(u.email || u.name || '').toLowerCase(),
+  credits: u => Number(u.credits) || 0,
+  text: u => [u.text.audio_runs || 0, u.text.projects || 0, u.text.chars || 0],
+  short: u => [u.short_dubs || 0, u.short_started || 0],
+  long: u => [u.long_dubs_confirmed || 0, u.long_started || 0],
+  bought: u => Number(u.purchases) || 0,
+  active: u => u.last_active || '',
+  note: u => [u.engaged ? 1 : 0, (u.feedback && u.feedback.answered) ? 1 : 0, (u.feedback && u.feedback.asks) ? 1 : 0, u.did_nothing ? 0 : 1],
+};
+function actCompare(a, b) {
+  const x = ACT_SORT[actSort.key](a), y = ACT_SORT[actSort.key](b);
+  const xs = Array.isArray(x) ? x : [x], ys = Array.isArray(y) ? y : [y];
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] < ys[i]) return -actSort.dir;
+    if (xs[i] > ys[i]) return actSort.dir;
+  }
+  return 0;
+}
+function actSortBy(key) {
+  actSort = actSort.key === key ? { key, dir: -actSort.dir } : { key, dir: key === 'name' ? 1 : -1 };   // names A→Z first, everything else highest/newest first
+  renderActivity();
+}
+function actSortHeads() {
+  document.querySelectorAll('#actUsersHead th[data-sort]').forEach(th => {
+    const key = th.dataset.sort, on = actSort.key === key;
+    if (!th.dataset.label) {
+      th.dataset.label = th.textContent;
+      th.style.cursor = 'pointer'; th.style.userSelect = 'none'; th.tabIndex = 0; th.title = 'Sort by this column';
+      th.onclick = () => actSortBy(key);
+      th.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); actSortBy(key); } };
+    }
+    th.textContent = th.dataset.label + (on ? (actSort.dir > 0 ? ' ▲' : ' ▼') : '');
+    th.setAttribute('aria-sort', on ? (actSort.dir > 0 ? 'ascending' : 'descending') : 'none');
+  });
+}
 async function loadActivity() {
   const days = document.getElementById('actDays').value || '7';
   document.getElementById('actTotals').textContent = 'Loading…';
@@ -1236,7 +1275,8 @@ function renderActivity() {
     `<span style="display:inline-block;height:14px;border-radius:3px;background:#3b82f6;width:${Math.max(2, Math.round(260 * n / max))}px;"></span>` +
     `<b>${n}</b>${i ? ` <span class="muted">(${pct(n, steps[i - 1][1])} of the step before)</span>` : ''}</div>`).join('');
   const hide = document.getElementById('actHideIdle').checked;
-  const rows = d.users.filter(u => !(hide && u.did_nothing));
+  const rows = d.users.filter(u => !(hide && u.did_nothing)).slice().sort(actCompare);
+  actSortHeads();
   document.getElementById('actUsersTable').innerHTML = rows.map(u => {
     const tv = u.text;
     const tvTxt = tv.projects ? `${tv.projects} project${tv.projects > 1 ? 's' : ''}, ${tv.chars.toLocaleString()} chars<br><span class="muted">${tv.arabic_made} with Arabic · ${tv.audio_runs} audio · ${tv.downloads} plays/downloads${tv.languages.length ? ' · ' + escapeHtml(tv.languages.join(', ')) : ''}</span>` : '—';
