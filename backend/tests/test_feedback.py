@@ -241,5 +241,26 @@ class SignUpSignal(Base):
         self.assertIn('fullmatch(r"G-[A-Za-z0-9]{4,20}", ga)', route)
 
 
+class FirstResultSignal(Base):
+    """1.102.0: the account's first finished result is reported to Google Analytics once ("first_result")."""
+    def test_once_after_a_result_never_before_and_never_for_an_old_account(self):
+        now = 2_000_000.0
+        self.assertEqual(fb.first_result_signal("u1", False, now - 3600, now=now), (False, False))     # nothing made yet: ask again later
+        self.assertEqual(fb.first_result_signal("u1", True, now - 3600, now=now), (True, True))
+        self.assertEqual(fb.first_result_signal("u1", True, now - 3600, now=now + 60), (False, True))
+        self.assertEqual(fb.first_result_signal("u2", True, now - 31 * DAY, now=now), (False, True))   # older account: never
+        self.assertEqual(fb.first_result_signal("u3", True, None, now=now), (False, False))
+
+    def test_the_page_and_the_route_are_wired(self):
+        js = (ROOT / "feedback.js").read_text(encoding="utf-8")
+        self.assertIn('"/api/first_result_signal"', js)
+        self.assertIn('"first_result"', js)
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        route = main[main.index('@app.get("/api/first_result_signal")'):][:2400]
+        self.assertIn('fullmatch(r"G-[A-Za-z0-9]{4,20}", ga)', route)
+        self.assertIn("feedback.first_result_signal(uid, made, created)", route)
+        self.assertIn('"text_voice_speak"', main)
+
+
 if __name__ == "__main__":
     unittest.main()

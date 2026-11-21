@@ -24,6 +24,42 @@
         }
     } catch (e) { /* the site works the same without it */ }
 
+    // Google Analytics: loads gtag once (only when the server gave the ID, i.e. an event is really due) and sends the event
+    function gaEvent(ga, name, params) {
+        if (!/^G-[A-Za-z0-9]{4,20}$/.test(ga || "")) return;
+        window.dataLayer = window.dataLayer || [];
+        if (typeof window.gtag !== "function") {
+            window.gtag = function () { window.dataLayer.push(arguments); };
+            var s = document.createElement("script");
+            s.async = true;
+            s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(ga);
+            document.head.appendChild(s);
+            window.gtag("js", new Date());
+            window.gtag("config", ga);
+        }
+        window.gtag("event", name, params || {});
+    }
+
+    // ---- 4. the account's first finished result tells Google Analytics "first_result" once (1.102.0; see /api/first_result_signal).
+    // Asked on the first page of a visit and again whenever a result is downloaded or listened to, until the server says "done".
+    var FR = "lisan_fr_done", frAsked = false;
+    function firstResult(fromResult) {
+        try {
+            if (localStorage.getItem(FR)) return;
+            if (!fromResult && sessionStorage.getItem("lisan_fr")) return;
+            if (fromResult && frAsked) return;
+            if (fromResult) frAsked = true;
+            sessionStorage.setItem("lisan_fr", "1");
+        } catch (e) { return; }
+        fetch("/api/first_result_signal", { credentials: "same-origin" }).then(function (r) { return r.status === 200 ? r.json() : null; })
+            .then(function (d) {
+                if (!d) return;
+                if (d.done) { try { localStorage.setItem(FR, "1"); } catch (e) {} }
+                if (d.first_result) gaEvent(d.ga, "first_result", { method: "lisan_ai" });
+            }).catch(function () {});
+    }
+    try { firstResult(false); } catch (e) {}
+
     // ---- 3. a new account tells Google Analytics "sign_up" once (the goal Google Ads counts, 1.97.6; see /api/signup_signal)
     try {
         if (!sessionStorage.getItem("lisan_su")) {
@@ -32,18 +68,8 @@
                 try { sessionStorage.setItem("lisan_su", "1"); } catch (e) {}
                 return r.json();
             }).then(function (d) {
-                if (!d || !d.sign_up || !/^G-[A-Za-z0-9]{4,20}$/.test(d.ga || "")) return;
-                window.dataLayer = window.dataLayer || [];
-                if (typeof window.gtag !== "function") {
-                    window.gtag = function () { window.dataLayer.push(arguments); };
-                    var s = document.createElement("script");
-                    s.async = true;
-                    s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(d.ga);
-                    document.head.appendChild(s);
-                    window.gtag("js", new Date());
-                    window.gtag("config", d.ga);
-                }
-                window.gtag("event", "sign_up", { method: "lisan_ai" });
+                if (!d || !d.sign_up) return;
+                gaEvent(d.ga, "sign_up", { method: "lisan_ai" });
             }).catch(function () {});
         }
     } catch (e) { /* the site works the same without it */ }
@@ -169,6 +195,7 @@
     // The server is asked at most once per result on a page (the result's address without ?query), and the question shows at
     // most once per page. A "no" (not used enough yet) for one result does not stop the question for a later result.
     function maybeAsk(url) {
+        try { firstResult(true); } catch (e) {}
         var key = String(url || "").split(/[?#]/)[0];
         if (shown || checked[key]) return;
         checked[key] = true;

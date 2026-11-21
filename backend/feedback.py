@@ -155,6 +155,34 @@ def signup_signal(uid, account_created, now=None):
     return True
 
 
+FIRST_RESULT_DAYS = 30     # "first_result" is only reported for an account made in the last 30 days (the people an ad can bring)
+
+
+def first_result_signal(uid, made_result, account_created, now=None):
+    """(send, done) for Google Analytics' "first_result" event (1.102.0): the account has made its first MP3, dub or video.
+    send is True ONCE; done is True when nothing will ever be sent for this account any more (already sent, or an older
+    account), so the page stops asking. Google Ads can use this event as the goal instead of "sign_up", so it learns which
+    searchers really use the app."""
+    if not uid or account_created is None:
+        return False, False
+    now = time.time() if now is None else now
+    try:
+        if now - float(account_created) > FIRST_RESULT_DAYS * 86400:
+            return False, True
+    except (TypeError, ValueError):
+        return False, False
+    with _lock:
+        data = _read()
+        u = _user(data, uid)
+        if u.get("first_result_sent"):
+            return False, True
+        if not made_result:
+            return False, False
+        u["first_result_sent"] = now
+        _write(data)
+    return True, True
+
+
 # ------------------------------------------------------------------ invite links
 
 def invite_code(uid):

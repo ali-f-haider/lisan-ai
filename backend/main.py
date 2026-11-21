@@ -8755,6 +8755,40 @@ def signup_signal(request: Request):
     return {"sign_up": sent, "ga": ga if sent else ""}
 
 
+# the actions in credit_spends that mean a finished result: a short dub's voices, its video, a lip-sync, a long dub, a Text to voice MP3
+_RESULT_ACTIONS = ("generate", "merge", "lipsync", "long_dub_dub", "text_voice_speak")
+
+
+@app.get("/api/first_result_signal")
+def first_result_signal(request: Request):
+    """{"first_result": true, "ga": "G-..."} once, after the account's first finished result, so the page sends Google Analytics the
+    "first_result" event (1.102.0). Google Ads can count it as the goal: people who really use the app, not only sign up.
+    "done": true tells the page that it never needs to ask again."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    import re as _re
+    ga = (_get_pricing_config().get("gaMeasurementId") or "").strip()
+    if LOCAL_DEV or not _re.fullmatch(r"G-[A-Za-z0-9]{4,20}", ga):
+        return {"first_result": False, "done": False, "ga": ""}
+    if _rate_limited(request, "first_result_signal", 60, 3600):
+        return {"first_result": False, "done": False, "ga": ""}
+    created = _account_created(uid)
+    if feedback.first_result_signal(uid, False, created)[1]:                  # already sent, or an older account: no database read
+        return {"first_result": False, "done": True, "ga": ""}
+    try:
+        acts = ",".join(_RESULT_ACTIONS)
+        made = bool(_activity_rows(f"credit_spends?select=action&uid=eq.{urllib.parse.quote(str(uid), safe='')}"
+                                   f"&action=in.({acts})&credits=gt.0&limit=1"))
+    except Exception as ex:
+        print(f"[first-result] results of an account could not be read: {ex}")
+        return {"first_result": False, "done": False, "ga": ""}
+    sent, done = feedback.first_result_signal(uid, made, created)
+    if sent:
+        print("[first-result] first finished result reported to Google Analytics")
+    return {"first_result": sent, "done": done, "ga": ga if sent else ""}
+
+
 @app.get("/api/admin/feedback")
 def admin_feedback(request: Request):
     if not _admin_check(request):
