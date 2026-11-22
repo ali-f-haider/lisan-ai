@@ -4309,7 +4309,7 @@ function hideMediaBanner() {
     modal.style.cssText = "display:none;position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:200;align-items:center;justify-content:center;";
     modal.innerHTML = '<div style="background:#fff;border-radius:16px;padding:28px;width:340px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
         '<h3 id="buyModalTitle" style="color:#1a237e;margin-bottom:4px;">Buy Credits</h3>' +
-        '<p id="buyModalSubtitle" style="font-size:12px;color:#6b7280;margin-bottom:16px;">100 credits = $1.00 · Credits never expire · Secure payment by Stripe</p>' +
+        '<p id="buyModalSubtitle" style="font-size:12px;color:#6b7280;margin-bottom:16px;">100 credits = $1.00 · Credits never expire · Secure payment by Stripe · Credits come back automatically if a job fails</p>' +
         '<div id="buyPacks" style="display:flex;flex-direction:column;gap:10px;"></div>' +
         '<button id="buyCancelBtn" onclick="closeBuyModal()" style="margin-top:16px;width:100%;padding:10px;border-radius:10px;border:1px solid #e5e7eb;background:#f3f4f6;color:#6b7280;font-weight:600;cursor:pointer;font-family:inherit;">Cancel</button>' +
         '</div>';
@@ -5624,8 +5624,8 @@ window.cleanOldClones = function () {
         // needs its own id-keyed entries here instead).
         buyModalTitle: { en: "Buy Credits", ar: "شراء الرصيد" },
         buyModalSubtitle: {
-            en: "100 credits = $1.00 · Credits never expire · Secure payment by Stripe",
-            ar: "100 رصيد = 1.00 دولار · الرصيد لا تنتهي صلاحيته · دفع آمن عبر Stripe"
+            en: "100 credits = $1.00 · Credits never expire · Secure payment by Stripe · Credits come back automatically if a job fails",
+            ar: "100 رصيد = 1.00 دولار · الرصيد لا تنتهي صلاحيته · دفع آمن عبر Stripe · يُعاد الرصيد تلقائيًا إذا فشلت المهمة"
         },
         buyCancelBtn: { en: "Cancel", ar: "إلغاء" }
     };
