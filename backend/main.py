@@ -174,6 +174,15 @@ def read_privacy():
     import os
     return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "privacy.html"))
 
+@app.get("/imprint")
+@app.get("/impressum")
+@app.get("/imprint.html")
+def read_imprint():
+    """Imprint (Impressum, § 5 DDG): who runs Lisan AI and how to reach us (1.102.3)."""
+    from fastapi.responses import FileResponse
+    import os
+    return FileResponse(os.path.join(os.path.dirname(os.path.abspath(__file__)), "imprint.html"))
+
 @app.get("/terms")
 @app.get("/terms.html")
 def read_terms():
@@ -628,7 +637,7 @@ def _site_gate_ok(request: Request) -> bool:
     return bool(cookie) and _safe_eq(cookie, _site_gate_token())
 
 PUBLIC_PATHS = frozenset([
-    "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/debug-keys", "/api/login",
+    "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/imprint", "/impressum", "/imprint.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
     "/api/maintenance", "/api/limits", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete", "/api/cost_per_minute"
@@ -7649,7 +7658,7 @@ import guides
 # Public pages are listed for Google; the app, the admin pages, the API and the
 # login/gate pages are not. SITE_URL (Railway variable) overrides the address.
 SITE_URL = (os.environ.get("SITE_URL") or "https://lisanai.org").rstrip("/")
-SITEMAP_PAGES = ["/", "/pricing", "/help", "/privacy", "/terms"] + guides.paths()      # the guides (guides.py)
+SITEMAP_PAGES = ["/", "/pricing", "/help", "/privacy", "/terms", "/imprint"] + guides.paths()      # the guides (guides.py)
 
 
 @app.get("/guides")
