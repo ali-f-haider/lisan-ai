@@ -712,7 +712,7 @@
 })();
 
 /* Lisan AI help tips -- ONE look for every "?" button and hover bubble on the
-   main app, the Account page, Dub Long Video and Correct a long dub.
+   main app, the Account page, Long dub and Correct a long dub.
 
    API:
      LisanTip.attach(host, sources, {label})

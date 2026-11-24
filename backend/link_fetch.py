@@ -1,4 +1,4 @@
-"""Dub Long Video from a link instead of an upload (Ali, 19 Nov 2026).
+"""Long dub from a link instead of an upload (Ali, 19 Nov 2026).
 
 The person pastes a link to their video; the server downloads it itself, into
 the same place a normal upload goes (job_dir/src.part), marking the same 8 MB

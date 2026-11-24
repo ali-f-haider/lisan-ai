@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lisan AI — Dub Long Video</title>
+<title>Lisan AI — Long dub</title>
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/longdub_editor.css">
@@ -21,7 +21,7 @@
 <div id="userBar">
   <div class="brand-row" style="display:flex;align-items:center;gap:10px;">
     <img src="/logo.png" style="height:30px;" alt="">
-    <strong id="pageTitle" style="color:#1a237e;">Lisan AI — Dub Long Video</strong>
+    <strong id="pageTitle" style="color:#1a237e;">Lisan AI — Long dub</strong>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
     <button id="langBtn" class="btn-logout" title="Language" onclick="window._toggleLang()">العربية</button>
@@ -32,14 +32,14 @@
   </div>
 </div>
 
-<!-- Short clip | Full video: drawn by /mode_switch.js, numbers from /api/limits. -->
+<!-- Short dub | Long dub: drawn by /mode_switch.js, numbers from /api/limits. -->
 <div id="modeSwitch" data-mode="full"></div>
 <script src="/mode_switch.js"></script>
 
 <div class="ld-wrap">
 
   <div class="card" id="introCard">
-    <h3 id="introHeading">🎞️ Dub Long Video</h3><button type="button" class="btn-plain" id="editCompletedBtn" onclick="location.href='/dub-long-edit'"></button>
+    <h3 id="introHeading">🎞️ Long dub</h3><button type="button" class="btn-plain" id="editCompletedBtn" onclick="location.href='/dub-long-edit'"></button>
     <p id="introText" class="note"></p>
     <ol id="introSteps" style="margin:10px 22px;line-height:1.7;font-size:14px;"></ol>
   </div>
@@ -154,8 +154,8 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
 
 var T = {
   en: {
-    title: "Lisan AI — Dub Long Video", credits: "credits", back: "← Back to App", logout: "Log Out",
-    introHeading: "🎞️ Dub Long Video",
+    title: "Lisan AI — Long dub", credits: "credits", back: "← Back to App", logout: "Log Out",
+    introHeading: "🎞️ Long dub",
     introText: function (maxMin, shortSec, lipSec) {
       return "For videos longer than the normal dub's " + shortSec + "-second limit (" + lipSec + " seconds with lip-sync) — up to " + maxMin + " minutes. We work on your video in the background, one small piece at a time, so you can close this page and we'll email you when your dubbed file is ready.";
     },
@@ -166,7 +166,7 @@ var T = {
       "You confirm the exact price. We clone each speaker's voice for this job only, dub the video on our servers and email you when it's finished."
     ],
     upsellHeading: "Studio plan feature",
-    upsellText: "Dub Long Video is available with the Studio plan. Upgrade to start dubbing videos of several minutes.",
+    upsellText: "Long dub is available with the Studio plan. Upgrade to start dubbing videos of several minutes.",
     upsellBtn: "See the Studio plan",
     uploadHeading: "1. Start a new dubbing project",
     projNameLabel: "Project name", projNamePh: "For example: Friends, season 1 episode 3",
@@ -453,10 +453,10 @@ var T = {
     netErr: "Connection problem. Please check your internet and try again."
   },
   ar: {
-    title: "لسان AI — دبلجة فيديو طويل", credits: "رصيد", back: "→ العودة إلى التطبيق", logout: "تسجيل الخروج",
-    introHeading: "🎞️ دبلجة فيديو طويل",
+    title: "لسان AI — دبلجة طويلة", credits: "رصيد", back: "→ العودة إلى التطبيق", logout: "تسجيل الخروج",
+    introHeading: "🎞️ دبلجة طويلة",
     introText: function (maxMin, shortSec, lipSec) {
-      return "للفيديوهات الأطول من حدّ الدبلجة العادية (" + shortSec + " ثانية، و" + lipSec + " ثانية مع مزامنة الشفاه) — حتى " + maxMin + " دقائق. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عندما يجهز الملف المدبلج.";
+      return "للفيديوهات الأطول من حدّ الدبلجة القصيرة (" + shortSec + " ثانية، و" + lipSec + " ثانية مع مزامنة الشفاه) — حتى " + maxMin + " دقائق. نعمل على الفيديو في الخلفية، قطعة صغيرة كل مرة، فيمكنك إغلاق هذه الصفحة وسنراسلك عبر البريد الإلكتروني عندما يجهز الملف المدبلج.";
     },
     introSteps: [
       "سمِّ مشروعك، وارفع الفيديو وأخبرنا بعدد المتحدثين. تدفع رسماً صغيراً للحصول على تقدير السعر والوقت للعملية كاملة — ويُحتسب من الإجمالي.",
@@ -465,7 +465,7 @@ var T = {
       "تؤكد السعر النهائي. نستنسخ صوت كل متحدث لهذه العملية فقط، وندبلج الفيديو على خوادمنا ونراسلك عند الانتهاء."
     ],
     upsellHeading: "ميزة باقة Studio",
-    upsellText: "دبلجة الفيديو الطويل متاحة مع باقة Studio. رقِّ باقتك لتبدأ دبلجة فيديوهات من عدة دقائق.",
+    upsellText: "الدبلجة الطويلة متاحة مع باقة Studio. رقِّ باقتك لتبدأ دبلجة فيديوهات من عدة دقائق.",
     upsellBtn: "عرض باقة Studio",
     uploadHeading: "١. ابدأ مشروع دبلجة جديداً",
     projNameLabel: "اسم المشروع", projNamePh: "مثال: فريندز، الموسم الأول الحلقة 3",

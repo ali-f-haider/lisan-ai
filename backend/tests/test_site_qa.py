@@ -117,7 +117,7 @@ class LimitsHaveOneSourceTests(unittest.TestCase):
     def test_the_help_page_separates_the_short_and_the_long_workflow(self):
         text = visible_text(read("help.html"))
         self.assertIn("Maximum file size for a short dub", text)
-        self.assertIn("Dub Long Video takes videos of up to", text)
+        self.assertIn("Long dub takes videos of up to", text)
         self.assertIn("storage space of your plan is a separate limit", text)
 
 

@@ -29,7 +29,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     document.documentElement.lang = lang; document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
     document.title = tr('Lisan AI — Correct a long dub', 'لسان — تصحيح الدبلجة الطويلة');
     $('title').textContent = document.title;
-    $('back').textContent = tr('← Long dubbing', '← الدبلجة الطويلة'); $('appLink').textContent = tr('← Back to App', '← العودة إلى التطبيق');
+    $('back').textContent = tr('← Long dub', '← الدبلجة الطويلة'); $('appLink').textContent = tr('← Back to App', '← العودة إلى التطبيق');
     $('logout').textContent = tr('Log Out', 'تسجيل الخروج'); $('creditsWord').textContent = tr('credits', 'رصيد');
     $('language').textContent = lang === 'ar' ? 'English' : 'العربية';
     $('chooseLabel').textContent = tr('Choose a completed project', 'اختر مشروعاً مكتملاً');

@@ -308,7 +308,7 @@ class _JobQueue:
 
     def has_waiters(self):
         """True when somebody is queued behind the job(s) currently running.
-        Used by the Dub Long Video engine (longdub_service.py) to step aside
+        Used by the Long dub engine (longdub_service.py) to step aside
         between pieces so a long job never blocks a short one for more than
         one piece."""
         with self._lock:

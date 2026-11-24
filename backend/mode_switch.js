@@ -1,4 +1,4 @@
-/* Lisan AI: the "Short clip | Full video | From text" switch under the top bar of the app, the Long Dub page and Text to voice.
+/* Lisan AI: the "Short dub | Long dub | From text" switch under the top bar of the app, the Long dub page and Text to voice.
  *
  * A page puts <div id="modeSwitch" data-mode="short"></div> (or data-mode="full" / "text") under its top bar and loads this file.
  * The numbers in the captions come from /api/limits, the same ones the server enforces, so the switch can never promise
@@ -59,8 +59,8 @@
     host.setAttribute("aria-label", l === "ar" ? "نوع الدبلجة" : "Dubbing type");
     host.setAttribute("dir", l === "ar" ? "rtl" : "ltr");
     host.innerHTML =
-      tab("short", "/app", "⚡", l === "ar" ? "مقطع قصير" : "Short clip", shortCaption(l)) +
-      tab("full", "/dub-long", "🎞️", l === "ar" ? "فيديو كامل" : "Full video", fullCaption(l)) +
+      tab("short", "/app", "⚡", l === "ar" ? "دبلجة قصيرة" : "Short dub", shortCaption(l)) +
+      tab("full", "/dub-long", "🎞️", l === "ar" ? "دبلجة طويلة" : "Long dub", fullCaption(l)) +
       tab("text", "/text-voice", "📝", l === "ar" ? "من نص" : "From text", l === "ar" ? "نص إلى صوت عربي" : "Script to Arabic voice");
   }
 

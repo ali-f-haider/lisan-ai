@@ -169,7 +169,7 @@
 <div class="acct-panel" id="panel-files" role="tabpanel" aria-labelledby="tabFiles">
   <div class="card">
     <h3 id="filesHeading">🎬 Your Finished Files</h3>
-    <p id="filesNote" class="note" data-tip-src>Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Dub Long Video projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.</p>
+    <p id="filesNote" class="note" data-tip-src>Finished audio/video stays here for 30 days after it's generated, then is automatically deleted. Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Long dub projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.</p>
     <div class="stor" id="storageMeter" style="display:none;" role="group" aria-labelledby="storTitle">
       <div class="stor-head"><strong id="storTitle">Storage</strong><span class="stor-text" id="storText"></span></div>
       <div class="stor-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="storBar"><div class="stor-fill" id="storFill"></div></div>
@@ -192,7 +192,7 @@
   </div>
   <div class="card" id="eraseCard">
     <h3 id="eraseHeading">🔒 Your files and your privacy</h3>
-    <p id="eraseNote" class="note">We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Dub Long Video and Text to voice projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.</p>
+    <p id="eraseNote" class="note">We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Long dub and Text to voice projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.</p>
     <button id="eraseAllBtn" class="btn-danger" onclick="eraseAllMyFiles()">🗑️ Delete all my files now</button>
     <p id="eraseResult" class="note" style="display:none;" role="status"></p>
   </div>
@@ -290,15 +290,15 @@ var T = {
     title: "Lisan AI — My Usage", credits: "credits", back: "← Back to App", logout: "Log Out",
     tabBalance: "💰 Balance", tabSubscription: "🔁 Subscription", tabVoices: "🎙️ Voices", tabFiles: "🎬 Files", tabProjects: "📁 Projects",
     projectsHeading: "📁 Your projects",
-    projectsNote: "All your Dub Long Video and Text to voice projects in one place. Open a project to carry on working on it or to download what you made.",
-    projectsEmpty: "No projects yet. Start one in Dub Long Video or Text to voice.",
-    projLong: "🎬 Dub Long Video", projText: "📝 Text to voice", projOpen: "Open", projUpdated: "Last change", projUntitled: "Untitled project",
+    projectsNote: "All your Long dub and Text to voice projects in one place. Open a project to carry on working on it or to download what you made.",
+    projectsEmpty: "No projects yet. Start one in Long dub or Text to voice.",
+    projLong: "🎬 Long dub", projText: "📝 Text to voice", projOpen: "Open", projUpdated: "Last change", projUntitled: "Untitled project",
     projMin: function (m) { return m + " min"; }, projLines: function (n) { return n + (n === 1 ? " line" : " lines"); },
     ldSt: { uploading: "Uploading", estimated: "Waiting for your approval", accepted: "Queued", payment_pending: "Queued", analyzing: "Analysing",
             speaker_count: "Waiting for your answer", language_mismatch: "Waiting for your answer", editing: "Ready to review",
             confirmed: "Queued for dubbing", dubbing: "Dubbing", done: "Finished", failed: "Failed", cancelled: "Cancelled", expired: "Expired" },
     tvSt: { draft: "No audio yet", done: "Audio ready" },
-    confirmDeleteLong: "Delete this Dub Long Video project with its lines and finished files? This can't be undone.",
+    confirmDeleteLong: "Delete this Long dub project with its lines and finished files? This can't be undone.",
     ldFilesOpen: "Open project", trackVoices: "⬇️ Dubbed voices only", trackEffects: "⬇️ Music and effects only",
     tabPurchases: "🛒 Purchases", tabUsage: "📉 Usage",
     balanceHeading: "💰 Current balance",
@@ -340,8 +340,8 @@ var T = {
     saveVoiceFailed: "Couldn't save. Please try again.",
     voiceSaved: "Saved.",
     filesHeading: "🎬 Your Finished Files",
-    filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Dub Long Video projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.',
-    filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Dub Long Video projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.',
+    filesNoteSub: 'Finished audio/video stays here for 30 days after it\'s generated, then is automatically deleted (your active subscription). Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Long dub projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.',
+    filesNotePayonce: 'Finished audio/video stays here for 48 hours after it\'s generated, then is automatically deleted — download it before then, or <a href="/app">subscribe</a> for 30-day storage. Work-in-progress files of short dubs (uploads, drafts) are still cleared after about 6 hours; Long dub projects follow their own rules — see our <a href="/privacy">Privacy Policy</a>.',
     loading: "Loading…",
     purchasesHeading: "🛒 Credit purchases & plan credits", thPDate: "Date", thPType: "Type", thPCredits: "Credits", thPSession: "Stripe reference",
     typePack: "Credit pack", typeSub: "Monthly plan credits",
@@ -367,9 +367,9 @@ var T = {
     aiLabelPos: "Position", aiLabelOpts: ["Off", "Top left", "Top right", "Bottom left", "Bottom right"],
     aiLabelSaved: "Saved.", aiLabelFailed: "Couldn't save. Please try again.",
     eraseHeading: "🔒 Your files and your privacy",
-    eraseNote: "We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Dub Long Video and Text to voice projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.",
+    eraseNote: "We never use your videos or audio to train AI models. “Delete all my files” removes your finished files, any working files and your Long dub and Text to voice projects from our servers and our backup storage. Saved voices have their own Delete button in the Saved Voices tab. Your account, credits and purchase history stay.",
     eraseBtn: "🗑️ Delete all my files now",
-    eraseConfirm: "Delete ALL your finished files, working files, Dub Long Video and Text to voice projects now? This can't be undone. Your account, credits and purchase history stay.",
+    eraseConfirm: "Delete ALL your finished files, working files, Long dub and Text to voice projects now? This can't be undone. Your account, credits and purchase history stay.",
     eraseDone: function (f, p) { return "Done. Finished files removed: " + f + ". Long dub projects removed: " + p + "."; },
     eraseSkipped: function (n) { return "Still being processed, so kept for now: " + n + ". Try again when they finish."; },
     eraseFailed: "Couldn't delete your files right now. Please try again in a moment.",
@@ -388,15 +388,15 @@ var T = {
     title: "Lisan AI — حسابي", credits: "ائتمان", back: "← العودة إلى التطبيق", logout: "تسجيل الخروج",
     tabBalance: "💰 الرصيد", tabSubscription: "🔁 الاشتراك", tabVoices: "🎙️ الأصوات", tabFiles: "🎬 الملفات", tabProjects: "📁 المشاريع",
     projectsHeading: "📁 مشاريعك",
-    projectsNote: "جميع مشاريعك في «دبلجة فيديو طويل» و«من نص إلى صوت» في مكان واحد. افتح المشروع لمتابعة العمل عليه أو لتنزيل ما صنعته.",
-    projectsEmpty: "لا توجد مشاريع بعد. ابدأ مشروعًا في «دبلجة فيديو طويل» أو «من نص إلى صوت».",
-    projLong: "🎬 دبلجة فيديو طويل", projText: "📝 من نص إلى صوت", projOpen: "فتح", projUpdated: "آخر تعديل", projUntitled: "مشروع بلا اسم",
+    projectsNote: "جميع مشاريعك في «دبلجة طويلة» و«من نص إلى صوت» في مكان واحد. افتح المشروع لمتابعة العمل عليه أو لتنزيل ما صنعته.",
+    projectsEmpty: "لا توجد مشاريع بعد. ابدأ مشروعًا في «دبلجة طويلة» أو «من نص إلى صوت».",
+    projLong: "🎬 دبلجة طويلة", projText: "📝 من نص إلى صوت", projOpen: "فتح", projUpdated: "آخر تعديل", projUntitled: "مشروع بلا اسم",
     projMin: function (m) { return m + " د"; }, projLines: function (n) { return "عدد الأسطر: " + n; },
     ldSt: { uploading: "قيد الرفع", estimated: "بانتظار موافقتك", accepted: "في الانتظار", payment_pending: "في الانتظار", analyzing: "قيد التحليل",
             speaker_count: "بانتظار إجابتك", language_mismatch: "بانتظار إجابتك", editing: "جاهز للمراجعة",
             confirmed: "بانتظار الدبلجة", dubbing: "قيد الدبلجة", done: "اكتمل", failed: "فشل", cancelled: "أُلغي", expired: "انتهت صلاحيته" },
     tvSt: { draft: "لم يُصنع الصوت بعد", done: "الصوت جاهز" },
-    confirmDeleteLong: "هل تريد حذف مشروع «دبلجة فيديو طويل» هذا مع أسطره وملفاته الجاهزة؟ لا يمكن التراجع عن ذلك.",
+    confirmDeleteLong: "هل تريد حذف مشروع «دبلجة طويلة» هذا مع أسطره وملفاته الجاهزة؟ لا يمكن التراجع عن ذلك.",
     ldFilesOpen: "فتح المشروع", trackVoices: "⬇️ الأصوات المدبلجة فقط", trackEffects: "⬇️ الموسيقى والمؤثرات فقط",
     tabPurchases: "🛒 المشتريات", tabUsage: "📉 الاستهلاك",
     balanceHeading: "💰 الرصيد الحالي",
@@ -438,8 +438,8 @@ var T = {
     saveVoiceFailed: "تعذّر الحفظ. حاول مرة أخرى.",
     voiceSaved: "تم الحفظ.",
     filesHeading: "🎬 ملفاتك الجاهزة",
-    filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). ملفات العمل قيد المعالجة في الدبلجات القصيرة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا، ولمشاريع «دبلجة فيديو طويل» قواعدها الخاصة — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
-    filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. ملفات العمل قيد المعالجة في الدبلجات القصيرة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا، ولمشاريع «دبلجة فيديو طويل» قواعدها الخاصة — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    filesNoteSub: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 30 يومًا بعد توليده، ثم يُحذف تلقائيًا (بفضل اشتراكك الفعّال). ملفات العمل قيد المعالجة في الدبلجات القصيرة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا، ولمشاريع «دبلجة طويلة» قواعدها الخاصة — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
+    filesNotePayonce: 'يبقى الصوت/الفيديو الجاهز هنا لمدة 48 ساعة بعد توليده، ثم يُحذف تلقائيًا — نزّله قبل ذلك، أو <a href="/app">اشترك</a> للحصول على تخزين 30 يومًا. ملفات العمل قيد المعالجة في الدبلجات القصيرة (الرفوعات والمسودات) لا تزال تُحذف بعد نحو 6 ساعات تقريبًا، ولمشاريع «دبلجة طويلة» قواعدها الخاصة — راجع <a href="/privacy">سياسة الخصوصية</a> لدينا.',
     loading: "جارٍ التحميل…",
     purchasesHeading: "🛒 مشتريات الائتمان وائتمان الاشتراك", thPDate: "التاريخ", thPType: "النوع", thPCredits: "الائتمانات", thPSession: "مرجع الدفع",
     typePack: "باقة رصيد", typeSub: "رصيد الاشتراك الشهري",
@@ -465,9 +465,9 @@ var T = {
     aiLabelPos: "الموضع", aiLabelOpts: ["إيقاف", "أعلى اليسار", "أعلى اليمين", "أسفل اليسار", "أسفل اليمين"],
     aiLabelSaved: "تم الحفظ.", aiLabelFailed: "تعذّر الحفظ. حاول مرة أخرى.",
     eraseHeading: "🔒 ملفاتك وخصوصيتك",
-    eraseNote: "لا نستخدم فيديوهاتك ولا تسجيلاتك الصوتية لتدريب نماذج الذكاء الاصطناعي. يحذف زر «احذف كل ملفاتي» ملفاتك الجاهزة وأي ملفات عمل ومشاريع «دبلجة فيديو طويل» و«من نص إلى صوت» من خوادمنا ومن نسخنا الاحتياطية. وللأصوات المحفوظة زر حذف خاص بها في تبويب «الأصوات المحفوظة». أما حسابك ورصيدك وسجل مشترياتك فيبقى كما هو.",
+    eraseNote: "لا نستخدم فيديوهاتك ولا تسجيلاتك الصوتية لتدريب نماذج الذكاء الاصطناعي. يحذف زر «احذف كل ملفاتي» ملفاتك الجاهزة وأي ملفات عمل ومشاريع «دبلجة طويلة» و«من نص إلى صوت» من خوادمنا ومن نسخنا الاحتياطية. وللأصوات المحفوظة زر حذف خاص بها في تبويب «الأصوات المحفوظة». أما حسابك ورصيدك وسجل مشترياتك فيبقى كما هو.",
     eraseBtn: "🗑️ احذف كل ملفاتي الآن",
-    eraseConfirm: "هل تريد حذف جميع ملفاتك الجاهزة وملفات العمل ومشاريع «دبلجة فيديو طويل» و«من نص إلى صوت» الآن؟ لا يمكن التراجع عن ذلك. يبقى حسابك ورصيدك وسجل مشترياتك.",
+    eraseConfirm: "هل تريد حذف جميع ملفاتك الجاهزة وملفات العمل ومشاريع «دبلجة طويلة» و«من نص إلى صوت» الآن؟ لا يمكن التراجع عن ذلك. يبقى حسابك ورصيدك وسجل مشترياتك.",
     eraseDone: function (f, p) { return "تم الحذف. الملفات الجاهزة المحذوفة: " + f + ". مشاريع الدبلجة الطويلة المحذوفة: " + p + "."; },
     eraseSkipped: function (n) { return "عناصر قيد المعالجة بقيت كما هي الآن: " + n + ". أعد المحاولة بعد أن تنتهي."; },
     eraseFailed: "تعذّر حذف ملفاتك الآن. حاول مرة أخرى بعد قليل.",
@@ -480,7 +480,7 @@ var T = {
     delModalConfirm: "نعم، احذف نهائيًا",
     deleteAccountFailed: "تعذّر حذف حسابك. حاول مرة أخرى أو تواصل مع الدعم.",
     genericFail: "حدث خطأ. يُرجى المحاولة بعد قليل.",
-    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", regenerate: "إعادة توليد سطر", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", regenerate_refund: "استرداد إعادة توليد سطر", generate_refund: "استرداد توليد الصوت", merge_refund: "استرداد دمج الفيديو", transcribe_refund: "استرداد التفريغ الصوتي", lipsync_refund: "استرداد مزامنة الشفاه", clone_refund: "استرداد استنساخ الصوت", custom_voice_refund: "استرداد الصوت المخصص", admin_adjustment: "تعديل الرصيد", subscription_grant: "رصيد الاشتراك الجديد", subscription_expiry: "انتهاء صلاحية رصيد الاشتراك غير المستخدم", signup_grant: "رصيد التسجيل", long_dub: "دبلجة فيديو طويل" }
+    actions: { transcribe: "التفريغ الصوتي", generate: "توليد الصوت", regenerate: "إعادة توليد سطر", merge: "دمج الفيديو", clone: "استنساخ الصوت", lipsync: "مزامنة الشفاه", translate: "الترجمة", emotions: "كشف المشاعر", tashkeel: "التشكيل", long_dub_refund: "استرداد", regenerate_refund: "استرداد إعادة توليد سطر", generate_refund: "استرداد توليد الصوت", merge_refund: "استرداد دمج الفيديو", transcribe_refund: "استرداد التفريغ الصوتي", lipsync_refund: "استرداد مزامنة الشفاه", clone_refund: "استرداد استنساخ الصوت", custom_voice_refund: "استرداد الصوت المخصص", admin_adjustment: "تعديل الرصيد", subscription_grant: "رصيد الاشتراك الجديد", subscription_expiry: "انتهاء صلاحية رصيد الاشتراك غير المستخدم", signup_grant: "رصيد التسجيل", long_dub: "دبلجة طويلة" }
   }
 }[LANG];
 
@@ -831,7 +831,7 @@ function renderMyJobs(jobs) {
       list.appendChild(item);
       return;
     }
-    if (j.kind === "longdub") {      // a finished Dub Long Video project (1.101.0): its name, "Open project" and the separate tracks
+    if (j.kind === "longdub") {      // a finished Long dub project (1.101.0): its name, "Open project" and the separate tracks
       preview += '<div style="font-weight:600;margin:4px 0 6px;">' + T.projLong + (j.title ? ' · ' + escHtml(j.title) : '') + '</div>';
       buttons += '<a href="/dub-long?open=' + encodeURIComponent(j.job_id) + '">' + T.ldFilesOpen + '</a>';
       (j.tracks || []).forEach(function (k) {
@@ -866,7 +866,7 @@ function escHtml(t) {
   return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
 }
 
-// ---- Projects tab (1.101.0): every Dub Long Video and Text to voice project; each opens on its own page
+// ---- Projects tab (1.101.0): every Long dub and Text to voice project; each opens on its own page
 function loadProjects() {
   fetch("/api/projects").then(function (r) { return r.json(); }).then(function (d) {
     renderProjects((d && d.projects) || []);
@@ -1100,7 +1100,7 @@ loadMyVoices();
       tab: "🔑 API", heading: "🔑 API keys", loading: "Loading…",
       intro: "An API key lets your own software send videos to Lisan AI and fetch the Arabic dub. Keep keys secret: anyone who has one can spend your credits, up to the daily cap you set for it.",
       limits: function (l) { return "Limits for each key: " + l.requests_per_minute + " requests per minute (bursts of up to " + l.burst + "), " + l.concurrent_jobs_per_key + " active job" + (l.concurrent_jobs_per_key === 1 ? "" : "s") + " at a time."; },
-      blocked: "The API is available with the same plans as Dub Long Video. Choose a plan from the Buy menu to create a key.",
+      blocked: "The API is available with the same plans as Long dub. Choose a plan from the Buy menu to create a key.",
       none: "You have no keys yet.", name: "Name", prefix: "Key starts with", cap: "Daily credit cap", created: "Created", used: "Last used", state: "Status",
       active: "Active", revoked: "Revoked", never: "Never", revoke: "Revoke", revoking: "Revoke this key? Software using it stops working immediately.",
       guide: "How to use the API: step-by-step guide and test tool →",
@@ -1116,7 +1116,7 @@ loadMyVoices();
       tab: "🔑 واجهة البرمجة", heading: "🔑 مفاتيح واجهة البرمجة", loading: "جارٍ التحميل…",
       intro: "يتيح لك مفتاح الواجهة إرسال الفيديوهات من برنامجك إلى Lisan AI واستلام الدبلجة العربية. احتفظ بالمفاتيح سرية: أي شخص يملك المفتاح يستطيع صرف رصيدك حتى الحد اليومي الذي تحدده له.",
       limits: function (l) { return "حدود كل مفتاح: " + l.requests_per_minute + " طلبًا في الدقيقة (دفعات حتى " + l.burst + ")، و" + l.concurrent_jobs_per_key + " مهمة نشطة في الوقت نفسه."; },
-      blocked: "الواجهة متاحة مع الباقات نفسها التي تتيح دبلجة الفيديو الطويل. اختر باقة من قائمة الشراء لإنشاء مفتاح.",
+      blocked: "الواجهة متاحة مع الباقات نفسها التي تتيح الدبلجة الطويلة. اختر باقة من قائمة الشراء لإنشاء مفتاح.",
       none: "لا توجد مفاتيح بعد.", name: "الاسم", prefix: "يبدأ المفتاح بـ", cap: "الحد اليومي للرصيد", created: "تاريخ الإنشاء", used: "آخر استخدام", state: "الحالة",
       active: "فعّال", revoked: "معطّل", never: "أبدًا", revoke: "تعطيل", revoking: "تعطيل هذا المفتاح؟ سيتوقف أي برنامج يستخدمه فورًا.",
       guide: "كيفية استخدام الواجهة: الدليل خطوة بخطوة وأداة تجربة ←",

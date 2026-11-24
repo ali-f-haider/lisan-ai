@@ -1,4 +1,4 @@
-"""Dub Long Video -- engine for videos of several minutes (the normal Step 1
+"""Long dub -- engine for videos of several minutes (the normal Step 1
 flow is limited to 15/30 seconds because everything in it works on one clip
 held in memory at once).
 
