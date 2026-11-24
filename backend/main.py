@@ -44,6 +44,7 @@ import subs_align
 import subs_export
 import publish_pack
 import watermark
+import ai_label
 import r2_backup
 import business_metrics
 import alibaba_cost
@@ -2172,6 +2173,7 @@ def delete_account(request: Request, response: Response):
                 feedback.forget(uid)
             except Exception as _fb_ex:
                 print(f"[feedback] could not remove the answer of a deleted account: {_fb_ex}")
+            ai_label.forget(uid)
         except ValueError as ex:
             return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
         except Exception:
@@ -5136,11 +5138,12 @@ def _merge_video_run(req: MergeRequest, request: Request, price):
         clean_dub.unlink()
     except Exception:
         pass
-    marked = False
-    if _wm_needed(uid):
-        _wr = watermark.apply_video(final)
-        marked = bool(_wr["ok"])
-        print(f"[watermark] merge {req.job_id}: {'ok' if marked else 'FAILED, delivered without'} ({_wr['reason']})")
+    # free-tier logo, the customer's EU "AI modified" label (ai_label.py) and the hidden AI note, in one pass
+    _wm_logo, _wm_label = _wm_needed(uid), ai_label.get(uid)
+    _wr = watermark.finish_video(final, logo=_wm_logo, label=_wm_label)
+    marked = bool(_wr["logo"])
+    if _wm_logo or _wm_label or not _wr["ok"]:
+        print(f"[watermark] merge {req.job_id}: {'ok' if _wr['ok'] else 'FAILED, delivered without'} ({_wr['reason']})")
 
     if merge_cost and not debit_confirmed(deduct_credits(uid, merge_cost, "merge", req.job_id)):
         final.unlink(missing_ok=True)
@@ -5219,8 +5222,9 @@ def lipsync(req: LipSyncRequest, request: Request):
                 raise RequestProblem("We couldn't find your original video. Please upload it again.", 404, operation_complete=True)
             resolution = lipsync_res(req.resolution)
             watermark = _wm_needed(uid)
+            label = ai_label.get(uid)
             photos = sorted(OUTPUT_DIR.glob(f"lipsync_ref_{req.job_id}_*")) if LIPSYNC_REF_IMAGES_ENABLED else []
-            fingerprint = work(req, resolution, [video, OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3", *photos], watermark)
+            fingerprint = work(req, resolution, [video, OUTPUT_DIR / f"{req.job_id}_final_dubbed.mp3", *photos], watermark, label)
             def prepare():
                 try:
                     duration = ffmpeg_utils.get_media_duration(video)
@@ -5253,7 +5257,8 @@ def lipsync(req: LipSyncRequest, request: Request):
                         _lip_provider_cfg = _get_pricing_config().get("lipsyncProvider")
                         _lip_provider = _lip_provider_cfg if _lip_provider_cfg in ("topview", "wan3") else "wan3"
                         lipsync_service.lipsync_worker(req.job_id, _lip_provider, "lipsync-2", ELEVENLABS_API_KEY, "", FAL_API_KEY,
-                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, resolution, watermark, TOPVIEW_API_KEY)
+                            DASHSCOPE_API_KEY, DASHSCOPE_WORKSPACE_ID, DASHSCOPE_REGION, resolution, watermark, TOPVIEW_API_KEY,
+                            ai_label=label)
                     finally:
                         progress = jobs_progress.get(f"lipsync_{req.job_id}", {})
                         try:
@@ -5842,7 +5847,7 @@ def _ld_reserve_capacity(job, need):
 
 
 longdub_service.configure(capacity=_ld_capacity, get_credits=get_credits, charge=_ld_charge, refund=_ld_refund, watermark=_wm_needed,
-                          send_email=_ld_email, email_error=lambda: _ld_email_last.get("reason", ""), pricing=_ld_pricing,
+                          ai_label=ai_label.get, send_email=_ld_email, email_error=lambda: _ld_email_last.get("reason", ""), pricing=_ld_pricing,
                           log_event=_ld_log_event, allowed=_ld_allowed)
 
 
@@ -7387,6 +7392,35 @@ def my_jobs(request: Request):
         print(f"[my_jobs] text to voice files not listed: {ex}")
     jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
     return {"jobs": jobs, "storage": _storage_summary(uid, latest_seen) if latest_seen is not None else None}
+
+
+class AiLabelBody(BaseModel):
+    corner: str = ""
+
+
+@app.get("/api/ai_label")
+def ai_label_get(request: Request):
+    """The EU "AI modified" label this account puts on its videos: corner "tl" / "tr" / "bl" / "br", or "" (off)."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    return {"corner": ai_label.get(uid)}
+
+
+@app.post("/api/ai_label")
+def ai_label_post(body: AiLabelBody, request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "ai_label", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": "Too many requests. Please wait a moment."}, status_code=429)
+    corner = (body.corner or "").strip()
+    if corner and corner not in ai_label.CORNERS:
+        return JSONResponse({"error": "Please choose a corner or Off."}, status_code=400)
+    saved = ai_label.set_(uid, corner)
+    if saved is None:
+        return JSONResponse({"error": "This setting could not be saved. Please try again."}, status_code=503)
+    return {"corner": saved}
 
 
 @app.get("/api/projects")

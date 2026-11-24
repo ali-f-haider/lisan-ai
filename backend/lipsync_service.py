@@ -774,7 +774,7 @@ def _simulate_lipsync(source_video: Path, raw_video: Path, progress: dict):
     shutil.copy(source_video, raw_video)
 
 
-def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None, watermark=False, topview_key=""):
+def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", dashscope_key="", dashscope_workspace="", dashscope_region="ap-southeast-1", resolution=None, watermark=False, topview_key="", ai_label=""):
     key = f"lipsync_{job_id}"
     upload_path = None
     provider_returned = False   # True once the provider's generated video is in hand (kept for diagnosis)
@@ -858,14 +858,19 @@ def lipsync_worker(job_id, provider, model, eleven_key, sync_key, fal_key="", da
             mux_audio_into_video(raw_video, dubbed_audio, final_video)
         try: raw_video.unlink()
         except Exception: pass
-        if watermark:       # free tier: the semi-transparent logo (see watermark.py); never stops the job
-            try:
-                import watermark as _wmk
+        # free tier: the semi-transparent logo; the customer's EU "AI modified" label (ai_label.py); always the hidden
+        # AI note -- see watermark.finish_video. Never stops the job.
+        try:
+            import watermark as _wmk
+            if watermark:
                 jobs_progress[key]["message"] = "Adding the free-version watermark..."
-                _wr = _wmk.apply_video(final_video)
+            elif ai_label:
+                jobs_progress[key]["message"] = "Adding the AI label..."
+            _wr = _wmk.finish_video(final_video, logo=bool(watermark), label=ai_label)
+            if watermark or ai_label or not _wr["ok"]:
                 print(f"[watermark] lip-sync {job_id}: {'ok' if _wr['ok'] else 'FAILED, delivered without'} ({_wr['reason']})")
-            except Exception as _wex:
-                print(f"[watermark] lip-sync {job_id}: error {_wex}")
+        except Exception as _wex:
+            print(f"[watermark] lip-sync {job_id}: error {_wex}")
 
         jobs_progress[key].update({"status": "done", "percent": 100,
                                    "message": "Lip-sync complete.",

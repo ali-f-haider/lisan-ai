@@ -74,7 +74,8 @@ class AccountTests(unittest.TestCase):
                 _job_guard=Mock(return_value=None),_paid_uid=Mock(return_value=('uid',None)),get_credits=lambda uid:100,
                 _get_pricing_config=lambda:{'mergeCredits':1},find_job_video=lambda jid:video,_storage_block=Mock(return_value=None),
                 OUTPUT_DIR=output,job_background_audio=Mock(return_value=None),voice_clean=NS(ENABLED=False),
-                ffmpeg_utils=NS(mux_audio_into_video=mux),_wm_needed=lambda uid:False,debit_confirmed=debit_confirmed,deduct_credits=debit,
+                ffmpeg_utils=NS(mux_audio_into_video=mux),_wm_needed=lambda uid:False,ai_label=NS(get=lambda uid:''),
+                watermark=NS(finish_video=lambda path,logo=False,label='':{'ok':True,'logo':False,'label':False,'reason':'tag'}),debit_confirmed=debit_confirmed,deduct_credits=debit,
                 os=NS(replace=Mock(side_effect=OSError('fixture file lock'))),begin_operation=Mock(return_value=True),finish_operation=unlock,
                 _short_merge_price=Mock(return_value=price),_ld_refund=refund,JSONResponse=lambda data,status_code:NS(status_code=status_code))
             extract('main.py',['merge_video','_merge_video_run'],env)

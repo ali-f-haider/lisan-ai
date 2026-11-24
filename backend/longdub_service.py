@@ -179,6 +179,8 @@ class Hooks:
     allowed = staticmethod(lambda uid: (True, ""))
     # watermark(uid) -> True when this user's finished files carry the free-tier watermark (see watermark.py).
     watermark = staticmethod(lambda uid: False)
+    # ai_label(uid) -> "tl" / "tr" / "bl" / "br" or "": the customer's EU "AI modified" label (see ai_label.py).
+    ai_label = staticmethod(lambda uid: "")
     capacity = staticmethod(lambda job, need: (True, "", 200))
 
 
@@ -6900,18 +6902,26 @@ def _run_dubbing(job):
         if not tmp_final.exists() or tmp_final.stat().st_size < 1000:
             raise Exception("the final file was not produced")
         wm_on = False
+        label_on = False
         try:
-            if Hooks.watermark(job.get("uid")):
-                wm_on = True
-                if video_out:
-                    # only a video is marked (the logo); audio files and the separate tracks never are
-                    _mark(job, "finish", 97, "Adding the free-version watermark...")
-                    import watermark as _wmk
-                    _wr = _wmk.apply_video(tmp_final)
-                    _ev(job, "watermark", "ok" if _wr["ok"] else "failed", _wr["reason"])
-                    if not _wr["ok"]:
-                        print(f"[watermark] FAILED for long dub {job['id']}: {_wr['reason']} -- delivered without")
-                        wm_on = False
+            # Only a video gets the free-tier logo and the customer's EU "AI modified" label (ai_label.py); the audio
+            # file gets only the hidden AI note, and the separate tracks get nothing. One pass: watermark.finish_video.
+            wm_on = bool(Hooks.watermark(job.get("uid")))
+            want_logo = wm_on and video_out
+            want_label = (Hooks.ai_label(job.get("uid")) or "") if video_out else ""
+            if want_logo:
+                _mark(job, "finish", 97, "Adding the free-version watermark...")
+            elif want_label:
+                _mark(job, "finish", 97, "Adding the AI label...")
+            import watermark as _wmk
+            _wr = _wmk.finish_video(tmp_final, logo=want_logo, label=want_label)
+            if want_logo or want_label or not _wr["ok"]:
+                _ev(job, "watermark", "ok" if _wr["ok"] else "failed", _wr["reason"])
+            if not _wr["ok"]:
+                print(f"[watermark] FAILED for long dub {job['id']}: {_wr['reason']} -- delivered without")
+                if want_logo:
+                    wm_on = False
+            label_on = bool(_wr["label"])
         except Exception as _wex:
             print(f"[watermark] error for long dub {job['id']}: {_wex}")
             wm_on = False
@@ -6951,6 +6961,8 @@ def _run_dubbing(job):
             job["result"]["lipsync"] = lip_summary
         if wm_on:
             job["result"]["watermark"] = True
+        if label_on:
+            job["result"]["ai_label"] = True
         if tracks_info:
             job["result"]["tracks"] = tracks_info
         if bg_info and bg_info["state"] != "mixed":

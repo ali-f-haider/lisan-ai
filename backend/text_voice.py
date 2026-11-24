@@ -29,6 +29,8 @@ import languages
 from config import DATA_DIR, GEMINI_API_KEY, INWORLD_API_KEY
 from shortdub_billing import debit_confirmed as _debit_ok
 
+# the hidden note in every finished MP3's file information (EU AI Act Art. 50, see watermark.py / ai_label.py)
+_AI_TAG = "AI-generated speech made with Lisan AI (lisanai.org)"
 ENABLED = os.environ.get("TEXT_VOICE", "1").strip() != "0"          # "0" hides the page and refuses new projects
 
 
@@ -1480,7 +1482,8 @@ def _assemble(job):
         final = _dir(job["id"]) / "final.mp3"
         tmp = _dir(job["id"]) / "final.tmp.mp3"
         ffmpeg_utils.run_ffmpeg(["ffmpeg", "-y", "-i", str(joined), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "44100",
-                                 "-codec:a", "libmp3lame", "-b:a", "192k", str(tmp)])
+                                 "-codec:a", "libmp3lame", "-b:a", "192k",
+                                 "-metadata", f"comment={_AI_TAG}", "-metadata", f"description={_AI_TAG}", str(tmp)])
         os.replace(tmp, final)
         return seconds
     finally:

@@ -29,11 +29,13 @@ def paths(output, job_id, operation_id):
     return folder / operation.name, Path(output) / (job_id + '_lipsync_active.json')
 
 
-def work(req, resolution, assets, watermark):
+def work(req, resolution, assets, watermark, label=''):
     try:
         hashes = audio_receipt(assets)
-        encoded = json.dumps({'job_id': req.job_id, 'resolution': resolution, 'audio': hashes,
-                              'watermark': bool(watermark)}, sort_keys=True, allow_nan=False).encode()
+        fields = {'job_id': req.job_id, 'resolution': resolution, 'audio': hashes, 'watermark': bool(watermark)}
+        if label:       # the EU "AI modified" label (ai_label.py); left out when off, so older takes keep their fingerprint
+            fields['label'] = label
+        encoded = json.dumps(fields, sort_keys=True, allow_nan=False).encode()
         return hashlib.sha256(encoded).hexdigest()
     except (OSError, ValueError, RequestProblem):
         raise RequestProblem('We could not find the video or dubbed audio. Please generate the dubbing again.', 400,
