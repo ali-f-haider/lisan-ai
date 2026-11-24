@@ -1292,6 +1292,14 @@ function renderActivity() {
         ? `<span class="muted" title="${escapeHtml(why)}">audio failed earlier (${lf.lines} of ${lf.of} lines), made later</span>`
         : `<span style="color:#f87171;" title="${escapeHtml(why)}">audio failed (${lf.lines} of ${lf.of} lines${lf.refund ? ', ' + lf.refund + ' credits back' : ''})</span>`);
     }
+    const tr = u.short_trace;      // 1.104.0: where they stopped in the short dub (short_trace.py)
+    if (tr) {
+      const probs = (tr.messages || []).map(m => `${m.k === 'jserror' ? 'page error' : (m.l || m.k)} at ${traceStep(m.s)}: ${m.t}`).join('\n');
+      const where = tr.last_step ? `stopped at: <b>${escapeHtml(traceStep(tr.last_step))}</b>` : 'opened the short dub, no step';
+      note.push(`<span title="${escapeHtml(probs)}">${where}${tr.seconds ? ' <span class="muted">(' + Math.round(tr.seconds / 60) + ' min)</span>' : ''}` +
+        `${(tr.messages || []).length ? ' <span style="color:#f87171;">⚠ ' + tr.messages.length + '</span>' : ''}</span>` +
+        ` <a href="#" data-uid="${escapeHtml(u.id)}" data-email="${escapeHtml(u.email || '')}" onclick="showTrace(this.dataset.uid, this.dataset.email);return false;">show</a>`);
+    }
     const fb = u.feedback;
     if (fb && fb.answered) note.push(`<span style="color:#f59e0b;" title="${escapeHtml(fb.text || '')}">${'★'.repeat(fb.stars || 0)}</span>${fb.text ? ' <span class="muted">' + escapeHtml(fb.text.slice(0, 60)) + (fb.text.length > 60 ? '…' : '') + '</span>' : ''}`);
     else if (fb && fb.asks) note.push('<span class="muted">asked for feedback, no answer yet</span>');
@@ -1303,6 +1311,26 @@ function renderActivity() {
       `<td>${u.long_started ? u.long_started + ' started, ' + u.long_dubs_confirmed + ' dubbed' : '—'}</td>` +
       `<td>${u.purchases || '—'}</td><td>${localTs(u.last_active, false) || '—'}</td><td>${note.join('<br>')}</td></tr>`;
   }).join('') || '<tr><td colspan="9" class="muted">Nobody signed up in this period.</td></tr>';
+}
+
+// 1.104.0: the short dub notes of one account (steps reached, messages shown, leaving), see short_trace.py.
+const TRACE_STEP = { step1Card: '1 Upload', step1_5Card: 'Choose the part', progressSection: 'Working (transcribing)',
+  editorSection: '2 Text and translation', voicesSection: '3 Voices', cloneAnalysisSection: 'Voice copy check',
+  speakerVoicesSection: 'Voices per speaker', generateSection: '4 Generate', resultSection: 'Result (audio made)',
+  timelineSection: 'Timeline', mergeSection: 'Merge into the video', lipsyncSection: 'Lip-sync' };
+function traceStep(s) { return TRACE_STEP[s] || s || 'page opened'; }
+async function showTrace(uid, email) {
+  const r = await api('/api/admin/trace?uid=' + encodeURIComponent(uid));
+  if (!r.ok) { LisanDialog.alert(r.data.error || 'Could not load.', { type: 'error' }); return; }
+  const kind = { open: 'opened the page', step: 'reached', msg: 'message', dialog: 'message box', jserror: 'PAGE ERROR', leave: 'left' };
+  const lines = (r.data.events || []).map(e => {
+    const when = localTs(new Date((e.at || 0) * 1000).toISOString(), true);
+    if (e.k === 'step') return `${when}  reached ${traceStep(e.s)}`;
+    if (e.k === 'open') return `${when}  opened the short dub`;
+    if (e.k === 'leave') return `${when}  left at ${traceStep(e.s)}${e.d ? ' after ' + Math.round(e.d / 60) + ' min' : ''}`;
+    return `${when}  ${kind[e.k] || e.k}${e.l ? ' (' + e.l + ')' : ''}: ${e.t || ''}`;
+  });
+  LisanDialog.alert(lines.join('\n') || 'No notes.', { title: 'Short dub: ' + (email || uid) });
 }
 
 async function loadUsers() {

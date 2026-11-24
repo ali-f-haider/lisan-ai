@@ -45,6 +45,7 @@ import subs_export
 import publish_pack
 import watermark
 import ai_label
+import short_trace
 import r2_backup
 import business_metrics
 import alibaba_cost
@@ -2174,6 +2175,7 @@ def delete_account(request: Request, response: Response):
             except Exception as _fb_ex:
                 print(f"[feedback] could not remove the answer of a deleted account: {_fb_ex}")
             ai_label.forget(uid)
+            short_trace.forget(uid)
         except ValueError as ex:
             return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
         except Exception:
@@ -3881,8 +3883,37 @@ def admin_voice_controls_js():
 
 @app.get("/mode_switch.js")
 def mode_switch_js():
-    """The Short clip | Full video switch shown under the top bar of the app and of Long Dub."""
+    """The Short dub | Long dub | From text switch shown under the top bar of the app, Long dub and Text to voice."""
     return FileResponse(BASE_DIR / "mode_switch.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+@app.get("/short_trace.js")
+def short_trace_js():
+    """Where people stop in the short dub (see short_trace.py)."""
+    return FileResponse(BASE_DIR / "short_trace.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
+class TraceBody(BaseModel):
+    events: list = []
+
+
+@app.post("/api/trace")
+def trace_post(body: TraceBody, request: Request):
+    """Notes from the short dub page: steps reached, messages shown, leaving (short_trace.py). Logged-in accounts only."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "trace", 60, 60):
+        return JSONResponse({"error": "Too many requests."}, status_code=429)
+    return {"kept": short_trace.add(uid, body.events if isinstance(body.events, list) else [])}
+
+
+@app.get("/api/admin/trace")
+def admin_trace(request: Request, uid: str = ""):
+    """All short dub notes of one account, for the Activity tab's "show" link."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"events": short_trace.events(uid)}
 
 
 @app.get("/background_review.js")
@@ -5804,7 +5835,7 @@ def _ld_log_event(uid, job_id, step, status, detail="", credits=None):
 
 
 def _ld_is_studio(uid):
-    """Dub Long Video is a Studio-plan feature: an active subscription whose
+    """Long dub is a Studio-plan feature: an active subscription whose
     plan key or plan name says 'studio'."""
     prof = _read_subscription_profile(uid) or {}
     if prof.get("subscription_status") != "active":
@@ -5822,7 +5853,7 @@ def _ld_is_studio(uid):
 def _ld_allowed(uid):
     if LONGDUB_ALL_TIERS or _ld_is_studio(uid):
         return True, ""
-    return False, "Dub Long Video is available with the Studio plan. Upgrade from the Buy menu or the Pricing page."
+    return False, "Long dub is available with the Studio plan. Upgrade from the Buy menu or the Pricing page."
 
 
 def _ld_capacity(job, need):
@@ -6098,7 +6129,7 @@ def text_voice_speak(job_id: str, request: Request):
 
 @app.post("/api/text_voice/{job_id}/line/{line_id}/tashkeel")
 def text_voice_line_tashkeel(job_id: str, line_id: str, request: Request):
-    """The Tashkeel button of one line (free, like the one in Dub Long Video)."""
+    """The Tashkeel button of one line (free, like the one in Long dub)."""
     uid, job = _text_voice_job(request, job_id)
     if not uid:
         return job
@@ -7358,7 +7389,7 @@ def my_jobs(request: Request):
         return JSONResponse({"error": "Please log in to continue."}, status_code=401)
     latest_seen = _user_job_ids(uid)
     jobs = []
-    try:            # Dub Long Video projects are charged under their own id, so their finished files are in the loop below too
+    try:            # Long dub projects are charged under their own id, so their finished files are in the loop below too
         long_projects = {p["id"]: p for p in longdub_service.list_jobs_for_uid(uid)}
     except Exception as ex:
         print(f"[my_jobs] long dub projects not read: {ex}")
@@ -7425,7 +7456,7 @@ def ai_label_post(body: AiLabelBody, request: Request):
 
 @app.get("/api/projects")
 def my_projects(request: Request):
-    """Every Dub Long Video and Text to voice project of this account, for the Account page's Projects tab (1.101.0).
+    """Every Long dub and Text to voice project of this account, for the Account page's Projects tab (1.101.0).
     Only an overview: each row opens the project on its own page, where all the work is done."""
     uid = _current_uid(request)
     if not uid:
@@ -7582,7 +7613,7 @@ def _may_still_have_files(last_seen, days=35):
 @app.post("/api/account/delete_files")
 def delete_all_my_files(request: Request):
     """Account page: "Delete all my files now". Removes this user's finished files (and their off-site backup
-    copies), short-dub working files and uploads, and Dub Long Video projects. Keeps the account, credits, purchase
+    copies), short-dub working files and uploads, and Long dub projects. Keeps the account, credits, purchase
     history and saved voices. Anything still being processed is left alone and reported, never deleted half-way."""
     uid = _current_uid(request)
     if not uid:
@@ -7958,7 +7989,7 @@ def _get_pricing_config():
         # Which design of the public home page visitors see: "classic" (the original) or "studio" (serif, square corners).
         # Switched in the admin panel's "Home Page Design" card; see landing_look.py. Stored in pricing_config.landing_style.
         "landingStyle": "classic",
-        # Dub Long Video (longdub_service.py): longest video allowed, in
+        # Long dub (longdub_service.py): longest video allowed, in
         # minutes, and the per-minute charge for transcribing + speaker
         # detection + translating it. Both editable in the admin panel.
         "longDubMaxMin": 60,
@@ -8208,7 +8239,7 @@ def _save_pricing_config(config):
         with _ur.urlopen(req, timeout=10) as r:
             pass
         failed_settings = []
-        # The two Dub Long Video settings are written in their OWN request:
+        # The two Long dub settings are written in their OWN request:
         # if their columns don't exist yet (SQL not run), only this small
         # write fails -- the main save above (everything else) is unaffected.
         try:
@@ -8659,6 +8690,7 @@ def admin_activity(request: Request, days: int = 7):
              "long_dubs_confirmed": sum(1 for j in long_jobs if j.get("status") in ("confirmed", "dubbing", "done", "completed", "finished")),
              "actions": acts, "last_active": last}
         u["feedback"] = fb["users"].get(str(uid)) or None
+        u["short_trace"] = short_trace.summary(uid)
         u["did_nothing"] = not (t["projects"] or short_jobs or long_jobs or u["purchases"])
         u["engaged"] = _engaged(u)
         users.append(u)
@@ -9114,7 +9146,7 @@ def admin_lipdebug(job_id: str, request: Request):
 
 @app.get("/api/admin/longdub_log")
 def admin_longdub_log(request: Request, q: str = "", limit: int = 300, date_from: str = "", date_to: str = ""):
-    """Step-by-step record of Dub Long Video jobs (table long_dub_events) --
+    """Step-by-step record of Long dub jobs (table long_dub_events) --
     for answering a complaint. q = a job id (or its first characters) or a
     user's email; empty = the newest events of all jobs."""
     if not _admin_check(request):

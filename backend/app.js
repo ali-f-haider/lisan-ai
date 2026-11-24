@@ -91,8 +91,9 @@ function notify(type, msg) {
 
 // ===== Notification history (this session only) =====
 // Every message that appears as a pop-up is also written to a list the user can open with the small V tab under Log Out,
-// because the pop-ups disappear after 10 seconds. The list is kept in this browser tab only (it is NOT sent to the server or
-// saved in the database); it is emptied on Log Out and at every new login.
+// because the pop-ups disappear after 10 seconds. The list itself is kept in this browser tab only; it is emptied on Log Out
+// and at every new login. Since 1.104.0 each message is also noted once for the admin's "where people stop" view
+// (short_trace.js / short_trace.py, our own message text only, kept 30 days).
 const NOTIFY_LOG_KEY = "lisan_notify_log", NOTIFY_LOG_OWNER_KEY = "lisan_notify_log_owner", NOTIFY_LOG_MAX = 200;
 var notifyLog = [], notifyUnread = 0, notifyHistoryOpen = false;
 try {
@@ -121,6 +122,7 @@ function recordNotification(type, text) {
         text = String(text == null ? "" : text);
         if (!text.trim()) return;
         notifyLog.push({ t: Date.now(), type: (type === "error" || type === "success") ? type : "info", text: text });
+        try { if (window.lisanTrace) window.lisanTrace.msg(type, text); } catch (e2) {}
         if (notifyLog.length > NOTIFY_LOG_MAX) notifyLog = notifyLog.slice(-NOTIFY_LOG_MAX);
         if (!notifyHistoryOpen) notifyUnread++;
         saveNotifyLog();

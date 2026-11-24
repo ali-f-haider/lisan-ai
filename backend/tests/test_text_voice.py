@@ -582,6 +582,7 @@ class AdminActivity(Base):
                "feedback": NS(for_admin=lambda: {"users": {"a": {"stars": 5, "text": "great", "answered": 1, "asks": 1, "friends": 0, "gifts": 0}},
                                                  "answers": [], "invites": []}), "text_voice": NS(admin_summary=lambda: summary),
                "longdub_service": NS(list_jobs_for_uid=lambda uid: []), "print": lambda *a, **k: None,
+               "short_trace": NS(summary=lambda uid: None),
                "JSONResponse": lambda body, status_code=200: NS(body=body, status_code=status_code)}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "main.py", "exec"), env)
         got = env["admin_activity"](object(), 7)

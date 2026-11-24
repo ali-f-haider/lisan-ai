@@ -8,7 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 # actually live. Patch (last number) for a fix, minor (middle number) when
 # a feature is added, e.g. 1.2.0 -> 1.2.1 for a bugfix-only deploy, or
 # 1.2.0 -> 1.3.0 when a new feature ships.
-APP_VERSION = "1.103.0"
+APP_VERSION = "1.105.0"
 
 
 # LOCAL_DEV is switched on only by run_local.bat (set LOCAL_DEV=1) -- Railway never
@@ -163,11 +163,11 @@ LIPSYNC_ENABLED = True
 
 # 2026-10-02 (Ali): lip-sync is offered for SHORT dubs only, and only as an ALPHA feature.
 # Real tests on long dubs showed it was not reliable (the picture often came back unchanged
-# or altered), so Dub Long Video has no lip-sync option for now. The long-dub lip-sync code is
+# or altered), so Long dub has no lip-sync option for now. The long-dub lip-sync code is
 # all still in place; set this to True to bring the option back.
 LIPSYNC_LONG_ENABLED = False
 
-# 2026-10-02 (Ali): Dub Long Video is open to every logged-in user (pay-as-you-go and every plan),
+# 2026-10-02 (Ali): Long dub is open to every logged-in user (pay-as-you-go and every plan),
 # no longer a Studio-plan feature; each job is paid with credits as before. Set to False to make
 # it Studio-only again (the Studio check in main.py is still there).
 LONGDUB_ALL_TIERS = True
