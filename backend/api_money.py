@@ -79,7 +79,7 @@ def iso(ts):
 
 
 def build_quote(quote_id, job_id, step, numbers, revision, now, pversion, terms_version,
-                keep_music=True, tracks=True, speaker_ids=None):
+                keep_music=True, tracks=True, speaker_ids=None, voice_style=None):
     if step not in LONG_STEPS:
         raise ValueError("Unknown step.")
     fixed, extra = _credits(numbers["fixed"]), _credits(numbers["additional_max"])
@@ -88,6 +88,7 @@ def build_quote(quote_id, job_id, step, numbers, revision, now, pversion, terms_
             "already_paid_credits": _credits(numbers["already_paid"]), "revision": int(revision),
             "expires_at": iso(now + QUOTE_TTL), "price_version": pversion, "keep_music": bool(keep_music),
             "tracks": bool(tracks), "speaker_ids": list(speaker_ids or []),
+            "voice_style": voice_style if voice_style in ("balanced", "stable", "creative") else None,
             "breakdown": [{"code": c, "credits": _credits(v)} for c, v in numbers["breakdown"]],
             "notice": NOTICES[step], "terms_version": terms_version}
 

@@ -47,6 +47,8 @@ def classify(status, data):
     """The closed error code for an answer of the website's route code (never the website's own text)."""
     if isinstance(data, dict) and data.get("studio_required"):
         return "plan_required"
+    if isinstance(data, dict) and data.get("link_error"):
+        return "link_failed"
     msg = data.get("error") if isinstance(data, dict) else None
     low = str(msg or "").lower()
     if status == 429:
@@ -181,6 +183,36 @@ def register(api, deps, principal, ok):
             return 201, view(request, job_of(p, data["id"]))
         return await idempotent(request, p, body, run)
 
+    @api.post("/jobs/from-link")
+    async def create_job_from_link(request: Request, p=Depends(principal("dub"))):
+        """A long-dub job whose video our server downloads from a link (1.106.0). The job then waits in the state
+        uploading until the download is complete (GET /jobs/{id}/upload shows it), then upload/finish works as usual."""
+        body = await read_json(request)
+        if api_schema.validate_body("CreateJobFromLink", body):
+            raise ApiError("invalid_request")
+        if body["terms_version"] != deps.terms_version:
+            raise ApiError("consent_required")
+        s = request.state.api_settings
+
+        async def run():
+            status, data = await ld.create_link(request, {"url": body["url"], "speakers": body.get("stated_speakers", 2),
+                                                          "name": body.get("name", ""), "description": body.get("description", ""),
+                                                          "source_language": body.get("source_language", "en")})
+            if status != 200:
+                service_failed(status, data)
+            ld.tag(data["id"], {"key_id": p["key_id"], "price_percent": s["price_percent"], "revision": 0, "terms_version": body["terms_version"]})
+            return 201, view(request, job_of(p, data["id"]))
+        return await idempotent(request, p, body, run)
+
+    @api.post("/jobs/{job_id}/upload/link-retry")
+    async def link_retry(job_id: str, request: Request, p=Depends(principal("dub"))):
+        """Start the download of the link again after it stopped. Free; the file behind the link must not have changed."""
+        job_of(p, job_id)
+        status, data = await ld.link_retry(request, job_id)
+        if status != 200:
+            service_failed(status, data)
+        return ok(request, api_jobs.upload_view(job_of(p, job_id)))
+
     @api.get("/jobs")
     def list_jobs(request: Request, cursor: str = "", limit: int = 20, p=Depends(principal("read"))):
         if not 1 <= limit <= 100 or len(cursor) > 256:
@@ -300,7 +332,7 @@ def register(api, deps, principal, ok):
             now = deps.now()
             q = api_money.build_quote(str(uuid.uuid4()), job["id"], step, numbers, (job.get("api") or {}).get("revision", 0), now,
                                       api_money.price_version(ld.pricing(job), (job.get("api") or {}).get("price_percent", 100)),
-                                      deps.terms_version, keep, body.get("tracks", True), [])
+                                      deps.terms_version, keep, body.get("tracks", True), [], body.get("voice_style"))
             await astore.save_quote(q, p["key_id"], p["uid"], now + api_money.QUOTE_TTL)
             return 200, q
         return await idempotent(request, p, body, run)
@@ -366,7 +398,8 @@ def register(api, deps, principal, ok):
                 elif step == "analysis":
                     status, data = await ld.accept(request, job_id)
                 else:
-                    status, data = await ld.confirm(request, job_id, int(live["fixed"]), bool(quote["tracks"]), bool(quote["keep_music"]), int(live["additional_max"]))
+                    status, data = await ld.confirm(request, job_id, int(live["fixed"]), bool(quote["tracks"]), bool(quote["keep_music"]),
+                                                    int(live["additional_max"]), quote.get("voice_style") or "")
             except Exception:
                 raise Uncertain()
             if status != 200:

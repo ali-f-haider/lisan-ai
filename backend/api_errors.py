@@ -19,6 +19,7 @@ ERRORS = {
     "result_expired": (410, False, "This result is no longer stored. Start a new job."),
     "upload_too_large": (413, False, "This file exceeds the upload limit. Use a smaller file."),
     "unsupported_media": (415, False, "This file could not be read. Use a supported audio or video file."),
+    "link_failed": (400, False, "This link could not be used. Use a public Google Drive or Dropbox file link, or a direct link to the file."),
     "rate_limited": (429, True, "Too many requests. Wait before trying again."),
     "concurrency_limited": (429, True, "Wait for an active job to finish before starting another."),
     "daily_cap_exceeded": (429, True, "This key reached its daily credit limit. Check your account settings."),

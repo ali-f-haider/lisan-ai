@@ -10771,6 +10771,15 @@ class _ApiLongDub:
                            name=params["name"], description=params["description"], source_language=params.get("source_language", "en"))
         return _ld_out(await run_in_threadpool(longdub_init, body, request))
 
+    async def create_link(self, request, params):
+        """POST /v1/jobs/from-link (1.106.0): the same as the website's "From a link" box."""
+        body = LongDubLink(filename="link", size=1, speakers=params["speakers"], name=params["name"],
+                           description=params["description"], source_language=params.get("source_language", "en"), url=params["url"])
+        return _ld_out(await run_in_threadpool(longdub_init_link, body, request))
+
+    async def link_retry(self, request, job_id):
+        return _ld_out(await run_in_threadpool(longdub_link_retry, job_id, request))
+
     async def switch_source(self, request, job_id, source_language):
         return _ld_out(await run_in_threadpool(long_switch_language, job_id, {"source_language": source_language}, request))
 
@@ -10787,9 +10796,9 @@ class _ApiLongDub:
     async def preview(self, request, job_id):
         return _ld_out(await run_in_threadpool(longdub_preview, job_id, request))
 
-    async def confirm(self, request, job_id, expected_due, tracks, keep_music, music_budget):
+    async def confirm(self, request, job_id, expected_due, tracks, keep_music, music_budget, delivery_mode=""):
         body = LongDubConfirm(expected_due=int(expected_due), room="", tracks=bool(tracks), keep_music=bool(keep_music),
-                              music_budget=int(music_budget))
+                              music_budget=int(music_budget), delivery_mode=str(delivery_mode or ""))      # voice style (1.106.0)
         return _ld_out(await run_in_threadpool(longdub_confirm, job_id, body, request))
 
     async def delete(self, request, job_id):

@@ -2,6 +2,7 @@
 
 Only an allow-list of fields is ever copied: no file names, text, speaker names, paths, provider ids or internal
 messages reach an API customer. Unknown statuses and stages fall back to the nearest published value."""
+import re
 import languages
 from datetime import datetime, timezone
 
@@ -97,8 +98,23 @@ def job_view(job, request_id, result_available):
 
 def upload_view(job):
     received = sorted({int(i) for i in (job.get("received") or []) if isinstance(i, int) and not isinstance(i, bool)})
-    return {"job_id": job["id"], "size_bytes": int(job.get("size") or 0), "chunk_bytes": int(job.get("chunk_bytes") or 0),
-            "total_chunks": int(job.get("total_chunks") or 0), "received": received, "received_count": len(received)}
+    out = {"job_id": job["id"], "size_bytes": int(job.get("size") or 0), "chunk_bytes": int(job.get("chunk_bytes") or 0),
+           "total_chunks": int(job.get("total_chunks") or 0), "received": received, "received_count": len(received)}
+    if isinstance(job.get("link"), dict):         # 1.106.0: the video comes from a link that our server downloads
+        out["link"] = link_view(job)
+    return out
+
+
+def link_view(job):
+    """{"state": "fetching" | "done" | "failed", "error": a short code or null} for a job made with POST /jobs/from-link."""
+    try:
+        import link_fetch
+        v = link_fetch.view(job) or {}
+    except Exception:
+        v = {}
+    state = v.get("state") if v.get("state") in ("fetching", "done", "failed") else "failed"
+    err = v.get("error") if state == "failed" else None
+    return {"state": state, "error": err if isinstance(err, str) and re.fullmatch(r"[a-z_]{1,40}", err) else (None if state != "failed" else "stopped")}
 
 
 def estimate_view(job):

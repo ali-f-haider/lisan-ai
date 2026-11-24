@@ -57,7 +57,7 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 <h2>3. How a long dub works</h2>
 <div class="tablewrap"><table class="t">
 <tr><th>Step</th><th>What you do</th><th>What it costs</th></tr>
-<tr><td>Upload</td><td>Create the job, then send the file in parts.</td><td>Free</td></tr>
+<tr><td>Upload</td><td>Create the job, then send the file in parts. Or give us a link to the video instead (see <a href="#from-link">Video from a link</a>).</td><td>Free</td></tr>
 <tr><td><code>estimate</code></td><td>Ask for a quote and approve it. You then see the estimate for the whole job.</td><td>A small fixed fee, which counts toward the total</td></tr>
 <tr><td><code>analysis</code></td><td>Ask for a quote and approve it. We listen, find the speakers and translate. The job ends in the state <code>editing</code>.</td><td>Analysis and processing fees, quoted in advance</td></tr>
 <tr><td>Review</td><td>On the website, read and correct the Arabic text and the speakers. (Editing through the API comes later.)</td><td>Free</td></tr>
@@ -96,6 +96,8 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 <tr><th>Call</th><th>Purpose</th><th>Needs</th></tr>
 <tr><td><code>GET /v1/account/balance</code></td><td>Your credits</td><td>account</td></tr>
 <tr><td><code>POST /v1/jobs</code></td><td>Create a long-dub job</td><td>dub</td></tr>
+<tr><td><code>POST /v1/jobs/from-link</code></td><td>Create a long-dub job from a link to the video; our server downloads it</td><td>dub</td></tr>
+<tr><td><code>POST /v1/jobs/{id}/upload/link-retry</code></td><td>Start the download from the link again after it stopped; free</td><td>dub</td></tr>
 <tr><td><code>GET /v1/jobs</code></td><td>List your API jobs (<code>limit</code>, <code>cursor</code>)</td><td>read</td></tr>
 <tr><td><code>POST /v1/jobs/{id}/source-language</code></td><td>Resume a paused analysis with the original language you choose; no extra charge</td><td>dub</td></tr>
 <tr><td><code>GET /v1/jobs/{id}</code></td><td>Status, progress, last payment, errors</td><td>read</td></tr>
@@ -109,6 +111,12 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 <tr><td><code>GET /v1/jobs/{id}/results</code></td><td>Which result files exist</td><td>read</td></tr>
 <tr><td><code>GET /v1/jobs/{id}/results/{kind}</code></td><td>Download <code>mixed</code> (the finished dub), <code>dialogue</code> or <code>background</code></td><td>read</td></tr>
 </table></div>
+
+<h3 id="from-link">Video from a link</h3>
+<p>Instead of uploading the file, send <code>POST /v1/jobs/from-link</code> with <code>{"kind": "long", "url": "...", "rights_confirmed": true, "terms_version": "..."}</code> (plus the optional <code>source_language</code>, <code>name</code>, <code>description</code> and <code>stated_speakers</code>, as for <code>POST /v1/jobs</code>). The link can be a Google Drive or Dropbox file shared with "anyone with the link", or a direct link to the video file. YouTube and other video sites are not accepted. Our server checks the link and downloads the file itself. While it does, <code>GET /v1/jobs/{id}/upload</code> shows <code>link.state</code>: <code>fetching</code>, then <code>done</code>, or <code>failed</code> with a short <code>link.error</code> code. When it is <code>done</code>, continue with the <code>estimate</code> quote exactly as after an upload. After <code>failed</code>, call <code>POST /v1/jobs/{id}/upload/link-retry</code>. A link that cannot be used at all returns the error <code>link_failed</code>.</p>
+
+<h3>Voice style</h3>
+<p>The quote for the <code>dub</code> step may include <code>"voice_style"</code>: <code>balanced</code>, <code>stable</code> or <code>creative</code>, the same choice as on the website. <code>balanced</code> (the default) is natural, with the feeling each line asks for; <code>stable</code> is calmer and more even from line to line and follows the text closely (news, narration, lectures); <code>creative</code> is livelier and more varied (drama, stories, animation). Leave it out for the default. It only changes how the voice speaks, never the words or the price, and it also applies to later corrections of this dub.</p>
 
 <h3>Original language</h3>
 <p>When creating a job, you may include <code>source_language</code>: <code>en</code> (English), <code>es</code> (Spanish), <code>fr</code> (French), <code>pt</code> (Portuguese), <code>it</code> (Italian), <code>de</code> (German), <code>nl</code> (Dutch) or <code>pl</code> (Polish). If omitted, it is English. The result is Arabic and the same prices apply. The example tool below starts English projects; use the request field for the other languages. Any subtitle you attach on the website should match the original language.</p>
@@ -132,6 +140,7 @@ python api_try.py start "C:\path\to\clip.mp4"</code></pre>
 <tr><td><code>max_credits_exceeded</code></td><td>409</td><td>no</td><td>The price exceeds your credit limit. Nothing was charged.</td></tr>
 <tr><td><code>upload_incomplete</code></td><td>409</td><td>yes</td><td>Upload the missing chunks before finishing.</td></tr>
 <tr><td><code>result_expired</code></td><td>410</td><td>no</td><td>This result is no longer stored. Start a new job.</td></tr>
+<tr><td><code>link_failed</code></td><td>400</td><td>no</td><td>This link could not be used. Use a public Google Drive or Dropbox file link, or a direct link to the file.</td></tr>
 <tr><td><code>upload_too_large</code></td><td>413</td><td>no</td><td>This file exceeds the upload limit. Use a smaller file.</td></tr>
 <tr><td><code>unsupported_media</code></td><td>415</td><td>no</td><td>This file could not be read. Use a supported audio or video file.</td></tr>
 <tr><td><code>rate_limited</code></td><td>429</td><td>yes</td><td>Too many requests. Wait before trying again.</td></tr>

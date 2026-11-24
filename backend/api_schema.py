@@ -20,7 +20,7 @@ SEGMENT = {
         "text": {"type": "string", "maxLength": 15000},
         "arabic_text": {"type": "string", "maxLength": 15000},
         "emotion": {"type": "string", "minLength": 1, "maxLength": 80},
-        "waqf": {"type": "string", "enum": ["auto", "stop", "join"], "default": "auto"},
+        "waqf": {"type": "string", "enum": ["auto", "stop", "join", "exact"], "default": "auto"},     # exact = "As written" (1.106.0)
     },
 }
 SPEAKER = {
@@ -48,6 +48,21 @@ BODY_SCHEMAS = {
             "terms_version": VERSION,
         },
     },
+    # a long-dub job whose video the server downloads from a link (Google Drive, Dropbox or a direct file link, 1.106.0)
+    "CreateJobFromLink": {
+        "type": "object", "additionalProperties": False,
+        "required": ["kind", "url", "rights_confirmed", "terms_version"],
+        "properties": {
+            "kind": {"type": "string", "enum": ["long"]},
+            "url": {"type": "string", "minLength": 10, "maxLength": 2000, "pattern": r"^https?://[^\s\x00-\x1f\x7f]+$"},
+            "source_language": {"type": "string", "enum": ["en", "es", "fr", "pt", "it", "de", "nl", "pl"], "default": "en"},
+            "name": {"type": "string", "maxLength": 80},
+            "description": {"type": "string", "maxLength": 500},
+            "stated_speakers": {"type": "integer", "minimum": 1, "maximum": 20, "default": 2},
+            "rights_confirmed": {"type": "boolean", "const": True},
+            "terms_version": VERSION,
+        },
+    },
     "SourceLanguage": {"type": "object", "additionalProperties": False, "required": ["source_language"],
                        "properties": {"source_language": {"type": "string", "enum": ["en", "es", "fr", "pt", "it", "de", "nl", "pl"]}}},
     "QuoteRequest": {
@@ -58,6 +73,8 @@ BODY_SCHEMAS = {
             "tracks": {"type": "boolean", "default": True},
             "speaker_ids": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": True,
                             "items": {"type": "string", "minLength": 1, "maxLength": 80}},
+            # how the voices speak, only for the dub step (1.106.0); left out = the standard style, as on the website
+            "voice_style": {"type": "string", "enum": ["balanced", "stable", "creative"]},
         },
     },
     "AcceptQuote": {
@@ -147,6 +164,8 @@ def validate_body(schema_name, body):
                 return "body.speaker_ids is required for clone."
             if body["step"] != "clone" and "speaker_ids" in body:
                 return "body.speaker_ids is only allowed for clone."
+            if body["step"] != "dub" and "voice_style" in body:
+                return "body.voice_style is only allowed for dub."
         if schema_name == "CreateJob" and body["filename"] in (".", ".."):
             return "body.filename has an invalid format."
         if schema_name == "EditSegments":
