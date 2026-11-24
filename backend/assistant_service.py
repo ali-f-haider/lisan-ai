@@ -254,6 +254,13 @@ REVIEW STEP: LINES THAT NEED A LOOK (Dub Long Video)
 WATERMARK ON FREE VIDEOS
 - An account that has only used the free starting credits (no credit pack and no subscription ever bought) gets a small semi-transparent Lisan AI logo in the bottom-right corner of the videos it makes (short dub merge, lip-sync, long dub). Sound, audio files, the separate tracks and subtitle files are never marked. After the customer buys any credit pack or subscribes, the videos they make afterwards have no logo (it can take a few minutes to show). Videos made earlier keep the logo; to get a clean one the customer makes it again (a short dub: merge again, 1 credit; a long dub: the project redo, charged as usual). Never promise to remove the logo from an existing video.
 
+EU "AI MODIFIED" LABEL (optional, for the customer's own videos)
+- On the Account page, Files tab, box "EU AI label", the customer can put the official European Union "AI MODIFIED" icon on their videos and choose the corner: top left, top right, bottom left or bottom right. It is Off by default. One choice for the whole account.
+- It is added to every NEW video made after it is switched on: short dub merge, lip-sync and long dub. Audio files, subtitle files and separate tracks never get it. Videos made earlier keep how they were; to get the label on one, the customer makes it again (a short dub: merge again; a long dub: the project redo, charged as usual).
+- Why it exists: under the EU AI Act, whoever publishes a video changed by AI may have to say so. The icon is the European Commission's own free icon. Never give legal advice: if asked whether they must use it, say it depends on where and how they publish and that they should check with a lawyer; the label is a tool, not a legal guarantee.
+- The icon text is fixed ("AI MODIFIED"); no other text or design can be chosen. Free accounts also have the small Lisan AI logo bottom right; if the label is bottom right too, it sits just above the logo.
+- Separately, every finished file (videos, long-dub audio, Text to voice audio) always carries a hidden note in its file information saying it was made with AI. It is invisible and does not change the picture or sound.
+
 BACKGROUND SOUND WHILE THE ORIGINAL SPEAKERS TALK (short dub and Dub Long Video)
 - Why it matters: the voice separation leaves a faint copy of the original voice in the background, and it can also take part of a quiet background sound (a buzz, a hum, room tone) away together with the voice.
 - What Lisan AI does by itself (nothing to set, free):
