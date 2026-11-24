@@ -342,6 +342,8 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <label for="actDays">Period</label>
           <select id="actDays" onchange="loadActivity()"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select>
           <label><input type="checkbox" id="actHideIdle" onchange="renderActivity()"> Hide users who did nothing</label>
+          <button type="button" class="btn-sm" id="actCopyTrace" onclick="copyAllTraces()" title="Every short-dub timeline of the users in this list, as plain text">📋 Copy short-dub logs</button>
+          <span class="muted" id="actCopyTraceMsg"></span>
           <button class="btn-sm" onclick="loadActivity()">Refresh</button>
         </div>
         <div id="actTotals" class="muted">Loading…</div>
@@ -1319,6 +1321,35 @@ const TRACE_STEP = { step1Card: '1 Upload', step1_5Card: 'Choose the part', prog
   speakerVoicesSection: 'Voices per speaker', generateSection: '4 Generate', resultSection: 'Result (audio made)',
   timelineSection: 'Timeline', mergeSection: 'Merge into the video', lipsyncSection: 'Lip-sync' };
 function traceStep(s) { return TRACE_STEP[s] || s || 'page opened'; }
+// 1.107.0: all short-dub timelines of the listed users as one plain text, copied to the clipboard (to paste to Claude).
+function traceLines(events) {
+  const kind = { open: 'opened the page', step: 'reached', msg: 'message', dialog: 'message box', jserror: 'PAGE ERROR', leave: 'left' };
+  return (events || []).map(e => {
+    const when = localTs(new Date((e.at || 0) * 1000).toISOString(), true);
+    if (e.k === 'step') return `${when}  reached ${traceStep(e.s)}`;
+    if (e.k === 'open') return `${when}  opened the short dub`;
+    if (e.k === 'leave') return `${when}  left at ${traceStep(e.s)}${e.d ? ' after ' + Math.round(e.d / 60) + ' min' : ''}`;
+    return `${when}  ${kind[e.k] || e.k}${e.l ? ' (' + e.l + ')' : ''}${e.j ? ' [job ' + e.j + ']' : ''}: ${e.t || ''}`;
+  });
+}
+async function copyAllTraces() {
+  const msg = document.getElementById('actCopyTraceMsg');
+  const users = ((activityCache || {}).users || []).filter(u => u.short_trace);
+  if (!users.length) { msg.textContent = 'Nobody in this list opened the short dub yet.'; return; }
+  msg.textContent = 'Collecting ' + users.length + ' logs...';
+  const parts = [];
+  for (const u of users) {
+    const r = await api('/api/admin/trace?uid=' + encodeURIComponent(u.id));
+    const lines = r.ok ? traceLines(r.data.events) : ['(could not load)'];
+    parts.push(`=== ${u.email || u.id} | signed up ${localTs(u.signed_up, false)} | credits ${u.credits} | short dubs ${u.short_started || 0} started, ${u.short_dubs || 0} finished\n` + lines.join('\n'));
+  }
+  const text = parts.join('\n\n');
+  try { await navigator.clipboard.writeText(text); msg.textContent = `Copied ${users.length} logs. Paste them into the chat.`; }
+  catch (e) {
+    LisanDialog.alert(text, { title: 'Short-dub logs (select and copy)' });
+    msg.textContent = '';
+  }
+}
 async function showTrace(uid, email) {
   const r = await api('/api/admin/trace?uid=' + encodeURIComponent(uid));
   if (!r.ok) { LisanDialog.alert(r.data.error || 'Could not load.', { type: 'error' }); return; }
