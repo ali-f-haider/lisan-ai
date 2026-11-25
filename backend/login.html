@@ -75,6 +75,11 @@ button{width:100%;box-sizing:border-box;padding:13px;margin:0 0 12px;border-radi
     <input type="checkbox" id="agreeTerms">
     <span><span class="en">I have read and agree to the <a href="/terms" target="_blank">Terms of Service</a> and <a href="/privacy" target="_blank">Privacy Policy</a>.</span><span class="ar">قرأتُ <a href="/terms" target="_blank">شروط الخدمة</a> و<a href="/privacy" target="_blank">سياسة الخصوصية</a> وأوافق عليهما.</span></span>
   </label>
+  <!-- 1.108.0: optional, never required; see onboarding.py. The choice travels with the login (finishLogin). -->
+  <label class="terms-row">
+    <input type="checkbox" id="wantTips">
+    <span><span class="en">Optional: send me tips for getting started by email (at most 3 emails, unsubscribe any time).</span><span class="ar">اختياري: أرسلوا لي نصائح للبدء عبر البريد الإلكتروني (3 رسائل كحد أقصى، ويمكن إلغاء الاشتراك في أي وقت).</span></span>
+  </label>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -151,11 +156,13 @@ async function finishLogin(session){
   var token = session && session.access_token;
   if(!token){ msg("We couldn't complete the login. Please try again.", "err"); return false; }
   try{
-    var r = await fetch("/api/auth/session", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ access_token: token }), credentials: 'include' });
+    var tips = null, lang = "";
+    try { tips = localStorage.getItem("lisan_tips") === "1" ? true : null; lang = localStorage.getItem("lisan_lang") === "ar" ? "ar" : "en"; } catch(e){}
+    var r = await fetch("/api/auth/session", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ access_token: token, tips: tips, lang: lang }), credentials: 'include' });
     if(!r.ok){ msg(r.status === 429 ? "Too many attempts. Please wait a few minutes and try again." : "We couldn't log you in just now. Please try again in a moment.", "err"); try{ await client().auth.signOut(); }catch(e){} return false; }
     var d = await r.json();
     if(d.error || d.ok === false){ msg(authMsg(d.error) || "We couldn't log you in. Please try again.", "err"); try{ await client().auth.signOut(); }catch(e){} return false; }
-    try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf("lisan_workspace")===0) localStorage.removeItem(k); }); }catch(e){}
+    try{ Object.keys(localStorage).forEach(function(k){ if(k.indexOf("lisan_workspace")===0) localStorage.removeItem(k); }); localStorage.removeItem("lisan_tips"); }catch(e){}
     location.replace("/app");
     return true;
   }catch(e){ msg("We couldn't reach our service. Please check your connection and try again.", "err"); return false; }
@@ -188,6 +195,7 @@ async function doLogin(){ /* _adminShortcut */
   var _em = document.getElementById("email").value.trim();
   var _pw = document.getElementById("password").value;
   if(!_em && !_pw){ msg("Please enter your email and password.", "err"); return; }
+  try{ if(document.getElementById("wantTips").checked) localStorage.setItem("lisan_tips","1"); }catch(e){}     // kept from sign-up otherwise
   var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
   var res = await c.auth.signInWithPassword({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
   if(res.error){
@@ -199,9 +207,13 @@ async function doLogin(){ /* _adminShortcut */
   _loginAttempted = false;
   await finishLogin(res.data.session);
 }
+// The tips box is read when the person clicks; Google and the email confirmation leave this page, so the choice is kept
+// in this browser until the login is finished (finishLogin sends it once and forgets it).
+function rememberTips(){ try{ if(document.getElementById("wantTips").checked) localStorage.setItem("lisan_tips","1"); else localStorage.removeItem("lisan_tips"); }catch(e){} }
 async function doSignup(){
   if(!document.getElementById("agreeTerms").checked){ msg("Please agree to the Terms of Service and Privacy Policy to create an account.", "err"); return; }
   var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
+  rememberTips();
   var res = await c.auth.signUp({ email: document.getElementById("email").value.trim(), password: document.getElementById("password").value });
   if(res.error){
     if(/already registered|already exists/i.test(res.error.message)){ msg("This email is already registered. Please log in instead.", "err"); return; }
@@ -242,6 +254,7 @@ function socialLogin(p){
   // creating accounts with no recorded consent.
   if(!document.getElementById("agreeTerms").checked){ msg("Please agree to the Terms of Service and Privacy Policy to continue.", "err"); return; }
   var c = client(); if(!c){ msg("Login is unavailable right now. Please try again in a moment.", "err"); return; }
+  rememberTips();
   c.auth.signInWithOAuth({ provider: p, options: { redirectTo: location.origin + "/login" } });
 }
 </script>

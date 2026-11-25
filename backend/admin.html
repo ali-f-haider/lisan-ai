@@ -346,6 +346,14 @@ code { background: #0f172a; padding: 1px 5px; border-radius: 3px; font-size: 12p
           <span class="muted" id="actCopyTraceMsg"></span>
           <button class="btn-sm" onclick="loadActivity()">Refresh</button>
         </div>
+        <div id="obBox" style="border:1px solid #334155;border-radius:8px;padding:10px 12px;margin:0 0 12px;">
+          <b>📧 Getting-started emails</b> <span class="muted">(only to people who ticked the box at sign-up, at most 3 emails on day 1, 3 and 7, stopped as soon as they make something)</span><br>
+          <label><input type="checkbox" id="obOn" onchange="obSave()"> Send them</label>
+          <span class="muted" id="obStats">Loading…</span><br>
+          Preview: <button class="btn-sm" onclick="obPreview(1,'ar')">Day 1 AR</button> <button class="btn-sm" onclick="obPreview(1,'en')">Day 1 EN</button>
+          <button class="btn-sm" onclick="obPreview(3,'ar')">Day 3 AR</button> <button class="btn-sm" onclick="obPreview(3,'en')">Day 3 EN</button>
+          <button class="btn-sm" onclick="obPreview(7,'ar')">Day 7 AR</button> <button class="btn-sm" onclick="obPreview(7,'en')">Day 7 EN</button>
+        </div>
         <div id="actTotals" class="muted">Loading…</div>
         <h4 style="margin:14px 0 6px;">Text to voice: how far new users got</h4>
         <div id="actFunnel"></div>
@@ -1234,6 +1242,7 @@ function actSortHeads() {
   });
 }
 async function loadActivity() {
+  obLoad();
   const days = document.getElementById('actDays').value || '7';
   document.getElementById('actTotals').textContent = 'Loading…';
   const r = await api('/api/admin/activity?days=' + encodeURIComponent(days));
@@ -1349,6 +1358,23 @@ async function copyAllTraces() {
     LisanDialog.alert(text, { title: 'Short-dub logs (select and copy)' });
     msg.textContent = '';
   }
+}
+// 1.108.0: getting-started emails (onboarding.py)
+function obShow(d) {
+  document.getElementById('obOn').checked = !!d.enabled;
+  const sent = d.sent || {};
+  document.getElementById('obStats').textContent = ` · asked for them: ${d.opted_in || 0} · unsubscribed: ${d.unsubscribed || 0} · made something: ${d.made_something || 0} · sent day 1/3/7: ${sent['1'] || 0}/${sent['3'] || 0}/${sent['7'] || 0}`;
+}
+async function obLoad() { const r = await api('/api/admin/onboarding'); if (r.ok) obShow(r.data); }
+async function obSave() {
+  const r = await api('/api/admin/onboarding', { method: 'POST', body: JSON.stringify({ enabled: document.getElementById('obOn').checked }) });
+  if (r.ok) obShow(r.data); else LisanDialog.alert(r.data.error || 'Could not save.', { type: 'error' });
+}
+async function obPreview(step, lang) {
+  const r = await api('/api/admin/onboarding/preview?step=' + step + '&lang=' + lang);
+  if (!r.ok) { LisanDialog.alert(r.data.error || 'Could not load.', { type: 'error' }); return; }
+  const w = window.open(URL.createObjectURL(new Blob([r.data.html], { type: 'text/html' })), '_blank');
+  if (!w) LisanDialog.alert('Please allow pop-ups for this page to see the preview.');
 }
 async function showTrace(uid, email) {
   const r = await api('/api/admin/trace?uid=' + encodeURIComponent(uid));

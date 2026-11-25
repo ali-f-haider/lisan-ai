@@ -46,6 +46,7 @@ import publish_pack
 import watermark
 import ai_label
 import short_trace
+import onboarding
 import r2_backup
 import business_metrics
 import alibaba_cost
@@ -233,6 +234,8 @@ class LoginRequest(BaseModel):
 class AuthRequest(BaseModel):
     access_token: str = ""
     refresh_token: str = ""
+    tips: Optional[bool] = None      # 1.108.0: ticked "Send me tips for getting started" on the login page (onboarding.py)
+    lang: str = ""
 
 class AnalyzeRequest(_JobIdModel):
     job_id: str
@@ -639,7 +642,7 @@ def _site_gate_ok(request: Request) -> bool:
     return bool(cookie) and _safe_eq(cookie, _site_gate_token())
 
 PUBLIC_PATHS = frozenset([
-    "/", "/pricing", "/login", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/imprint", "/impressum", "/imprint.html", "/debug-keys", "/api/login",
+    "/", "/pricing", "/login", "/unsubscribe", "/robots.txt", "/sitemap.xml", "/auth/callback", "/help", "/privacy", "/privacy.html", "/terms", "/terms.html", "/imprint", "/impressum", "/imprint.html", "/debug-keys", "/api/login",
     "/api/auth/session", "/api/auth/check", "/api/me", "/api/stripe/webhook",
     "/api/maintenance", "/api/limits", "/api/billing/packs", "/api/billing/checkout", "/api/billing/subscribe", "/api/billing/portal", "/api/billing/cancel", "/api/contact", "/api/assistant", "/api/assistant/credits",
     "/api/account/delete", "/api/cost_per_minute"
@@ -1021,6 +1024,8 @@ def auth_session(req: AuthRequest, response: Response, request: Request):
         _valid_tokens[tok] = req.access_token
         _persist_session(tok, req.access_token)
         response.set_cookie("session", tok, httponly=True, max_age=86400 * 7, samesite="lax", secure=_cookie_secure(request))
+        if req.tips is True:
+            threading.Thread(target=_onboarding_opt_in, args=(req.access_token, req.lang), daemon=True).start()
         return {"ok": True}
     return JSONResponse({"error": "Your session has expired. Please log in again."}, status_code=401)
 
@@ -2175,6 +2180,7 @@ def delete_account(request: Request, response: Response):
             except Exception as _fb_ex:
                 print(f"[feedback] could not remove the answer of a deleted account: {_fb_ex}")
             ai_label.forget(uid)
+            onboarding.forget(uid)
             short_trace.forget(uid)
         except ValueError as ex:
             return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
@@ -5681,6 +5687,178 @@ def _send_plain_email(to_email, subject, body_text):
         _ld_email_last["reason"] = f"Resend send failed: {detail}"[:300]
         print(f"[longdub] Resend send failed: {detail}")
         return False
+
+
+# ==================== GETTING-STARTED EMAILS (onboarding.py, 1.108.0) ====================
+# Only for people who ticked "Send me tips for getting started"; at most three emails, only while they have not made
+# anything yet. Off until the admin switch is turned on (Activity tab).
+
+def _onboarding_opt_in(access_token, lang):
+    """Records the ticked box for the account behind this login (its id and creation time come from Supabase)."""
+    try:
+        req = urllib.request.Request(f"{SUPABASE_URL}/auth/v1/user", headers={"Authorization": f"Bearer {access_token}", "apikey": SUPABASE_ANON_KEY})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            u = json.load(r)
+        created = None
+        try:
+            from datetime import datetime
+            created = datetime.fromisoformat(str(u.get("created_at")).replace("Z", "+00:00")).timestamp()
+        except Exception:
+            pass
+        if u.get("id"):
+            onboarding.opt_in(u["id"], created, "ar" if lang == "ar" else "en")
+    except Exception as ex:
+        print(f"[onboarding] opt-in not recorded: {ex}")
+
+
+def _send_html_email(to_email, subject, body_html, body_text, unsubscribe_url=""):
+    """Resend, like _send_plain_email, with an HTML body, replies going to the contact address and a one-click
+    unsubscribe header (mail programs show their own "Unsubscribe" button for it)."""
+    if not RESEND_API_KEY or not to_email:
+        return False
+    msg = {"from": "Lisan AI <noreply@lisanai.org>", "to": [to_email], "subject": subject, "html": body_html, "text": body_text,
+           "reply_to": CONTACT_TO_EMAIL}
+    if unsubscribe_url:
+        msg["headers"] = {"List-Unsubscribe": f"<{unsubscribe_url}>", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}
+    try:
+        req = urllib.request.Request("https://api.resend.com/emails", data=json.dumps(msg).encode("utf-8"), method="POST",
+                                     headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json",
+                                              "User-Agent": "LisanAI-Backend/1.0 (+https://lisanai.org)"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            try:
+                service_usage_monitor.record_resend_usage(_resend_quota_header(r))
+            except Exception:
+                pass
+            return r.status in (200, 201)
+    except Exception as ex:
+        print(f"[onboarding] Resend send failed: {ex}")
+        return False
+
+
+def _onboarding_made_something(uid):
+    """True once the account has paid for any step, has a Text to voice project or a long dub; None if unknown."""
+    try:
+        if longdub_service.list_jobs_for_uid(uid):
+            return True
+        if (text_voice.admin_summary().get(str(uid)) or {}).get("projects"):
+            return True
+    except Exception:
+        pass
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        return None
+    try:
+        req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/credit_spends?uid=eq.{uid}&credits=gt.0&select=action&limit=1",
+                                     headers={"apikey": SUPABASE_SERVICE_KEY, **sb_auth(SUPABASE_SERVICE_KEY)})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return bool(json.load(r))
+    except Exception as ex:
+        print(f"[onboarding] could not check {uid}: {ex}")
+        return None
+
+
+def _onboarding_credits(uid):
+    try:
+        c = get_credits(uid)
+        return c if isinstance(c, int) and not isinstance(c, bool) else None
+    except Exception:
+        return None
+
+
+def _onboarding_loop():
+    while True:
+        try:
+            if onboarding.enabled():
+                c = onboarding.run(_send_html_email, _onboarding_made_something, _email_for_uid, _onboarding_credits)
+                if c["sent"] or c["failed"]:
+                    print(f"[onboarding] sent {c['sent']}, failed {c['failed']}, skipped {c['skipped']}")
+        except Exception as ex:
+            print(f"[onboarding] round failed: {ex}")
+        keep_awake.sleep(3600)
+
+
+threading.Thread(target=_onboarding_loop, daemon=True, name="onboarding-emails").start()
+
+
+_UNSUB_PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lisan AI</title></head><body style="margin:0;background:#f5f6fb;font-family:'Segoe UI',Arial,sans-serif;color:#1f2937;">
+<div style="max-width:520px;margin:60px auto;background:#fff;border-radius:14px;padding:32px;text-align:center;box-shadow:0 2px 10px rgba(26,35,126,.08);">
+<img src="/logo.png" width="56" height="56" alt="Lisan AI" style="border-radius:12px;"><h2 style="color:#1a237e;">%s</h2><p>%s</p>
+<p dir="rtl" style="margin-top:18px;"><b style="color:#1a237e;">%s</b><br>%s</p><p><a href="/" style="color:#c9952b;font-weight:700;">lisanai.org</a></p></div></body></html>"""
+
+
+@app.get("/unsubscribe")
+def onboarding_unsubscribe_page(u: str = "", t: str = ""):
+    """The link in every getting-started email. One click: no more of these emails."""
+    if not onboarding.check_token(u, t):
+        return HTMLResponse(_UNSUB_PAGE % ("This link is not valid", "Please use the newest email, or switch the emails off on your Account page.",
+                                           "هذا الرابط غير صالح", "يُرجى استخدام أحدث رسالة، أو إيقاف الرسائل من صفحة حسابك."), status_code=400)
+    onboarding.opt_out(u)
+    return HTMLResponse(_UNSUB_PAGE % ("You are unsubscribed", "You will get no more getting-started emails from Lisan AI. Emails about your own projects (for example “your long dub is ready”) still arrive.",
+                                       "تم إلغاء اشتراكك", "لن تصلك بعد الآن رسائل نصائح البدء من Lisan AI. أما الرسائل الخاصة بمشاريعك (مثل «الدبلجة الطويلة جاهزة») فتصلك كالمعتاد."))
+
+
+@app.post("/unsubscribe")
+def onboarding_unsubscribe_oneclick(u: str = "", t: str = ""):
+    """One-click unsubscribe from the mail program's own button (List-Unsubscribe-Post)."""
+    if onboarding.check_token(u, t):
+        onboarding.opt_out(u)
+        return {"ok": True}
+    return JSONResponse({"error": "invalid"}, status_code=400)
+
+
+class OnboardingPrefs(BaseModel):
+    tips: bool = False
+    lang: str = ""
+
+
+@app.get("/api/onboarding/prefs")
+def onboarding_prefs_get(request: Request):
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    return {"tips": onboarding.wants(uid)}
+
+
+@app.post("/api/onboarding/prefs")
+def onboarding_prefs_post(body: OnboardingPrefs, request: Request):
+    """The Account page switch. Turning it on later only sends the emails that are still due (accounts up to 10 days old)."""
+    uid = _current_uid(request)
+    if not uid:
+        return JSONResponse({"error": "Please log in to continue."}, status_code=401)
+    if _rate_limited(request, "onboarding_prefs", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": "Too many requests. Please wait a moment."}, status_code=429)
+    ok = onboarding.opt_in(uid, None, "ar" if body.lang == "ar" else "en") if body.tips else onboarding.opt_out(uid)
+    if not ok:
+        return JSONResponse({"error": "This setting could not be saved. Please try again."}, status_code=503)
+    return {"tips": onboarding.wants(uid)}
+
+
+@app.get("/api/admin/onboarding")
+def admin_onboarding_get(request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return onboarding.stats()
+
+
+class AdminOnboarding(BaseModel):
+    enabled: bool = False
+
+
+@app.post("/api/admin/onboarding")
+def admin_onboarding_post(body: AdminOnboarding, request: Request):
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    onboarding.set_enabled(body.enabled)
+    return onboarding.stats()
+
+
+@app.get("/api/admin/onboarding/preview")
+def admin_onboarding_preview(request: Request, step: int = 1, lang: str = "ar"):
+    """One email exactly as it is sent (with 100 credits as the example balance), for the admin's preview."""
+    if not _admin_check(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    subject, body_html, _ = onboarding.render(step if step in onboarding.STEPS else 1, "ar" if lang == "ar" else "en", "", 100)
+    return {"subject": subject, "html": body_html}
 
 
 def _picture_num(value, default):

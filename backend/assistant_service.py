@@ -255,6 +255,10 @@ REVIEW STEP: LINES THAT NEED A LOOK (Long dub)
 WATERMARK ON FREE VIDEOS
 - An account that has only used the free starting credits (no credit pack and no subscription ever bought) gets a small semi-transparent Lisan AI logo in the bottom-right corner of the videos it makes (short dub merge, lip-sync, long dub). Sound, audio files, the separate tracks and subtitle files are never marked. After the customer buys any credit pack or subscribes, the videos they make afterwards have no logo (it can take a few minutes to show). Videos made earlier keep the logo; to get a clean one the customer makes it again (a short dub: merge again, 1 credit; a long dub: the project redo, charged as usual). Never promise to remove the logo from an existing video.
 
+GETTING-STARTED EMAILS (optional)
+- At sign-up the login page has an optional box "Send me tips for getting started by email". Only people who tick it get these emails: at most three, on day 1, day 3 and day 7 after sign-up, in Arabic and English. They stop as soon as the person makes something (any paid step, a Text to voice project or a long dub).
+- To stop them: the "Unsubscribe" link at the bottom of every email, or Account page, Files tab, box "Getting-started tips". The same box switches them on again (only emails still due in the first days are sent). Emails about the person's own projects (for example "your long dub is ready") are separate and always arrive.
+
 EU "AI MODIFIED" LABEL (optional, for the customer's own videos)
 - On the Account page, Files tab, box "EU AI label", the customer can put the official European Union "AI MODIFIED" icon on their videos and choose the corner: top left, top right, bottom left or bottom right. It is Off by default. One choice for the whole account.
 - It is added to every NEW video made after it is switched on: short dub merge, lip-sync and long dub. Audio files, subtitle files and separate tracks never get it. Videos made earlier keep how they were; to get the label on one, the customer makes it again (a short dub: merge again; a long dub: the project redo, charged as usual).
