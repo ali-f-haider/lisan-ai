@@ -289,6 +289,11 @@ var T = {
     tooBig: function (mb, maxMb) { return "This file is " + mb + " MB. The limit is " + maxMb + " MB."; },
     jobHeading: "Your video",
     uploadingPct: function (p, a, b) { return "Uploading… " + p + "% (" + a + " of " + b + " parts)"; },
+    // 1.107.1: megabytes sent and the time left, updated while every part is on its way
+    uploadingMb: function (a, b, secs) {
+      var left = secs == null ? "" : (secs < 60 ? " · less than a minute left" : " · about " + Math.ceil(secs / 60) + " minute" + (Math.ceil(secs / 60) === 1 ? "" : "s") + " left");
+      return "Uploading… " + a + " of " + b + " MB" + left;
+    },
     uploadPaused: "The upload was interrupted. Choose the same file again and it will continue where it stopped.",
     chooseSame: "Choose the same file to continue", wrongFile: "That isn't the same file that was being uploaded. Choose the original file to continue.",
     cancelUpload: "Cancel upload",
@@ -588,6 +593,11 @@ var T = {
     tooBig: function (mb, maxMb) { return "حجم الملف " + mb + " ميغابايت. الحد الأقصى " + maxMb + " ميغابايت."; },
     jobHeading: "الفيديو الخاص بك",
     uploadingPct: function (p, a, b) { return "جارٍ الرفع… " + p + "٪ (" + a + " من " + b + " أجزاء)"; },
+    uploadingMb: function (a, b, secs) {
+      var m = secs == null ? 0 : Math.ceil(secs / 60);
+      var left = secs == null ? "" : (secs < 60 ? " · يتبقى أقل من دقيقة" : " · يتبقى نحو " + m + " " + ((m >= 3 && m <= 10) ? "دقائق" : "دقيقة"));
+      return "جارٍ الرفع… " + a + " من " + b + " ميغابايت" + left;
+    },
     uploadPaused: "انقطع الرفع. اختر الملف نفسه مرة أخرى وسيتابع من حيث توقف.",
     chooseSame: "اختر الملف نفسه للمتابعة", wrongFile: "هذا ليس الملف نفسه الذي كان قيد الرفع. اختر الملف الأصلي للمتابعة.",
     cancelUpload: "إلغاء الرفع",
@@ -1088,8 +1098,9 @@ function renderJob() {
   } else if (j.status === "uploading") {
     var pct = j.percent || 0;
     h += name;
-    h += '<div class="progress-bar"><div class="progress-fill" style="width:' + pct + '%"></div></div>';
-    h += "<p class='note'>" + esc(uploading ? T.uploadingPct(pct, j.received_count || 0, j.total_chunks || 0) : T.uploadPaused) + "</p>";
+    pct = upPct(j);
+    h += '<div class="progress-bar"><div class="progress-fill" id="upFill" style="width:' + pct + '%"></div></div>';
+    h += "<p class='note' id=\"upNote\">" + esc(uploading ? upText(j) : T.uploadPaused) + "</p>";
     if (!uploading) {
       if (j.total_chunks && (j.received_count || 0) >= j.total_chunks) {
         h += '<div class="ld-row-btns"><button id="btnFinish">' + esc(T.finishBtn) + "</button></div>";
@@ -1745,16 +1756,47 @@ function onLinkRetry() {
   }).catch(function () { if (b) b.disabled = false; alertMsg(T.netErr); });
 }
 
-async function putChunk(job, index, blob) {
+// 1.107.1: one part is sent with XMLHttpRequest (fetch cannot report upload progress), so the bar moves with every
+// kilobyte and the note says how many megabytes are sent and about how long is left. Same answers as before.
+function sendPart(url, blob, onBytes) {
+  return new Promise(function (resolve, reject) {
+    var x = new XMLHttpRequest();
+    x.open("PUT", url);
+    x.setRequestHeader("Content-Type", "application/octet-stream");
+    x.upload.onprogress = function (e) { if (onBytes && e.lengthComputable) onBytes(e.loaded); };
+    x.onload = function () { var d = {}; try { d = JSON.parse(x.responseText || "{}"); } catch (e) {} resolve({ status: x.status, ok: x.status >= 200 && x.status < 300, data: d }); };
+    x.onerror = x.ontimeout = x.onabort = function () { reject(new Error("network")); };
+    x.send(blob);
+  });
+}
+
+var upInfo = { id: "", sent: 0, size: 0, eta: null };       // the upload running in this tab (the page's poll replaces cur)
+
+function upPct(j) { return (uploading && upInfo.id === j.id && upInfo.size) ? Math.min(99, Math.floor(100 * upInfo.sent / upInfo.size)) : (j.percent || 0); }
+
+function upText(j) {
+  var mb = function (b) { var v = b / 1048576; return v >= 10 ? String(Math.round(v)) : v.toFixed(1); };
+  if (!(uploading && upInfo.id === j.id && upInfo.size)) return T.uploadingPct(j.percent || 0, j.received_count || 0, j.total_chunks || 0);
+  return T.uploadingMb(mb(Math.min(upInfo.sent, upInfo.size)), mb(upInfo.size), upInfo.eta);
+}
+
+function showUpProgress() {
+  if (!cur || cur.id !== upInfo.id) return;
+  var f = document.getElementById("upFill"), n = document.getElementById("upNote");
+  if (f) f.style.width = upPct(cur) + "%";
+  if (n) n.textContent = upText(cur);
+}
+
+async function putChunk(job, index, blob, onBytes) {
   var lastMsg = "";
   for (var attempt = 1; attempt <= 6; attempt++) {
     if (uploadAbort) return { ok: false, aborted: true };
     try {
-      var r = await fetch("/api/longdub/" + job.id + "/chunk?index=" + index, { method: "PUT", headers: { "Content-Type": "application/octet-stream" }, body: blob });
+      if (onBytes) onBytes(0);
+      var r = await sendPart("/api/longdub/" + job.id + "/chunk?index=" + index, blob, onBytes);
       if (r.status === 401) { location.href = "/login"; return { ok: false }; }
       if (r.ok) return { ok: true };
-      var d = {}; try { d = await r.json(); } catch (e) {}
-      lastMsg = safeErr(d.error, T.genericErr);
+      lastMsg = safeErr((r.data || {}).error, T.genericErr);
       if (r.status >= 400 && r.status < 500 && r.status !== 429 && r.status !== 408) return { ok: false, msg: lastMsg };
     } catch (e) { lastMsg = T.netErr; }
     await sleep(1200 * attempt);
@@ -1773,14 +1815,26 @@ async function continueUpload(job, file) {
     var have = {}; (st.data.received || []).forEach(function (i) { have[i] = true; });
     var total = job.total_chunks, cb = cfg.chunk_bytes;
     job.received_count = Object.keys(have).length;
+    var doneBytes = 0;
+    Object.keys(have).forEach(function (k) { var n = Number(k); doneBytes += Math.max(0, Math.min(file.size, (n + 1) * cb) - n * cb); });
+    var startBytes = doneBytes, startAt = Date.now(), lastShow = 0;
+    upInfo = { id: job.id, sent: doneBytes, size: file.size, eta: null };
     for (var i = 0; i < total; i++) {
       if (have[i]) continue;
       if (uploadAbort) return;
       var blob = file.slice(i * cb, Math.min(file.size, (i + 1) * cb));
-      var res = await putChunk(job, i, blob);
+      var res = await putChunk(job, i, blob, function (loaded) {
+        upInfo.sent = doneBytes + loaded;
+        var secs = (Date.now() - startAt) / 1000, sent = upInfo.sent - startBytes;
+        upInfo.eta = (secs >= 3 && sent > 0) ? Math.max(0, (file.size - upInfo.sent) / (sent / secs)) : null;
+        var now = Date.now();
+        if (now - lastShow > 400) { lastShow = now; showUpProgress(); }
+      });
       if (!res.ok) { if (!res.aborted) lastErr = res.msg || T.netErr; return; }
+      doneBytes += blob.size;
       have[i] = true;
       job.received_count = Object.keys(have).length;
+      upInfo.sent = doneBytes;
       job.percent = Math.floor(100 * job.received_count / total);
       renderJob();
     }
