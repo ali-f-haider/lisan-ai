@@ -9772,7 +9772,25 @@ def billing_packs_dynamic():
             "amount_usd": float(cfg.get("subscriptionPriceUsd") or 29.0),
         },
         "subscriptionPlans": _plans_for_public_display(cfg.get("subscriptionPlans") or DEFAULT_SUBSCRIPTION_PLANS),
+        # 1.107.0: credits for one minute of long dub, so the cards can say "about N minutes of long dub"
+        "longDubPerMin": _long_dub_per_min(),
     }, headers={"Cache-Control": "no-cache"})
+
+
+LONG_DUB_EXAMPLE_SEC, LONG_DUB_EXAMPLE_SPEAKERS = 600, 2
+
+
+def _long_dub_per_min():
+    """Credits per minute of a typical long dub (a 10-minute video with 2 speakers, no lip-sync), from the same
+    estimate the Long dub page shows before anything is paid, so it follows every price change in admin. 0 if unknown."""
+    try:
+        est = longdub_service.compute_estimate(LONG_DUB_EXAMPLE_SEC, _ld_pricing(), speakers=LONG_DUB_EXAMPLE_SPEAKERS,
+                                               has_video=True, picture=True)
+        per = float(est["total"]) / (LONG_DUB_EXAMPLE_SEC / 60.0)
+        return round(per, 1) if per > 0 and math.isfinite(per) else 0
+    except Exception as ex:
+        print(f"[pricing] long dub minutes could not be worked out: {ex}")
+        return 0
 
 # ==================== WHAT A FINISHED MINUTE COSTS (Pricing page) ====================
 # The typical credits for one finished minute over the last 90 days, from the real credit history (see

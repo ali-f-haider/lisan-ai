@@ -99,6 +99,7 @@ body.site .p-sec h2{text-align:center;margin:0 0 8px;padding:0;border:0}
     <h2><span class="en">One-time Credit Packs</span><span class="ar">باقات الرصيد لمرة واحدة</span></h2>
     <p class="section-note"><span class="en">Pay once, credits never expire. No voice cloning or saved voice slots — those require a subscription above.</span><span class="ar">ادفع مرة واحدة، والرصيد لا تنتهي صلاحيته. لا يشمل استنساخ الصوت أو أماكن الأصوات المحفوظة — تتطلب تلك الميزات اشتراكًا أعلاه.</span></p>
     <div class="plan-grid" id="packCards"><p class="loading-note">Loading packs…</p></div>
+    <p class="loading-note" id="ldMinNote" style="display:none;font-size:13px;"><span class="en">* Minutes of long dub are an estimate for a 10-minute video with 2 speakers, without lip-sync. Your exact price is always shown before you pay.</span><span class="ar">* دقائق الدبلجة الطويلة تقدير لفيديو مدته 10 دقائق بمتحدثَين ودون مزامنة الشفاه. ويظهر لك السعر الدقيق دائماً قبل الدفع.</span></p>
     <div class="trust">
       <span><span class="en">🔒 Login-protected purchases</span><span class="ar">🔒 عمليات شراء محمية بتسجيل الدخول</span></span>
       <span><span class="en">⏳ One-time: 48h file storage (100 MB) · Monthly: 30 days, storage size by plan</span><span class="ar">⏳ لمرة واحدة: تخزين 48 ساعة (100 ميغابايت) · شهري: 30 يومًا، وحجم التخزين حسب الباقة</span></span>
@@ -230,6 +231,7 @@ function renderSubs(plans) {
       '<div class="pname"><span class="en">🔁 ' + p.name + '</span><span class="ar">🔁 ' + arName + '</span></div>' +
       '<div class="pprice"><span class="en">$' + price.toFixed(2) + ' <span class="unit">/mo</span></span><span class="ar">' + price.toFixed(2) + '$ <span class="unit">/ شهريًا</span></span></div>' +
       '<div class="pdetail"><span class="en">💳 ' + credits.toLocaleString() + ' credits every month</span><span class="ar">' + credits.toLocaleString() + ' رصيد كل شهر</span></div>' +
+      ldMinLine(credits) +
       '<div class="pdetail"><span class="en">🎙️ ' + slots + ' saved voice slot' + (slots === 1 ? "" : "s") + '</span><span class="ar">' + slots + ' مكان صوت محفوظ</span></div>' +
       clonesLine +
       '<div class="pdetail"><span class="en">💾 ' + storageGb + ' GB file storage</span><span class="ar">💾 ' + storageGb + ' جيجابايت لتخزين الملفات</span></div>' +
@@ -238,6 +240,16 @@ function renderSubs(plans) {
       '</button>';
   });
   box.innerHTML = html;
+}
+
+// 1.107.0: "about N minutes of long dub" on every card, from the server's own estimate (/api/billing/packs longDubPerMin)
+var LD_PER_MIN = 0;
+function ldMinutes(credits) { return LD_PER_MIN > 0 ? Math.floor((parseInt(credits || 0, 10) || 0) / LD_PER_MIN) : 0; }
+function ldMinUnitAr(n) { return (n >= 3 && n <= 10) ? "دقائق" : "دقيقة"; }
+function ldMinLine(credits) {
+  var m = ldMinutes(credits);
+  if (m < 1) return "";
+  return '<div class="pdetail"><span class="en">⏱️ about ' + m + ' minute' + (m === 1 ? '' : 's') + ' of long dub*</span><span class="ar">⏱️ نحو ' + m + ' ' + ldMinUnitAr(m) + ' من الدبلجة الطويلة*</span></div>';
 }
 
 function renderPacks(packs) {
@@ -258,6 +270,7 @@ function renderPacks(packs) {
       '<div class="pname"><span class="en">' + label + '</span><span class="ar">' + (PACK_NAME_AR[k] || label) + '</span></div>' +
       '<div class="pprice"><span class="en">$' + price.toFixed(2) + '</span><span class="ar">' + price.toFixed(2) + '$</span></div>' +
       '<div class="pdetail"><span class="en">💳 ' + credits.toLocaleString() + ' credits</span><span class="ar">' + credits.toLocaleString() + ' رصيد</span></div>' +
+      ldMinLine(credits) +
       '<div class="pdetail"><span class="en">⏳ One-time · 48h file storage (100 MB) · never expires</span><span class="ar">لمرة واحدة · تخزين 48 ساعة (100 ميغابايت) · لا تنتهي صلاحيته</span></div>' +
       '<div class="pcta"><span class="en">Buy now →</span><span class="ar">اشترِ الآن ←</span></div>' +
       '</button>';
@@ -348,6 +361,9 @@ Promise.all([
   userInfo = user;
   // Only a logged-in visitor can be a subscriber.
   alreadySubscribed = loggedIn && user.subscription_status === "active";
+  LD_PER_MIN = parseFloat(data.longDubPerMin) || 0;
+  var ldNote = document.getElementById("ldMinNote");
+  if (ldNote && LD_PER_MIN > 0) ldNote.style.display = "";
   renderSubs(data.subscriptionPlans || []);
   renderPacks(data.packs || {});
 }).catch(function () {

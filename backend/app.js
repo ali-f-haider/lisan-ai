@@ -4335,6 +4335,13 @@ function openBuyModal() {
         var data = results[0];
         var userInfo = results[1] || {};
         var alreadySubscribed = userInfo.subscription_status === "active";
+        // 1.107.0: "about N minutes of long dub" next to the credits (the server's own estimate, see main.py _long_dub_per_min)
+        var ldPerMin = parseFloat(data.longDubPerMin) || 0;
+        var ldMin = function (c) {
+            var m = ldPerMin > 0 ? Math.floor((parseInt(c || 0, 10) || 0) / ldPerMin) : 0;
+            if (m < 1) return "";
+            return isAr ? ("نحو " + m + " " + ((m >= 3 && m <= 10) ? "دقائق" : "دقيقة") + " من الدبلجة الطويلة*") : ("about " + m + " min of long dub*");
+        };
         // Subscriber state for the tier tiles: which tier they're on, whether
         // the subscription is cancelled (ends at period end), and whether a
         // downgrade is already scheduled for the next renewal.
@@ -4418,7 +4425,7 @@ function openBuyModal() {
                         '<span style="font-weight:700;color:' + (tileMuted ? "#6b7280" : "#5b21b6") + ';">🔁 ' + p.name + '</span>' +
                         '<span style="font-weight:800;color:' + (tileMuted ? "#9ca3af" : "#7c3aed") + ';">$' + price.toFixed(2) + (isAr ? "/شهر" : "/mo") + '</span>' +
                     '</span>' +
-                    '<span style="font-size:12px;color:#6b7280;">' + credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا" : " every month") + ' · ' + slots + (isAr ? " مكان صوت" : (slots === 1 ? " voice slot" : " voice slots")) + (clones > 0 ? (' · ' + clones + (isAr ? " استنساخ/شهر" : (clones === 1 ? " clone/mo" : " clones/mo"))) : '') + ((parseFloat(p.storage_gb || 0) > 0) ? (' · ' + (Math.round(parseFloat(p.storage_gb) * 10) / 10) + (isAr ? " جيجابايت تخزين" : " GB storage")) : '') + '</span>' +
+                    '<span style="font-size:12px;color:#6b7280;">' + credits.toLocaleString() + ' ' + creditsWord + (isAr ? " شهريًا" : " every month") + (ldMin(credits) ? ' (' + ldMin(credits) + ')' : '') + ' · ' + slots + (isAr ? " مكان صوت" : (slots === 1 ? " voice slot" : " voice slots")) + (clones > 0 ? (' · ' + clones + (isAr ? " استنساخ/شهر" : (clones === 1 ? " clone/mo" : " clones/mo"))) : '') + ((parseFloat(p.storage_gb || 0) > 0) ? (' · ' + (Math.round(parseFloat(p.storage_gb) * 10) / 10) + (isAr ? " جيجابايت تخزين" : " GB storage")) : '') + '</span>' +
                     noteHtml;
                 if (!tileDisabled) {
                     sb.onmouseenter = function () { sb.style.borderColor = "#5b21b6"; };
@@ -4447,12 +4454,21 @@ function openBuyModal() {
             if (!p) return;
             var b = document.createElement("button");
             b.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-radius:10px;border:2px solid #e5e7eb;background:#fff;cursor:pointer;font-family:inherit;";
-            b.innerHTML = '<span style="font-weight:700;color:#1a237e;">' + p.credits.toLocaleString() + ' ' + creditsWord + '</span><span style="font-weight:800;color:#059669;">$' + p.amount_usd.toFixed(2) + '</span>';
+            b.innerHTML = '<span style="font-weight:700;color:#1a237e;">' + p.credits.toLocaleString() + ' ' + creditsWord +
+                (ldMin(p.credits) ? '<br><span style="font-weight:400;font-size:12px;color:#6b7280;">' + ldMin(p.credits) + '</span>' : '') +
+                '</span><span style="font-weight:800;color:#059669;">$' + p.amount_usd.toFixed(2) + '</span>';
             b.onmouseenter = function () { b.style.borderColor = "#42a5f5"; };
             b.onmouseleave = function () { b.style.borderColor = "#e5e7eb"; };
             b.onclick = function () { buyPack(key, b); };
             wrap.appendChild(b);
         });
+        if (ldPerMin > 0) {
+            var ldNote = document.createElement("p");
+            ldNote.style.cssText = "font-size:11px;color:#9ca3af;margin:4px 0 0;";
+            ldNote.textContent = isAr ? "* دقائق الدبلجة الطويلة تقدير لفيديو مدته 10 دقائق بمتحدثَين ودون مزامنة الشفاه. ويظهر لك السعر الدقيق دائماً قبل الدفع."
+                                      : "* Minutes of long dub are an estimate for a 10-minute video with 2 speakers, without lip-sync. Your exact price is always shown before you pay.";
+            wrap.appendChild(ldNote);
+        }
     }).catch(function () { wrap.innerHTML = '<p style="color:#dc2626;font-size:13px;">' + (isAr ? "تعذّر تحميل الباقات." : "Could not load packs.") + '</p>'; });
 }
 
