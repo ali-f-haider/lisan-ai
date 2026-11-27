@@ -2707,8 +2707,9 @@ async function startTranscribe() {
         const pick = await LisanDialog.trim(file, {
             duration: dur, maxSec: maxDur, minSec: MIN_DURATION_SEC,
             reason: tooLong ? "long" : "size",
-            sizeMB: file.size / 1048576, capMB: MAX_UPLOAD_BYTES / 1048576
+            sizeMB: file.size / 1048576, capMB: MAX_UPLOAD_BYTES / 1048576, longDub: tooLong
         });
+        if (pick && pick.longDub) { lisanHandOffToLongDub(file); return; }
         if (!pick) return;
         trimStart = pick.start; trimEnd = pick.end;
     }
@@ -8580,3 +8581,142 @@ function openShortSpeechRemoval(seg, index) {
             fetchSource:function(){return workspaceHasMedia ? {url:"/api/source/"+encodeURIComponent(id),kind:"audio"} : null;}}
     });
 }
+
+// ===== 1.109.0: automatic translation, "Translate again", Long dub hand-over, "free credits used" note =====
+(function () {
+    var T2 = function (en, ar) { return window.currentLang === "ar" ? ar : en; };
+
+    // ---- the Translate button: one function for the first run, new lines and a full new translation ----
+    async function translateLines(list, auto) {
+        if (!list.length) return false;
+        notify("info", auto ? T2("Translating to Arabic automatically…", "جارٍ الترجمة إلى العربية تلقائياً…")
+                            : T2("Translating " + list.length + " line(s) to Arabic…", "جارٍ ترجمة " + list.length + " سطر إلى العربية…"));
+        showBusy("Translating to Arabic… this takes a few seconds.", "جارٍ الترجمة إلى العربية… يستغرق ذلك بضع ثوانٍ.");
+        try {
+            var res = await fetch("/api/translate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(translateBody(list)) });
+            var data = await res.json();
+            if (data.error) { notify("error", data.error); return false; }
+            adoptHeardGenders(data);
+            var matched = 0;
+            (data.translated_segments || []).forEach(function (item) {
+                var seg = segmentsData.find(function (s) { return s.segment_id === item.segment_id; });
+                if (seg) { seg.arabic_text = item.arabic_text || ""; seg.gender_check = item.gender_check === true; var clean = sanitizeStyle(item.emotion); if (clean) seg.emotion = clean; matched++; }
+            });
+            renderTable();
+            notify("success", auto ? T2("The Arabic is ready. Check it in the table, then press Generate.", "النص العربي جاهز. راجعه في الجدول ثم اضغط «توليد».")
+                                   : T2("Translation complete: " + matched + " line(s).", "اكتملت الترجمة: " + matched + " سطر."));
+            fetchUsage();
+            return matched > 0;
+        } catch (e) { notify("error", e.message); return false; } finally { hideBusy(); }
+    }
+
+    function emptyLines() { return segmentsData.filter(function (s) { return !s.locked && !(s.arabic_text || "").trim(); }); }
+    function hasArabic() { return segmentsData.some(function (s) { return (s.arabic_text || "").trim(); }); }
+
+    window.translateButton = function () {
+        var unlocked = segmentsData.filter(function (s) { return !s.locked; });
+        if (!unlocked.length) { notify("error", T2("All lines are locked — nothing to translate.", "كل الأسطر مقفلة، فلا يوجد ما يُترجم.")); return; }
+        if (!hasArabic()) { translateLines(unlocked, false); return; }
+        var empty = emptyLines();
+        if (empty.length) { translateLines(empty, false); return; }
+        LisanDialog.confirm(T2("Translate all unlocked lines again? This replaces the Arabic text, including your own changes. Lock (🔒) the lines you want to keep.",
+                               "هل تريد ترجمة كل الأسطر غير المقفلة من جديد؟ سيستبدل ذلك النص العربي، بما في ذلك تعديلاتك. اقفل (🔒) الأسطر التي تريد الاحتفاظ بها."),
+                            { okText: T2("Translate again", "ترجم من جديد") }).then(function (ok) { if (ok) translateLines(unlocked, false); });
+    };
+
+    function labelButton() {
+        var b = document.getElementById("btnTranslate"), l = document.getElementById("btnTranslateLabel");
+        if (!b || !l) return;
+        var text = (!segmentsData || !segmentsData.length || !hasArabic()) ? T2("Auto Translate to Arabic", "ترجمة تلقائية إلى العربية")
+                 : emptyLines().length ? T2("Translate the new lines", "ترجمة الأسطر الجديدة")
+                 : T2("🔄 Translate again", "🔄 ترجمة من جديد");
+        if (l.textContent !== text) l.textContent = text;
+    }
+    if (typeof renderTable === "function") {
+        var origRender = renderTable;
+        renderTable = function () { var r = origRender.apply(this, arguments); try { labelButton(); } catch (e) {} return r; };
+    }
+    try { new MutationObserver(labelButton).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] }); } catch (e) {}
+    function firstLabel() { var l = document.getElementById("btnTranslateLabel"); if (l) l.textContent = T2("Auto Translate to Arabic", "ترجمة تلقائية إلى العربية"); labelButton(); }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstLabel); else firstLabel();
+
+    // ---- automatic translation as soon as a new transcription is in ----
+    if (typeof checkTranscribeProgress === "function") {
+        var origCheck = checkTranscribeProgress, autoFor = {};
+        checkTranscribeProgress = async function () {
+            var prev = segmentsData, job = currentJobId;
+            await origCheck.apply(this, arguments);
+            if (job && !autoFor[job] && segmentsData !== prev && segmentsData && segmentsData.length && !hasArabic()) {
+                autoFor[job] = true;
+                var unlocked = segmentsData.filter(function (s) { return !s.locked && (s.text || "").trim(); });
+                var ok = await translateLines(unlocked, true);
+                if (!ok) notify("info", T2("The automatic translation did not finish. Press “Auto Translate to Arabic” in Step 2.", "لم تكتمل الترجمة التلقائية. اضغط «ترجمة تلقائية إلى العربية» في الخطوة 2."));
+            }
+        };
+    }
+
+    // ---- safety net: Generate without any Arabic jumps to the Translate button ----
+    if (typeof generateAudio === "function") {
+        var origGen = generateAudio;
+        generateAudio = function () {
+            if (segmentsData && segmentsData.length && !hasArabic()) {
+                notify("error", T2("First translate the text: press “Auto Translate to Arabic” in Step 2.", "ترجم النص أولاً: اضغط «ترجمة تلقائية إلى العربية» في الخطوة 2."));
+                var b = document.getElementById("btnTranslate");
+                if (b) { b.scrollIntoView({ behavior: "smooth", block: "center" }); b.style.boxShadow = "0 0 0 4px #f59e0b"; setTimeout(function () { b.style.boxShadow = ""; }, 3000); }
+                return;
+            }
+            return origGen.apply(this, arguments);
+        };
+    }
+
+    // ---- a video too long for a short dub goes to Long dub with the same file ----
+    window.lisanHandOffToLongDub = function (file) {
+        var go = function () { location.href = "/dub-long?from=short"; };
+        try {
+            var req = indexedDB.open("lisan_handoff", 1);
+            req.onupgradeneeded = function () { req.result.createObjectStore("files"); };
+            req.onsuccess = function () {
+                try {
+                    var tx = req.result.transaction("files", "readwrite");
+                    tx.objectStore("files").put({ file: file, at: Date.now() }, "short_to_long");
+                    tx.oncomplete = go;
+                    tx.onerror = go;
+                } catch (e) { go(); }
+            };
+            req.onerror = go;
+        } catch (e) { go(); }
+    };
+
+    // ---- free credits used up: what the smallest pack buys ----
+    function freeCreditsNote() {
+        Promise.all([
+            fetch("/api/user/info", { credentials: "same-origin" }).then(function (r) { return r.json(); }),
+            fetch("/api/billing/packs").then(function (r) { return r.json(); })
+        ]).then(function (res) {
+            var u = res[0] || {}, d = res[1] || {};
+            if (u.is_guest || !u.watermark || typeof u.credits !== "number" || u.credits >= 20) return;     // only free accounts that are (almost) out of credits
+            try { if (sessionStorage.getItem("lisan_free_note_closed") === "1") return; } catch (e) {}
+            var packs = Object.keys(d.packs || {}).map(function (k) { return d.packs[k]; }).filter(function (p) { return p && p.amount_usd > 0; })
+                .sort(function (a, b) { return a.amount_usd - b.amount_usd; });
+            if (!packs.length) return;
+            var p = packs[0], per = parseFloat(d.longDubPerMin) || 0, mins = per > 0 ? Math.floor(p.credits / per) : 0;
+            var price = "$" + (p.amount_usd % 1 ? p.amount_usd.toFixed(2) : String(p.amount_usd));
+            var minAr = (mins >= 3 && mins <= 10) ? "دقائق" : "دقيقة";
+            var text = T2("You have used your free credits. " + p.credits.toLocaleString() + " credits cost " + price + (mins ? ", enough for about " + mins + " more minutes of long dub" : "") + ", and your videos come without the Lisan AI logo.",
+                          "لقد استخدمت رصيدك المجاني. " + p.credits.toLocaleString() + " رصيد مقابل " + price + (mins ? "، وهو ما يكفي لنحو " + mins + " " + minAr + " إضافية من الدبلجة الطويلة" : "") + "، وتصبح فيديوهاتك بلا شعار Lisan AI.");
+            var box = document.createElement("div");
+            box.id = "freeCreditsNote";
+            box.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px;padding:12px 14px;border-radius:10px;background:#fff7e6;border:1px solid #f0c36d;color:#5b4300;font-size:14px;";
+            var span = document.createElement("span"); span.style.flex = "1 1 260px"; span.textContent = text;
+            var buy = document.createElement("button"); buy.className = "green"; buy.textContent = T2("Buy credits", "اشترِ رصيداً");
+            buy.onclick = function () { if (typeof openBuyModal === "function") openBuyModal(); else location.href = "/pricing"; };
+            var x = document.createElement("button"); x.className = "btn-plain"; x.textContent = "✕"; x.setAttribute("aria-label", T2("Close", "إغلاق"));
+            x.style.cssText = "background:none;border:none;font-size:16px;cursor:pointer;color:#5b4300;";
+            x.onclick = function () { box.remove(); try { sessionStorage.setItem("lisan_free_note_closed", "1"); } catch (e) {} };
+            box.appendChild(span); box.appendChild(buy); box.appendChild(x);
+            var anchor = document.getElementById("step1Card");
+            if (anchor && anchor.parentNode && !document.getElementById("freeCreditsNote")) anchor.parentNode.insertBefore(box, anchor);
+        }).catch(function () {});
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", freeCreditsNote); else freeCreditsNote();
+})();

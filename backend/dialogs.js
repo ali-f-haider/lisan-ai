@@ -75,7 +75,9 @@
               trimSelected: "Selected: {a} to {b} ({n} s)", trimUse: "Use this section",
               trimNoPreview: "Preview isn't available for this file type, but you can still choose the section.",
               trimBadStart: "Enter the start as a time such as 2:15 (minutes:seconds).",
-              trimBadLen: "The length must be between {min} and {max} seconds." },
+              trimBadLen: "The length must be between {min} and {max} seconds.",
+              trimLongDubHint: "Want the whole video in Arabic? Long dub takes videos of up to 60 minutes.",
+              trimLongDub: "🎞️ Dub the whole video with Long dub" },
         ar: { ok: "موافق", cancel: "إلغاء", alertTitle: "تنبيه", confirmTitle: "يرجى التأكيد", promptTitle: "أدخل قيمة", required: "هذا الحقل مطلوب.",
               trimTitle: "اختر الجزء المراد دبلجته",
               trimLong: "مدة هذا الملف {dur}. يمكن دبلجة حتى {max} ثانية في المرة الواحدة، فاختر الجزء الذي تريده.",
@@ -85,7 +87,9 @@
               trimSelected: "المحدد: من {a} إلى {b} ({n} ث)", trimUse: "استخدم هذا الجزء",
               trimNoPreview: "المعاينة غير متاحة لهذا النوع من الملفات، لكن يمكنك اختيار المقطع.",
               trimBadStart: "أدخل البداية كوقت مثل 2:15 (دقائق:ثواني).",
-              trimBadLen: "يجب أن تكون المدة بين {min} و{max} ثانية." }
+              trimBadLen: "يجب أن تكون المدة بين {min} و{max} ثانية.",
+              trimLongDubHint: "تريد الفيديو كاملاً بالعربية؟ تقبل «دبلجة طويلة» فيديوهات حتى 60 دقيقة.",
+              trimLongDub: "🎞️ دبلج الفيديو كاملاً بالدبلجة الطويلة" }
     };
 
     function isArabic() {
@@ -355,6 +359,18 @@
             okBtn.type = "button"; okBtn.className = "ld-btn ld-ok"; okBtn.textContent = T.trimUse;
             btns.appendChild(cancelBtn); btns.appendChild(okBtn);
             box.appendChild(btns);
+            // 1.109.0: a video that is too long for a short dub can go to Long dub in one click (the caller carries the file over)
+            if (opts.longDub && opts.reason !== "size") {
+                var ldWrap = document.createElement("div");
+                ldWrap.style.cssText = "margin-top:14px;padding-top:12px;border-top:1px solid var(--ld-border,var(--border,#e5e7eb));";
+                var ldHint = document.createElement("p");
+                ldHint.className = "ld-msg"; ldHint.style.margin = "0 0 8px"; ldHint.textContent = T.trimLongDubHint;
+                var ldBtn = document.createElement("button");
+                ldBtn.type = "button"; ldBtn.className = "ld-btn ld-ok"; ldBtn.style.width = "100%"; ldBtn.textContent = T.trimLongDub;
+                ldBtn.onclick = function () { close({ longDub: true }); };
+                ldWrap.appendChild(ldHint); ldWrap.appendChild(ldBtn);
+                box.appendChild(ldWrap);
+            }
             overlay.appendChild(box);
             document.body.appendChild(overlay);
 

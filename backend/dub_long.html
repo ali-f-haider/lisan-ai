@@ -2953,6 +2953,86 @@ function mountTutorial() {
   }).catch(function () { showUploadError(T.netErr); });
 })();
 </script>
+<script>
+// 1.109.0: a video sent over from Short dub ("Dub the whole video with Long dub"), and the "free credits used" note.
+(function () {
+  function t(en, ar) { return LANG === "ar" ? ar : en; }
+  // coming from Short dub: open on a new project instead of the last one (the page asks pickInitial once its list is in)
+  if (/[?&]from=short\b/.test(location.search) && typeof pickInitial === "function") { pickInitial = function () { return null; }; }
+  function handOff() {
+    if (!/[?&]from=short\b/.test(location.search)) return;
+    try { history.replaceState(null, "", "/dub-long"); } catch (e) {}
+    var req;
+    try { req = indexedDB.open("lisan_handoff", 1); } catch (e) { return; }
+    req.onupgradeneeded = function () { req.result.createObjectStore("files"); };
+    req.onsuccess = function () {
+      try {
+        var tx = req.result.transaction("files", "readwrite"), store = tx.objectStore("files"), g = store.get("short_to_long");
+        g.onsuccess = function () {
+          var rec = g.result;
+          store.delete("short_to_long");
+          if (!rec || !rec.file || Date.now() - (rec.at || 0) > 3600 * 1000) return;
+          showFile(rec.file);
+        };
+      } catch (e) {}
+    };
+  }
+  function showFile(file) {
+    var dz = document.getElementById("dropZone");
+    if (!dz || document.getElementById("handoffBox")) return;
+    var pn = document.getElementById("projName");
+    if (pn && !pn.value.trim()) pn.value = String(file.name || "").replace(/\.[^.]+$/, "").slice(0, 80);
+    var mb = (file.size / 1048576).toFixed(file.size > 10485760 ? 0 : 1);
+    var box = document.createElement("div");
+    box.id = "handoffBox";
+    box.style.cssText = "margin:0 0 12px;padding:12px 14px;border-radius:10px;background:#eef2ff;border:1px solid #a5b4fc;";
+    var p = document.createElement("p");
+    p.style.margin = "0 0 8px";
+    p.textContent = t("Your video from Short dub is ready: " + file.name + " (" + mb + " MB). Check the settings above, then continue.",
+                      "الفيديو القادم من «دبلجة قصيرة» جاهز: " + file.name + " (" + mb + " ميغابايت). راجع الإعدادات أعلاه، ثم تابع.");
+    var b = document.createElement("button");
+    b.type = "button"; b.textContent = t("Continue with this video", "تابع بهذا الفيديو");
+    b.onclick = function () {
+      var fi = document.getElementById("fileInput");
+      if (fi) { fi.dataset.resume = ""; fi.dataset.reattach = ""; }
+      if (!nameOk()) return;
+      box.remove();
+      onFilePicked(file);
+    };
+    box.appendChild(p); box.appendChild(b);
+    dz.parentNode.insertBefore(box, dz);
+    try { box.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+  }
+  function freeNote() {
+    Promise.all([fetch("/api/user/info", { credentials: "same-origin" }).then(function (r) { return r.json(); }),
+                 fetch("/api/billing/packs").then(function (r) { return r.json(); })]).then(function (res) {
+      var u = res[0] || {}, d = res[1] || {};
+      if (u.is_guest || !u.watermark || typeof u.credits !== "number" || u.credits >= 20) return;
+      try { if (sessionStorage.getItem("lisan_free_note_closed") === "1") return; } catch (e) {}
+      var packs = Object.keys(d.packs || {}).map(function (k) { return d.packs[k]; }).filter(function (p) { return p && p.amount_usd > 0; })
+        .sort(function (a, b) { return a.amount_usd - b.amount_usd; });
+      if (!packs.length) return;
+      var pk = packs[0], per = parseFloat(d.longDubPerMin) || 0, mins = per > 0 ? Math.floor(pk.credits / per) : 0;
+      var price = "$" + (pk.amount_usd % 1 ? pk.amount_usd.toFixed(2) : String(pk.amount_usd));
+      var minAr = (mins >= 3 && mins <= 10) ? "دقائق" : "دقيقة";
+      var box = document.createElement("div");
+      box.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px;padding:12px 14px;border-radius:10px;background:#fff7e6;border:1px solid #f0c36d;color:#5b4300;font-size:14px;";
+      var span = document.createElement("span"); span.style.flex = "1 1 260px";
+      span.textContent = t("You have used your free credits. " + pk.credits.toLocaleString() + " credits cost " + price + (mins ? ", enough for about " + mins + " more minutes of long dub" : "") + ", and your videos come without the Lisan AI logo.",
+                           "لقد استخدمت رصيدك المجاني. " + pk.credits.toLocaleString() + " رصيد مقابل " + price + (mins ? "، وهو ما يكفي لنحو " + mins + " " + minAr + " إضافية من الدبلجة الطويلة" : "") + "، وتصبح فيديوهاتك بلا شعار Lisan AI.");
+      var buy = document.createElement("a"); buy.href = "/pricing"; buy.className = "ld-dl"; buy.textContent = t("Buy credits", "اشترِ رصيداً");
+      var x = document.createElement("button"); x.type = "button"; x.textContent = "✕"; x.setAttribute("aria-label", t("Close", "إغلاق"));
+      x.style.cssText = "background:none;border:none;font-size:16px;cursor:pointer;color:#5b4300;padding:0 4px;";
+      x.onclick = function () { box.remove(); try { sessionStorage.setItem("lisan_free_note_closed", "1"); } catch (e) {} };
+      box.appendChild(span); box.appendChild(buy); box.appendChild(x);
+      var card = document.getElementById("uploadCard");
+      if (card && card.parentNode) card.parentNode.insertBefore(box, card);
+    }).catch(function () {});
+  }
+  function go() { setTimeout(handOff, 400); freeNote(); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", go); else go();
+})();
+</script>
 <script src="/chat.js"></script>
 </body>
 </html>

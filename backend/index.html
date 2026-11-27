@@ -156,7 +156,7 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
     <button class="blue" onclick="exportSBV()">📤 SBV<span class="badge" id="badgeSBV"></span></button>
     <button class="green" onclick="saveProject()">💾 Save Project<span class="badge" id="badgeSave"></span></button>
     <br><br>
-    <button class="purple" onclick="autoTranslate()">Auto Translate to Arabic<span class="badge" id="badgeTranslate"></span></button>
+    <button class="purple" id="btnTranslate" data-i18n="none" onclick="translateButton()"><span id="btnTranslateLabel" data-i18n="none">Auto Translate to Arabic</span><span class="badge" id="badgeTranslate"></span></button>
     <button class="purple" onclick="addTashkeel()">🔤 Add Tashkeel Only<span class="badge" id="badgeTashkeel"></span></button>
     <button class="pink" onclick="detectEmotions()">Detect Emotions from Voice<span class="badge" id="badgeEmotions"></span></button>
     <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
