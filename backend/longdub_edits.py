@@ -211,6 +211,8 @@ def restore_source(parent):
 def view(parent):
     current = rows(parent)
     removal_file = ld._wd(parent) / speech_removal.FILE_NAME
+    import acting_direction
+    current = [dict(r, **acting_direction.view(r)) for r in current]      # "How it is said" (1.110.0): what the field shows
     return {'segments': current, 'speech_removals': speech_removal.read(removal_file),
             'speech_removal_configured': removal_file.exists(), 'batches': dub_review.batches(current, parent.get('correction_reviewed')),
             'overlaps': dub_review.overlaps(current), 'speaker_list': parent.get('speaker_list', []),

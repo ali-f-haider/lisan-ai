@@ -86,7 +86,7 @@ class VerbEndingSpeechTests(unittest.TestCase):
                 convert = Mock(return_value=b'audio')
                 env = source_functions('eleven_service.py', ['regenerate_line'], {
                     'eleven_client': NS(text_to_speech=NS(convert=convert)),
-                    'inworld_service': NS(instruction_tag=lambda _: '[Calm]', synthesize=synthesize),
+                    'inworld_service': NS(instruction_tag=lambda _: '[Calm]', segment_tag=lambda *_: '[Calm]', synthesize=synthesize),
                     'usage_bucket': lambda _: {'inworld_chars': 0, 'eleven_chars': 0},
                     '_emotion_tags': lambda _: '[Calm]',
                     'TTS_MODEL_ID': 'offline-test',

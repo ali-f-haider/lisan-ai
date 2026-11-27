@@ -603,7 +603,7 @@ def generate_worker(req):
                     api_key = req.inworld_api_key.strip()
                     if not api_key:
                         raise UserError("Voice generation is temporarily unavailable. Please try again later.")
-                    tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text, _wq, _gp)}"
+                    tts_text = f"{inworld_service.segment_tag(seg.emotion, getattr(seg, 'acting', ''))}{_pausal(seg.arabic_text, _wq, _gp)}"
                     # Own counter, separate from eleven_chars -- so
                     # main.py's _watch_and_deduct() can charge this engine's
                     # own admin-configured rate (inworldCharsPerCredit) even
@@ -901,7 +901,7 @@ def regenerate_line(req):
             api_key = req.inworld_api_key.strip()
             if not api_key:
                 return {"error": "Voice generation is temporarily unavailable. Please try again later."}
-            tts_text = f"{inworld_service.instruction_tag(seg.emotion)}{_pausal(seg.arabic_text, _wq, _gp)}"
+            tts_text = f"{inworld_service.segment_tag(seg.emotion, getattr(seg, 'acting', ''))}{_pausal(seg.arabic_text, _wq, _gp)}"
             bucket["inworld_chars"] += len(tts_text)
             audio_bytes = inworld_service.synthesize(voice_id, tts_text, api_key, language="ar")
         else:

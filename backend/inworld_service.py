@@ -68,6 +68,7 @@ import base64
 import json
 import os
 import random
+import re
 import threading
 import time
 import urllib.request
@@ -291,17 +292,49 @@ def acting_key(row) -> str:
     return text + "|" + ",".join(_feeling_tags((row or {}).get("emotion")))
 
 
-def row_tag(row) -> str:
-    """The instruction put before one long-dub line (1.96.0, Ali chose take B on 8 Nov 2026): the acting note the listener wrote from
-    the original voice (row["acting"]) while it still belongs to the line (same English, same feeling, a delivery the user did not
-    pick), plus the line's speed tag; otherwise the tag of the line's emotion, as before."""
+_NOTE_SAFE = re.compile(r"[A-Za-z][A-Za-z ,'\-]*")
+
+
+def safe_note(value) -> str:
+    """An acting note that may be put in the brackets: plain English words, commas, hyphens and apostrophes, at most 14 words and
+    100 characters (the same limits as emotion_listen.acting_note); anything else gives ""."""
+    v = " ".join(str(value or "").split()).strip(" .,;:-")
+    if not v or len(v) > 100 or len(v.split()) > 14 or not _NOTE_SAFE.fullmatch(v):
+        return ""
+    return v
+
+
+def ai_note(row) -> str:
+    """The acting note the listener wrote from the original voice (row["acting"], 1.96.0), while it still belongs to the line: same
+    English, same feeling, and a delivery the user did not pick. "" otherwise."""
     row = row or {}
-    note = str(row.get("acting") or "").strip()
-    if note and "[" not in note and "]" not in note and not row.get("emotion_set") and row.get("acting_for") == acting_key(row):
-        pace = [_INSTRUCTION_PHRASES.get(p.strip().lower(), "") for p in str(row.get("emotion") or "").split(",")
-                if p.strip().lower() in _PACE]
-        return "[" + ", ".join([note] + [x for x in pace if x]) + "] "
+    note = safe_note(row.get("acting"))
+    if note and not row.get("emotion_set") and row.get("acting_for") == acting_key(row):
+        return note
+    return ""
+
+
+def _with_pace(note, emotion) -> str:
+    pace = [_INSTRUCTION_PHRASES.get(p.strip().lower(), "") for p in str(emotion or "").split(",") if p.strip().lower() in _PACE]
+    return "[" + ", ".join([note] + [x for x in pace if x]) + "] "
+
+
+def row_tag(row) -> str:
+    """The instruction put before one long-dub line: the customer's own direction ("How it is said", 1.110.0, row["acting_user_note"],
+    already turned into a short English note by acting_direction); otherwise the acting note the listener wrote from the original voice
+    (1.96.0, Ali chose take B on 8 Nov 2026, see ai_note); each with the line's speed tag. Otherwise the tag of the line's emotion."""
+    row = row or {}
+    note = safe_note(row.get("acting_user_note")) or ai_note(row)
+    if note:
+        return _with_pace(note, row.get("emotion"))
     return instruction_tag(row.get("emotion"))
+
+
+def segment_tag(emotion, acting="") -> str:
+    """The same for a short-dub line (1.110.0): its acting note (the customer's direction or the AI's, chosen by the page, checked
+    again here) with the speed tag, otherwise the tag of its emotion."""
+    note = safe_note(acting)
+    return _with_pace(note, emotion) if note else instruction_tag(emotion)
 
 
 class EmptyAudio(UserError):

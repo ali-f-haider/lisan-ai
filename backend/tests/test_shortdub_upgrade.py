@@ -207,7 +207,8 @@ class RouteTests(unittest.TestCase):
                  _watch_and_deduct=Mock(), threading=NS(Thread=Mock(return_value=NS(start=Mock()))),
                  eleven_service=NS(_emotion_tags=lambda emotion: '[neutral]', regenerate_line=Mock(return_value={'status': 'success'}),
                                    generate_worker=Mock(), restretch_line=Mock(return_value={'status': 'success'}), remix_with_offsets=Mock()),
-                 inworld_service=NS(instruction_tag=lambda emotion: '' if emotion == 'neutral' else '[speak softly] '))
+                 inworld_service=NS(instruction_tag=lambda emotion: '' if emotion == 'neutral' else '[speak softly] ',
+                                    segment_tag=lambda emotion, acting='': '' if emotion == 'neutral' else '[speak softly] '))
         names = ['_resolve_short_voices', '_short_quote', '_quote_response', 'generate_quote', 'regenerate_quote',
                  '_check_short_payment', '_run_short_generate', '_short_edit', 'generate', 'regenerate_line',
                  'restretch_line', 'remix_audio', 'generate_progress']
@@ -365,7 +366,7 @@ class AudioWorkerTests(unittest.TestCase):
                  run_ffmpeg=ffmpeg, get_media_duration=lambda path: 2., resolve_job_speech=lambda _: None,
                  job_speech_spans=lambda _: [], measure_loudness_db=lambda _: None, _apply_room=lambda *a: {},
                  _measure_line_loudness=lambda *a: None, _level_lines_meta=lambda *a: None, _mix_filter_part=lambda *a: 'mock_filter',
-                 friendly_error=str, UserError=ValueError, inworld_service=NS(instruction_tag=lambda _: '', synthesize=Mock(return_value=b'inworld audio')))
+                 friendly_error=str, UserError=ValueError, inworld_service=NS(instruction_tag=lambda _: '', segment_tag=lambda *_: '', synthesize=Mock(return_value=b'inworld audio')))
         self.n = source_functions('eleven_service.py', ['_emotion_tags', 'generate_worker', 'rebuild_final_mix', 'regenerate_line', 'restretch_line', 'remix_with_offsets'], n)
 
     def test_two_concurrent_jobs_keep_files_flags_and_mix_inputs_separate(self):

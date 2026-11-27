@@ -708,6 +708,8 @@ def detect_emotions_worker(job_id: str, input_path: str, api_key: str, segments:
                 review = inspect_audio_style(job_id, segment_file, seg.emotion if hasattr(seg, "emotion") else "neutral", api_key)
                 if review.get('detected'):
                     emotions_result[seg.segment_id] = review['fallback']
+                    if review.get('direction'):     # the acting note heard in the original voice (1.110.0, "How it is said")
+                        jobs_progress[progress_key].setdefault('acting', {})[seg.segment_id] = review['direction']
                     jobs_progress[progress_key].setdefault('reviews', {})[seg.segment_id] = review
                     jobs_progress[progress_key]["emotions"] = emotions_result.copy()
                 else:
@@ -746,7 +748,9 @@ def inspect_audio_style(job_id, audio, selected, api_key):
             {'inline_data': {'mime_type': 'audio/mpeg', 'data': base64.b64encode(Path(audio).read_bytes()).decode()}},
             {'text': 'Listen to the actual vocal delivery, not just the meaning of the words. '
              'Review this suggested speaking style: ' + str(selected)[:200] + '. '
-             'Return JSON only: {"suggested": "one or two supported tags", "uncertain": true, "reason": "short reason"}. '
+             'Return JSON only: {"suggested": "one or two supported tags", "uncertain": true, "reason": "short reason", '
+             '"direction": "a short acting note in English, at most 12 words, about the voice and the feeling only, so a voice '
+             'actor can repeat the same acting in Arabic (for example: hushed, urgent and furious, spitting the words)"}. '
              'Set uncertain=true when the audio is short, noisy, ambiguous, has simultaneous speakers, or the suggested '
              'style is not clearly supported. Use neutral when there is no clear emotional evidence. '
              'Do not return a probability or accuracy percentage. Supported tags: ' + ', '.join(CANONICAL_EMOTIONS)}]}]}
@@ -760,7 +764,9 @@ def inspect_audio_style(job_id, audio, selected, api_key):
     if not isinstance(result.get('uncertain'), bool):
         raise ValueError('The listening check returned an invalid answer.')
     suggested = normalize_emotions(result.get('suggested') or 'neutral', min_tags=1)
-    return {'suggested': suggested, 'uncertain': result['uncertain'],
+    import emotion_listen       # (here: emotion_listen imports this module)
+    direction = '' if result['uncertain'] else emotion_listen.acting_note(result.get('direction'))
+    return {'suggested': suggested, 'uncertain': result['uncertain'], 'direction': direction,
             'reason': str(result.get('reason') or '')[:240], 'accuracy': None,
             # Unsure (short, noisy or unclear clip) means nothing was detected: the caller keeps the line's current style.
             # "neutral" is only ever returned when the listener really heard a neutral delivery.

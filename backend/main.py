@@ -66,6 +66,7 @@ import dub_background
 import fal_usage
 import longdub_edits
 import emotion_review
+import acting_direction
 from media_paths import resolve_job_audio, find_job_video, job_background_audio
 from shortdub_paths import line_audio_path, begin_operation, finish_operation, operation_active
 from shortdub_billing import studio_quote, debit_confirmed
@@ -4853,7 +4854,7 @@ def _short_quote(req, regenerate=False):
         if not voice_id.strip():
             raise ValueError("Choose a voice for every translated speaker before generating audio.")
         engine = "inworld" if engine == "inworld" else "elevenlabs"
-        prompt = (inworld_service.instruction_tag(segment.emotion) + segment.arabic_text if engine == "inworld"
+        prompt = (inworld_service.segment_tag(segment.emotion, getattr(segment, "acting", "")) + segment.arabic_text if engine == "inworld"
                   else eleven_service._emotion_tags(segment.emotion) + " " + segment.arabic_text)
         characters[engine] += len(prompt)
     if not sum(characters.values()):
@@ -6893,6 +6894,7 @@ def _ld_public_rows(rows, job=None):
         d["gender_check"] = bool(r.get("gender_check"))      # the Arabic of this line had to guess a gender: a person is asked to look
         d["cut_check"] = r.get("cut_check")          # "start" / "end" / "both": a cut next to this line may be wrong, a person is asked to look
         d.update(_ld_speaker_review(r))
+        d.update(acting_direction.view(r))      # "How it is said" (1.110.0)
         out.append(d)
     return out
 
@@ -10517,6 +10519,12 @@ def longdub_editor_js():
     return FileResponse(BASE_DIR / "longdub_editor.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
 
 
+@app.get("/acting_field.js")
+def acting_field_js():
+    """The "How it is said" field (1.110.0), shared by the short dub, the long dub and the correction page."""
+    return FileResponse(BASE_DIR / "acting_field.js", media_type="application/javascript", headers=_NO_CACHE_HEADERS)
+
+
 @app.get("/longdub_player.js")
 def longdub_player_js():
     """The time dialog shared by the long-dub page and the correction page."""
@@ -10788,6 +10796,81 @@ def short_emotion_review(body: EmotionReviewRequest, request: Request):
     if not math.isfinite(body.start + body.end) or body.start < 0 or body.end <= body.start or body.end > duration or body.end-body.start > 30:
         return JSONResponse({"error": "Choose a line of at most 30 seconds inside the original audio."}, status_code=400)
     return _emotion_audio_review(body.job_id, source, body.start, body.end, body.emotion)
+
+
+class ActingNoteRequest(_JobIdModel):
+    job_id: str = ""
+    text: str = ""
+    english: str = ""
+    arabic: str = ""
+
+
+def _acting_error(message):
+    code = "acting_unclear" if message == acting_direction.UNCLEAR else "acting_unavailable"
+    return JSONResponse({"error": message, "code": code}, status_code=400 if code == "acting_unclear" else 503)
+
+
+@app.post("/api/acting_note")
+def short_acting_note(body: ActingNoteRequest, request: Request):
+    """Short dub, "How it is said" (1.110.0): what the customer wrote for one line -> the short English note the voice gets.
+    The page keeps it on the line and sends it with the line (Segment.acting). The small AI cost is part of the dub's AI cost."""
+    guard = _job_guard(request, body.job_id, allow_empty=False)
+    if guard: return guard
+    if _rate_limited(request, "acting_note", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    note, error = acting_direction.from_user(body.job_id, body.text, GEMINI_API_KEY, body.english, body.arabic)
+    if error:
+        return _acting_error(error)
+    return {"ok": True, "acting": note, "acting_text": " ".join(body.text.split())[:acting_direction.MAX_INPUT] if note else ""}
+
+
+class LongDubActing(BaseModel):
+    segment_id: str = ""
+    text: str = ""
+    correction: bool = False
+
+
+@app.post("/api/longdub/{job_id}/acting")
+async def longdub_acting(job_id: str, body: LongDubActing, request: Request):
+    """Long dub and its correction page, "How it is said" (1.110.0): saves the customer's direction for one line (an empty text
+    removes it, so the AI's own note is used again). Returns what the field shows now."""
+    uid, job, err = _ld_job(request, job_id)
+    if err: return err
+    if _rate_limited(request, "acting_note", LIGHT_RATE_MAX, LIGHT_RATE_WINDOW_SEC):
+        return JSONResponse({"error": customer_message(_RATE_LIMIT_MSG)}, status_code=429)
+    def current(job):
+        if body.correction:
+            if job.get("status") != "done" or longdub_edits.active(job):
+                raise ValueError("Wait for this project to finish before editing.")
+            return longdub_edits.rows(job)
+        if job.get("status") != "editing":
+            raise ValueError("This job is not open for editing.")
+        return longdub_service.read_segments(job)
+    try:
+        row = next((r for r in current(job) if r.get("segment_id") == body.segment_id), None)
+    except ValueError as ex:
+        return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
+    if row is None:
+        return JSONResponse({"error": "This line is not part of the selected project."}, status_code=404)
+    note, error = await asyncio.to_thread(acting_direction.from_user, job_id, body.text, GEMINI_API_KEY,
+                                          row.get("text") or "", row.get("arabic_text") or "")
+    if error:
+        return _acting_error(error)
+    with longdub_service._lock_for(job_id):
+        job = longdub_service.load_job(job_id) or job       # fresh: other lines may have been saved while the note was made
+        try:
+            rows = current(job)
+        except ValueError as ex:
+            return JSONResponse({"error": customer_message(str(ex))}, status_code=409)
+        row = next((r for r in rows if r.get("segment_id") == body.segment_id), None)
+        if row is None:
+            return JSONResponse({"error": "This line is not part of the selected project."}, status_code=404)
+        shown = acting_direction.apply(row, body.text, note)
+        if body.correction:
+            longdub_edits._save_rows(job, rows)
+        else:
+            longdub_service._write_segments(job, rows)
+    return {"ok": True, "segment_id": body.segment_id, **shown}
 
 
 def _emotion_audio_review(job_id, source, start, end, emotion):

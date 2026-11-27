@@ -609,7 +609,7 @@ function loadProjectFile(evt) {
             currentSourceLanguage = LisanSource.normalise(p.source_language);
             var originalLanguageSelect = document.getElementById("sourceLanguage");
             if (originalLanguageSelect) originalLanguageSelect.value = currentSourceLanguage;
-            segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, tempo_mode: s.tempo_mode || "excellent", waqf: shortWaqfMode(s.waqf), words: Array.isArray(s.words) ? s.words : [] }));
+            segmentsData = p.segments.map(s => ({ segment_id: s.segment_id || ("seg_" + Math.random().toString(36).slice(2, 8)), start: Number(s.start) || 0, end: Number(s.end) || 0, speaker: s.speaker || "Speaker 1", gender: s.gender || "male", emotion: s.emotion || "neutral", text: s.text || "", arabic_text: s.arabic_text || "", locked: !!s.locked, tempo_mode: s.tempo_mode || "excellent", waqf: shortWaqfMode(s.waqf), words: Array.isArray(s.words) ? s.words : [], emotion_set: !!s.emotion_set, acting_ai: typeof s.acting_ai === "string" ? s.acting_ai : "", acting_user: typeof s.acting_user === "string" ? s.acting_user : "", acting_user_note: typeof s.acting_user_note === "string" ? s.acting_user_note : "" }));
             originalSegments = Array.isArray(p.original_segments) ? p.original_segments : [];
             speakerVoices = p.speaker_voices || {};
             speakerVoiceNames = p.speaker_voice_names || {};
@@ -2180,7 +2180,7 @@ async function checkEmotionProgress() {
         const emotions = data.emotions || {}; let updated = 0;
         segmentsData.forEach(seg => {
             const clean = sanitizeStyle(emotions[seg.segment_id]);
-            if (clean && !seg.emotion_set) { seg.emotion = clean; seg.emotion_review = (data.reviews || {})[seg.segment_id]; updated++; }
+            if (clean && !seg.emotion_set) { seg.emotion = clean; seg.emotion_review = (data.reviews || {})[seg.segment_id]; seg.acting_ai = (data.acting || {})[seg.segment_id] || ""; syncShortActing(seg); updated++; }
         });
         renderTable();
         const keptStyle = (data.skipped || []).length;
@@ -3198,6 +3198,15 @@ function shortWaqfLabels(wrap) {
 function updateShortWaqfLabels() {
     document.querySelectorAll("#segmentsTable .sd-waqf").forEach(shortWaqfLabels);
 }
+// "How it is said" (1.110.0). seg.acting_ai: the note the AI heard in the original voice (emotion detection); seg.acting_user /
+// seg.acting_user_note: the customer's own direction and the short English note made from it (/api/acting_note). seg.acting is
+// what the voice gets (the server checks it again): the customer's note, else the AI's while the style was not changed by hand.
+function shortActingView(seg) {
+    if (seg.acting_user && seg.acting_user_note) return { acting_text: seg.acting_user, acting_by: "you", acting_note: seg.acting_user_note };
+    if (seg.acting_ai && !seg.emotion_set) return { acting_text: seg.acting_ai, acting_by: "ai", acting_note: seg.acting_ai };
+    return { acting_text: "", acting_by: "", acting_note: "" };
+}
+function syncShortActing(seg) { seg.acting = shortActingView(seg).acting_note || ""; }
 function shortWaqfPicker(parent, seg) {
     var wrap = document.createElement("label"); wrap.className = "sd-waqf";
     var title = document.createElement("span"), select = document.createElement("select");
@@ -3272,10 +3281,27 @@ function createRow(seg, i) {
             var result = await response.json(); if (!response.ok) throw new Error(result.error || "Style check failed");
             if (!result.fallback) { notify("info", subsText("The style could not be heard clearly in this clip (too short or unclear), so the current style was kept.", "لم يتبيّن الأسلوب بوضوح من هذا المقطع (قصير جدًا أو غير واضح)، لذلك أُبقي الأسلوب الحالي.")); return; }
             var yes = await LisanDialog.confirm(subsText("Suggested style: ", "الأسلوب المقترح: ") + result.fallback + "\n" + result.reason + "\n" + subsText("Apply?", "هل تريد تطبيقه؟"));
-            if (yes) { seg.emotion = result.fallback; seg.emotion_set = true; eI.value = seg.emotion; updateBadges(); }
+            if (yes) { seg.emotion = result.fallback; seg.emotion_set = true; eI.value = seg.emotion; styleChanged(); updateBadges(); }
         } catch(ex) { notify("error",ex.message); } finally { checkStyle.disabled = false; }
-    }; eCell.appendChild(checkStyle); row.appendChild(eCell);
-    var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function() { segmentsData[i].text = enT.value; updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
+    }; eCell.appendChild(checkStyle);
+    // "How it is said" (1.110.0): the AI's acting note (heard in the original voice) or the customer's own direction.
+    syncShortActing(seg);
+    var actingField = window.LisanActing ? LisanActing.field({ lang: window.currentLang === "ar" ? "ar" : "en", view: shortActingView(seg),
+        save: async function (text) {
+            var response = await fetch("/api/acting_note", { method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ job_id: currentJobId || "", text: text, english: seg.text || "", arabic: seg.arabic_text || "" }) });
+            var data = await response.json().catch(function () { return {}; });
+            if (!response.ok) { var failure = new Error(data.error || ""); failure.code = data.code; throw failure; }
+            if (data.acting) { seg.acting_user = data.acting_text || text; seg.acting_user_note = data.acting; }
+            else { delete seg.acting_user; delete seg.acting_user_note; }
+            syncShortActing(seg); updateBadges();
+            return shortActingView(seg);
+        } }) : null;
+    if (actingField) eCell.appendChild(actingField.el);
+    var styleChanged = function () { syncShortActing(seg); if (actingField) actingField.set(shortActingView(seg)); };
+    eS.addEventListener("change", styleChanged); eI.addEventListener("change", styleChanged);
+    row.appendChild(eCell);
+    var enCell = mk("td"); var enT = mk("textarea"); enT.value = seg.text; enT.onchange = function() { segmentsData[i].text = enT.value; seg.acting_ai = ""; styleChanged(); updateBadges(); }; enCell.appendChild(enT); row.appendChild(enCell);
     var arCell = mk("td"); var arT = mk("textarea"); arT.dir = "rtl"; arT.value = seg.arabic_text; arT.onchange = function() {
         segmentsData[i].arabic_text = arT.value; updateBadges();
         if (segmentsData[i].gender_check) { segmentsData[i].gender_check = false; var gb0 = arCell.querySelector(".gender-check"); if (gb0) gb0.remove(); }
@@ -8603,7 +8629,7 @@ function openShortSpeechRemoval(seg, index) {
                 if (seg) { seg.arabic_text = item.arabic_text || ""; seg.gender_check = item.gender_check === true; var clean = sanitizeStyle(item.emotion); if (clean) seg.emotion = clean; matched++; }
             });
             renderTable();
-            notify("success", auto ? T2("The Arabic is ready. Check it in the table, then press Generate.", "النص العربي جاهز. راجعه في الجدول ثم اضغط «توليد».")
+            notify("success", auto ? T2("The Arabic is ready. Check it in the table, then press Generate Arabic Audio.", "النص العربي جاهز. راجعه في الجدول ثم اضغط «توليد الصوت العربي».")
                                    : T2("Translation complete: " + matched + " line(s).", "اكتملت الترجمة: " + matched + " سطر."));
             fetchUsage();
             return matched > 0;

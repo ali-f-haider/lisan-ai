@@ -27,6 +27,9 @@ class Segment(BaseModel):
     tempo_mode: str = "excellent"
     # How the voice ends this line: "auto" (by the punctuation and the silence after it), "stop" or "join". Only the voice's copy of the text changes.
     waqf: str = "auto"
+    # How the line is said (1.110.0): a short English acting note, the customer's direction or the AI's. Checked again before use
+    # (inworld_service.segment_tag); anything that is not a plain short note is ignored.
+    acting: str = ""
 
 class GenerateRequest(BaseModel):
     job_id: str = ""

@@ -123,7 +123,7 @@
 <script src="/source_language.js"></script>
 <script src="/dialogs.js"></script>
 <script src="/longdub_editor.js"></script>
-<script src="/longdub_player.js"></script><script src="/speech_removal.js"></script>
+<script src="/longdub_player.js"></script><script src="/acting_field.js"></script><script src="/speech_removal.js"></script>
 <script src="/background_review.js"></script>
 <script>
 // ---- Dark mode (same key + logic as account.html) ----
@@ -2615,7 +2615,15 @@ function buildRow(s) {
   var btn = document.createElement("button"); btn.className = "btn-plain"; btn.textContent = T.retranslate;
   var btnTash = document.createElement("button"); btnTash.type = "button"; btnTash.className = "btn-plain"; btnTash.textContent = T.tashkeel; btnTash.title = T.tashkeelHint;
   if (s.emotion_review === "listen_and_review") { var enote = document.createElement("small"); enote.textContent = LANG === "ar" ? "أسلوب مقترح — استمع وراجعه" : "Suggested style — listen and review"; wrap.appendChild(enote); }
-  var emoPick = makeEmoPicker(s.emotion, function (v) { s.emotion = v; queueSave(s.segment_id, "emotion", v); pricePreview = null; });
+  var acting = LisanActing.field({ lang: LANG, view: s,       // "How it is said" (1.110.0)
+    save: function (text) {
+      return flushSave().then(function () { return api("POST", "/api/longdub/" + cur.id + "/acting", { segment_id: s.segment_id, text: text }); })
+        .then(function (r) { if (!r.ok) { var e = new Error(r.data.error || ""); e.code = r.data.code; throw e; } return r.data; });
+    },
+    onSaved: function (v) { s.acting_text = v.acting_text; s.acting_by = v.acting_by; s.acting_note = v.acting_note; pricePreview = null; } });
+  // The AI's note belongs to the English and the style it was heard with: changing either drops it (the server does the same).
+  function dropAiNote() { if (s.acting_by === "ai") { s.acting_text = ""; s.acting_note = ""; s.acting_by = ""; } acting.dropAi(); }
+  var emoPick = makeEmoPicker(s.emotion, function (v) { s.emotion = v; queueSave(s.segment_id, "emotion", v); pricePreview = null; dropAiNote(); });
   var footR = document.createElement("div"); footR.className = "ld-foot-r";
   var styleCheck = document.createElement("button"); styleCheck.type = "button"; styleCheck.className = "btn-plain";
   styleCheck.textContent = LANG === "ar" ? "فحص الأسلوب بالصوت" : "Check style from audio";
@@ -2627,12 +2635,12 @@ function buildRow(s) {
       if (!v) { alertMsg(LANG === "ar" ? "لم يتبيّن الأسلوب بوضوح من هذا المقطع (قصير جدًا أو غير واضح)، لذلك أُبقي الأسلوب الحالي." : "The style could not be heard clearly in this clip (too short or unclear), so the current style was kept."); return; }
       var msg = (LANG === "ar" ? "الأسلوب المقترح: " : "Suggested style: ") + v + "\n" + r.data.reason + "\n" + (LANG === "ar" ? "هل تريد تطبيقه؟" : "Apply this suggestion?");
       var ask = window.LisanDialog ? LisanDialog.confirm(msg) : Promise.resolve(window.confirm(msg));
-      ask.then(function(yes) { if (yes) { s.emotion = v; queueSave(s.segment_id, "emotion", v); renderEditor(); } });
+      ask.then(function(yes) { if (yes) { s.emotion = v; queueSave(s.segment_id, "emotion", v); dropAiNote(); renderEditor(); } });
     }).finally(function() { styleCheck.disabled = false; });
   };
   footR.appendChild(makeWaqfPicker(s)); footR.appendChild(emoPick.el); footR.appendChild(styleCheck); footR.appendChild(btnTash); footR.appendChild(btn);
   foot.appendChild(cnt); foot.appendChild(footR);
-  wrap.appendChild(ar); wrap.appendChild(foot);
+  wrap.appendChild(ar); wrap.appendChild(acting.el); wrap.appendChild(foot);
   row.appendChild(time); row.appendChild(en); row.appendChild(wrap);
   if (s.heard === false) { var un = document.createElement("div"); un.className = "ld-unheard"; un.textContent = T.unheardNote; row.appendChild(un); }
   bMan.addEventListener("click", function () { openPlayer(s); });
@@ -2705,7 +2713,7 @@ function buildRow(s) {
       ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
     }).catch(function () { btnTash.disabled = false; btnTash.textContent = T.tashkeel; });
   });
-  en.addEventListener("input", function () { s.text = en.value; queueSave(s.segment_id, "text", en.value); autosize(en); });
+  en.addEventListener("input", function () { s.text = en.value; queueSave(s.segment_id, "text", en.value); autosize(en); dropAiNote(); });
   ar.addEventListener("input", function () {
     s.arabic_text = ar.value; queueSave(s.segment_id, "arabic_text", ar.value); autosize(ar); pricePreview = null;
     ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
@@ -2716,7 +2724,7 @@ function buildRow(s) {
       btn.disabled = false; btn.textContent = T.retranslate;
       if (!r.ok) { alertMsg(safeErr(r.data.error, T.retranslateFail)); return; }
       s.arabic_text = r.data.arabic_text || ""; ar.value = s.arabic_text; autosize(ar); pricePreview = null;
-      if (r.data.emotion) { s.emotion = r.data.emotion; emoPick.set(s.emotion); }
+      if (r.data.emotion) { if (r.data.emotion !== s.emotion) dropAiNote(); s.emotion = r.data.emotion; emoPick.set(s.emotion); }
       ar.classList.toggle("missing", !ar.value.trim()); cnt.textContent = T.chars(ar.value.length); updateCount();
     }).catch(function () { btn.disabled = false; btn.textContent = T.retranslate; });
   });

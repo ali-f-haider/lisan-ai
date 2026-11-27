@@ -143,7 +143,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
     };
     wrap.append(title, input); parent.appendChild(wrap);
   }
-  function stylePicker(parent,row) {
+  function stylePicker(parent,row,onPick) {
     var shell = document.createElement('details'); shell.className = 'ld-edit-style';
     var summary = document.createElement('summary'); shell.appendChild(summary); var menu = document.createElement('div'); shell.appendChild(menu);
     var tags = (row.emotion || 'neutral').split(',').map(function(t) { return t.trim(); });
@@ -156,7 +156,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
         if(box.checked && tags.filter(function(t){return t!=='neutral';}).length>=3 && tag!=='neutral') { box.checked=false; return; }
         tags=box.checked ? (tag==='neutral' ? ['neutral'] : tags.filter(function(t){return t!=='neutral';}).concat(tag)) : tags.filter(function(t){return t!==tag;});
         if(!tags.length) tags=['neutral'];
-        menu.querySelectorAll('input').forEach(function(c,i){c.checked=tags.includes(EMOTIONS[i]);}); change(row,'emotion',tags.join(', ')); refresh();
+        menu.querySelectorAll('input').forEach(function(c,i){c.checked=tags.includes(EMOTIONS[i]);}); change(row,'emotion',tags.join(', ')); refresh(); if(onPick) onPick();
       };
       menu.appendChild(label);
     }); refresh(); parent.appendChild(shell);
@@ -192,7 +192,7 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       if(!result.fallback) { notify('info',tr('The style could not be heard clearly in this clip (too short or unclear), so the current style was kept.','لم يتبيّن الأسلوب بوضوح من هذا المقطع (قصير جدًا أو غير واضح)، لذلك أُبقي الأسلوب الحالي.')); return; }
       var style=lang==='ar' ? EMO_AR[result.fallback] || result.fallback : result.fallback;
       var text=tr('Suggested style: ','الأسلوب المقترح: ')+style+(lang==='en' ? '\n'+result.reason : '')+'\n'+tr('Apply this suggestion?','هل تريد تطبيق هذا الاقتراح؟');
-      if(await LisanDialog.confirm(text)) { change(row,'emotion',result.fallback); await save(); renderLines(); }
+      if(await LisanDialog.confirm(text)) { change(row,'emotion',result.fallback); if(row.acting_by==='ai'){row.acting_text='';row.acting_note='';row.acting_by='';} await save(); renderLines(); }
     } catch(ex) { error(ex); }
     finally { setBusy(false); }
   }
@@ -217,10 +217,20 @@ var EMO_AR = {"neutral": "محايد", "happy": "سعيد", "sad": "حزين", "
       button(controls,'Delete line','حذف السطر',async function(){if(await LisanDialog.confirm(tr('Delete this correction line? The first dub stays saved.','حذف هذا السطر من التصحيحات؟ تظل الدبلجة الأولى محفوظة.'),{danger:true}))action(row,'delete');},true);
       var wrap=document.createElement('div');wrap.className='ld-arwrap';var arabic=document.createElement('textarea');arabic.className='ar';arabic.dir='rtl';arabic.maxLength=2000;arabic.value=row.arabic_text||'';arabic.classList.toggle('missing',!arabic.value.trim());arabic.setAttribute('aria-label',tr('Arabic text','النص العربي'));
       var foot=document.createElement('div');foot.className='ld-arfoot';var countText=document.createElement('span');countText.className='ld-cnt';function updateCount(){countText.textContent=arabic.value.length+tr(' characters',' حرفاً');}updateCount();arabic.oninput=function(){change(row,'arabic_text',arabic.value);arabic.classList.toggle('missing',!arabic.value.trim());updateCount();};
-      var right=document.createElement('div');right.className='ld-foot-r';stylePicker(right,row);waqfPicker(right,row);
+      // "How it is said" (1.110.0): the AI's acting note or the customer's own direction; a changed direction selects the line for the new dub.
+      var acting=LisanActing.field({lang:lang,view:row,save:async function(text){
+        await save();
+        var response=await fetch('/api/longdub/'+project.id+'/acting',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({segment_id:row.segment_id,text:text,correction:true})});
+        var data=await response.json().catch(function(){return {};});
+        if(!response.ok){var failure=new Error(data.error||'');failure.code=data.code;throw failure;}
+        return data;
+      },onSaved:function(view){row.acting_text=view.acting_text;row.acting_by=view.acting_by;row.acting_note=view.acting_note;selected.add(row.segment_id);box.checked=true;count();}});
+      function dropAiNote(){if(row.acting_by==='ai'){row.acting_text='';row.acting_note='';row.acting_by='';}acting.dropAi();}
+      original.addEventListener('input',dropAiNote);
+      var right=document.createElement('div');right.className='ld-foot-r';stylePicker(right,row,dropAiNote);waqfPicker(right,row);
       button(right,'Check style from audio','فحص الأسلوب بالصوت',function(){checkStyle(row);});
       button(right,'Tashkeel','تشكيل',function(){action(row,'tashkeel');});button(right,'Translate again','أعد الترجمة',function(){action(row,'retranslate');});
-      foot.append(countText,right);wrap.append(arabic,foot);line.append(tools,original,wrap);$('lines').appendChild(line);
+      foot.append(countText,right);wrap.append(arabic,acting.el,foot);line.append(tools,original,wrap);$('lines').appendChild(line);
     });count();refreshOverlaps();setBusy(working);
   }
   function statusText(job) {
