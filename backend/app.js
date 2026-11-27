@@ -2176,7 +2176,7 @@ async function checkEmotionProgress() {
     if (data.source_language) currentSourceLanguage = LisanSource.normalise(data.source_language);
     if (shortLanguageMismatch(data)) return;
     if (data.status === "done") {
-        clearInterval(emotionPollTimer);
+        clearInterval(emotionPollTimer); emotionPollTimer = null;
         const emotions = data.emotions || {}; let updated = 0;
         segmentsData.forEach(seg => {
             const clean = sanitizeStyle(emotions[seg.segment_id]);
@@ -2184,12 +2184,15 @@ async function checkEmotionProgress() {
         });
         renderTable();
         const keptStyle = (data.skipped || []).length;
-        notify("success", `Emotion detection complete. ${updated} segments updated.` + (keptStyle ? ` ${keptStyle} kept their current style (too short or unclear to hear).` : ""));
+        notify("success", _emotionAuto
+            ? subsText("Emotions matched to the original voices: " + updated + " line(s) updated." + (keptStyle ? " " + keptStyle + " kept their style (too short or unclear to hear)." : ""),
+                       "طابقنا المشاعر مع الأصوات الأصلية: حُدِّث " + updated + " سطر." + (keptStyle ? " واحتفظ " + keptStyle + " سطر بأسلوبه (قصير جدًا أو غير واضح)." : ""))
+            : `Emotion detection complete. ${updated} segments updated.` + (keptStyle ? ` ${keptStyle} kept their current style (too short or unclear to hear).` : ""));
         (data.errors || []).forEach(e => notify("info", "⚠️ " + e));
         document.getElementById("emotionProgress").classList.add("hidden");
         fetchUsage();
     }
-    if (data.status === "error") { clearInterval(emotionPollTimer); notify("error", data.error); document.getElementById("emotionProgress").classList.add("hidden"); }
+    if (data.status === "error") { clearInterval(emotionPollTimer); emotionPollTimer = null; notify(_emotionAuto ? "info" : "error", data.error); document.getElementById("emotionProgress").classList.add("hidden"); }
 }
 
 async function autoTranslate() {
@@ -2343,18 +2346,27 @@ async function autoTranslate() {
         fetchUsage();
     } catch (e) { notify("error", e.message); } finally { hideBusy(); }
 }
-async function detectEmotions() {
-    if (!currentJobId) { notify("error", "Transcribe first."); return; }
-    if (!segmentsData.length) { notify("error", "No segments found."); return; }
+// auto: started by itself after the automatic translation (1.110.1); the button then reads "Detect emotions again".
+var _emotionAuto = false;
+async function detectEmotions(auto) {
+    auto = auto === true;
+    if (!currentJobId) { if (!auto) notify("error", "Transcribe first."); return false; }
+    if (!segmentsData.length) { if (!auto) notify("error", "No segments found."); return false; }
+    if (emotionPollTimer) { if (!auto) notify("info", subsText("The emotion check is already running.", "فحص المشاعر قيد التشغيل بالفعل.")); return false; }
+    _emotionAuto = auto;
     document.getElementById("emotionProgress").classList.remove("hidden");
-    notify("info", "Starting emotion detection...");
+    var ept = document.getElementById("emotionProgressText");
+    if (ept) { ept.setAttribute("data-i18n", "none"); ept.textContent = subsText("Listening to the original voices to match the emotion… You can already review the Arabic.", "جارٍ الاستماع إلى الأصوات الأصلية لمطابقة المشاعر… يمكنك مراجعة النص العربي في هذه الأثناء."); }
+    notify("info", auto ? subsText("Listening to the original voices to match the emotion…", "جارٍ الاستماع إلى الأصوات الأصلية لمطابقة المشاعر…") : "Starting emotion detection...");
     try {
         const res = await fetch("/api/detect_emotions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ job_id: currentJobId, segments: segmentsData }) });
         const data = await res.json();
-        if (data.error) { notify("error", data.error); return; }
+        if (data.error) { notify(auto ? "info" : "error", data.error); document.getElementById("emotionProgress").classList.add("hidden"); return false; }
         if (emotionPollTimer) clearInterval(emotionPollTimer);
         emotionPollTimer = setInterval(checkEmotionProgress, 2000);
-    } catch (e) { notify("error", e.message); document.getElementById("emotionProgress").classList.add("hidden"); }
+        window._emotionsRun = true; if (window.lisanEmotionLabel) lisanEmotionLabel();
+        return true;
+    } catch (e) { notify(auto ? "info" : "error", e.message); document.getElementById("emotionProgress").classList.add("hidden"); return false; }
 }
 async function addTashkeel() {
     const targets = segmentsData.filter(s => (s.arabic_text || "").trim().length > 0 && !s.locked);
@@ -8660,10 +8672,17 @@ function openShortSpeechRemoval(seg, index) {
     }
     if (typeof renderTable === "function") {
         var origRender = renderTable;
-        renderTable = function () { var r = origRender.apply(this, arguments); try { labelButton(); } catch (e) {} return r; };
+        renderTable = function () { var r = origRender.apply(this, arguments); try { labelButton(); lisanEmotionLabel(); } catch (e) {} return r; };
     }
-    try { new MutationObserver(labelButton).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] }); } catch (e) {}
-    function firstLabel() { var l = document.getElementById("btnTranslateLabel"); if (l) l.textContent = T2("Auto Translate to Arabic", "ترجمة تلقائية إلى العربية"); labelButton(); }
+    try { new MutationObserver(function () { labelButton(); lisanEmotionLabel(); }).observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] }); } catch (e) {}
+    // 1.110.1: the emotion button says "again" once the check ran for this video
+    window.lisanEmotionLabel = function () {
+        var l = document.getElementById("btnEmotionsLabel");
+        if (!l) return;
+        var text = window._emotionsRun ? T2("🔄 Detect emotions again", "🔄 اكتشف المشاعر من جديد") : T2("Detect Emotions from Voice", "كشف المشاعر من الصوت");
+        if (l.textContent !== text) l.textContent = text;
+    };
+    function firstLabel() { var l = document.getElementById("btnTranslateLabel"); if (l) l.textContent = T2("Auto Translate to Arabic", "ترجمة تلقائية إلى العربية"); labelButton(); lisanEmotionLabel(); }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", firstLabel); else firstLabel();
 
     // ---- automatic translation as soon as a new transcription is in ----
@@ -8674,9 +8693,15 @@ function openShortSpeechRemoval(seg, index) {
             await origCheck.apply(this, arguments);
             if (job && !autoFor[job] && segmentsData !== prev && segmentsData && segmentsData.length && !hasArabic()) {
                 autoFor[job] = true;
+                window._emotionsRun = false; lisanEmotionLabel();
                 var unlocked = segmentsData.filter(function (s) { return !s.locked && (s.text || "").trim(); });
                 var ok = await translateLines(unlocked, true);
                 if (!ok) notify("info", T2("The automatic translation did not finish. Press “Auto Translate to Arabic” in Step 2.", "لم تكتمل الترجمة التلقائية. اضغط «ترجمة تلقائية إلى العربية» في الخطوة 2."));
+                // 1.110.1: then the emotion check from the voice starts by itself (after the translation, which also sets a style)
+                else if (currentJobId === job && typeof detectEmotions === "function") {
+                    var started = await detectEmotions(true);
+                    if (!started) notify("info", T2("The emotion check did not start. Press “Detect emotions again” in Step 2.", "لم يبدأ فحص المشاعر. اضغط «اكتشف المشاعر من جديد» في الخطوة 2."));
+                }
             }
         };
     }

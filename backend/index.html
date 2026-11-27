@@ -142,7 +142,7 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
     <br>
     <button onclick="startTranscribe()">Start<span class="badge" id="badgeTranscribe"></span></button>
     <div id="progressSection" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+        <div class="mini-progress"><picture><source srcset="/static/loading-spinner.webp" type="image/webp"><img src="/static/loading-spinner.gif" alt="" class="mini-logo"></picture><div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div></div>
         <p id="progressText" class="progress-status">Starting...</p>
     </div>
 </div>
@@ -158,11 +158,11 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
     <br><br>
     <button class="purple" id="btnTranslate" data-i18n="none" onclick="translateButton()"><span id="btnTranslateLabel" data-i18n="none">Auto Translate to Arabic</span><span class="badge" id="badgeTranslate"></span></button>
     <button class="purple" onclick="addTashkeel()">🔤 Add Tashkeel Only<span class="badge" id="badgeTashkeel"></span></button>
-    <button class="pink" onclick="detectEmotions()">Detect Emotions from Voice<span class="badge" id="badgeEmotions"></span></button>
+    <button class="pink" id="btnEmotions" data-i18n="none" onclick="detectEmotions()"><span id="btnEmotionsLabel" data-i18n="none">Detect Emotions from Voice</span><span class="badge" id="badgeEmotions"></span></button>
     <button class="green" onclick="autoFixTiming()">✨ Auto-Fix Timing<span class="badge" id="badgeAutoFix"></span></button>
     <p id="textStepsNote" style="font-size:12px;color:#6b7280;margin:8px 0 0;">The price on Translate, Tashkeel and Detect Emotions is not charged now. It is added to the price of Generate Arabic Audio.</p>
     <div id="emotionProgress" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%"></div></div>
+        <div class="mini-progress"><picture><source srcset="/static/loading-spinner.webp" type="image/webp"><img src="/static/loading-spinner.gif" alt="" class="mini-logo"></picture><div class="progress-bar"><div class="progress-fill" id="emotionProgressFill" style="width:0%"></div></div></div>
         <p id="emotionProgressText" class="progress-status">Starting...</p>
     </div>
     <div style="overflow-x:auto;">
@@ -256,7 +256,7 @@ html.dp #appGate{background:#0f172a;color:#e5e7eb}
     <button class="green" id="generateButton" onclick="generateAudio()">Generate Arabic Audio<span class="badge" id="badgeGenerate"></span></button>
     <p id="generatePriceNote" style="font-size:12px;color:#6b7280;margin:6px 0 0;"></p>
     <div id="genProgress" class="hidden">
-        <div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div>
+        <div class="mini-progress"><picture><source srcset="/static/loading-spinner.webp" type="image/webp"><img src="/static/loading-spinner.gif" alt="" class="mini-logo"></picture><div class="progress-bar"><div class="progress-fill green" id="genProgressFill" style="width:0%"></div></div></div>
         <p id="genProgressText" class="progress-status">Starting...</p>
     </div>
 </div>

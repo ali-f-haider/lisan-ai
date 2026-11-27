@@ -421,6 +421,10 @@ h1 {
 }
 
 .hidden { display: none !important; }
+/* A small moving Lisan logo next to a progress bar (1.110.1). */
+.mini-progress { display: flex; align-items: center; gap: 10px; }
+.mini-progress .progress-bar { flex: 1; min-width: 0; }
+.mini-logo { width: 34px; height: 34px; display: block; flex: none; }
 
 /* Notes */
 .note {
